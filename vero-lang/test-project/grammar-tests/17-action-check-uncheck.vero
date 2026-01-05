@@ -1,0 +1,25 @@
+# Test: Check and Uncheck Actions
+# Category: Actions - Check/Uncheck
+
+page FormPage {
+    field termsCheckbox = "#terms"
+    field newsletterCheckbox = "#newsletter"
+}
+
+feature CheckUncheckActions {
+    use FormPage
+
+    scenario "Check and uncheck" {
+        # Check with string
+        check "terms"
+
+        # Check with page field
+        check FormPage.termsCheckbox
+
+        # Uncheck with string
+        uncheck "newsletter"
+
+        # Uncheck with page field
+        uncheck FormPage.newsletterCheckbox
+    }
+}

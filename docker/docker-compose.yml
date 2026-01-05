@@ -1,0 +1,102 @@
+# Vero Test Automation - Main Docker Compose
+#
+# This is the plug-and-play orchestration for distributed test execution.
+#
+# Quick Start:
+#   docker-compose up -d                    # Start with default 2 workers
+#   docker-compose up -d --scale worker=4  # Start with 4 workers
+#
+# Access Points:
+#   - Coordinator API: http://localhost:3001
+#   - Worker 1 VNC: http://localhost:6081/vnc.html
+#   - Worker 2 VNC: http://localhost:6082/vnc.html
+#
+version: '3.8'
+
+services:
+  # Coordinator Service - Manages workers and distributes tests
+  coordinator:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.coordinator
+    container_name: vero-coordinator
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=info
+    ports:
+      - "3001:3001"
+    depends_on:
+      - redis
+    networks:
+      - vero-network
+    volumes:
+      - coordinator-data:/app/data
+      - shared-reports:/app/reports
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # Redis for worker coordination and message passing
+  redis:
+    image: redis:7-alpine
+    container_name: vero-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - vero-network
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # Default Worker template - scale with --scale worker=N
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    environment:
+      - COORDINATOR_URL=http://coordinator:3001
+      - REDIS_URL=redis://redis:6379
+      - WORKER_MAX_CONCURRENT=2
+      - DISPLAY=:99
+      - SCREEN_WIDTH=1280
+      - SCREEN_HEIGHT=720
+    depends_on:
+      coordinator:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - vero-network
+    volumes:
+      - worker-traces:/app/traces
+      - worker-screenshots:/app/screenshots
+      - shared-reports:/app/reports
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+    restart: unless-stopped
+
+networks:
+  vero-network:
+    driver: bridge
+    name: vero-network
+
+volumes:
+  redis-data:
+  coordinator-data:
+  worker-traces:
+  worker-screenshots:
+  shared-reports:

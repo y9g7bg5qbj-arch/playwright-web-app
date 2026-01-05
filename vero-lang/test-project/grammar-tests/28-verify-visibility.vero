@@ -1,0 +1,27 @@
+# Test: Visibility Assertions
+# Category: Assertions - Visibility
+
+page VisibilityPage {
+    field header = "h1"
+    field loader = ".loading"
+    field error = ".error"
+}
+
+feature VisibilityAssertions {
+    use VisibilityPage
+
+    scenario "Visibility checks" {
+        # Is visible
+        verify "Dashboard" is visible
+        verify VisibilityPage.header is visible
+        verify header is visible
+
+        # Is not visible
+        verify "Error" is not visible
+        verify VisibilityPage.error is not visible
+
+        # Is hidden
+        verify "Loader" is hidden
+        verify VisibilityPage.loader is hidden
+    }
+}

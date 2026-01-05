@@ -1,0 +1,24 @@
+# Test: If-Else Statement
+# Category: Control Flow - If-Else
+
+feature IfElseStatements {
+    scenario "If-else variations" {
+        # Simple if-else
+        if error is visible {
+            log "Error found"
+            take screenshot "error"
+        } else {
+            log "No errors"
+        }
+
+        # If-else with multiple statements
+        if submitBtn is enabled {
+            click submitBtn
+            wait 2 seconds
+            log "Submitted"
+        } else {
+            log "Button disabled"
+            take screenshot "disabled-state"
+        }
+    }
+}

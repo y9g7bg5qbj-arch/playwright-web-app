@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Execution Viewer - Demo</title>
+  <style>
+    :root {
+      --bg-primary: #0a1628;
+      --bg-secondary: #111827;
+      --bg-card: rgba(30, 41, 59, 0.8);
+      --border-color: rgba(255, 255, 255, 0.1);
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --accent: #6366f1;
+      --status-running: #f59e0b;
+      --status-passed: #10b981;
+      --status-failed: #ef4444;
+      --status-pending: #6b7280;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+    }
+
+    .live-execution-viewer {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .viewer-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .viewer-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .viewer-status {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .execution-id {
+      color: var(--text-secondary);
+      font-size: 14px;
+      font-family: monospace;
+    }
+
+    .status-badge {
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--status-running);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.7;
+      }
+    }
+
+    .action-btn {
+      padding: 8px 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: var(--text-primary);
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .action-btn:hover {
+      background: rgba(99, 102, 241, 0.1);
+      border-color: var(--accent);
+    }
+
+    /* Shard Grid */
+    .shard-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      padding: 32px;
+      flex: 1;
+      align-content: flex-start;
+    }
+
+    /* VNC Tile */
+    .vnc-tile {
+      position: relative;
+      width: 380px;
+      height: 240px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      flex-shrink: 0;
+    }
+
+    .vnc-tile:hover {
+      transform: scale(1.05);
+      z-index: 10;
+      border-color: var(--accent);
+      box-shadow:
+        0 20px 40px rgba(0, 0, 0, 0.4),
+        0 0 20px rgba(99, 102, 241, 0.2);
+    }
+
+    .vnc-frame {
+      width: 100%;
+      height: 100%;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .browser-mockup {
+      width: 95%;
+      height: 90%;
+      background: #1e293b;
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .browser-bar {
+      height: 28px;
+      background: #334155;
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      gap: 6px;
+    }
+
+    .browser-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .browser-dot.red {
+      background: #ef4444;
+    }
+
+    .browser-dot.yellow {
+      background: #f59e0b;
+    }
+
+    .browser-dot.green {
+      background: #10b981;
+    }
+
+    .browser-url {
+      flex: 1;
+      background: #1e293b;
+      border-radius: 4px;
+      padding: 4px 12px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-left: 10px;
+    }
+
+    .browser-content {
+      flex: 1;
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      color: var(--text-secondary);
+    }
+
+    .status-indicator {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    .status-indicator.running {
+      background: var(--status-running);
+      animation: pulse 1.5s infinite;
+    }
+
+    .status-indicator.passed {
+      background: var(--status-passed);
+    }
+
+    .status-indicator.failed {
+      background: var(--status-failed);
+    }
+
+    .tile-overlay {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 16px;
+      background: linear-gradient(to top, rgba(0, 0, 0, 0.9) 0%, transparent 100%);
+    }
+
+    .shard-label {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .progress-bar {
+      position: relative;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      position: absolute;
+      top: 0;
+      height: 100%;
+    }
+
+    .progress-fill.passed {
+      background: var(--status-passed);
+      left: 0;
+    }
+
+    .progress-fill.failed {
+      background: var(--status-failed);
+    }
+
+    .click-hint {
+      position: absolute;
+      bottom: 50%;
+      left: 50%;
+      transform: translate(-50%, 50%);
+      background: rgba(0, 0, 0, 0.8);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      opacity: 0;
+      transition: opacity 0.2s;
+      pointer-events: none;
+    }
+
+    .vnc-tile:hover .click-hint {
+      opacity: 1;
+    }
+
+    /* ========== FULLSCREEN MODAL ========== */
+    .fullscreen-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.95);
+      z-index: 1000;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .fullscreen-modal.active {
+      display: flex;
+      flex-direction: column;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+      }
+
+      to {
+        opacity: 1;
+      }
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .modal-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .close-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+      border: none;
+      color: var(--text-primary);
+      font-size: 20px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .close-btn:hover {
+      background: rgba(239, 68, 68, 0.3);
+    }
+
+    .modal-content {
+      flex: 1;
+      display: flex;
+      gap: 20px;
+      padding: 20px;
+    }
+
+    /* Main video/VNC area */
+    .main-viewer {
+      flex: 1;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .vnc-fullscreen {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .browser-mockup-large {
+      width: 95%;
+      height: 95%;
+      background: #1e293b;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+
+    .browser-bar-large {
+      height: 40px;
+      background: #334155;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 8px;
+    }
+
+    .browser-bar-large .browser-dot {
+      width: 14px;
+      height: 14px;
+    }
+
+    .browser-url-large {
+      flex: 1;
+      background: #1e293b;
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-left: 16px;
+    }
+
+    .browser-content-large {
+      flex: 1;
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 48px;
+      gap: 20px;
+    }
+
+    .live-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      color: #ef4444;
+      background: rgba(239, 68, 68, 0.1);
+      padding: 6px 12px;
+      border-radius: 20px;
+      animation: blink 1s infinite;
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      background: #ef4444;
+      border-radius: 50%;
+    }
+
+    @keyframes blink {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.5;
+      }
+    }
+
+    /* Sidebar with test info */
+    .sidebar {
+      width: 320px;
+      background: var(--bg-secondary);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sidebar-header {
+      padding: 16px;
+      border-bottom: 1px solid var(--border-color);
+      font-weight: 600;
+    }
+
+    .sidebar-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .test-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .test-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: var(--bg-card);
+      border-radius: 8px;
+      transition: background 0.2s;
+    }
+
+    .test-item.active {
+      background: rgba(99, 102, 241, 0.2);
+      border: 1px solid var(--accent);
+    }
+
+    .test-item.passed .test-status {
+      color: var(--status-passed);
+    }
+
+    .test-item.failed .test-status {
+      color: var(--status-failed);
+    }
+
+    .test-item.running .test-status {
+      color: var(--status-running);
+      animation: pulse 1s infinite;
+    }
+
+    .test-status {
+      font-size: 18px;
+    }
+
+    .test-name {
+      flex: 1;
+      font-size: 13px;
+    }
+
+    .test-duration {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    /* Video controls */
+    .video-controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px;
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border-color);
+    }
+
+    .control-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+      border: none;
+      color: var(--text-primary);
+      font-size: 18px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .control-btn:hover {
+      background: var(--accent);
+    }
+
+    .progress-track {
+      flex: 1;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .progress-thumb {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      width: 65%;
+      background: var(--accent);
+      border-radius: 2px;
+    }
+
+    .time-display {
+      font-size: 13px;
+      color: var(--text-secondary);
+      font-family: monospace;
+    }
+
+    /* Instructions overlay */
+    .instructions {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.9);
+      padding: 12px 24px;
+      border-radius: 30px;
+      font-size: 14px;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+      z-index: 50;
+      animation: fadeInUp 0.5s ease;
+    }
+
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(20px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="live-execution-viewer">
+    <!-- Header -->
+    <div class="viewer-header">
+      <div class="viewer-title">
+        <span>🎬</span>
+        <span>Live Execution View</span>
+      </div>
+      <div class="viewer-status">
+        <span class="execution-id">exec-2025-01-01-demo</span>
+        <span class="status-badge">⚡ Running (3/4)</span>
+      </div>
+      <div class="viewer-actions">
+        <button class="action-btn">⛶ Fullscreen</button>
+      </div>
+    </div>
+
+    <!-- Shard Grid -->
+    <div class="shard-grid">
+      <!-- Shard 1 -->
+      <div class="vnc-tile" onclick="openFullscreen(1, 'Login Page', 'https://example.com/login', '🔐', 'running')">
+        <div class="vnc-frame">
+          <div class="browser-mockup">
+            <div class="browser-bar">
+              <div class="browser-dot red"></div>
+              <div class="browser-dot yellow"></div>
+              <div class="browser-dot green"></div>
+              <div class="browser-url">https://example.com/login</div>
+            </div>
+            <div class="browser-content">🔐 Login Page</div>
+          </div>
+        </div>
+        <div class="status-indicator running">🔄</div>
+        <div class="tile-overlay">
+          <div class="shard-label">🖥️ Shard 1/4</div>
+          <div class="progress-bar">
+            <div class="progress-fill passed" style="width: 50%"></div>
+          </div>
+        </div>
+        <div class="click-hint">👆 Click to view full screen</div>
+      </div>
+
+      <!-- Shard 2 -->
+      <div class="vnc-tile" onclick="openFullscreen(2, 'Shopping Cart', 'https://example.com/cart', '🛒', 'running')">
+        <div class="vnc-frame">
+          <div class="browser-mockup">
+            <div class="browser-bar">
+              <div class="browser-dot red"></div>
+              <div class="browser-dot yellow"></div>
+              <div class="browser-dot green"></div>
+              <div class="browser-url">https://example.com/cart</div>
+            </div>
+            <div class="browser-content">🛒 Shopping Cart</div>
+          </div>
+        </div>
+        <div class="status-indicator running">🔄</div>
+        <div class="tile-overlay">
+          <div class="shard-label">🖥️ Shard 2/4</div>
+          <div class="progress-bar">
+            <div class="progress-fill passed" style="width: 33%"></div>
+            <div class="progress-fill failed" style="width: 16%; left: 33%"></div>
+          </div>
+        </div>
+        <div class="click-hint">👆 Click to view full screen</div>
+      </div>
+
+      <!-- Shard 3 -->
+      <div class="vnc-tile" onclick="openFullscreen(3, 'Search Results', 'https://example.com/search', '🔍', 'passed')">
+        <div class="vnc-frame">
+          <div class="browser-mockup">
+            <div class="browser-bar">
+              <div class="browser-dot red"></div>
+              <div class="browser-dot yellow"></div>
+              <div class="browser-dot green"></div>
+              <div class="browser-url">https://example.com/search</div>
+            </div>
+            <div class="browser-content">🔍 Search Results</div>
+          </div>
+        </div>
+        <div class="status-indicator passed">✅</div>
+        <div class="tile-overlay">
+          <div class="shard-label">🖥️ Shard 3/4</div>
+          <div class="progress-bar">
+            <div class="progress-fill passed" style="width: 100%"></div>
+          </div>
+        </div>
+        <div class="click-hint">👆 Click to view full screen</div>
+      </div>
+
+      <!-- Shard 4 -->
+      <div class="vnc-tile" onclick="openFullscreen(4, 'Checkout', 'https://example.com/checkout', '💳', 'running')">
+        <div class="vnc-frame">
+          <div class="browser-mockup">
+            <div class="browser-bar">
+              <div class="browser-dot red"></div>
+              <div class="browser-dot yellow"></div>
+              <div class="browser-dot green"></div>
+              <div class="browser-url">https://example.com/checkout</div>
+            </div>
+            <div class="browser-content">💳 Checkout</div>
+          </div>
+        </div>
+        <div class="status-indicator running">🔄</div>
+        <div class="tile-overlay">
+          <div class="shard-label">🖥️ Shard 4/4</div>
+          <div class="progress-bar">
+            <div class="progress-fill passed" style="width: 16%"></div>
+          </div>
+        </div>
+        <div class="click-hint">👆 Click to view full screen</div>
+      </div>
+    </div>
+
+    <div class="instructions">👆 Click any tile to view the full execution like Sauce Labs</div>
+  </div>
+
+  <!-- ========== FULLSCREEN MODAL ========== -->
+  <div class="fullscreen-modal" id="fullscreenModal">
+    <div class="modal-header">
+      <div class="modal-title">
+        <span id="modalIcon">🔐</span>
+        <span id="modalTitle">Shard 1/4 - Login Page</span>
+        <div class="live-indicator">
+          <div class="live-dot"></div>
+          LIVE
+        </div>
+      </div>
+      <button class="close-btn" onclick="closeFullscreen()">✕</button>
+    </div>
+
+    <div class="modal-content">
+      <div class="main-viewer">
+        <div class="vnc-fullscreen">
+          <div class="browser-mockup-large">
+            <div class="browser-bar-large">
+              <div class="browser-dot red"></div>
+              <div class="browser-dot yellow"></div>
+              <div class="browser-dot green"></div>
+              <div class="browser-url-large" id="modalUrl">https://example.com/login</div>
+            </div>
+            <div class="browser-content-large">
+              <span id="modalEmoji">🔐</span>
+              <span style="font-size: 24px; color: var(--text-secondary);" id="modalPage">Login Page</span>
+              <div style="font-size: 14px; color: var(--text-secondary); max-width: 400px; text-align: center;">
+                <strong>With Docker:</strong> This would show the live browser via VNC.<br>
+                Access at: <code
+                  style="background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 4px;">localhost:6081/vnc.html</code>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="video-controls">
+          <button class="control-btn">⏮</button>
+          <button class="control-btn">⏸</button>
+          <button class="control-btn">⏭</button>
+          <div class="progress-track">
+            <div class="progress-thumb"></div>
+          </div>
+          <span class="time-display">01:23 / 02:05</span>
+          <button class="control-btn">🔊</button>
+          <button class="control-btn" onclick="document.documentElement.requestFullscreen()">⛶</button>
+        </div>
+      </div>
+
+      <div class="sidebar">
+        <div class="sidebar-header">📋 Test Steps</div>
+        <div class="sidebar-content">
+          <div class="test-list">
+            <div class="test-item passed">
+              <span class="test-status">✅</span>
+              <span class="test-name">Navigate to login page</span>
+              <span class="test-duration">0.8s</span>
+            </div>
+            <div class="test-item passed">
+              <span class="test-status">✅</span>
+              <span class="test-name">Enter username</span>
+              <span class="test-duration">0.3s</span>
+            </div>
+            <div class="test-item passed">
+              <span class="test-status">✅</span>
+              <span class="test-name">Enter password</span>
+              <span class="test-duration">0.4s</span>
+            </div>
+            <div class="test-item active running">
+              <span class="test-status">🔄</span>
+              <span class="test-name">Click login button</span>
+              <span class="test-duration">...</span>
+            </div>
+            <div class="test-item">
+              <span class="test-status">⏳</span>
+              <span class="test-name">Verify redirect to dashboard</span>
+              <span class="test-duration">-</span>
+            </div>
+            <div class="test-item">
+              <span class="test-status">⏳</span>
+              <span class="test-name">Verify user greeting</span>
+              <span class="test-duration">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function openFullscreen(shard, page, url, emoji, status) {
+      document.getElementById('fullscreenModal').classList.add('active');
+      document.getElementById('modalTitle').textContent = `Shard ${shard}/4 - ${page}`;
+      document.getElementById('modalUrl').textContent = url;
+      document.getElementById('modalEmoji').textContent = emoji;
+      document.getElementById('modalPage').textContent = page;
+      document.getElementById('modalIcon').textContent = emoji;
+
+      // Hide instructions when modal opens
+      document.querySelector('.instructions').style.display = 'none';
+    }
+
+    function closeFullscreen() {
+      document.getElementById('fullscreenModal').classList.remove('active');
+      document.querySelector('.instructions').style.display = 'block';
+    }
+
+    // Close on Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeFullscreen();
+    });
+  </script>
+</body>
+
+</html>

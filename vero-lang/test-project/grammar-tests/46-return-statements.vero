@@ -1,0 +1,36 @@
+# Test: Return Statement Variations
+# Category: Page Actions - Return
+
+page ReturnPage {
+    field result = ".result"
+
+    # Return without value
+    simpleReturn {
+        click result
+        return
+    }
+
+    # Return with string
+    getStringResult {
+        return "success"
+    }
+
+    # Return with number
+    getNumberResult {
+        return 42
+    }
+
+    # Return with variable
+    getVariableResult {
+        text value = "computed"
+        return value
+    }
+
+    # Conditional return
+    conditionalReturn {
+        if result is visible {
+            return "visible"
+        }
+        return "hidden"
+    }
+}

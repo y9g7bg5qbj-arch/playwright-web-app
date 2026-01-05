@@ -1,0 +1,11 @@
+# Test: Refresh Action
+# Category: Actions - Refresh
+
+feature RefreshActions {
+    scenario "Page refresh" {
+        open "/page"
+        wait 1 seconds
+        refresh
+        wait 1 seconds
+    }
+}

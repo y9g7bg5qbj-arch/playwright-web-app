@@ -1,0 +1,17 @@
+# Amazon Search Feature
+# Search for soccer ball and get top 3 results
+
+feature AmazonSearch {
+    use AmazonPage
+    
+    before each {
+        open "https://www.amazon.com"
+        wait 2 seconds
+    }
+    
+    scenario "Search for soccer ball and get top 3 results" @smoke {
+        do AmazonPage.search with "soccer ball"
+        verify AmazonPage.searchResults is visible
+        log "Search completed - getting top 3 results"
+    }
+}

@@ -1,0 +1,26 @@
+# Test: Feature with Multiple Use Statements
+# Category: Features - Multiple Uses
+
+page LoginPage {
+    field emailInput = "Email"
+}
+
+page DashboardPage {
+    field header = "h1"
+}
+
+page ProfilePage {
+    field avatar = ".avatar"
+}
+
+feature MultipleUsesFeature {
+    use LoginPage
+    use DashboardPage
+    use ProfilePage
+
+    scenario "Access all pages" {
+        verify LoginPage.emailInput is visible
+        verify DashboardPage.header is visible
+        verify ProfilePage.avatar is visible
+    }
+}

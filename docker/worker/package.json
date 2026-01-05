@@ -1,0 +1,25 @@
+{
+  "name": "vero-worker",
+  "version": "1.0.0",
+  "description": "Vero Test Automation - Worker Container",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.40.0",
+    "express": "^4.18.2",
+    "socket.io-client": "^4.7.2",
+    "uuid": "^9.0.0",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.0",
+    "@types/uuid": "^9.0.7",
+    "tsx": "^4.6.0",
+    "typescript": "^5.3.2"
+  }
+}

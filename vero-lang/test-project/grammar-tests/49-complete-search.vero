@@ -1,0 +1,88 @@
+# Test: Complete Search Functionality
+# Category: Integration - Search
+
+page SearchPage {
+    field searchInput = "#search-input"
+    field searchBtn = "Search"
+    field results = ".search-results"
+    field resultItem = ".result-item"
+    field noResults = ".no-results"
+    field loadMore = "Load More"
+    field filterCategory = "#category-filter"
+    field filterPrice = "#price-filter"
+    field sortDropdown = "#sort-by"
+
+    search with query {
+        fill searchInput with query
+        click searchBtn
+        wait 2 seconds
+    }
+
+    clearSearch {
+        clear searchInput
+    }
+
+    applyFilter with category {
+        select category from filterCategory
+        wait 1 seconds
+    }
+
+    sortBy with option {
+        select option from sortDropdown
+        wait 1 seconds
+    }
+}
+
+feature SearchFunctionality {
+    use SearchPage
+
+    before each {
+        open "/search"
+        wait 1 seconds
+    }
+
+    scenario "Basic search" @smoke {
+        do SearchPage.search with "laptop"
+        verify SearchPage.results is visible
+        verify SearchPage.resultItem is visible
+    }
+
+    scenario "No results" @regression {
+        do SearchPage.search with "xyznonexistent123456"
+        verify SearchPage.noResults is visible
+        verify SearchPage.results is not visible
+    }
+
+    scenario "Search with filter" @regression {
+        do SearchPage.search with "phone"
+        do SearchPage.applyFilter with "Electronics"
+        verify SearchPage.results is visible
+    }
+
+    scenario "Search with sort" @regression {
+        do SearchPage.search with "tablet"
+        do SearchPage.sortBy with "Price: Low to High"
+        verify SearchPage.results is visible
+    }
+
+    scenario "Clear and new search" @regression {
+        do SearchPage.search with "keyboard"
+        verify SearchPage.results is visible
+        do SearchPage.clearSearch
+        do SearchPage.search with "mouse"
+        verify SearchPage.results is visible
+    }
+
+    scenario "Pagination" @regression {
+        do SearchPage.search with "accessories"
+        repeat 3 times {
+            scroll down
+            wait 1 seconds
+        }
+        if SearchPage.loadMore is visible {
+            click SearchPage.loadMore
+            wait 2 seconds
+        }
+        verify SearchPage.results is visible
+    }
+}

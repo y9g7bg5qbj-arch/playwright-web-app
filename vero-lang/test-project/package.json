@@ -1,0 +1,21 @@
+{
+  "name": "test-project",
+  "version": "1.0.0",
+  "description": "Vero test project",
+  "type": "module",
+  "scripts": {
+    "vero": "node ../dist/cli/index.js",
+    "vero:compile": "node ../dist/cli/index.js compile",
+    "vero:run": "node ../dist/cli/index.js compile && npx playwright test",
+    "vero:run:headed": "node ../dist/cli/index.js compile && npx playwright test --headed",
+    "vero:run:smoke": "node ../dist/cli/index.js compile && npx playwright test --grep @smoke",
+    "vero:run:debug": "node ../dist/cli/index.js compile && npx playwright test --debug",
+    "test": "npx playwright test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.57.0"
+  }
+}

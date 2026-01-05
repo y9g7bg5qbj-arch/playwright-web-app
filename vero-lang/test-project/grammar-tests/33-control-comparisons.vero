@@ -1,0 +1,45 @@
+# Test: Comparison Operators
+# Category: Control Flow - Comparisons
+
+feature ComparisonOperators {
+    scenario "All comparison operators" {
+        number count = 10
+        number limit = 100
+        text status = "active"
+
+        # Equals
+        if count == 10 {
+            log "Count is 10"
+        }
+
+        # Not equals
+        if count != 0 {
+            log "Count is not zero"
+        }
+
+        # Greater than
+        if count > 5 {
+            log "Count greater than 5"
+        }
+
+        # Less than
+        if count < 100 {
+            log "Count less than 100"
+        }
+
+        # Greater than or equal
+        if count >= 10 {
+            log "Count >= 10"
+        }
+
+        # Less than or equal
+        if count <= 10 {
+            log "Count <= 10"
+        }
+
+        # String comparison
+        if status == "active" {
+            log "Status is active"
+        }
+    }
+}

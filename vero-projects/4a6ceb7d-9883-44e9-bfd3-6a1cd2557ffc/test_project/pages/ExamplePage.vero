@@ -1,0 +1,21 @@
+# ExamplePage
+# This page object defines reusable elements for your tests
+
+page ExamplePage {
+    # Define page elements using various locator strategies
+    field searchInput = testId "search-input"
+    field submitButton = testId "submit-btn"
+    field resultsList = css ".results-list"
+    field pageTitle = text "Welcome"
+
+    # Define reusable actions
+    search with $query {
+        fill searchInput with $query
+        click submitButton
+        wait for resultsList to be visible
+    }
+
+    verifyPageLoaded {
+        verify pageTitle is visible
+    }
+}

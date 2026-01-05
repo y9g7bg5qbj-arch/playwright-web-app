@@ -1,0 +1,23 @@
+# Test: Select Action Variations
+# Category: Actions - Select
+
+page DropdownPage {
+    field countryDropdown = "#country"
+    field stateDropdown = "#state"
+}
+
+feature SelectActions {
+    use DropdownPage
+
+    scenario "Select variations" {
+        # Select with strings
+        select "United States" from "country"
+
+        # Select with page field
+        select "California" from DropdownPage.stateDropdown
+
+        # Select with variable
+        text selectedCountry = "Canada"
+        select selectedCountry from countryDropdown
+    }
+}

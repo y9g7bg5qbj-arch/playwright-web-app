@@ -1,0 +1,13 @@
+# Test: Complex Page with Multiple Fields
+# Category: Page Objects - Complex
+
+page ComplexPage {
+    field emailInput = "Email"
+    field passwordInput = "Password"
+    field submitBtn = "Submit"
+    field errorMsg = ".error-message"
+    field successMsg = ".success-message"
+    field header = "h1"
+    field footer = ".footer"
+    field navMenu = "#nav-menu"
+}

@@ -1,0 +1,25 @@
+# Test: Click Action Variations
+# Category: Actions - Click
+
+page ClickTestPage {
+    field button = "Submit"
+    field link = ".nav-link"
+}
+
+feature ClickActions {
+    use ClickTestPage
+
+    scenario "Click variations" {
+        # Click with string
+        click "Submit"
+
+        # Click with CSS selector
+        click ".button-primary"
+
+        # Click with page field
+        click ClickTestPage.button
+
+        # Click with bare identifier
+        click button
+    }
+}

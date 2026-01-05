@@ -1,0 +1,11 @@
+# Test: List Variable Declarations
+# Category: Variables - List
+
+feature ListVariables {
+    scenario "List variable" {
+        # List as string (current grammar limitation)
+        list items = "apple, banana, orange"
+
+        log items
+    }
+}

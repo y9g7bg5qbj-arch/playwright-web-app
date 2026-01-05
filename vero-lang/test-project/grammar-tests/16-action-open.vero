@@ -1,0 +1,18 @@
+# Test: Open Action Variations
+# Category: Actions - Open
+
+feature OpenActions {
+    scenario "Open variations" {
+        # Relative URL
+        open "/login"
+
+        # Absolute URL
+        open "https://example.com"
+
+        # URL with path
+        open "/users/profile/settings"
+
+        # URL with query params
+        open "/search?q=test&page=1"
+    }
+}

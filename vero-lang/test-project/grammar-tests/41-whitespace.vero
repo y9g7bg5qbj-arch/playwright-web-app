@@ -1,0 +1,31 @@
+# Test: Whitespace Handling
+# Category: Edge Cases - Whitespace
+
+# Minimal whitespace
+page MinPage{field f="x"}
+
+# Normal whitespace
+page NormalPage {
+    field button = "Button"
+}
+
+# Excessive whitespace
+
+
+page SpacedPage {
+
+
+    field     button    =    "Button"
+
+
+}
+
+feature    WhitespaceFeature    {
+
+    scenario     "Whitespace test"     {
+
+        log      "Message"
+
+    }
+
+}

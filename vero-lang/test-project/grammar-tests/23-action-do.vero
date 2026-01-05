@@ -1,0 +1,43 @@
+# Test: Do Action Variations
+# Category: Actions - Do
+
+page LoginPage {
+    field emailInput = "Email"
+    field passwordInput = "Password"
+    field submitBtn = "Submit"
+
+    login with email, password {
+        fill emailInput with email
+        fill passwordInput with password
+        click submitBtn
+    }
+
+    quickLogin with email {
+        fill emailInput with email
+        click submitBtn
+    }
+
+    logout {
+        click "Logout"
+    }
+}
+
+feature DoActions {
+    use LoginPage
+
+    scenario "Do action variations" {
+        # Do without arguments
+        do LoginPage.logout
+
+        # Do with single argument
+        do LoginPage.quickLogin with "test@example.com"
+
+        # Do with multiple arguments
+        do LoginPage.login with "admin@example.com", "password123"
+
+        # Do with variable arguments
+        text email = "user@example.com"
+        text password = "secret"
+        do LoginPage.login with email, password
+    }
+}

@@ -1,0 +1,8 @@
+# Test: Scenario with Single Tag
+# Category: Features - Tags
+
+feature SingleTagFeature {
+    scenario "Smoke test" @smoke {
+        log "Running smoke test"
+    }
+}

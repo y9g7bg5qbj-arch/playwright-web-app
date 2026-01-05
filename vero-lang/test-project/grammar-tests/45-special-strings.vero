@@ -1,0 +1,35 @@
+# Test: Special String Literals
+# Category: Edge Cases - Strings
+
+feature SpecialStrings {
+    scenario "Special string variations" {
+        # Escaped characters
+        log "Line1\nLine2"
+        log "Tab\tSeparated"
+        log "Backslash\\"
+        log "Quote\"Inside"
+
+        # Unicode (if supported)
+        log "Hello World"
+
+        # Empty string
+        text empty = ""
+
+        # String with numbers
+        log "User123"
+        log "12345"
+
+        # URL strings
+        log "https://example.com/path?query=value&other=123"
+
+        # CSS selector strings
+        log "div.class > span#id[attr='value']"
+
+        # JSON-like strings
+        log "{\"key\": \"value\"}"
+
+        # Path strings
+        log "/usr/local/bin/app"
+        log "C:\\Users\\Name\\Documents"
+    }
+}

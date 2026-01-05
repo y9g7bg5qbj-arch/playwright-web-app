@@ -1,0 +1,64 @@
+{
+    "name": "vero-lang",
+    "displayName": "Vero Language",
+    "description": "Syntax highlighting and test runner for Vero DSL test automation language",
+    "version": "0.2.0",
+    "publisher": "vero-dsl",
+    "engines": {
+        "vscode": "^1.70.0"
+    },
+    "categories": [
+        "Programming Languages",
+        "Testing"
+    ],
+    "activationEvents": [
+        "onLanguage:vero"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "languages": [
+            {
+                "id": "vero",
+                "aliases": [
+                    "Vero",
+                    "vero"
+                ],
+                "extensions": [
+                    ".vero"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "vero",
+                "scopeName": "source.vero",
+                "path": "./syntaxes/vero.tmLanguage.json"
+            }
+        ],
+        "commands": [
+            {
+                "command": "vero.runScenario",
+                "title": "Vero: Run Scenario"
+            },
+            {
+                "command": "vero.runFeature",
+                "title": "Vero: Run Feature"
+            },
+            {
+                "command": "vero.runFile",
+                "title": "Vero: Run All Tests in File"
+            }
+        ]
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.70.0",
+        "@types/node": "^20.0.0",
+        "typescript": "^5.0.0"
+    }
+}

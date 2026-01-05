@@ -1,0 +1,8 @@
+# Test: Simple Feature Declaration
+# Category: Features - Basic
+
+feature SimpleFeature {
+    scenario "Basic test" {
+        log "Hello World"
+    }
+}

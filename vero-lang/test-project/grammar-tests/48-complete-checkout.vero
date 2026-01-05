@@ -1,0 +1,106 @@
+# Test: Complete E-Commerce Checkout Flow
+# Category: Integration - E-Commerce
+
+page ProductPage {
+    field productTitle = ".product-title"
+    field price = ".product-price"
+    field addToCartBtn = "Add to Cart"
+    field quantityInput = "#quantity"
+
+    addToCart {
+        click addToCartBtn
+        wait 1 seconds
+    }
+
+    addMultiple with qty {
+        clear quantityInput
+        fill quantityInput with qty
+        click addToCartBtn
+    }
+}
+
+page CartPage {
+    field cartItems = ".cart-item"
+    field cartTotal = ".cart-total"
+    field checkoutBtn = "Proceed to Checkout"
+    field emptyCart = ".empty-cart-message"
+
+    proceedToCheckout {
+        click checkoutBtn
+        wait 2 seconds
+    }
+}
+
+page CheckoutPage {
+    field shippingAddress = "#address"
+    field shippingCity = "#city"
+    field shippingZip = "#zip"
+    field cardNumber = "#card-number"
+    field cardExpiry = "#expiry"
+    field cardCvv = "#cvv"
+    field placeOrderBtn = "Place Order"
+    field orderConfirmation = ".order-confirmation"
+    field orderNumber = ".order-number"
+
+    fillShipping with address, city, zip {
+        fill shippingAddress with address
+        fill shippingCity with city
+        fill shippingZip with zip
+    }
+
+    fillPayment with card, expiry, cvv {
+        fill cardNumber with card
+        fill cardExpiry with expiry
+        fill cardCvv with cvv
+    }
+}
+
+feature CheckoutFlow {
+    use ProductPage
+    use CartPage
+    use CheckoutPage
+
+    before each {
+        open "/products"
+    }
+
+    after each {
+        take screenshot "checkout-result"
+    }
+
+    scenario "Complete checkout" @smoke @critical {
+        # Add product to cart
+        do ProductPage.addToCart
+        verify CartPage.cartItems is visible
+
+        # Proceed to checkout
+        do CartPage.proceedToCheckout
+
+        # Fill shipping info
+        do CheckoutPage.fillShipping with "123 Main St", "New York", "10001"
+
+        # Fill payment info
+        do CheckoutPage.fillPayment with "4111111111111111", "12/25", "123"
+
+        # Place order
+        click CheckoutPage.placeOrderBtn
+        wait 3 seconds
+
+        # Verify confirmation
+        verify CheckoutPage.orderConfirmation is visible
+        verify CheckoutPage.orderNumber is visible
+        take screenshot "order-confirmation"
+    }
+
+    scenario "Multiple items checkout" @regression {
+        do ProductPage.addMultiple with 3
+        verify CartPage.cartTotal is visible
+        do CartPage.proceedToCheckout
+    }
+
+    scenario "Empty cart checkout" @regression {
+        open "/cart"
+        verify CartPage.emptyCart is visible
+        verify CartPage.checkoutBtn is disabled
+    }
+}

@@ -1,0 +1,27 @@
+# Example Feature
+# This demonstrates how to write test scenarios in Vero
+
+feature Example {
+    use ExamplePage
+
+    scenario "Verify page loads correctly" @smoke {
+        # Navigate to the website
+        open "https://example.com"
+
+        # Verify the page loaded
+        verify "Example Domain" is visible
+
+        # Take a screenshot for documentation
+        screenshot "homepage"
+    }
+
+    scenario "Search functionality" @regression {
+        open "https://example.com"
+
+        # Use page object action
+        ExamplePage.search with "test query"
+
+        # Verify results
+        verify ExamplePage.resultsList is visible
+    }
+}

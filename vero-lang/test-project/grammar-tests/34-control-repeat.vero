@@ -1,0 +1,24 @@
+# Test: Repeat Statement Variations
+# Category: Control Flow - Repeat
+
+feature RepeatStatements {
+    scenario "Repeat variations" {
+        # Repeat with literal
+        repeat 5 times {
+            log "Iteration"
+        }
+
+        # Repeat with multiple statements
+        repeat 3 times {
+            click "Next"
+            wait 1 seconds
+            log "Clicked next"
+        }
+
+        # Repeat with variable
+        number iterations = 4
+        repeat iterations times {
+            scroll down
+        }
+    }
+}

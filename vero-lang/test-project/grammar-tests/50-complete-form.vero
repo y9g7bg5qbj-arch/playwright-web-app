@@ -1,0 +1,125 @@
+# Test: Complete Form Validation
+# Category: Integration - Forms
+
+page RegistrationPage {
+    field firstNameInput = "#first-name"
+    field lastNameInput = "#last-name"
+    field emailInput = "#email"
+    field passwordInput = "#password"
+    field confirmPasswordInput = "#confirm-password"
+    field phoneInput = "#phone"
+    field dateOfBirthInput = "#dob"
+    field termsCheckbox = "#terms"
+    field newsletterCheckbox = "#newsletter"
+    field countryDropdown = "#country"
+    field submitBtn = "Create Account"
+
+    # Error fields
+    field firstNameError = "#first-name-error"
+    field lastNameError = "#last-name-error"
+    field emailError = "#email-error"
+    field passwordError = "#password-error"
+    field confirmPasswordError = "#confirm-password-error"
+    field termsError = "#terms-error"
+
+    # Success
+    field successMessage = ".success-message"
+
+    fillBasicInfo with firstName, lastName, email {
+        fill firstNameInput with firstName
+        fill lastNameInput with lastName
+        fill emailInput with email
+    }
+
+    fillPassword with password, confirmPassword {
+        fill passwordInput with password
+        fill confirmPasswordInput with confirmPassword
+    }
+
+    fillOptional with phone, country {
+        fill phoneInput with phone
+        select country from countryDropdown
+    }
+
+    acceptTerms {
+        check termsCheckbox
+    }
+
+    subscribeNewsletter {
+        check newsletterCheckbox
+    }
+}
+
+feature FormValidation {
+    use RegistrationPage
+
+    before each {
+        open "/register"
+        wait 1 seconds
+    }
+
+    after each {
+        take screenshot "form-state"
+    }
+
+    scenario "Successful registration" @smoke @critical {
+        do RegistrationPage.fillBasicInfo with "John", "Doe", "john.doe@example.com"
+        do RegistrationPage.fillPassword with "SecurePass123!", "SecurePass123!"
+        do RegistrationPage.fillOptional with "+1234567890", "United States"
+        do RegistrationPage.acceptTerms
+        click RegistrationPage.submitBtn
+        wait 2 seconds
+        verify RegistrationPage.successMessage is visible
+    }
+
+    scenario "All fields required" @regression {
+        click RegistrationPage.submitBtn
+        verify RegistrationPage.firstNameError is visible
+        verify RegistrationPage.lastNameError is visible
+        verify RegistrationPage.emailError is visible
+        verify RegistrationPage.passwordError is visible
+        verify RegistrationPage.termsError is visible
+    }
+
+    scenario "Invalid email format" @regression {
+        do RegistrationPage.fillBasicInfo with "John", "Doe", "invalid-email"
+        click RegistrationPage.submitBtn
+        verify RegistrationPage.emailError is visible
+        verify RegistrationPage.emailError is contains "valid email"
+    }
+
+    scenario "Password mismatch" @regression {
+        do RegistrationPage.fillBasicInfo with "John", "Doe", "john@example.com"
+        do RegistrationPage.fillPassword with "Password123!", "DifferentPassword!"
+        click RegistrationPage.submitBtn
+        verify RegistrationPage.confirmPasswordError is visible
+        verify RegistrationPage.confirmPasswordError is contains "match"
+    }
+
+    scenario "Password too weak" @regression {
+        do RegistrationPage.fillBasicInfo with "John", "Doe", "john@example.com"
+        do RegistrationPage.fillPassword with "weak", "weak"
+        click RegistrationPage.submitBtn
+        verify RegistrationPage.passwordError is visible
+        verify RegistrationPage.passwordError is contains "stronger"
+    }
+
+    scenario "Terms not accepted" @regression {
+        do RegistrationPage.fillBasicInfo with "John", "Doe", "john@example.com"
+        do RegistrationPage.fillPassword with "SecurePass123!", "SecurePass123!"
+        click RegistrationPage.submitBtn
+        verify RegistrationPage.termsError is visible
+    }
+
+    scenario "Clear and refill" @regression {
+        # Fill with errors
+        fill RegistrationPage.emailInput with "bad-email"
+        click RegistrationPage.submitBtn
+        verify RegistrationPage.emailError is visible
+
+        # Clear and correct
+        clear RegistrationPage.emailInput
+        fill RegistrationPage.emailInput with "good@example.com"
+        verify RegistrationPage.emailError is not visible
+    }
+}

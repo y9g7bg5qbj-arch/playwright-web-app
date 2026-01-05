@@ -1,0 +1,33 @@
+# Test: If Statement Variations
+# Category: Control Flow - If
+
+page IfPage {
+    field button = "Submit"
+    field error = ".error"
+}
+
+feature IfStatements {
+    use IfPage
+
+    scenario "If statement variations" {
+        # Simple if
+        if button is visible {
+            click button
+        }
+
+        # If with page field
+        if IfPage.button is enabled {
+            click IfPage.button
+        }
+
+        # If with is not
+        if error is not visible {
+            log "No errors"
+        }
+
+        # If with is hidden
+        if error is hidden {
+            log "Error hidden"
+        }
+    }
+}

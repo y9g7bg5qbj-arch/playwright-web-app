@@ -1,0 +1,420 @@
+/**
+ * Vero Test Recorder - Content Script Styles
+ * Styles for element highlighting and recording overlay
+ */
+
+/* Element highlight overlay */
+.vero-highlight-overlay {
+  position: fixed;
+  pointer-events: none;
+  z-index: 2147483646;
+  background: rgba(79, 70, 229, 0.1);
+  border: 2px solid #4f46e5;
+  border-radius: 2px;
+  transition: all 0.1s ease-out;
+}
+
+/* Highlight with animation */
+.vero-highlight-overlay.animated {
+  animation: vero-highlight-pulse 0.5s ease-in-out;
+}
+
+@keyframes vero-highlight-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.02);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Element tooltip */
+.vero-tooltip {
+  position: fixed;
+  z-index: 2147483647;
+  padding: 6px 10px;
+  background: #1f2937;
+  color: #f3f4f6;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 11px;
+  line-height: 1.4;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  max-width: 400px;
+  word-break: break-word;
+}
+
+.vero-tooltip::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 12px;
+  border-width: 0 6px 6px 6px;
+  border-style: solid;
+  border-color: transparent transparent #1f2937 transparent;
+}
+
+.vero-tooltip.bottom::before {
+  top: auto;
+  bottom: -6px;
+  border-width: 6px 6px 0 6px;
+  border-color: #1f2937 transparent transparent transparent;
+}
+
+.vero-tooltip-tag {
+  color: #c792ea;
+  font-weight: 600;
+}
+
+.vero-tooltip-id {
+  color: #89ddff;
+}
+
+.vero-tooltip-class {
+  color: #c3e88d;
+}
+
+.vero-tooltip-text {
+  color: #9ca3af;
+  font-style: italic;
+  margin-top: 4px;
+}
+
+/* Recording indicator badge */
+.vero-recording-badge {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #ef4444;
+  color: white;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 20px;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+
+.vero-recording-badge:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.5);
+}
+
+.vero-recording-badge.paused {
+  background: #f59e0b;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+}
+
+.vero-recording-badge.paused:hover {
+  box-shadow: 0 6px 16px rgba(245, 158, 11, 0.5);
+}
+
+.vero-recording-dot {
+  width: 8px;
+  height: 8px;
+  background: white;
+  border-radius: 50%;
+  animation: vero-pulse 1s ease-in-out infinite;
+}
+
+.vero-recording-badge.paused .vero-recording-dot {
+  animation: none;
+}
+
+@keyframes vero-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+}
+
+/* Picker mode cursor */
+.vero-picking * {
+  cursor: crosshair !important;
+}
+
+/* Flash effect for recorded actions */
+.vero-action-flash {
+  animation: vero-flash 0.3s ease-out;
+}
+
+@keyframes vero-flash {
+  0% {
+    background-color: rgba(79, 70, 229, 0.3);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* Assertion marker */
+.vero-assertion-marker {
+  position: absolute;
+  z-index: 2147483645;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: #22c55e;
+  color: white;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 50%;
+  box-shadow: 0 2px 6px rgba(34, 197, 94, 0.4);
+  pointer-events: none;
+}
+
+/* Element picker overlay */
+.vero-picker-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2147483644;
+  background: transparent;
+  cursor: crosshair;
+}
+
+/* Selector preview panel */
+.vero-selector-panel {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  min-width: 300px;
+  max-width: 600px;
+  background: #1f2937;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.vero-selector-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #374151;
+  color: #f3f4f6;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.vero-selector-panel-close {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.vero-selector-panel-close:hover {
+  background: #4b5563;
+  color: #f3f4f6;
+}
+
+.vero-selector-panel-content {
+  padding: 12px 14px;
+}
+
+.vero-selector-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  background: #374151;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.vero-selector-item:hover {
+  background: #4b5563;
+}
+
+.vero-selector-item:last-child {
+  margin-bottom: 0;
+}
+
+.vero-selector-type {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #9ca3af;
+  min-width: 50px;
+}
+
+.vero-selector-value {
+  flex: 1;
+  font-family: 'SF Mono', Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: #c3e88d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vero-selector-confidence {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: #22c55e;
+  color: white;
+}
+
+.vero-selector-confidence.medium {
+  background: #f59e0b;
+}
+
+.vero-selector-confidence.low {
+  background: #ef4444;
+}
+
+/* Action indicator (shown when action is recorded) */
+.vero-action-indicator {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 2147483647;
+  padding: 8px 14px;
+  background: #4f46e5;
+  color: white;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
+  animation: vero-slide-in 0.2s ease-out, vero-fade-out 0.3s ease-in 1.5s forwards;
+}
+
+@keyframes vero-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes vero-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+/* Context menu enhancement */
+.vero-context-highlight {
+  outline: 2px dashed #4f46e5 !important;
+  outline-offset: 2px !important;
+}
+
+/* Scroll indicator */
+.vero-scroll-indicator {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  padding: 6px 12px;
+  background: rgba(31, 41, 55, 0.9);
+  color: #f3f4f6;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 11px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.vero-scroll-indicator.visible {
+  opacity: 1;
+}
+
+.vero-scroll-indicator.top {
+  top: 10px;
+}
+
+.vero-scroll-indicator.bottom {
+  bottom: 10px;
+}
+
+/* Disable pointer events on recording elements to not interfere */
+.vero-no-pointer-events {
+  pointer-events: none !important;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .vero-tooltip {
+    background: #374151;
+    color: #f9fafb;
+  }
+
+  .vero-tooltip::before {
+    border-color: transparent transparent #374151 transparent;
+  }
+
+  .vero-tooltip.bottom::before {
+    border-color: #374151 transparent transparent transparent;
+  }
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+  .vero-highlight-overlay {
+    border-width: 3px;
+    background: rgba(79, 70, 229, 0.2);
+  }
+
+  .vero-recording-badge {
+    border: 2px solid white;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .vero-recording-dot,
+  .vero-highlight-overlay.animated,
+  .vero-action-indicator {
+    animation: none;
+  }
+
+  .vero-recording-badge:hover {
+    transform: none;
+  }
+}

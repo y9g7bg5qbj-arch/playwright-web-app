@@ -1,0 +1,22 @@
+# Test: Hover Action Variations
+# Category: Actions - Hover
+
+page HoverPage {
+    field menuItem = ".menu-item"
+    field tooltip = ".tooltip-trigger"
+}
+
+feature HoverActions {
+    use HoverPage
+
+    scenario "Hover variations" {
+        # Hover with string
+        hover "Menu"
+
+        # Hover with CSS selector
+        hover ".dropdown-trigger"
+
+        # Hover with page field
+        hover HoverPage.menuItem
+    }
+}

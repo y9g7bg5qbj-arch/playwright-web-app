@@ -1,0 +1,23 @@
+# Test: Scroll Action Variations
+# Category: Actions - Scroll
+
+page ScrollPage {
+    field footer = ".footer"
+    field header = ".header"
+}
+
+feature ScrollActions {
+    use ScrollPage
+
+    scenario "Scroll variations" {
+        # Scroll to element
+        scroll to "footer"
+        scroll to ScrollPage.footer
+
+        # Directional scrolling
+        scroll down
+        scroll up
+        scroll left
+        scroll right
+    }
+}

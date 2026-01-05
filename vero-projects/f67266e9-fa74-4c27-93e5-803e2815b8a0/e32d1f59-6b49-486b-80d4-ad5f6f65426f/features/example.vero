@@ -1,0 +1,15 @@
+# Example Feature Test
+# Write your test scenarios here
+
+@testId("TC001")
+feature "Example Login Test"
+
+  scenario "User can login with valid credentials"
+    navigate to "https://example.com/login"
+    fill "Username" with "testuser"
+    fill "Password" with "password123"
+    click "Login" button
+    assert "Dashboard" is visible
+  end
+
+end

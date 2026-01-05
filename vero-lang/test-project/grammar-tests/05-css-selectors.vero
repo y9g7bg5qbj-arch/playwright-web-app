@@ -1,0 +1,26 @@
+# Test: Various CSS Selectors
+# Category: Page Objects - Selectors
+
+page CSSSelectorsPage {
+    # ID selectors
+    field idSelector = "#main-content"
+
+    # Class selectors
+    field classSelector = ".button-primary"
+
+    # Attribute selectors
+    field attrSelector = "[data-testid='submit-button']"
+    field typeSelector = "input[type='email']"
+
+    # Combinators
+    field descendant = "div .child"
+    field child = "ul > li"
+    field adjacent = "h1 + p"
+
+    # Pseudo-classes
+    field firstChild = "li:first-child"
+    field nthChild = "tr:nth-child(2)"
+
+    # Complex selectors
+    field complex = "div.container > form input.primary[type='submit']"
+}

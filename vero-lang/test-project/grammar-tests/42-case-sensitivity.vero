@@ -1,0 +1,38 @@
+# Test: Case Sensitivity for Keywords
+# Category: Edge Cases - Case
+
+# Lowercase keywords
+page lowercasepage {
+    field button = "Button"
+}
+
+feature lowercasefeature {
+    scenario "lowercase test" {
+        click "Button"
+        verify "Text" is visible
+    }
+}
+
+# Uppercase keywords
+PAGE UPPERCASEPAGE {
+    FIELD button = "Button"
+}
+
+FEATURE UPPERCASEFEATURE {
+    SCENARIO "uppercase test" {
+        CLICK "Button"
+        VERIFY "Text" IS VISIBLE
+    }
+}
+
+# Mixed case keywords
+Page MixedCasePage {
+    Field button = "Button"
+}
+
+Feature MixedCaseFeature {
+    Scenario "mixed case test" {
+        Click "Button"
+        Verify "Text" Is Visible
+    }
+}

@@ -1,0 +1,29 @@
+# Test: Number Variable Declarations
+# Category: Variables - Number
+
+feature NumberVariables {
+    scenario "Number variable variations" {
+        # Integer
+        number count = 5
+        number zero = 0
+        number large = 999999
+
+        # Decimal
+        number price = 99.99
+        number percentage = 0.5
+        number small = 0.001
+
+        # Use in comparison
+        if count > 0 {
+            log "Positive"
+        }
+
+        # Use in repeat
+        repeat count times {
+            log "Iteration"
+        }
+
+        # Use in fill
+        fill "quantity" with count
+    }
+}

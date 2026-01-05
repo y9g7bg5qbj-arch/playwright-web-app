@@ -1,0 +1,16 @@
+# Test: Feature with Use Statement
+# Category: Features - Use
+
+page LoginPage {
+    field emailInput = "Email"
+    field submitBtn = "Submit"
+}
+
+feature FeatureWithUse {
+    use LoginPage
+
+    scenario "Use login page" {
+        fill LoginPage.emailInput with "test@example.com"
+        click LoginPage.submitBtn
+    }
+}

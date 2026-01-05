@@ -1,0 +1,13 @@
+# sdfgf Feature
+
+feature sdfgf {
+    use ExamplePage
+    
+    before each {
+        open "https://example.com"
+    }
+    
+    scenario "Example test" @smoke {
+        verify "Example" is visible
+    }
+}

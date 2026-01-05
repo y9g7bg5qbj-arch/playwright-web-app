@@ -1,0 +1,6 @@
+# Example.com Page
+
+PAGE ExamplePage {
+    FIELD heading = "h1"
+    FIELD learnMoreLink = LINK "Learn more"
+}

@@ -1,0 +1,24 @@
+# Test: Clear Action Variations
+# Category: Actions - Clear
+
+page ClearPage {
+    field searchInput = "#search"
+    field textArea = ".text-area"
+}
+
+feature ClearActions {
+    use ClearPage
+
+    scenario "Clear input variations" {
+        # Clear with string
+        clear "search"
+
+        # Clear with page field
+        clear ClearPage.searchInput
+
+        # Clear and refill pattern
+        fill textArea with "Some text"
+        clear textArea
+        fill textArea with "New text"
+    }
+}

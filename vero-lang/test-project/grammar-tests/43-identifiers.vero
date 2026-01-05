@@ -1,0 +1,31 @@
+# Test: Identifier Variations
+# Category: Edge Cases - Identifiers
+
+# Underscore variations
+page _UnderscorePage {
+    field _field = "selector"
+    field my_field = "selector"
+    field __doubleUnderscore = "selector"
+}
+
+# Numeric suffixes
+page Page123 {
+    field field1 = "selector1"
+    field field2 = "selector2"
+    field field99 = "selector99"
+}
+
+# CamelCase
+page myPageName {
+    field myFieldName = "selector"
+}
+
+# PascalCase
+page MyPageName {
+    field MyFieldName = "selector"
+}
+
+# Mixed
+page MyPage_With123 {
+    field my_Field_123 = "selector"
+}

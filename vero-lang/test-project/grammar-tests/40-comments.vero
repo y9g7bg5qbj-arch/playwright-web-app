@@ -1,0 +1,38 @@
+# Test: Comment Variations
+# Category: Edge Cases - Comments
+
+# This is a file-level comment
+# Multiple line comments
+# Are supported like this
+
+page CommentPage {
+    # Comment before field
+    field button = "Button"  # Inline comment after field
+
+    # Comment before action
+    action {
+        # Comment inside action
+        click button  # Inline comment after statement
+    }
+}
+
+# Comment between declarations
+
+feature CommentFeature {
+    # Comment before hook
+    before each {
+        # Comment in hook
+        log "Setup"
+    }
+
+    # Comment before scenario
+    scenario "Test with comments" {
+        # Comment inside scenario
+        log "Running"  # Inline comment
+
+        # Another comment
+        click "Button"
+    }
+}
+
+# Final comment

@@ -1,0 +1,25 @@
+# Test: Page with Multiple Actions
+# Category: Page Objects - Multiple Actions
+
+page CheckoutPage {
+    field cardNumber = "#card-number"
+    field cvv = "#cvv"
+    field expiry = "#expiry"
+    field totalAmount = ".total"
+    field placeOrderBtn = "Place Order"
+
+    fillCardDetails with card, cvv, expiry {
+        fill cardNumber with card
+        fill cvv with cvv
+        fill expiry with expiry
+    }
+
+    verifyTotal with expectedAmount {
+        verify totalAmount is contains expectedAmount
+    }
+
+    placeOrder {
+        click placeOrderBtn
+        wait 2 seconds
+    }
+}

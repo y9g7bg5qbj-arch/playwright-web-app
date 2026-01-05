@@ -1,0 +1,6 @@
+# Test: Simple Page Declaration
+# Category: Page Objects - Basic
+
+page SimplePage {
+    field button = "Click Me"
+}

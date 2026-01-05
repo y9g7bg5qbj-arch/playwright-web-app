@@ -1,0 +1,27 @@
+# Test: Press Action Variations
+# Category: Actions - Press
+
+feature PressActions {
+    scenario "Press key variations" {
+        # Single keys
+        press "Enter"
+        press "Tab"
+        press "Escape"
+        press "Space"
+        press "Backspace"
+        press "Delete"
+
+        # Arrow keys
+        press "ArrowUp"
+        press "ArrowDown"
+        press "ArrowLeft"
+        press "ArrowRight"
+
+        # Key combinations
+        press "Control+C"
+        press "Control+V"
+        press "Control+A"
+        press "Shift+Tab"
+        press "Alt+F4"
+    }
+}

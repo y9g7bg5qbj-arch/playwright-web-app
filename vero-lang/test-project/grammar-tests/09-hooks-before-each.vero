@@ -1,0 +1,17 @@
+# Test: Before Each Hook
+# Category: Features - Hooks
+
+feature BeforeEachHook {
+    before each {
+        open "/login"
+        log "Starting test"
+    }
+
+    scenario "Test 1" {
+        log "Running test 1"
+    }
+
+    scenario "Test 2" {
+        log "Running test 2"
+    }
+}

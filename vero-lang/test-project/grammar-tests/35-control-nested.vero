@@ -1,0 +1,41 @@
+# Test: Nested Control Flow
+# Category: Control Flow - Nested
+
+feature NestedControlFlow {
+    scenario "Deeply nested control flow" {
+        # If inside if
+        if outer is visible {
+            log "Outer visible"
+            if inner is visible {
+                log "Inner visible"
+            }
+        }
+
+        # Repeat inside if
+        if container is visible {
+            repeat 3 times {
+                click item
+            }
+        }
+
+        # If inside repeat
+        repeat 5 times {
+            if element is visible {
+                click element
+            } else {
+                log "Element not visible"
+            }
+        }
+
+        # Complex nesting
+        if level1 is visible {
+            repeat 2 times {
+                if level2 is visible {
+                    repeat 3 times {
+                        log "Deep nesting"
+                    }
+                }
+            }
+        }
+    }
+}

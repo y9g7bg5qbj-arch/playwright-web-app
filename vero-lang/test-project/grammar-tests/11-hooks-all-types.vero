@@ -1,0 +1,26 @@
+# Test: All Hook Types
+# Category: Features - Hooks
+
+feature AllHooksFeature {
+    before all {
+        log "Suite starting"
+    }
+
+    before each {
+        open "/test"
+        log "Test starting"
+    }
+
+    after each {
+        take screenshot
+        log "Test ending"
+    }
+
+    after all {
+        log "Suite completed"
+    }
+
+    scenario "Test with all hooks" {
+        log "Running test"
+    }
+}

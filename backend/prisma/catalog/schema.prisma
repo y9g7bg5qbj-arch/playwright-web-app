@@ -1,0 +1,207 @@
+// Catalog Database Schema
+// Contains: Users, Projects, Project Members, Global Config
+// This is the central database that tracks all projects and their locations
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../node_modules/.prisma/catalog-client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("CATALOG_DATABASE_URL")
+}
+
+// ============================================
+// USER & AUTHENTICATION
+// ============================================
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  projects       Project[]
+  projectMembers ProjectMember[]
+  agents         Agent[]
+
+  @@map("users")
+}
+
+// ============================================
+// PROJECTS (Multi-Tenant Container)
+// ============================================
+
+model Project {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  name        String
+  description String?
+  dbPath      String   @unique @map("db_path") // Path to project's SQLite file
+  veroPath    String?  @map("vero_path")       // Path to project's Vero files
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  members ProjectMember[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("projects")
+}
+
+model ProjectMember {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  userId    String   @map("user_id")
+  role      String   @default("viewer") // owner, editor, viewer
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+  @@map("project_members")
+}
+
+// ============================================
+// AGENTS (Remote Test Runners)
+// ============================================
+
+model Agent {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  name       String
+  tokenHash  String    @map("token_hash")
+  status     String    @default("offline") // online, offline, busy
+  lastSeenAt DateTime? @map("last_seen_at")
+  systemInfo String?   @map("system_info")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("agents")
+}
+
+// ============================================
+// EXECUTION HISTORY (Shared for Analytics)
+// ============================================
+
+model Execution {
+  id         String    @id @default(uuid())
+  projectId  String    @map("project_id") // Reference to project (not FK since project DB is separate)
+  testFlowId String?   @map("test_flow_id")
+  testName   String?   @map("test_name")
+  status     String    // pending, running, passed, failed, cancelled
+  exitCode   Int?      @map("exit_code")
+  target     String    // local, remote
+  agentId    String?   @map("agent_id")
+  startedAt  DateTime? @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  duration   Int?      // milliseconds
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  logs  ExecutionLog[]
+  steps ExecutionStep[]
+
+  @@index([projectId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("executions")
+}
+
+model ExecutionLog {
+  id          String    @id @default(uuid())
+  executionId String    @map("execution_id")
+  message     String
+  level       String    // info, warn, error
+  timestamp   DateTime  @default(now())
+
+  execution Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId])
+  @@map("execution_logs")
+}
+
+model ExecutionStep {
+  id           String    @id @default(uuid())
+  executionId  String    @map("execution_id")
+  stepNumber   Int       @map("step_number")
+  action       String
+  description  String?
+  selector     String?
+  selectorName String?   @map("selector_name")
+  value        String?
+  url          String?
+  status       String    @default("pending")
+  duration     Int?
+  error        String?
+  screenshot   String?
+  startedAt    DateTime? @map("started_at")
+  finishedAt   DateTime? @map("finished_at")
+
+  execution Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId])
+  @@map("execution_steps")
+}
+
+// ============================================
+// SCHEDULES (Shared - references projects)
+// ============================================
+
+model Schedule {
+  id                 String        @id @default(uuid())
+  userId             String        @map("user_id")
+  projectId          String        @map("project_id") // Reference to project
+  name               String
+  description        String?
+  cronExpression     String        @map("cron_expression")
+  timezone           String        @default("UTC")
+  testSelector       String        @default("{}") @map("test_selector")
+  notificationConfig String?       @map("notification_config")
+  isActive           Boolean       @default(true) @map("is_active")
+  webhookToken       String?       @unique @map("webhook_token")
+  nextRunAt          DateTime?     @map("next_run_at")
+  lastRunAt          DateTime?     @map("last_run_at")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+
+  runs ScheduleRun[]
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([isActive])
+  @@map("schedules")
+}
+
+model ScheduleRun {
+  id            String    @id @default(uuid())
+  scheduleId    String    @map("schedule_id")
+  triggerType   String    @default("scheduled") @map("trigger_type")
+  status        String    @default("pending")
+  testCount     Int       @default(0) @map("test_count")
+  passedCount   Int       @default(0) @map("passed_count")
+  failedCount   Int       @default(0) @map("failed_count")
+  skippedCount  Int       @default(0) @map("skipped_count")
+  durationMs    Int?      @map("duration_ms")
+  artifactsPath String?   @map("artifacts_path")
+  errorMessage  String?   @map("error_message")
+  startedAt     DateTime? @map("started_at")
+  completedAt   DateTime? @map("completed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleId])
+  @@index([status])
+  @@map("schedule_runs")
+}

@@ -1,0 +1,43 @@
+# Test: Empty Constructs
+# Category: Edge Cases - Empty
+
+# Empty page
+page EmptyPage {}
+
+# Empty feature
+feature EmptyFeature {}
+
+# Empty scenario
+feature FeatureWithEmpty {
+    scenario "Empty scenario" {}
+}
+
+# Empty hooks
+feature HooksEmpty {
+    before each {}
+    after each {}
+    before all {}
+    after all {}
+
+    scenario "Test" {
+        log "test"
+    }
+}
+
+# Empty action
+page PageWithEmptyAction {
+    emptyAction {}
+}
+
+# Empty control flow
+feature EmptyControlFlow {
+    scenario "Empty bodies" {
+        if element is visible {}
+
+        repeat 5 times {}
+
+        if element is visible {
+        } else {
+        }
+    }
+}

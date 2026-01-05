@@ -1,0 +1,13 @@
+# Test: After Each Hook
+# Category: Features - Hooks
+
+feature AfterEachHook {
+    after each {
+        take screenshot "final-state"
+        log "Test completed"
+    }
+
+    scenario "Test with cleanup" {
+        log "Running test"
+    }
+}

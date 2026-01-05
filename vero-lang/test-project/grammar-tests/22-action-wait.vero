@@ -1,0 +1,31 @@
+# Test: Wait Action Variations
+# Category: Actions - Wait
+
+page WaitPage {
+    field loader = ".loading-spinner"
+    field content = ".main-content"
+}
+
+feature WaitActions {
+    use WaitPage
+
+    scenario "Wait variations" {
+        # Wait with seconds
+        wait 1 seconds
+        wait 2 seconds
+        wait 5 seconds
+
+        # Wait with milliseconds
+        wait 100 milliseconds
+        wait 500 milliseconds
+        wait 1500 milliseconds
+
+        # Wait with decimal
+        wait 1.5 seconds
+        wait 0.5 seconds
+
+        # Wait for element
+        wait for "content"
+        wait for WaitPage.loader
+    }
+}

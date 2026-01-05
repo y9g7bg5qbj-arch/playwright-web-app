@@ -1,0 +1,15 @@
+# Test: Flag Variable Declarations
+# Category: Variables - Flag
+
+feature FlagVariables {
+    scenario "Flag variable variations" {
+        # Boolean as string
+        flag isEnabled = "true"
+        flag isDisabled = "false"
+
+        # Use in conditions (via string comparison)
+        if isEnabled == "true" {
+            log "Feature is enabled"
+        }
+    }
+}

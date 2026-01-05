@@ -1,0 +1,14 @@
+# Test: Page with Action Definition
+# Category: Page Objects - Actions
+
+page PageWithAction {
+    field emailInput = "Email"
+    field passwordInput = "Password"
+    field submitBtn = "Submit"
+
+    login with email, password {
+        fill emailInput with email
+        fill passwordInput with password
+        click submitBtn
+    }
+}

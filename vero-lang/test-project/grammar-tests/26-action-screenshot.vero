@@ -1,0 +1,14 @@
+# Test: Screenshot Action Variations
+# Category: Actions - Screenshot
+
+feature ScreenshotActions {
+    scenario "Screenshot variations" {
+        # Screenshot without name
+        take screenshot
+
+        # Screenshot with name
+        take screenshot "login-page"
+        take screenshot "error-state"
+        take screenshot "final-result"
+    }
+}

@@ -1,0 +1,11 @@
+PAGE LoginPage {
+    FIELD emailInput = TEXTBOX "Email"
+    FIELD passwordInput = TEXTBOX "Password"
+    FIELD submitBtn = BUTTON "Sign In"
+    
+    login WITH email, password {
+        FILL emailInput WITH email
+        FILL passwordInput WITH password
+        CLICK submitBtn
+    }
+}

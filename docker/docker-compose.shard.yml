@@ -1,0 +1,221 @@
+# Vero Test Automation - Shard Configuration Overlay
+#
+# Use this overlay for explicit shard configuration with VNC access.
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.shard.yml up -d
+#
+# This provides:
+#   - Fixed number of named shards with dedicated VNC ports
+#   - Individual shard monitoring and control
+#   - Report merging after completion
+#
+version: '3.8'
+
+services:
+  # Override default worker (disable scaling)
+  worker:
+    deploy:
+      replicas: 0
+
+  # Shard 1 - Dedicated worker with VNC access
+  shard-1:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: vero-shard-1
+    environment:
+      - WORKER_ID=shard-1
+      - WORKER_NAME=Shard 1
+      - SHARD_INDEX=1
+      - TOTAL_SHARDS=4
+      - COORDINATOR_URL=http://coordinator:3001
+      - REDIS_URL=redis://redis:6379
+      - WORKER_MAX_CONCURRENT=2
+      - WORKER_BROWSERS=chromium,firefox
+      - DISPLAY=:99
+      - SCREEN_WIDTH=1280
+      - SCREEN_HEIGHT=720
+      - VNC_ENABLED=true
+    ports:
+      - "6081:6080"  # noVNC web interface
+      - "5901:5900"  # VNC direct
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    networks:
+      - vero-network
+    volumes:
+      - shard1-traces:/app/traces
+      - shard1-screenshots:/app/screenshots
+      - shard1-reports:/app/blob-report
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Shard 2 - Dedicated worker with VNC access
+  shard-2:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: vero-shard-2
+    environment:
+      - WORKER_ID=shard-2
+      - WORKER_NAME=Shard 2
+      - SHARD_INDEX=2
+      - TOTAL_SHARDS=4
+      - COORDINATOR_URL=http://coordinator:3001
+      - REDIS_URL=redis://redis:6379
+      - WORKER_MAX_CONCURRENT=2
+      - WORKER_BROWSERS=chromium,webkit
+      - DISPLAY=:99
+      - SCREEN_WIDTH=1280
+      - SCREEN_HEIGHT=720
+      - VNC_ENABLED=true
+    ports:
+      - "6082:6080"
+      - "5902:5900"
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    networks:
+      - vero-network
+    volumes:
+      - shard2-traces:/app/traces
+      - shard2-screenshots:/app/screenshots
+      - shard2-reports:/app/blob-report
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Shard 3 - Dedicated worker with VNC access
+  shard-3:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: vero-shard-3
+    environment:
+      - WORKER_ID=shard-3
+      - WORKER_NAME=Shard 3
+      - SHARD_INDEX=3
+      - TOTAL_SHARDS=4
+      - COORDINATOR_URL=http://coordinator:3001
+      - REDIS_URL=redis://redis:6379
+      - WORKER_MAX_CONCURRENT=2
+      - WORKER_BROWSERS=chromium
+      - DISPLAY=:99
+      - SCREEN_WIDTH=1280
+      - SCREEN_HEIGHT=720
+      - VNC_ENABLED=true
+    ports:
+      - "6083:6080"
+      - "5903:5900"
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    networks:
+      - vero-network
+    volumes:
+      - shard3-traces:/app/traces
+      - shard3-screenshots:/app/screenshots
+      - shard3-reports:/app/blob-report
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Shard 4 - Dedicated worker with VNC access
+  shard-4:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: vero-shard-4
+    environment:
+      - WORKER_ID=shard-4
+      - WORKER_NAME=Shard 4
+      - SHARD_INDEX=4
+      - TOTAL_SHARDS=4
+      - COORDINATOR_URL=http://coordinator:3001
+      - REDIS_URL=redis://redis:6379
+      - WORKER_MAX_CONCURRENT=2
+      - WORKER_BROWSERS=firefox,webkit
+      - DISPLAY=:99
+      - SCREEN_WIDTH=1280
+      - SCREEN_HEIGHT=720
+      - VNC_ENABLED=true
+    ports:
+      - "6084:6080"
+      - "5904:5900"
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    networks:
+      - vero-network
+    volumes:
+      - shard4-traces:/app/traces
+      - shard4-screenshots:/app/screenshots
+      - shard4-reports:/app/blob-report
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Report Merger - Combines reports from all shards
+  report-merger:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: vero-report-merger
+    profiles:
+      - merge
+    depends_on:
+      - shard-1
+      - shard-2
+      - shard-3
+      - shard-4
+    networks:
+      - vero-network
+    volumes:
+      - shard1-reports:/reports/shard1:ro
+      - shard2-reports:/reports/shard2:ro
+      - shard3-reports:/reports/shard3:ro
+      - shard4-reports:/reports/shard4:ro
+      - merged-reports:/app/merged-report
+    command: >
+      sh -c "
+        echo 'Collecting blob reports from all shards...' &&
+        mkdir -p /app/all-reports &&
+        cp /reports/shard1/*.zip /app/all-reports/shard1.zip 2>/dev/null || true &&
+        cp /reports/shard2/*.zip /app/all-reports/shard2.zip 2>/dev/null || true &&
+        cp /reports/shard3/*.zip /app/all-reports/shard3.zip 2>/dev/null || true &&
+        cp /reports/shard4/*.zip /app/all-reports/shard4.zip 2>/dev/null || true &&
+        echo 'Merging reports...' &&
+        npx playwright merge-reports --reporter=html /app/all-reports &&
+        cp -r playwright-report/* /app/merged-report/ &&
+        echo 'Merged report saved to merged-report/index.html'
+      "
+
+volumes:
+  shard1-traces:
+  shard1-screenshots:
+  shard1-reports:
+  shard2-traces:
+  shard2-screenshots:
+  shard2-reports:
+  shard3-traces:
+  shard3-screenshots:
+  shard3-reports:
+  shard4-traces:
+  shard4-screenshots:
+  shard4-reports:
+  merged-reports:

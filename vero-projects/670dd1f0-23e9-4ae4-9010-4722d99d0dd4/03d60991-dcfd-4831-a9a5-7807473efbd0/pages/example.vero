@@ -1,0 +1,17 @@
+# Example Page Object
+# Define page elements and actions here
+
+page LoginPage
+  url "/login"
+
+  elements:
+    usernameInput: input[name="username"]
+    passwordInput: input[name="password"]
+    submitButton: button[type="submit"]
+
+  actions:
+    login(username, password):
+      fill usernameInput with username
+      fill passwordInput with password
+      click submitButton
+end

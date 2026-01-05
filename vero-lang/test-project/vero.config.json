@@ -1,0 +1,9 @@
+{
+  "baseUrl": "http://localhost:3000",
+  "outputDir": "generated",
+  "playwright": {
+    "browser": "chromium",
+    "headless": true,
+    "workers": "50%"
+  }
+}

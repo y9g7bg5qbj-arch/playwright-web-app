@@ -1,0 +1,26 @@
+# Test: Fill Action Variations
+# Category: Actions - Fill
+
+page FillTestPage {
+    field emailInput = "Email"
+    field passwordInput = "Password"
+}
+
+feature FillActions {
+    use FillTestPage
+
+    scenario "Fill variations" {
+        # Fill with string value
+        fill "email" with "test@example.com"
+
+        # Fill with number
+        fill "quantity" with 5
+
+        # Fill with page field
+        fill FillTestPage.emailInput with "user@example.com"
+
+        # Fill with variable
+        text email = "dynamic@example.com"
+        fill emailInput with email
+    }
+}

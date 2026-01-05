@@ -1,0 +1,13 @@
+# newTest Feature
+
+feature newTest {
+    use ExamplePage
+    
+    before each {
+        open "https://example.com"
+    }
+    
+    scenario "Example test" @smoke {
+        verify "Example" is visible
+    }
+}

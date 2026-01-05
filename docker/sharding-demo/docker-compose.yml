@@ -1,0 +1,51 @@
+# Docker Compose for Playwright Sharding Demo
+# Run with: docker-compose up --build
+
+version: '3.8'
+
+services:
+  # Coordinator service - merges results from all shards
+  coordinator:
+    build: .
+    volumes:
+      - ./blob-reports:/app/blob-report
+      - ./merged-report:/app/merged-report
+    depends_on:
+      shard-1:
+        condition: service_completed_successfully
+      shard-2:
+        condition: service_completed_successfully
+    command: >
+      sh -c "
+        echo '📊 Merging reports from all shards...' &&
+        npx playwright merge-reports --reporter=html ./blob-report &&
+        mv playwright-report/* merged-report/ &&
+        echo '✅ Reports merged! Open merged-report/index.html to view.'
+      "
+
+  # Shard 1 - runs first half of tests
+  shard-1:
+    build: .
+    environment:
+      - SHARD=1/2
+    volumes:
+      - ./blob-reports:/app/blob-report
+    command: npx playwright test --shard=1/2 --reporter=blob
+
+  # Shard 2 - runs second half of tests
+  shard-2:
+    build: .
+    environment:
+      - SHARD=2/2
+    volumes:
+      - ./blob-reports:/app/blob-report
+    command: npx playwright test --shard=2/2 --reporter=blob
+
+# To scale to more shards, add more services:
+# shard-3:
+#   build: .
+#   environment:
+#     - SHARD=3/4
+#   volumes:
+#     - ./blob-reports:/app/blob-report
+#   command: npx playwright test --shard=3/4 --reporter=blob

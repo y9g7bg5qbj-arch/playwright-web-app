@@ -1,0 +1,81 @@
+# E-Commerce Shopping Flow
+
+page ProductPage {
+    field productTitle = testId "product-title"
+    field productPrice = testId "product-price"
+    field quantityInput = textbox "Quantity"
+    field addToCartBtn = button "Add to Cart"
+    field wishlistBtn = button "Add to Wishlist"
+    field reviewsSection = testId "reviews"
+    field ratingStars = testId "rating"
+    field cartBadge = testId "cart-count"
+    
+    addToCart {
+        click addToCartBtn
+    }
+    
+    addToCartWithQuantity with quantity {
+        fill quantityInput with quantity
+        click addToCartBtn
+    }
+    
+    addToWishlist {
+        click wishlistBtn
+    }
+}
+
+page CartPage {
+    field cartItems = testId "cart-items"
+    field cartTotal = testId "cart-total"
+    field checkoutBtn = button "Proceed to Checkout"
+    field emptyCartMessage = testId "empty-cart"
+    field removeItemBtn = button "Remove"
+    field updateQuantityInput = textbox "Qty"
+    field applyPromoInput = placeholder "Promo code"
+    field applyPromoBtn = button "Apply"
+    field promoSuccessMsg = testId "promo-success"
+    field promoErrorMsg = testId "promo-error"
+    
+    proceedToCheckout {
+        click checkoutBtn
+    }
+    
+    removeFirstItem {
+        click removeItemBtn
+    }
+    
+    applyPromoCode with code {
+        fill applyPromoInput with code
+        click applyPromoBtn
+    }
+}
+
+page CheckoutPage {
+    field emailInput = textbox "Email"
+    field addressInput = textbox "Address"
+    field cityInput = textbox "City"
+    field zipInput = textbox "ZIP Code"
+    field cardNumberInput = placeholder "Card number"
+    field expiryInput = placeholder "MM/YY"
+    field cvvInput = placeholder "CVV"
+    field placeOrderBtn = button "Place Order"
+    field orderConfirmation = testId "order-confirmation"
+    field orderNumber = testId "order-number"
+    
+    fillShippingInfo with email, address, city, zip {
+        fill emailInput with email
+        fill addressInput with address
+        fill cityInput with city
+        fill zipInput with zip
+    }
+    
+    fillPaymentInfo with cardNumber, expiry, cvv {
+        fill cardNumberInput with cardNumber
+        fill expiryInput with expiry
+        fill cvvInput with cvv
+    }
+    
+    placeOrder {
+        click placeOrderBtn
+    }
+}

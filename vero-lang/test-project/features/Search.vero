@@ -1,0 +1,24 @@
+# Google Search Feature
+
+FEATURE Search {
+    USE SearchHomePage
+    
+    BEFORE EACH {
+        OPEN "https://www.google.com"
+    }
+    
+    SCENARIO "User can search for pen" @smoke {
+        FILL SearchHomePage.searchInput WITH "pen"
+        PRESS "Enter"
+        WAIT 2 SECONDS
+        VERIFY SearchHomePage.searchResults IS VISIBLE
+    }
+    
+    SCENARIO "Search using action" @smoke {
+        DO SearchHomePage.searchFor WITH "pen"
+        WAIT 2 SECONDS
+        VERIFY SearchHomePage.searchResults IS VISIBLE
+    }
+
+    
+}

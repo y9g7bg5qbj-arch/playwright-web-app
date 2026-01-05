@@ -1,0 +1,52 @@
+# Vero Test Coordinator Container
+#
+# This container manages test distribution and worker coordination.
+#
+# Features:
+#   - Worker registration and health monitoring
+#   - Test distribution with multiple sharding strategies
+#   - Result aggregation and report generation
+#   - WebSocket real-time updates
+#
+FROM node:20-slim
+
+# Install utilities
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Copy coordinator package files
+COPY docker/coordinator/package*.json ./
+RUN npm install
+
+# Copy coordinator source code
+COPY docker/coordinator/src ./src
+COPY docker/coordinator/tsconfig.json ./
+
+# Build TypeScript
+RUN npm run build 2>/dev/null || echo "No build step required"
+
+# Create directories
+RUN mkdir -p /app/data /app/reports /app/logs
+
+# Environment variables
+ENV NODE_ENV=production
+ENV PORT=3001
+ENV LOG_LEVEL=info
+
+# Copy entrypoint script
+COPY docker/coordinator/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Expose port
+EXPOSE 3001
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --start-period=5s \
+    CMD curl -f http://localhost:3001/health || exit 1
+
+ENTRYPOINT ["/entrypoint.sh"]

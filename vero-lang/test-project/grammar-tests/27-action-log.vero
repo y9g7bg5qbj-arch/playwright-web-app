@@ -1,0 +1,18 @@
+# Test: Log Action Variations
+# Category: Actions - Log
+
+feature LogActions {
+    scenario "Log variations" {
+        # Log with string
+        log "Starting test"
+        log "Step 1 complete"
+
+        # Log with variable
+        text message = "Dynamic message"
+        log message
+
+        # Log with number
+        number count = 42
+        log count
+    }
+}

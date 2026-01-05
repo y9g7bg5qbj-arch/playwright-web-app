@@ -1,0 +1,14 @@
+# AmazonSearch Page Object
+
+page AmazonPage {
+    field searchBox = "#twotabsearchtextbox"
+    field searchButton = "#nav-search-submit-button"
+    field searchResults = "[data-component-type='s-search-result']"
+    field resultTitle = "h2 a span"
+    
+    search with term {
+        fill searchBox with term
+        click searchButton
+        wait 2 seconds
+    }
+}

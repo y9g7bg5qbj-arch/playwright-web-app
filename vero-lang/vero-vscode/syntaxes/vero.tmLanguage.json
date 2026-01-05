@@ -1,0 +1,110 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "Vero",
+    "scopeName": "source.vero",
+    "patterns": [
+        {
+            "include": "#comments"
+        },
+        {
+            "include": "#strings"
+        },
+        {
+            "include": "#keywords"
+        },
+        {
+            "include": "#selectors"
+        },
+        {
+            "include": "#actions"
+        },
+        {
+            "include": "#assertions"
+        },
+        {
+            "include": "#types"
+        },
+        {
+            "include": "#tags"
+        },
+        {
+            "include": "#numbers"
+        },
+        {
+            "include": "#identifiers"
+        }
+    ],
+    "repository": {
+        "comments": {
+            "name": "comment.line.number-sign.vero",
+            "match": "#.*$"
+        },
+        "strings": {
+            "name": "string.quoted.double.vero",
+            "begin": "\"",
+            "end": "\"",
+            "patterns": [
+                {
+                    "name": "constant.character.escape.vero",
+                    "match": "\\\\."
+                }
+            ]
+        },
+        "keywords": {
+            "patterns": [
+                {
+                    "name": "keyword.control.structure.vero",
+                    "match": "\\b(PAGE|FEATURE|SCENARIO|FIELD|USE)\\b"
+                },
+                {
+                    "name": "keyword.control.hook.vero",
+                    "match": "\\b(BEFORE|AFTER|ALL|EACH)\\b"
+                },
+                {
+                    "name": "keyword.control.flow.vero",
+                    "match": "\\b(IF|ELSE|REPEAT|TIMES)\\b"
+                },
+                {
+                    "name": "keyword.operator.vero",
+                    "match": "\\b(WITH|AND|FROM|TO|IN|RETURNS|RETURN)\\b"
+                }
+            ]
+        },
+        "selectors": {
+            "name": "support.type.selector.vero",
+            "match": "\\b(BUTTON|TEXTBOX|LINK|TESTID|ROLE|LABEL|PLACEHOLDER)\\b"
+        },
+        "actions": {
+            "name": "entity.name.function.action.vero",
+            "match": "\\b(CLICK|FILL|OPEN|CHECK|UNCHECK|SELECT|HOVER|PRESS|SCROLL|WAIT|DO|REFRESH|CLEAR|TAKE|SCREENSHOT|LOG)\\b"
+        },
+        "assertions": {
+            "patterns": [
+                {
+                    "name": "keyword.other.assertion.vero",
+                    "match": "\\b(VERIFY)\\b"
+                },
+                {
+                    "name": "constant.language.condition.vero",
+                    "match": "\\b(IS|NOT|VISIBLE|HIDDEN|ENABLED|DISABLED|CHECKED|CONTAINS|EMPTY)\\b"
+                }
+            ]
+        },
+        "types": {
+            "name": "storage.type.vero",
+            "match": "\\b(TEXT|NUMBER|FLAG|LIST|SECONDS|MILLISECONDS)\\b"
+        },
+        "tags": {
+            "name": "entity.name.tag.vero",
+            "match": "@[a-zA-Z][a-zA-Z0-9]*"
+        },
+        "numbers": {
+            "name": "constant.numeric.vero",
+            "match": "\\b[0-9]+(\\.[0-9]+)?\\b"
+        },
+        "identifiers": {
+            "name": "variable.other.vero",
+            "match": "\\b[A-Z][a-zA-Z0-9]*\\.[a-zA-Z][a-zA-Z0-9]*\\b"
+        }
+    }
+}

@@ -1,0 +1,472 @@
+import { Router } from 'express';
+import { body, param } from 'express-validator';
+import { RunConfigurationService } from '../services/runConfiguration.service';
+import { validate } from '../middleware/validate';
+import { authenticateToken, AuthRequest } from '../middleware/auth';
+
+const router = Router();
+const service = new RunConfigurationService();
+
+// All routes require authentication
+router.use(authenticateToken);
+
+// ============================================
+// RUN CONFIGURATIONS
+// ============================================
+
+// GET /api/workflows/:workflowId/run-configurations
+router.get(
+  '/workflows/:workflowId/run-configurations',
+  validate([param('workflowId').isUUID().withMessage('Invalid workflow ID')]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const configs = await service.findAllConfigurations(req.userId!, req.params.workflowId);
+      res.json({ success: true, data: configs });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// GET /api/run-configurations/:id
+router.get(
+  '/run-configurations/:id',
+  validate([param('id').isUUID().withMessage('Invalid configuration ID')]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const config = await service.findConfigurationById(req.userId!, req.params.id);
+      res.json({ success: true, data: config });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// POST /api/workflows/:workflowId/run-configurations
+router.post(
+  '/workflows/:workflowId/run-configurations',
+  validate([
+    param('workflowId').isUUID().withMessage('Invalid workflow ID'),
+    body('name').isString().trim().notEmpty().withMessage('Name is required'),
+    body('description').optional().isString(),
+    body('isDefault').optional().isBoolean(),
+    body('tags').optional().isArray(),
+    body('tagMode').optional().isIn(['any', 'all']),
+    body('excludeTags').optional().isArray(),
+    body('testFlowIds').optional().isArray(),
+    body('environmentId').optional().isUUID(),
+    body('target').optional().isIn(['local', 'docker', 'github-actions']),
+    body('remoteRunnerId').optional().isUUID(),
+    body('browser').optional().isIn(['chromium', 'firefox', 'webkit']),
+    body('headless').optional().isBoolean(),
+    body('viewport').optional().isObject(),
+    body('workers').optional().isInt({ min: 1, max: 32 }),
+    body('shardCount').optional().isInt({ min: 1, max: 16 }),
+    body('retries').optional().isInt({ min: 0, max: 10 }),
+    body('timeout').optional().isInt({ min: 1000, max: 600000 }),
+    body('tracing').optional().isIn(['on', 'off', 'on-failure']),
+    body('screenshot').optional().isIn(['on', 'off', 'on-failure']),
+    body('video').optional().isIn(['on', 'off', 'on-failure']),
+  ]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const config = await service.createConfiguration(
+        req.userId!,
+        req.params.workflowId,
+        req.body
+      );
+      res.status(201).json({ success: true, data: config });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// PUT /api/run-configurations/:id
+router.put(
+  '/run-configurations/:id',
+  validate([
+    param('id').isUUID().withMessage('Invalid configuration ID'),
+    body('name').optional().isString().trim().notEmpty(),
+    body('description').optional().isString(),
+    body('isDefault').optional().isBoolean(),
+    body('tags').optional().isArray(),
+    body('tagMode').optional().isIn(['any', 'all']),
+    body('excludeTags').optional().isArray(),
+    body('testFlowIds').optional().isArray(),
+    body('environmentId').optional({ values: 'null' }).isUUID(),
+    body('target').optional().isIn(['local', 'docker', 'github-actions']),
+    body('remoteRunnerId').optional({ values: 'null' }).isUUID(),
+    body('browser').optional().isIn(['chromium', 'firefox', 'webkit']),
+    body('headless').optional().isBoolean(),
+    body('viewport').optional().isObject(),
+    body('workers').optional().isInt({ min: 1, max: 32 }),
+    body('shardCount').optional().isInt({ min: 1, max: 16 }),
+    body('retries').optional().isInt({ min: 0, max: 10 }),
+    body('timeout').optional().isInt({ min: 1000, max: 600000 }),
+    body('tracing').optional().isIn(['on', 'off', 'on-failure']),
+    body('screenshot').optional().isIn(['on', 'off', 'on-failure']),
+    body('video').optional().isIn(['on', 'off', 'on-failure']),
+  ]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const config = await service.updateConfiguration(req.userId!, req.params.id, req.body);
+      res.json({ success: true, data: config });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// DELETE /api/run-configurations/:id
+router.delete(
+  '/run-configurations/:id',
+  validate([param('id').isUUID().withMessage('Invalid configuration ID')]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      await service.deleteConfiguration(req.userId!, req.params.id);
+      res.json({ success: true, data: null });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// POST /api/run-configurations/:id/duplicate
+router.post(
+  '/run-configurations/:id/duplicate',
+  validate([
+    param('id').isUUID().withMessage('Invalid configuration ID'),
+    body('name').isString().trim().notEmpty().withMessage('Name is required'),
+  ]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const config = await service.duplicateConfiguration(
+        req.userId!,
+        req.params.id,
+        req.body.name
+      );
+      res.status(201).json({ success: true, data: config });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ============================================
+// EXECUTION ENVIRONMENTS
+// ============================================
+
+// GET /api/workflows/:workflowId/environments
+router.get(
+  '/workflows/:workflowId/environments',
+  validate([param('workflowId').isUUID().withMessage('Invalid workflow ID')]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const envs = await service.findAllEnvironments(req.userId!, req.params.workflowId);
+      res.json({ success: true, data: envs });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// GET /api/environments/:id
+router.get(
+  '/environments/:id',
+  validate([param('id').isUUID().withMessage('Invalid environment ID')]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const env = await service.findEnvironmentById(req.userId!, req.params.id);
+      res.json({ success: true, data: env });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// POST /api/workflows/:workflowId/environments
+router.post(
+  '/workflows/:workflowId/environments',
+  validate([
+    param('workflowId').isUUID().withMessage('Invalid workflow ID'),
+    body('name').isString().trim().notEmpty().withMessage('Name is required'),
+    body('slug').isString().trim().notEmpty().withMessage('Slug is required'),
+    body('baseUrl').isURL().withMessage('Valid base URL is required'),
+    body('description').optional().isString(),
+    body('variables').optional().isObject(),
+    body('isDefault').optional().isBoolean(),
+  ]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const env = await service.createEnvironment(req.userId!, req.params.workflowId, req.body);
+      res.status(201).json({ success: true, data: env });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// PUT /api/environments/:id
+router.put(
+  '/environments/:id',
+  validate([
+    param('id').isUUID().withMessage('Invalid environment ID'),
+    body('name').optional().isString().trim().notEmpty(),
+    body('slug').optional().isString().trim().notEmpty(),
+    body('baseUrl').optional().isURL(),
+    body('description').optional().isString(),
+    body('variables').optional().isObject(),
+    body('isDefault').optional().isBoolean(),
+  ]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const env = await service.updateEnvironment(req.userId!, req.params.id, req.body);
+      res.json({ success: true, data: env });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// DELETE /api/environments/:id
+router.delete(
+  '/environments/:id',
+  validate([param('id').isUUID().withMessage('Invalid environment ID')]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      await service.deleteEnvironment(req.userId!, req.params.id);
+      res.json({ success: true, data: null });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ============================================
+// REMOTE RUNNERS
+// ============================================
+
+// GET /api/workflows/:workflowId/runners
+router.get(
+  '/workflows/:workflowId/runners',
+  validate([param('workflowId').isUUID().withMessage('Invalid workflow ID')]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const runners = await service.findAllRunners(req.userId!, req.params.workflowId);
+      res.json({ success: true, data: runners });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// GET /api/runners/:id
+router.get(
+  '/runners/:id',
+  validate([param('id').isUUID().withMessage('Invalid runner ID')]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const runner = await service.findRunnerById(req.userId!, req.params.id);
+      res.json({ success: true, data: runner });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// POST /api/workflows/:workflowId/runners
+router.post(
+  '/workflows/:workflowId/runners',
+  validate([
+    param('workflowId').isUUID().withMessage('Invalid workflow ID'),
+    body('name').isString().trim().notEmpty().withMessage('Name is required'),
+    body('host').isString().trim().notEmpty().withMessage('Host is required'),
+    body('port').optional().isInt({ min: 1, max: 65535 }),
+    body('authType').optional().isIn(['ssh-key', 'token', 'basic']),
+    body('credentialId').optional().isUUID(),
+    body('dockerImage').optional().isString(),
+    body('maxWorkers').optional().isInt({ min: 1, max: 32 }),
+  ]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const runner = await service.createRunner(req.userId!, req.params.workflowId, req.body);
+      res.status(201).json({ success: true, data: runner });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// PUT /api/runners/:id
+router.put(
+  '/runners/:id',
+  validate([
+    param('id').isUUID().withMessage('Invalid runner ID'),
+    body('name').optional().isString().trim().notEmpty(),
+    body('host').optional().isString().trim().notEmpty(),
+    body('port').optional().isInt({ min: 1, max: 65535 }),
+    body('authType').optional().isIn(['ssh-key', 'token', 'basic']),
+    body('credentialId').optional({ values: 'null' }).isUUID(),
+    body('dockerImage').optional().isString(),
+    body('maxWorkers').optional().isInt({ min: 1, max: 32 }),
+  ]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const runner = await service.updateRunner(req.userId!, req.params.id, req.body);
+      res.json({ success: true, data: runner });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// DELETE /api/runners/:id
+router.delete(
+  '/runners/:id',
+  validate([param('id').isUUID().withMessage('Invalid runner ID')]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      await service.deleteRunner(req.userId!, req.params.id);
+      res.json({ success: true, data: null });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// POST /api/runners/:id/ping
+router.post(
+  '/runners/:id/ping',
+  validate([param('id').isUUID().withMessage('Invalid runner ID')]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const result = await service.pingRunner(req.userId!, req.params.id);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ============================================
+// STORED CREDENTIALS
+// ============================================
+
+// GET /api/workflows/:workflowId/credentials
+router.get(
+  '/workflows/:workflowId/credentials',
+  validate([param('workflowId').isUUID().withMessage('Invalid workflow ID')]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const credentials = await service.findAllCredentials(req.userId!, req.params.workflowId);
+      res.json({ success: true, data: credentials });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// POST /api/workflows/:workflowId/credentials
+router.post(
+  '/workflows/:workflowId/credentials',
+  validate([
+    param('workflowId').isUUID().withMessage('Invalid workflow ID'),
+    body('name').isString().trim().notEmpty().withMessage('Name is required'),
+    body('type').isIn(['ssh-key', 'token', 'basic', 'docker-registry']).withMessage('Invalid type'),
+    body('value').isString().notEmpty().withMessage('Value is required'),
+  ]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const credential = await service.createCredential(
+        req.userId!,
+        req.params.workflowId,
+        req.body
+      );
+      res.status(201).json({ success: true, data: credential });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// DELETE /api/credentials/:id
+router.delete(
+  '/credentials/:id',
+  validate([param('id').isUUID().withMessage('Invalid credential ID')]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      await service.deleteCredential(req.userId!, req.params.id);
+      res.json({ success: true, data: null });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ============================================
+// TAGS
+// ============================================
+
+// GET /api/workflows/:workflowId/tags
+router.get(
+  '/workflows/:workflowId/tags',
+  validate([param('workflowId').isUUID().withMessage('Invalid workflow ID')]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const tags = await service.getAllTags(req.userId!, req.params.workflowId);
+      res.json({ success: true, data: tags });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// PUT /api/test-flows/:id/tags
+router.put(
+  '/test-flows/:id/tags',
+  validate([
+    param('id').isUUID().withMessage('Invalid test flow ID'),
+    body('tags').isArray().withMessage('Tags must be an array'),
+    body('tags.*').isString().trim().notEmpty().withMessage('Tags must be non-empty strings'),
+  ]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const tags = await service.updateTestFlowTags(req.userId!, req.params.id, req.body.tags);
+      res.json({ success: true, data: tags });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ============================================
+// FILTER TEST FLOWS
+// ============================================
+
+// POST /api/workflows/:workflowId/filter-flows
+router.post(
+  '/workflows/:workflowId/filter-flows',
+  validate([
+    param('workflowId').isUUID().withMessage('Invalid workflow ID'),
+    body('tags').optional().isArray(),
+    body('tagMode').optional().isIn(['any', 'all']),
+    body('excludeTags').optional().isArray(),
+    body('testFlowIds').optional().isArray(),
+  ]),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const flowIds = await service.filterTestFlows(req.userId!, req.params.workflowId, {
+        tags: req.body.tags || [],
+        tagMode: req.body.tagMode || 'any',
+        excludeTags: req.body.excludeTags || [],
+        testFlowIds: req.body.testFlowIds || [],
+      });
+      res.json({ success: true, data: flowIds });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+export { router as runConfigurationRoutes };

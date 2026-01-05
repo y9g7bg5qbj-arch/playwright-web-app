@@ -1,0 +1,224 @@
+// Project Database Schema (Per-Project Isolation)
+// Each project gets its own SQLite database file with this schema
+// NO projectId columns needed - the entire database belongs to one project
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../node_modules/.prisma/project-client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("PROJECT_DATABASE_URL")
+}
+
+// ============================================
+// TEST DATA SHEETS
+// ============================================
+
+model TestDataSheet {
+  id          String        @id @default(uuid())
+  name        String        @unique
+  pageObject  String?       @map("page_object")
+  description String?
+  columns     String        @default("[]") // JSON: [{ name, type, required }]
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  rows TestDataRow[]
+
+  @@map("test_data_sheets")
+}
+
+model TestDataRow {
+  id         String        @id @default(uuid())
+  sheetId    String        @map("sheet_id")
+  scenarioId String        @map("scenario_id") // TC001, TC002, etc.
+  data       String        @default("{}") // JSON: { field: value, ... }
+  enabled    Boolean       @default(true)
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+
+  sheet TestDataSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+
+  @@unique([sheetId, scenarioId])
+  @@index([sheetId])
+  @@index([scenarioId])
+  @@map("test_data_rows")
+}
+
+// ============================================
+// WORKFLOWS & TEST FLOWS
+// ============================================
+
+model Workflow {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  testFlows        TestFlow[]
+  variables        WorkflowVariable[]
+  objectRepository ObjectRepository?
+  dataTables       DataTable[]
+
+  @@map("workflows")
+}
+
+model TestFlow {
+  id         String   @id @default(uuid())
+  workflowId String   @map("workflow_id")
+  name       String
+  code       String?
+  nodes      String?  // JSON: visual graph nodes
+  edges      String?  // JSON: visual graph edges
+  variables  String?  // JSON: flow-level variables
+  dataSource String?  @map("data_source") // JSON: data source config
+  language   String   @default("typescript")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId])
+  @@map("test_flows")
+}
+
+// ============================================
+// VARIABLES
+// ============================================
+
+model WorkflowVariable {
+  id          String   @id @default(uuid())
+  workflowId  String   @map("workflow_id")
+  key         String
+  value       String
+  type        String   @default("string")
+  sensitive   Boolean  @default(false)
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowId, key])
+  @@index([workflowId])
+  @@map("workflow_variables")
+}
+
+model GlobalVariable {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  type        String   @default("string")
+  sensitive   Boolean  @default(false)
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("global_variables")
+}
+
+model Environment {
+  id          String                @id @default(uuid())
+  name        String                @unique
+  description String?
+  isActive    Boolean               @default(false) @map("is_active")
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+
+  variables EnvironmentVariable[]
+
+  @@map("environments")
+}
+
+model EnvironmentVariable {
+  id            String      @id @default(uuid())
+  environmentId String      @map("environment_id")
+  key           String
+  value         String
+  type          String      @default("string")
+  sensitive     Boolean     @default(false)
+  description   String?
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  environment Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  @@unique([environmentId, key])
+  @@index([environmentId])
+  @@map("environment_variables")
+}
+
+// ============================================
+// OBJECT REPOSITORY
+// ============================================
+
+model ObjectRepository {
+  id             String       @id @default(uuid())
+  workflowId     String       @unique @map("workflow_id")
+  name           String       @default("Object Repository")
+  description    String?
+  globalElements String?      @map("global_elements") // JSON
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  workflow Workflow     @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  pages    PageObject[]
+
+  @@map("object_repositories")
+}
+
+model PageObject {
+  id           String           @id @default(uuid())
+  repositoryId String           @map("repository_id")
+  name         String
+  description  String?
+  urlPattern   String?          @map("url_pattern")
+  baseUrl      String?          @map("base_url")
+  elements     String           @default("[]") // JSON
+  order        Int              @default(0)
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  repository ObjectRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@index([repositoryId])
+  @@map("page_objects")
+}
+
+// ============================================
+// DATA TABLES (Legacy - Workflow Scoped)
+// ============================================
+
+model DataTable {
+  id          String    @id @default(uuid())
+  workflowId  String    @map("workflow_id")
+  name        String
+  description String?
+  columns     String    @default("[]") // JSON
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  workflow Workflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  rows     DataRow[]
+
+  @@unique([workflowId, name])
+  @@index([workflowId])
+  @@map("data_tables")
+}
+
+model DataRow {
+  id        String    @id @default(uuid())
+  tableId   String    @map("table_id")
+  data      String    @default("{}") // JSON
+  order     Int       @default(0)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  table DataTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@index([tableId])
+  @@map("data_rows")
+}

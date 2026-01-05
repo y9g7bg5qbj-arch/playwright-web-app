@@ -1,0 +1,69 @@
+# Docker Compose for Playwright Sharding with Live VNC Viewing
+#
+# Run with: docker-compose -f docker/worker-vnc/docker-compose.yml up --build
+#
+# Access live browser views at:
+#   - Shard 1: http://localhost:6081/vnc.html
+#   - Shard 2: http://localhost:6082/vnc.html
+#
+
+services:
+  # Shard 1 - First half of tests
+  shard-1:
+    build:
+      context: ../..
+      dockerfile: docker/worker-vnc/Dockerfile
+    environment:
+      - SHARD=1/2
+      - SCREEN_WIDTH=1280
+      - SCREEN_HEIGHT=720
+    ports:
+      - "6081:6080"  # noVNC web interface
+    volumes:
+      - shard1-reports:/app/blob-report
+      - ./traces/shard1:/app/test-results
+
+  # Shard 2 - Second half of tests
+  shard-2:
+    build:
+      context: ../..
+      dockerfile: docker/worker-vnc/Dockerfile
+    environment:
+      - SHARD=2/2
+      - SCREEN_WIDTH=1280
+      - SCREEN_HEIGHT=720
+    ports:
+      - "6082:6080"  # noVNC web interface
+    volumes:
+      - shard2-reports:/app/blob-report
+      - ./traces/shard2:/app/test-results
+
+  # Report merger - runs after shards complete
+  merge-reports:
+    build:
+      context: ../..
+      dockerfile: docker/worker-vnc/Dockerfile
+    depends_on:
+      shard-1:
+        condition: service_completed_successfully
+      shard-2:
+        condition: service_completed_successfully
+    volumes:
+      - shard1-reports:/reports/shard1:ro
+      - shard2-reports:/reports/shard2:ro
+      - ./merged-report:/app/merged-report
+    command: >
+      sh -c "
+        echo '📊 Collecting blob reports...' &&
+        mkdir -p all-reports merged-report &&
+        cp /reports/shard1/*.zip all-reports/shard1.zip 2>/dev/null || true &&
+        cp /reports/shard2/*.zip all-reports/shard2.zip 2>/dev/null || true &&
+        echo '🔄 Merging reports...' &&
+        npx playwright merge-reports --reporter=html ./all-reports &&
+        cp -r playwright-report/* merged-report/ 2>/dev/null || true &&
+        echo '✅ Merged report saved to merged-report/'
+      "
+
+volumes:
+  shard1-reports:
+  shard2-reports:

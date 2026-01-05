@@ -1,0 +1,28 @@
+# Test: State Assertions
+# Category: Assertions - State
+
+page StatePage {
+    field submitBtn = "Submit"
+    field checkbox = "#agree"
+    field input = "#email"
+}
+
+feature StateAssertions {
+    use StatePage
+
+    scenario "State checks" {
+        # Enabled/Disabled
+        verify "Submit" is enabled
+        verify StatePage.submitBtn is enabled
+        verify "Disabled Button" is disabled
+        verify submitBtn is not disabled
+
+        # Checked
+        verify checkbox is checked
+        verify StatePage.checkbox is not checked
+
+        # Empty
+        verify input is empty
+        verify StatePage.input is not empty
+    }
+}

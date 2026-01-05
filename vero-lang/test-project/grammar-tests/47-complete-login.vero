@@ -1,0 +1,74 @@
+# Test: Complete Login Flow
+# Category: Integration - Login
+
+page LoginPage {
+    field emailInput = "input[type='email']"
+    field passwordInput = "input[type='password']"
+    field submitBtn = "button[type='submit']"
+    field errorMsg = ".error-message"
+    field rememberMe = "#remember"
+
+    login with email, password {
+        fill emailInput with email
+        fill passwordInput with password
+        click submitBtn
+    }
+
+    loginWithRemember with email, password {
+        fill emailInput with email
+        fill passwordInput with password
+        check rememberMe
+        click submitBtn
+    }
+}
+
+page DashboardPage {
+    field header = ".dashboard-header"
+    field welcomeMsg = ".welcome-message"
+    field logoutBtn = "Logout"
+
+    logout {
+        click logoutBtn
+        wait 1 seconds
+    }
+}
+
+feature UserAuthentication {
+    use LoginPage
+    use DashboardPage
+
+    before each {
+        open "/login"
+        wait 1 seconds
+    }
+
+    after each {
+        take screenshot "test-result"
+    }
+
+    scenario "Valid login" @smoke @critical {
+        do LoginPage.login with "admin@example.com", "password123"
+        wait 2 seconds
+        verify DashboardPage.header is visible
+        verify DashboardPage.welcomeMsg is contains "Welcome"
+    }
+
+    scenario "Invalid credentials" @regression {
+        do LoginPage.login with "invalid@example.com", "wrongpassword"
+        verify LoginPage.errorMsg is visible
+        verify LoginPage.errorMsg is contains "Invalid"
+    }
+
+    scenario "Empty credentials" @regression {
+        click LoginPage.submitBtn
+        verify LoginPage.emailInput is empty
+        verify LoginPage.errorMsg is visible
+    }
+
+    scenario "Remember me" @regression {
+        do LoginPage.loginWithRemember with "user@example.com", "password"
+        verify DashboardPage.header is visible
+        do DashboardPage.logout
+        verify LoginPage.emailInput is contains "user@example.com"
+    }
+}
