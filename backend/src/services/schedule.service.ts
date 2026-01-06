@@ -25,6 +25,11 @@ import {
     describeCronExpression as describeCron,
 } from './scheduler/cronParser';
 
+// Import queue and audit services
+import { queueService, QUEUE_NAMES, ScheduleRunJobData } from './queue';
+import { auditService } from './audit.service';
+import { logger } from '../utils/logger';
+
 // =============================================
 // Secure Webhook Token Generation
 // =============================================
@@ -411,8 +416,43 @@ export class ScheduleService {
             },
         });
 
-        // TODO: Dispatch to execution queue (Bull Queue integration)
-        // For now, just return the pending run
+        // Dispatch to execution queue
+        try {
+            const jobData: ScheduleRunJobData = {
+                scheduleId,
+                runId: run.id,
+                userId,
+                triggerType: 'manual',
+                parameterValues: effectiveParams,
+                executionConfig: effectiveConfig,
+            };
+
+            await queueService.addJob(
+                QUEUE_NAMES.SCHEDULE_RUN,
+                `schedule-run-${scheduleId}`,
+                jobData,
+                { priority: 2 } // High priority for manual triggers
+            );
+
+            logger.info(`Schedule run ${run.id} dispatched to queue`);
+
+            // Audit log
+            await auditService.logScheduleAction('triggered', scheduleId, userId, undefined, {
+                runId: run.id,
+                triggerType: 'manual',
+            });
+        } catch (error: any) {
+            logger.error(`Failed to dispatch schedule run to queue:`, error);
+            // Update run status to failed
+            await prisma.scheduleRun.update({
+                where: { id: run.id },
+                data: {
+                    status: 'failed',
+                    errorMessage: `Failed to queue: ${error.message}`,
+                    completedAt: new Date(),
+                },
+            });
+        }
 
         return this.formatRun(run);
     }
@@ -501,10 +541,50 @@ export class ScheduleService {
                 scheduleId: schedule.id,
                 triggerType: 'webhook',
                 status: 'pending',
+                webhookToken,
             },
         });
 
-        // TODO: Dispatch to execution queue
+        // Dispatch to execution queue
+        try {
+            // Parse schedule's execution config
+            const defaultConfig: ScheduleExecutionConfig = schedule.defaultExecutionConfig
+                ? JSON.parse(schedule.defaultExecutionConfig)
+                : {};
+
+            const jobData: ScheduleRunJobData = {
+                scheduleId: schedule.id,
+                runId: run.id,
+                userId: schedule.userId,
+                triggerType: 'webhook',
+                executionConfig: defaultConfig,
+            };
+
+            await queueService.addJob(
+                QUEUE_NAMES.SCHEDULE_RUN,
+                `schedule-run-${schedule.id}`,
+                jobData,
+                { priority: 1 } // Normal priority for webhook triggers
+            );
+
+            logger.info(`Webhook-triggered run ${run.id} dispatched to queue`);
+
+            // Audit log
+            await auditService.logScheduleAction('triggered', schedule.id, undefined, undefined, {
+                runId: run.id,
+                triggerType: 'webhook',
+            });
+        } catch (error: any) {
+            logger.error(`Failed to dispatch webhook run to queue:`, error);
+            await prisma.scheduleRun.update({
+                where: { id: run.id },
+                data: {
+                    status: 'failed',
+                    errorMessage: `Failed to queue: ${error.message}`,
+                    completedAt: new Date(),
+                },
+            });
+        }
 
         return this.formatRun(run);
     }

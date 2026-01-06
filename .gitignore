@@ -53,3 +53,6 @@ executions/
 tmp/
 temp/
 *.tmp
+
+# Auto Claude data directory
+.auto-claude/

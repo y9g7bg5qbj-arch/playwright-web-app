@@ -721,6 +721,51 @@ model StoredCredential {
 }
 
 // ============================================
+// AUDIT LOGGING
+// ============================================
+
+// AuditLog - Track changes to schedules, configurations, and executions
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?  @map("user_id") // Null for system-triggered events
+  entityType  String   @map("entity_type") // "schedule", "execution", "notification", "queue"
+  entityId    String   @map("entity_id") // ID of the affected entity
+  action      String   // "created", "updated", "deleted", "triggered", "paused", "resumed"
+  changes     String?  // JSON: { field: { from: old, to: new } }
+  metadata    String?  // JSON: Additional context (IP, user agent, trigger source)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([entityType])
+  @@index([entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// NotificationHistory - Track sent notifications
+model NotificationHistory {
+  id           String    @id @default(uuid())
+  scheduleId   String?   @map("schedule_id") // Optional: linked schedule
+  runId        String?   @map("run_id") // Optional: linked run
+  type         String    // "email", "slack", "webhook"
+  recipient    String    // Email address, Slack channel, webhook URL
+  subject      String?   // Email subject or notification title
+  content      String    // Notification body/payload
+  status       String    @default("pending") // pending, sent, failed, bounced
+  errorMessage String?   @map("error_message")
+  sentAt       DateTime? @map("sent_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([scheduleId])
+  @@index([runId])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+  @@map("notification_history")
+}
+
+// ============================================
 // GITHUB INTEGRATION
 // ============================================
 

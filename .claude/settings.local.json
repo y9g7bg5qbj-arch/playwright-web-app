@@ -43,7 +43,9 @@
       "Bash(timeout 10s npm run dev:*)",
       "Bash(gtimeout 10s npm run dev:*)",
       "Bash(timeout 15s npm run dev:*)",
-      "Bash(gtimeout 15s npm run dev:*)"
+      "Bash(gtimeout 15s npm run dev:*)",
+      "Bash(wc:*)",
+      "Bash(pgrep:*)"
     ],
     "deny": [],
     "ask": []
