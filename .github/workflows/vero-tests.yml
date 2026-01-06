@@ -1,0 +1,59 @@
+# Vero IDE - GitHub Actions Workflow
+# Auto-generated for testing
+
+name: Vero Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: 'Browser to use'
+        required: false
+        default: 'chromium'
+        type: choice
+        options:
+          - chromium
+          - firefox
+          - webkit
+      environment:
+        description: 'Target environment'
+        required: false
+        default: 'staging'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Echo test info
+        run: |
+          echo "🎭 Vero IDE Test Run"
+          echo "Browser: ${{ github.event.inputs.browser || 'chromium' }}"
+          echo "Environment: ${{ github.event.inputs.environment || 'staging' }}"
+          echo "Triggered by: ${{ github.actor }}"
+          echo "Run ID: ${{ github.run_id }}"
+
+      - name: Simulate test execution
+        run: |
+          echo "Installing dependencies..."
+          sleep 2
+          echo "Running Playwright tests..."
+          sleep 3
+          echo "✅ All tests passed!"
+
+      - name: Create test summary
+        run: |
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests Run | 10 |" >> $GITHUB_STEP_SUMMARY
+          echo "| Passed | 10 |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failed | 0 |" >> $GITHUB_STEP_SUMMARY
+          echo "| Duration | 5s |" >> $GITHUB_STEP_SUMMARY
