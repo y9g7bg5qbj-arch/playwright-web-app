@@ -76,12 +76,20 @@ jobs:
         env:
           CI: true
 
-      - name: Upload test results
+      - name: Upload HTML report
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: playwright-report-shard-${{ matrix.shard }}
           path: tests/playwright-report/
+          retention-days: 7
+
+      - name: Upload JSON results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-shard-${{ matrix.shard }}
+          path: tests/test-results/results.json
           retention-days: 7
 
       - name: Upload traces

@@ -15,9 +15,10 @@ export default defineConfig({
     // Use 2 workers per shard
     workers: 2,
 
-    // Reporter configuration
+    // Reporter configuration - include JSON for CI parsing
     reporter: [
         ['html', { open: 'never' }],
+        ['json', { outputFile: 'test-results/results.json' }],
         ['list'],
     ],
 
