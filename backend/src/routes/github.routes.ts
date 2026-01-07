@@ -11,6 +11,7 @@ import { githubService } from '../services/github.service';
 import { workflowGeneratorService } from '../services/workflowGenerator.service';
 import { auditService } from '../services/audit.service';
 import { logger } from '../utils/logger';
+import { config } from '../config';
 import crypto from 'crypto';
 import type { RunConfiguration } from '@playwright-web-app/shared';
 
@@ -641,6 +642,211 @@ router.get(
   }
 );
 
+/**
+ * GET /api/github/runs/:runId/report
+ * Get parsed test report from a workflow run's artifacts
+ */
+router.get(
+  '/runs/:runId/report',
+  authenticateToken,
+  validate([
+    param('runId').isInt().withMessage('Run ID must be an integer'),
+    query('owner').isString().notEmpty().withMessage('Owner is required'),
+    query('repo').isString().notEmpty().withMessage('Repo is required'),
+  ]),
+  async (req: AuthRequest, res: Response, next) => {
+    try {
+      const { runId } = req.params;
+      const { owner, repo } = req.query;
+      const AdmZip = require('adm-zip');
+
+      logger.info(`[GitHub Report] Fetching report for run ${runId}, owner=${owner}, repo=${repo}`);
+
+      // Get artifacts for this run
+      const artifacts = await githubService.listArtifacts(
+        req.userId!,
+        owner as string,
+        repo as string,
+        parseInt(runId, 10)
+      );
+
+      // Find the JSON results artifact first, then fall back to HTML report
+      // Prioritize test-results (contains JSON) over playwright-report (HTML only)
+      const reportArtifact = artifacts.find((a) => a.name.includes('test-results-shard'))
+        || artifacts.find((a) => a.name.includes('test-results'))
+        || artifacts.find((a) => a.name.includes('playwright-report'));
+
+      logger.info(`[GitHub Report] Found artifacts: ${artifacts.map((a: any) => a.name).join(', ')}`);
+      logger.info(`[GitHub Report] Selected artifact: ${reportArtifact?.name || 'none'}`);
+
+      if (!reportArtifact) {
+        res.json({
+          success: true,
+          data: null,
+          message: 'No report artifact found',
+        });
+        return;
+      }
+
+      // Download the artifact
+      logger.info(`[GitHub Report] Downloading artifact ${reportArtifact.id}: ${reportArtifact.name}`);
+      const buffer = await githubService.downloadArtifact(
+        req.userId!,
+        owner as string,
+        repo as string,
+        reportArtifact.id
+      );
+      logger.info(`[GitHub Report] Downloaded ${buffer.length} bytes`);
+
+      // Extract and parse the report
+      const zip = new AdmZip(buffer);
+      const entries = zip.getEntries();
+      logger.info(`[GitHub Report] ZIP has ${entries.length} entries: ${entries.map((e: any) => e.entryName).join(', ')}`);
+
+      // Look for JSON report files
+      let reportData: any = null;
+      let scenarios: any[] = [];
+
+      for (const entry of entries) {
+        const entryName = entry.entryName.toLowerCase();
+
+        // Playwright JSON report
+        if (entryName.endsWith('.json') && !entry.isDirectory) {
+          try {
+            logger.info(`[GitHub Report] Parsing JSON file: ${entry.entryName}`);
+            const content = entry.getData().toString('utf8');
+            const jsonData = JSON.parse(content);
+
+            // Check if this is a Playwright report
+            if (jsonData.suites || jsonData.stats) {
+              reportData = jsonData;
+              logger.info(`[GitHub Report] Found Playwright report with ${jsonData.suites?.length || 0} suites`);
+
+              // Parse Playwright report format
+              if (jsonData.suites) {
+                scenarios = parsePlaywrightSuites(jsonData.suites);
+              }
+              break;
+            }
+          } catch (parseError) {
+            logger.warn(`[GitHub Report] Failed to parse ${entry.entryName}: ${parseError}`);
+          }
+        }
+      }
+
+      // Calculate summary stats
+      const summary = {
+        total: scenarios.length,
+        passed: scenarios.filter((s) => s.status === 'passed').length,
+        failed: scenarios.filter((s) => s.status === 'failed').length,
+        skipped: scenarios.filter((s) => s.status === 'skipped').length,
+        duration: scenarios.reduce((sum, s) => sum + (s.duration || 0), 0),
+      };
+
+      logger.info(`[GitHub Report] Parsed ${scenarios.length} scenarios: ${summary.passed} passed, ${summary.failed} failed`);
+
+      res.json({
+        success: true,
+        data: {
+          summary,
+          scenarios,
+          raw: reportData,
+        },
+      });
+    } catch (error) {
+      logger.error(`[GitHub Report] Error: ${error}`);
+      next(error);
+    }
+  }
+);
+
+/**
+ * Parse Playwright test suites into our scenario format
+ */
+function parsePlaywrightSuites(suites: any[], parentName = ''): any[] {
+  const scenarios: any[] = [];
+
+  for (const suite of suites) {
+    const suiteName = parentName ? `${parentName} > ${suite.title}` : suite.title;
+
+    // Parse specs (test cases)
+    if (suite.specs) {
+      for (const spec of suite.specs) {
+        const scenario: any = {
+          id: spec.id || `spec-${Math.random().toString(36).substr(2, 9)}`,
+          name: `${suiteName} > ${spec.title}`,
+          status: 'passed',
+          duration: 0,
+          steps: [],
+          error: undefined,
+        };
+
+        // Get results from tests
+        if (spec.tests) {
+          for (const test of spec.tests) {
+            // Get the first result (or retry results)
+            const results = test.results || [];
+            for (const result of results) {
+              scenario.duration += result.duration || 0;
+
+              // Set status based on result
+              if (result.status === 'failed' || result.status === 'timedOut') {
+                scenario.status = 'failed';
+                if (result.error) {
+                  scenario.error = result.error.message || result.error.snippet || String(result.error);
+                }
+              } else if (result.status === 'skipped') {
+                if (scenario.status !== 'failed') {
+                  scenario.status = 'skipped';
+                }
+              }
+
+              // Parse steps
+              if (result.steps) {
+                scenario.steps = result.steps.map((step: any, index: number) => ({
+                  id: `step-${index}`,
+                  stepNumber: index + 1,
+                  action: step.category || 'action',
+                  description: step.title,
+                  status: step.error ? 'failed' : 'passed',
+                  duration: step.duration || 0,
+                  error: step.error?.message,
+                }));
+              }
+
+              // Get attachments (screenshots, traces)
+              if (result.attachments) {
+                scenario.attachments = result.attachments.map((att: any) => ({
+                  name: att.name,
+                  path: att.path,
+                  contentType: att.contentType,
+                }));
+
+                // Check for trace
+                const traceAtt = result.attachments.find(
+                  (a: any) => a.name === 'trace' || a.contentType?.includes('trace')
+                );
+                if (traceAtt) {
+                  scenario.traceUrl = traceAtt.path;
+                }
+              }
+            }
+          }
+        }
+
+        scenarios.push(scenario);
+      }
+    }
+
+    // Recursively parse nested suites
+    if (suite.suites) {
+      scenarios.push(...parsePlaywrightSuites(suite.suites, suiteName));
+    }
+  }
+
+  return scenarios;
+}
+
 // ============================================
 // REPOSITORY CONFIG
 // ============================================
@@ -761,6 +967,248 @@ router.get(
   }
 );
 
+/**
+ * GET /api/github/jobs/:jobId/logs
+ * Get logs for a specific job
+ */
+router.get(
+  '/jobs/:jobId/logs',
+  authenticateToken,
+  validate([
+    param('jobId').isString().notEmpty(),
+    query('owner').isString().notEmpty(),
+    query('repo').isString().notEmpty(),
+  ]),
+  async (req: AuthRequest, res: Response, next) => {
+    try {
+      const { jobId } = req.params;
+      const { owner, repo } = req.query;
+
+      const logs = await githubService.getJobLogs(
+        req.userId!,
+        owner as string,
+        repo as string,
+        parseInt(jobId, 10)
+      );
+
+      res.json({
+        success: true,
+        data: {
+          logs,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * GET /api/github/runs/:runId/logs
+ * Get logs for an entire workflow run
+ */
+router.get(
+  '/runs/:runId/logs',
+  authenticateToken,
+  validate([
+    param('runId').isString().notEmpty(),
+    query('owner').isString().notEmpty(),
+    query('repo').isString().notEmpty(),
+  ]),
+  async (req: AuthRequest, res: Response, next) => {
+    try {
+      const { runId } = req.params;
+      const { owner, repo } = req.query;
+
+      const logs = await githubService.getRunLogs(
+        req.userId!,
+        owner as string,
+        repo as string,
+        parseInt(runId, 10)
+      );
+
+      res.json({
+        success: true,
+        data: {
+          logs,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ============================================
+// ALLURE REPORT
+// ============================================
+
+/**
+ * POST /api/github/runs/:runId/allure/prepare
+ * Download and extract Allure report for static serving
+ */
+router.post(
+  '/runs/:runId/allure/prepare',
+  authenticateToken,
+  validate([
+    param('runId').isInt().withMessage('Run ID must be an integer'),
+    body('owner').isString().notEmpty().withMessage('Owner is required'),
+    body('repo').isString().notEmpty().withMessage('Repo is required'),
+  ]),
+  async (req: AuthRequest, res: Response, next) => {
+    try {
+      const { runId } = req.params;
+      const { owner, repo } = req.body;
+      const AdmZip = require('adm-zip');
+      const fs = require('fs').promises;
+      const path = require('path');
+
+      logger.info(`[Allure] Preparing report for run ${runId}`);
+
+      // Get artifacts for this run
+      const artifacts = await githubService.listArtifacts(
+        req.userId!,
+        owner,
+        repo,
+        parseInt(runId, 10)
+      );
+
+      // Find Allure or Playwright report artifact(s) - fallback to Playwright if Allure not available
+      let reportArtifacts = artifacts.filter((a: any) =>
+        a.name.includes('allure-report') ||
+        a.name.includes('allure-results')
+      );
+
+      // Fallback to Playwright HTML report if no Allure artifacts
+      if (reportArtifacts.length === 0) {
+        reportArtifacts = artifacts.filter((a: any) =>
+          a.name.includes('playwright-report')
+        );
+        logger.info(`[Allure] No Allure artifacts found, falling back to Playwright report`);
+      }
+
+      logger.info(`[Allure] Found ${reportArtifacts.length} report artifacts: ${reportArtifacts.map((a: any) => a.name).join(', ')}`);
+
+      if (reportArtifacts.length === 0) {
+        res.json({
+          success: false,
+          error: 'No report artifact found (neither Allure nor Playwright HTML)',
+          availableArtifacts: artifacts.map((a: any) => a.name),
+        });
+        return;
+      }
+
+      // Use the best report artifact (prefer allure-report-merged, then any allure-report, then playwright-report-merged, then shard)
+      const reportArtifact = reportArtifacts.find((a: any) => a.name === 'allure-report-merged')
+        || reportArtifacts.find((a: any) => a.name.includes('allure-report'))
+        || reportArtifacts.find((a: any) => a.name === 'playwright-report-merged')
+        || reportArtifacts[0];
+
+      // Download the artifact
+      logger.info(`[Allure] Downloading artifact ${reportArtifact.id}: ${reportArtifact.name}`);
+      const buffer = await githubService.downloadArtifact(
+        req.userId!,
+        owner,
+        repo,
+        reportArtifact.id
+      );
+
+      // Create storage directory for this run's Allure report
+      const storageDir = path.resolve(config.storage.path, 'allure-reports', runId.toString());
+      await fs.mkdir(storageDir, { recursive: true });
+
+      // Extract zip to storage directory
+      const zip = new AdmZip(buffer);
+      zip.extractAllTo(storageDir, true);
+
+      logger.info(`[Allure] Extracted report to ${storageDir}`);
+
+      // Check if index.html exists (may be in a subdirectory)
+      let indexPath = path.join(storageDir, 'index.html');
+      try {
+        await fs.access(indexPath);
+      } catch {
+        // Try to find index.html in subdirectories
+        const entries = await fs.readdir(storageDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            const subIndexPath = path.join(storageDir, entry.name, 'index.html');
+            try {
+              await fs.access(subIndexPath);
+              // Move contents up one level
+              const subDir = path.join(storageDir, entry.name);
+              const subEntries = await fs.readdir(subDir);
+              for (const subEntry of subEntries) {
+                await fs.rename(
+                  path.join(subDir, subEntry),
+                  path.join(storageDir, subEntry)
+                );
+              }
+              await fs.rmdir(subDir);
+              break;
+            } catch {
+              continue;
+            }
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        data: {
+          runId,
+          reportUrl: `/allure-reports/${runId}/index.html`,
+          extractedTo: storageDir,
+        },
+      });
+    } catch (error) {
+      logger.error(`[Allure] Error preparing report: ${error}`);
+      next(error);
+    }
+  }
+);
+
+/**
+ * GET /api/github/runs/:runId/allure/status
+ * Check if Allure report is ready for this run
+ */
+router.get(
+  '/runs/:runId/allure/status',
+  authenticateToken,
+  validate([
+    param('runId').isInt().withMessage('Run ID must be an integer'),
+  ]),
+  async (req: AuthRequest, res: Response, next) => {
+    try {
+      const { runId } = req.params;
+      const fs = require('fs').promises;
+      const path = require('path');
+
+      const storageDir = path.resolve(config.storage.path, 'allure-reports', runId.toString());
+      const indexPath = path.join(storageDir, 'index.html');
+
+      let ready = false;
+      try {
+        await fs.access(indexPath);
+        ready = true;
+      } catch {
+        ready = false;
+      }
+
+      res.json({
+        success: true,
+        data: {
+          runId,
+          ready,
+          reportUrl: ready ? `/allure-reports/${runId}/index.html` : null,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 // ============================================
 // GITHUB WEBHOOKS
 // ============================================
@@ -786,10 +1234,15 @@ function verifyGitHubSignature(payload: string, signature: string | undefined): 
     .update(payload)
     .digest('hex')}`;
 
-  return crypto.timingSafeEquals(
-    Buffer.from(signature),
-    Buffer.from(expectedSignature)
-  );
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(signature),
+      Buffer.from(expectedSignature)
+    );
+  } catch {
+    // Buffers have different lengths
+    return false;
+  }
 }
 
 /**
