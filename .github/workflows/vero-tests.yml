@@ -1,20 +1,26 @@
-# Vero IDE - Playwright UI Tests with Sharding
+# Vero IDE - Playwright UI Tests with Sharding and Workers
 name: Vero Tests
 
 on:
   workflow_dispatch:
     inputs:
-      browser:
-        description: Browser to use
+      browsers:
+        description: 'Browsers (comma-separated: chromium,firefox,webkit)'
         required: false
-        default: chromium
+        default: 'chromium'
+        type: string
+      workers:
+        description: 'Parallel browser instances per job'
+        required: false
+        default: '2'
         type: choice
         options:
-          - chromium
-          - firefox
-          - webkit
+          - '1'
+          - '2'
+          - '3'
+          - '4'
       shards:
-        description: Number of parallel shards
+        description: 'Number of parallel jobs'
         required: false
         default: '1'
         type: choice
@@ -26,13 +32,13 @@ on:
 
 jobs:
   test:
-    name: Tests (Shard ${{ matrix.shard }}/${{ github.event.inputs.shards || '1' }})
-    timeout-minutes: 30
+    name: Tests (Shard ${{ matrix.shard }}/${{ inputs.shards || '1' }})
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJson(format('[{0}]', (github.event.inputs.shards == '4' && '1,2,3,4') || (github.event.inputs.shards == '3' && '1,2,3') || (github.event.inputs.shards == '2' && '1,2') || '1')) }}
+        shard: ${{ fromJson(format('[{0}]', (inputs.shards == '4' && '1,2,3,4') || (inputs.shards == '3' && '1,2,3') || (inputs.shards == '2' && '1,2') || '1')) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -48,11 +54,25 @@ jobs:
 
       - name: Install Playwright browsers
         working-directory: ./tests
-        run: npx playwright install --with-deps ${{ github.event.inputs.browser || 'chromium' }}
+        run: |
+          BROWSERS="${{ inputs.browsers || 'chromium' }}"
+          for browser in ${BROWSERS//,/ }; do
+            npx playwright install --with-deps $browser
+          done
 
-      - name: Run Playwright UI tests
+      - name: Run Playwright tests
         working-directory: ./tests
-        run: npx playwright test --shard=${{ matrix.shard }}/${{ github.event.inputs.shards || '1' }}
+        run: |
+          BROWSERS="${{ inputs.browsers || 'chromium' }}"
+          PROJECTS=""
+          for browser in ${BROWSERS//,/ }; do
+            PROJECTS="$PROJECTS --project=$browser"
+          done
+
+          npx playwright test \
+            $PROJECTS \
+            --workers=${{ inputs.workers || '2' }} \
+            --shard=${{ matrix.shard }}/${{ inputs.shards || '1' }}
         env:
           CI: true
 
