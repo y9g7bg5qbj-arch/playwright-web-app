@@ -1,4 +1,4 @@
-# Vero IDE - Playwright UI Tests
+# Vero IDE - Playwright UI Tests with Sharding
 name: Vero Tests
 
 on:
@@ -13,12 +13,26 @@ on:
           - chromium
           - firefox
           - webkit
+      shards:
+        description: Number of parallel shards
+        required: false
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
+          - '4'
 
 jobs:
   test:
-    name: UI Tests
+    name: Tests (Shard ${{ matrix.shard }}/${{ github.event.inputs.shards || '1' }})
     timeout-minutes: 30
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(format('[{0}]', (github.event.inputs.shards == '4' && '1,2,3,4') || (github.event.inputs.shards == '3' && '1,2,3') || (github.event.inputs.shards == '2' && '1,2') || '1')) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -38,7 +52,7 @@ jobs:
 
       - name: Run Playwright UI tests
         working-directory: ./tests
-        run: npx playwright test
+        run: npx playwright test --shard=${{ matrix.shard }}/${{ github.event.inputs.shards || '1' }}
         env:
           CI: true
 
@@ -46,7 +60,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: playwright-report
+          name: playwright-report-shard-${{ matrix.shard }}
           path: tests/playwright-report/
           retention-days: 7
 
@@ -54,7 +68,26 @@ jobs:
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: test-traces
+          name: test-traces-shard-${{ matrix.shard }}
           path: tests/test-results/
           retention-days: 7
 
+  merge-reports:
+    name: Merge Reports
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: playwright-report-*
+          merge-multiple: true
+          path: merged-report
+
+      - name: Upload merged report
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-merged
+          path: merged-report/
+          retention-days: 14
