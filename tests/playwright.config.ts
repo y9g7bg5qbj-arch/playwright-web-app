@@ -15,10 +15,11 @@ export default defineConfig({
     // Use 2 workers per shard
     workers: 2,
 
-    // Reporter configuration - include JSON for CI parsing
+    // Reporter configuration - include JSON and Allure for rich reports
     reporter: [
         ['html', { open: 'never' }],
         ['json', { outputFile: 'test-results/results.json' }],
+        ['allure-playwright', { resultsDir: 'allure-results' }],
         ['list'],
     ],
 
@@ -29,11 +30,11 @@ export default defineConfig({
         // Base URL for Playwright website tests
         baseURL: 'https://playwright.dev',
 
-        // Collect trace on failure
-        trace: 'on-first-retry',
+        // Collect trace for all tests (enables trace viewer in reports)
+        trace: 'retain-on-failure',
 
-        // Take screenshot on failure
-        screenshot: 'only-on-failure',
+        // Take screenshot for all tests
+        screenshot: 'on',
 
         // Headless mode (set to false to watch tests run)
         headless: true,
