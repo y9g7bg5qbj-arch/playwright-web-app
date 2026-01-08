@@ -757,6 +757,9 @@ model RunConfiguration {
   screenshot   String  @default("on-failure") // on, off, on-failure
   video        String  @default("off") // on, off, on-failure, on-first-retry, retain-on-failure
 
+  // Advanced Configuration (JSON: fullyParallel, forbidOnly, maxFailures, reporters, etc.)
+  advancedConfig String? @default("{}") @map("advanced_config")
+
   // GitHub Actions specific
   githubRepository String? @map("github_repository") // "owner/repo"
   githubWorkflowPath String? @map("github_workflow_path") // Path to workflow file

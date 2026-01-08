@@ -128,6 +128,8 @@ export class RunConfigurationService {
         tracing: data.tracing ?? 'on-failure',
         screenshot: data.screenshot ?? 'on-failure',
         video: data.video ?? 'off',
+        // Advanced Config (JSON: fullyParallel, forbidOnly, maxFailures, etc.)
+        advancedConfig: data.advancedConfig ? JSON.stringify(data.advancedConfig) : '{}',
         // GitHub Actions specific
         githubRepository: data.githubRepository,
         githubWorkflowPath: data.githubWorkflowPath,
@@ -196,6 +198,8 @@ export class RunConfigurationService {
     if (data.tracing !== undefined) updateData.tracing = data.tracing;
     if (data.screenshot !== undefined) updateData.screenshot = data.screenshot;
     if (data.video !== undefined) updateData.video = data.video;
+    // Advanced Config
+    if (data.advancedConfig !== undefined) updateData.advancedConfig = data.advancedConfig ? JSON.stringify(data.advancedConfig) : '{}';
     // GitHub Actions specific
     if (data.githubRepository !== undefined) updateData.githubRepository = data.githubRepository;
     if (data.githubWorkflowPath !== undefined) updateData.githubWorkflowPath = data.githubWorkflowPath;
@@ -270,6 +274,8 @@ export class RunConfigurationService {
       tracing: existing.tracing,
       screenshot: existing.screenshot,
       video: existing.video,
+      // Advanced Config
+      advancedConfig: existing.advancedConfig,
       // GitHub Actions specific
       githubRepository: existing.githubRepository,
       githubWorkflowPath: existing.githubWorkflowPath,
@@ -316,6 +322,8 @@ export class RunConfigurationService {
       tracing: config.tracing as ArtifactMode,
       screenshot: config.screenshot as ArtifactMode,
       video: config.video as ArtifactMode,
+      // Advanced Config
+      advancedConfig: config.advancedConfig ? JSON.parse(config.advancedConfig) : undefined,
       // GitHub Actions specific
       githubRepository: config.githubRepository ?? undefined,
       githubWorkflowPath: config.githubWorkflowPath ?? undefined,

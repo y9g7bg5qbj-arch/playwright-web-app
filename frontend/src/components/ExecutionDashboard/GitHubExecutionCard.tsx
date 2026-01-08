@@ -58,6 +58,7 @@ export const GitHubExecutionCard: React.FC<GitHubExecutionCardProps> = ({
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [embeddedReportUrl, setEmbeddedReportUrl] = useState<string | null>(null);
+  const [isReportCollapsed, setIsReportCollapsed] = useState(true); // Collapsed by default
 
   // Format duration from milliseconds
   const formatDuration = (ms?: number) => {
@@ -260,14 +261,26 @@ export const GitHubExecutionCard: React.FC<GitHubExecutionCardProps> = ({
     }
   }, [isExpanded, execution.status]);
 
-  // Check if any scenarios have traces
-  const hasTraces = execution.scenarios?.some(s => s.traceUrl) ?? false;
+  // Check if traces should be available (completed runs have traces)
+  const hasTraces = execution.status === 'completed' && execution.conclusion === 'success';
 
-  // Open trace viewer with first available trace
+  // Open trace viewer - use trace.playwright.dev with the artifact URL
   const handleOpenTraceViewer = () => {
+    // Check if we have a specific trace URL from scenarios
     const traceScenario = execution.scenarios?.find(s => s.traceUrl);
     if (traceScenario?.traceUrl) {
-      window.open(traceScenario.traceUrl, '_blank');
+      // If it's already a full URL, open directly
+      if (traceScenario.traceUrl.startsWith('http')) {
+        window.open(traceScenario.traceUrl, '_blank');
+      } else {
+        // Open in Playwright Trace Viewer
+        window.open(`https://trace.playwright.dev/?trace=${encodeURIComponent(traceScenario.traceUrl)}`, '_blank');
+      }
+      return;
+    }
+    // For completed runs without specific trace URL, link to GitHub run artifacts
+    if (execution.htmlUrl) {
+      window.open(execution.htmlUrl + '#artifacts', '_blank');
     }
   };
 
@@ -503,7 +516,7 @@ export const GitHubExecutionCard: React.FC<GitHubExecutionCardProps> = ({
               </div>
             </div>
 
-            {/* Embedded Report - always visible when available */}
+            {/* Embedded Report - Collapsible */}
             {reportLoading ? (
               <div className="flex items-center justify-center p-8 bg-slate-700/30 rounded-lg">
                 <Loader2 className="w-6 h-6 animate-spin text-blue-400 mr-3" />
@@ -515,18 +528,31 @@ export const GitHubExecutionCard: React.FC<GitHubExecutionCardProps> = ({
               </div>
             ) : embeddedReportUrl ? (
               <div className="border border-slate-600 rounded-lg overflow-hidden bg-white">
-                <div className="flex items-center px-3 py-2 bg-slate-700 border-b border-slate-600">
+                <div
+                  className="flex items-center justify-between px-3 py-2 bg-slate-700 border-b border-slate-600 cursor-pointer hover:bg-slate-600/50 transition-colors"
+                  onClick={() => setIsReportCollapsed(!isReportCollapsed)}
+                >
                   <span className="text-xs text-slate-300 flex items-center gap-2">
+                    {isReportCollapsed ? (
+                      <ChevronRight className="w-3 h-3" />
+                    ) : (
+                      <ChevronDown className="w-3 h-3" />
+                    )}
                     <BarChart2 className="w-3 h-3" />
                     Playwright HTML Report
                   </span>
+                  <span className="text-xs text-slate-400">
+                    {isReportCollapsed ? 'Click to expand' : 'Click to collapse'}
+                  </span>
                 </div>
-                <iframe
-                  src={embeddedReportUrl}
-                  className="w-full"
-                  style={{ height: '600px' }}
-                  title="Test Report"
-                />
+                {!isReportCollapsed && (
+                  <iframe
+                    src={embeddedReportUrl}
+                    className="w-full"
+                    style={{ height: '600px' }}
+                    title="Test Report"
+                  />
+                )}
               </div>
             ) : execution.status !== 'completed' ? (
               <div className="p-4 text-sm text-slate-400 bg-slate-700/30 rounded-lg text-center">
