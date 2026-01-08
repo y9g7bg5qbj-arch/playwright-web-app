@@ -117,6 +117,8 @@ export type {
     ScheduleParameterDefinition,
     ScheduleParameterValues,
     ScheduleExecutionConfig,
+    ScheduleExecutionTarget,
+    ScheduleGitHubActionsConfig,
     ScheduleTriggerRequest,
 } from './types';
 export { SCHEDULE_PRESETS } from './types';

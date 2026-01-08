@@ -25,8 +25,9 @@ import proxyRoutes from './routes/proxy.routes';
 import previewRoutes from './routes/preview.routes';
 import applicationRoutes from './routes/application.routes';
 import { runConfigurationRoutes } from './routes/runConfiguration.routes';
-import dockerRoutes from './routes/docker.routes';
 import { githubRoutes } from './routes/github.routes';
+import copilotRoutes from './routes/copilot.routes';
+import aiSettingsRoutes from './routes/ai-settings.routes';
 
 
 export function createApp() {
@@ -37,6 +38,9 @@ export function createApp() {
     config.cors.origin,
     'https://trace.playwright.dev',
     'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:5175',
+    'http://localhost:5176',
   ];
 
   app.use(cors({
@@ -76,6 +80,17 @@ export function createApp() {
     });
   });
 
+  // Static file serving for Allure reports
+  const path = require('path');
+  const allureReportsPath = path.resolve(config.storage.path, 'allure-reports');
+  app.use('/allure-reports', express.static(allureReportsPath, {
+    setHeaders: (res) => {
+      // Allow embedding in iframes
+      res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+      res.setHeader('Content-Security-Policy', "frame-ancestors 'self' http://localhost:*");
+    }
+  }));
+
   // API Routes
   app.use('/api/auth', authRoutes);
   app.use('/api/workflows', workflowRoutes);
@@ -101,8 +116,9 @@ export function createApp() {
   // Keep /api/projects as alias for backwards compatibility (redirects to applications)
   app.use('/api/projects', applicationRoutes);
   app.use('/api', runConfigurationRoutes);
-  app.use('/api/docker', dockerRoutes);
   app.use('/api/github', githubRoutes);
+  app.use('/api/copilot', copilotRoutes);
+  app.use('/api/ai-settings', aiSettingsRoutes);
 
   // Error handlers (must be last)
   app.use(notFoundHandler);

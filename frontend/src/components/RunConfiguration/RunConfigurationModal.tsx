@@ -14,14 +14,15 @@ import {
   Layers,
   Camera,
   Zap,
-  ChevronRight,
   ChevronDown,
+  ChevronRight,
   RotateCcw,
   Copy,
   Trash2,
   Plus,
-  Container,
-  Server,
+  Github,
+  Cpu,
+  Clock,
 } from 'lucide-react';
 import type {
   RunConfiguration,
@@ -113,8 +114,15 @@ import { ExecutionTargetSelector } from './ExecutionTargetSelector';
 import { ExecutionSettingsModal } from './ExecutionSettingsModal';
 import { BrowserConfigPanel } from './BrowserConfigPanel';
 import { AdvancedOptionsPanel } from './AdvancedOptionsPanel';
+import { useGitHubStore } from '@/store/useGitHubStore';
 
-type TabId = 'tests' | 'environment' | 'target' | 'browser' | 'execution' | 'artifacts' | 'advanced';
+const BROWSERS = [
+  { value: 'chromium', label: 'Chromium', icon: '🌐' },
+  { value: 'firefox', label: 'Firefox', icon: '🦊' },
+  { value: 'webkit', label: 'WebKit', icon: '🧭' },
+];
+
+type TabId = 'tests' | 'environment' | 'execution' | 'artifacts' | 'advanced';
 
 interface Tab {
   id: TabId;
@@ -125,8 +133,6 @@ interface Tab {
 const TABS: Tab[] = [
   { id: 'tests', label: 'Tests', icon: <Tag className="w-4 h-4" /> },
   { id: 'environment', label: 'Environment', icon: <Globe className="w-4 h-4" /> },
-  { id: 'target', label: 'Target', icon: <Server className="w-4 h-4" /> },
-  { id: 'browser', label: 'Browser', icon: <Monitor className="w-4 h-4" /> },
   { id: 'execution', label: 'Execution', icon: <Layers className="w-4 h-4" /> },
   { id: 'artifacts', label: 'Artifacts', icon: <Camera className="w-4 h-4" /> },
   { id: 'advanced', label: 'Advanced', icon: <Settings className="w-4 h-4" /> },
@@ -205,6 +211,10 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
   const [newConfigName, setNewConfigName] = useState('');
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showAdvancedTimeouts, setShowAdvancedTimeouts] = useState(false);
+  const [selectedBrowsers, setSelectedBrowsers] = useState<string[]>(['chromium']);
+
+  // GitHub integration
+  const { integration, isConnected } = useGitHubStore();
 
   // Initialize local config from selected configuration
   useEffect(() => {
@@ -717,121 +727,124 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                   </div>
                 )}
 
-                {/* Target Tab */}
-                {activeTab === 'target' && (
-                  <div className="space-y-6">
-                    <h3 className="text-lg font-medium text-slate-200 mb-4">Execution Target</h3>
-                    <ExecutionTargetSelector
-                      value={localConfig.target || 'local'}
-                      onChange={(target) => updateField('target', target)}
-                      onOpenSettings={() => setShowSettingsModal(true)}
-                      disabled={isLoading}
-                    />
-
-                    {/* Note: Docker and GitHub Actions configs are now handled inside ExecutionTargetSelector */}
-                    {false && localConfig.target === 'docker' && (
-                      <div className="mt-6 p-4 bg-slate-800/50 rounded-lg border border-slate-700 space-y-4">
-                        <div className="flex items-center gap-2">
-                          <Container className="w-5 h-5 text-blue-400" />
-                          <h4 className="text-sm font-medium text-slate-200">Docker Configuration (Legacy)</h4>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs text-slate-400 mb-1">Shards</label>
-                            <input
-                              type="number"
-                              value={localConfig.dockerConfig?.shardCount || 1}
-                              onChange={(e) =>
-                                updateField('dockerConfig', {
-                                  shardCount: parseInt(e.target.value) || 1,
-                                  memory: localConfig.dockerConfig?.memory ?? '2G',
-                                  cpus: localConfig.dockerConfig?.cpus ?? '1.0',
-                                } as DockerExecutionConfig)
-                              }
-                              disabled={isLoading}
-                              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-slate-400 mb-1">Memory</label>
-                            <select
-                              value={localConfig.dockerConfig?.memory || '2G'}
-                              onChange={(e) =>
-                                updateField('dockerConfig', {
-                                  shardCount: localConfig.dockerConfig?.shardCount ?? 1,
-                                  memory: e.target.value as '1G' | '2G' | '4G' | '8G',
-                                  cpus: localConfig.dockerConfig?.cpus ?? '1.0',
-                                } as DockerExecutionConfig)
-                              }
-                              disabled={isLoading}
-                              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                            >
-                              <option value="1G">1 GB</option>
-                              <option value="2G">2 GB</option>
-                              <option value="4G">4 GB</option>
-                              <option value="8G">8 GB</option>
-                            </select>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs text-slate-400 mb-1">CPUs</label>
-                            <select
-                              value={localConfig.dockerConfig?.cpus || '1.0'}
-                              onChange={(e) =>
-                                updateField('dockerConfig', {
-                                  shardCount: localConfig.dockerConfig?.shardCount ?? 1,
-                                  memory: localConfig.dockerConfig?.memory ?? '2G',
-                                  cpus: e.target.value as '0.5' | '1.0' | '2.0' | '4.0',
-                                } as DockerExecutionConfig)
-                              }
-                              disabled={isLoading}
-                              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                            >
-                              <option value="0.5">0.5</option>
-                              <option value="1.0">1.0</option>
-                              <option value="2.0">2.0</option>
-                              <option value="4.0">4.0</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs text-slate-400 mb-1">Placeholder</label>
-                            <input
-                              type="number"
-                              value={1}
-                              min={1}
-                              max={32}
-                              disabled={true}
-                              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Browser Tab */}
-                {activeTab === 'browser' && (
-                  <div className="space-y-6">
-                    <h3 className="text-lg font-medium text-slate-200 mb-4">Browser Configuration</h3>
-                    <BrowserConfigPanel
-                      config={localConfig.browserConfig || DEFAULT_BROWSER_CONFIG}
-                      onChange={(browserConfig) => updateField('browserConfig', browserConfig)}
-                      disabled={isLoading}
-                    />
-                  </div>
-                )}
-
-                {/* Execution Tab - Combines Workers, Timeout, and Retries */}
+                {/* Execution Tab - All Run Settings in One Place */}
                 {activeTab === 'execution' && (
                   <div className="space-y-6">
-                    <h3 className="text-lg font-medium text-slate-200 mb-4">Execution Settings</h3>
+                    {/* Run Location Toggle */}
+                    <div className="space-y-3">
+                      <label className="text-sm font-medium text-slate-300">Run Location</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => updateField('target', 'local')}
+                          disabled={isLoading}
+                          className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${
+                            localConfig.target === 'local' || !localConfig.target
+                              ? 'bg-blue-600/20 border-blue-500 text-blue-300'
+                              : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'
+                          }`}
+                        >
+                          <Monitor className="w-5 h-5" />
+                          <div className="text-left">
+                            <p className="font-medium">Local</p>
+                            <p className="text-xs opacity-70">Run on this machine</p>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateField('target', 'github-actions')}
+                          disabled={isLoading}
+                          className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${
+                            localConfig.target === 'github-actions'
+                              ? 'bg-purple-600/20 border-purple-500 text-purple-300'
+                              : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'
+                          }`}
+                        >
+                          <Github className="w-5 h-5" />
+                          <div className="text-left">
+                            <p className="font-medium">GitHub Actions</p>
+                            <p className="text-xs opacity-70">Run on GitHub runners</p>
+                          </div>
+                        </button>
+                      </div>
+                      {localConfig.target === 'github-actions' && (
+                        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${
+                          isConnected() ? 'bg-green-900/20 border border-green-800' : 'bg-yellow-900/20 border border-yellow-800'
+                        }`}>
+                          <div className={`w-2 h-2 rounded-full ${isConnected() ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                          <span className="text-xs">
+                            {isConnected() ? `Connected as ${integration?.login}` : 'GitHub not connected - connect in Settings'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="border-t border-slate-700" />
+
+                    {/* Browser Selection */}
+                    <div className="space-y-3">
+                      <label className="text-sm font-medium text-slate-300">Browser</label>
+                      <div className="flex gap-2">
+                        {BROWSERS.map((b) => (
+                          <button
+                            key={b.value}
+                            type="button"
+                            onClick={() => {
+                              updateField('browser', b.value as any);
+                              updateField('browserConfig', {
+                                ...(localConfig.browserConfig || DEFAULT_BROWSER_CONFIG),
+                                type: b.value as any,
+                              });
+                            }}
+                            disabled={isLoading}
+                            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-lg border transition-all ${
+                              (localConfig.browser || 'chromium') === b.value
+                                ? 'bg-blue-600/20 border-blue-500 text-blue-300'
+                                : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'
+                            }`}
+                          >
+                            <span className="text-lg">{b.icon}</span>
+                            <span className="text-sm font-medium">{b.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Headless Toggle */}
+                    <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg border border-slate-700">
+                      <div>
+                        <label className="text-sm font-medium text-slate-300">Headless Mode</label>
+                        <p className="text-xs text-slate-500 mt-0.5">Run without visible browser window</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          updateField('headless', !localConfig.headless);
+                          updateField('browserConfig', {
+                            ...(localConfig.browserConfig || DEFAULT_BROWSER_CONFIG),
+                            headless: !localConfig.headless,
+                          });
+                        }}
+                        disabled={isLoading}
+                        className={`relative w-12 h-6 rounded-full transition-colors ${
+                          localConfig.headless !== false ? 'bg-blue-600' : 'bg-slate-600'
+                        }`}
+                      >
+                        <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                          localConfig.headless !== false ? 'translate-x-6' : ''
+                        }`} />
+                      </button>
+                    </div>
+
+                    <div className="border-t border-slate-700" />
 
                     {/* Workers */}
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium text-slate-300">Workers (Parallel Tests)</label>
+                        <div className="flex items-center gap-2">
+                          <Cpu className="w-4 h-4 text-blue-400" />
+                          <label className="text-sm font-medium text-slate-300">Workers (Parallel Tests)</label>
+                        </div>
                         <span className="text-sm text-blue-400 font-mono">{localConfig.workers || 1}</span>
                       </div>
                       <input
@@ -839,57 +852,142 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                         value={localConfig.workers || 1}
                         onChange={(e) => updateField('workers', parseInt(e.target.value))}
                         min={1}
-                        max={16}
+                        max={localConfig.target === 'github-actions' ? 4 : 16}
                         disabled={isLoading}
                         className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 disabled:opacity-50"
                       />
                       <div className="flex justify-between text-xs text-slate-500">
                         <span>1</span>
-                        <span>4</span>
-                        <span>8</span>
-                        <span>16</span>
+                        <span>{localConfig.target === 'github-actions' ? '2' : '4'}</span>
+                        <span>{localConfig.target === 'github-actions' ? '3' : '8'}</span>
+                        <span>{localConfig.target === 'github-actions' ? '4' : '16'}</span>
                       </div>
                       <p className="text-xs text-slate-500">
-                        Number of tests to run in parallel. Higher = faster but more resource intensive.
+                        {localConfig.target === 'github-actions'
+                          ? 'Parallel browser instances per GitHub runner VM'
+                          : 'Number of tests to run in parallel on your machine'}
                       </p>
                     </div>
 
-                    {/* Timeout */}
+                    {/* Shards */}
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-slate-300">Test Timeout</label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          value={(localConfig.timeout || 30000) / 1000}
-                          onChange={(e) => updateField('timeout', parseInt(e.target.value) * 1000)}
-                          min={5}
-                          max={600}
-                          disabled={isLoading}
-                          className="w-24 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                        />
-                        <span className="text-sm text-slate-400">seconds</span>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Layers className="w-4 h-4 text-purple-400" />
+                          <label className="text-sm font-medium text-slate-300">Shards (Parallel Jobs)</label>
+                        </div>
+                        <span className="text-sm text-purple-400 font-mono">{localConfig.shardCount || 1}</span>
+                      </div>
+                      <input
+                        type="range"
+                        value={localConfig.shardCount || 1}
+                        onChange={(e) => {
+                          const count = parseInt(e.target.value);
+                          updateField('shardCount', count);
+                          updateField('shardingConfig', {
+                            ...(localConfig.shardingConfig || DEFAULT_SHARDING_CONFIG),
+                            enabled: count > 1,
+                            count: count,
+                          });
+                        }}
+                        min={1}
+                        max={localConfig.target === 'github-actions' ? 4 : 8}
+                        disabled={isLoading}
+                        className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500 disabled:opacity-50"
+                      />
+                      <div className="flex justify-between text-xs text-slate-500">
+                        <span>1</span>
+                        <span>2</span>
+                        <span>{localConfig.target === 'github-actions' ? '3' : '4'}</span>
+                        <span>{localConfig.target === 'github-actions' ? '4' : '8'}</span>
                       </div>
                       <p className="text-xs text-slate-500">
-                        Maximum time for each test before it's marked as failed.
+                        {localConfig.target === 'github-actions'
+                          ? 'Number of parallel GitHub runner VMs'
+                          : 'Split tests across multiple processes'}
                       </p>
+                    </div>
 
-                      {/* Advanced Timeouts - Collapsible */}
-                      <button
-                        onClick={() => setShowAdvancedTimeouts(!showAdvancedTimeouts)}
-                        className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 mt-3"
-                      >
-                        <ChevronDown className={`w-4 h-4 transition-transform ${showAdvancedTimeouts ? 'rotate-180' : ''}`} />
-                        Advanced Timeouts
-                      </button>
+                    {/* Parallelism Summary */}
+                    {((localConfig.workers || 1) > 1 || (localConfig.shardCount || 1) > 1) && (
+                      <div className="p-4 bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-blue-800/50 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-slate-300">Total Parallelism</span>
+                          <span className="text-lg font-bold text-white">
+                            {(localConfig.workers || 1) * (localConfig.shardCount || 1)} concurrent
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">
+                          {localConfig.workers || 1} workers × {localConfig.shardCount || 1} shards
+                          {localConfig.target === 'github-actions' && (
+                            <span className="text-purple-400"> = {localConfig.shardCount || 1} GitHub jobs</span>
+                          )}
+                        </p>
+                      </div>
+                    )}
 
-                      {showAdvancedTimeouts && (
-                        <div className="mt-3 p-4 bg-slate-800/50 rounded-lg border border-slate-700 space-y-4">
-                          {/* Action Timeout */}
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <label className="text-sm font-medium text-slate-300">Action Timeout</label>
-                              <p className="text-xs text-slate-500">For click, fill, etc. (0 = inherit from test)</p>
-                            </div>
+                    <div className="border-t border-slate-700" />
+
+                    {/* Timeout & Retries Row */}
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Timeout */}
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-slate-400" />
+                          <label className="text-sm font-medium text-slate-300">Timeout</label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            value={(localConfig.timeout || 30000) / 1000}
+                            onChange={(e) => updateField('timeout', parseInt(e.target.value) * 1000)}
+                            min={5}
+                            max={600}
+                            disabled={isLoading}
+                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                          />
+                          <span className="text-xs text-slate-500">sec</span>
+                        </div>
+                      </div>
+
+                      {/* Retries */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-300">Retries</label>
+                        <div className="flex gap-1">
+                          {[0, 1, 2, 3].map((count) => (
+                            <button
+                              key={count}
+                              type="button"
+                              onClick={() => updateField('retries', count)}
+                              disabled={isLoading}
+                              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                (localConfig.retries || 0) === count
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700'
+                              } disabled:opacity-50`}
+                            >
+                              {count}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Advanced Timeouts - Collapsible */}
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvancedTimeouts(!showAdvancedTimeouts)}
+                      className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-300"
+                    >
+                      <ChevronDown className={`w-4 h-4 transition-transform ${showAdvancedTimeouts ? 'rotate-180' : ''}`} />
+                      Advanced Timeout Settings
+                    </button>
+
+                    {showAdvancedTimeouts && (
+                      <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700 space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-slate-400 mb-1">Action Timeout</label>
                             <div className="flex items-center gap-2">
                               <input
                                 type="number"
@@ -901,18 +999,13 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                                 min={0}
                                 max={300}
                                 disabled={isLoading}
-                                className="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                                className="w-full px-2 py-1.5 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200"
                               />
-                              <span className="text-xs text-slate-400">sec</span>
+                              <span className="text-xs text-slate-500">sec</span>
                             </div>
                           </div>
-
-                          {/* Navigation Timeout */}
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <label className="text-sm font-medium text-slate-300">Navigation Timeout</label>
-                              <p className="text-xs text-slate-500">For page.goto(), reload (0 = inherit)</p>
-                            </div>
+                          <div>
+                            <label className="block text-xs text-slate-400 mb-1">Navigation Timeout</label>
                             <div className="flex items-center gap-2">
                               <input
                                 type="number"
@@ -924,18 +1017,13 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                                 min={0}
                                 max={300}
                                 disabled={isLoading}
-                                className="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                                className="w-full px-2 py-1.5 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200"
                               />
-                              <span className="text-xs text-slate-400">sec</span>
+                              <span className="text-xs text-slate-500">sec</span>
                             </div>
                           </div>
-
-                          {/* Expect Timeout */}
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <label className="text-sm font-medium text-slate-300">Expect Timeout</label>
-                              <p className="text-xs text-slate-500">For assertions to pass</p>
-                            </div>
+                          <div>
+                            <label className="block text-xs text-slate-400 mb-1">Expect Timeout</label>
                             <div className="flex items-center gap-2">
                               <input
                                 type="number"
@@ -947,18 +1035,13 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                                 min={1}
                                 max={60}
                                 disabled={isLoading}
-                                className="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                                className="w-full px-2 py-1.5 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200"
                               />
-                              <span className="text-xs text-slate-400">sec</span>
+                              <span className="text-xs text-slate-500">sec</span>
                             </div>
                           </div>
-
-                          {/* Global Timeout */}
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <label className="text-sm font-medium text-slate-300">Global Timeout</label>
-                              <p className="text-xs text-slate-500">Max time for entire test run (0 = no limit)</p>
-                            </div>
+                          <div>
+                            <label className="block text-xs text-slate-400 mb-1">Global Timeout</label>
                             <div className="flex items-center gap-2">
                               <input
                                 type="number"
@@ -970,64 +1053,35 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                                 min={0}
                                 max={120}
                                 disabled={isLoading}
-                                className="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                                className="w-full px-2 py-1.5 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200"
                               />
-                              <span className="text-xs text-slate-400">min</span>
+                              <span className="text-xs text-slate-500">min</span>
                             </div>
                           </div>
                         </div>
-                      )}
-                    </div>
-
-                    {/* Retries */}
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-slate-300">Retries on Failure</label>
-                      <div className="flex items-center gap-4">
-                        {[0, 1, 2, 3].map((count) => (
-                          <button
-                            key={count}
-                            onClick={() => updateField('retries', count)}
-                            disabled={isLoading}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                              (localConfig.retries || 0) === count
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                            } disabled:opacity-50`}
-                          >
-                            {count}
-                          </button>
-                        ))}
                       </div>
-                      <p className="text-xs text-slate-500">
-                        Number of times to retry a failed test before marking it as failed.
-                      </p>
-                    </div>
+                    )}
 
-                    {/* Fully Parallel */}
-                    <div className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+                    {/* Fully Parallel Toggle */}
+                    <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg border border-slate-700">
                       <div>
                         <label className="text-sm font-medium text-slate-300">Fully Parallel</label>
-                        <p className="text-xs text-slate-500 mt-1">
-                          Run tests within each file in parallel (not just across files)
-                        </p>
+                        <p className="text-xs text-slate-500 mt-0.5">Run tests within files in parallel</p>
                       </div>
                       <button
+                        type="button"
                         onClick={() => updateField('advancedConfig', {
                           ...(localConfig.advancedConfig || DEFAULT_ADVANCED_CONFIG),
                           fullyParallel: !(localConfig.advancedConfig?.fullyParallel ?? false)
                         })}
                         disabled={isLoading}
                         className={`relative w-12 h-6 rounded-full transition-colors ${
-                          localConfig.advancedConfig?.fullyParallel
-                            ? 'bg-blue-600'
-                            : 'bg-slate-600'
-                        } disabled:opacity-50`}
+                          localConfig.advancedConfig?.fullyParallel ? 'bg-blue-600' : 'bg-slate-600'
+                        }`}
                       >
-                        <span
-                          className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                            localConfig.advancedConfig?.fullyParallel ? 'translate-x-6' : ''
-                          }`}
-                        />
+                        <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                          localConfig.advancedConfig?.fullyParallel ? 'translate-x-6' : ''
+                        }`} />
                       </button>
                     </div>
                   </div>

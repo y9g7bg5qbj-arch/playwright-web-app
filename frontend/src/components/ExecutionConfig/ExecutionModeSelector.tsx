@@ -1,8 +1,8 @@
 /**
- * ExecutionModeSelector - Toggle between Local, Docker, and Remote execution modes
+ * ExecutionModeSelector - Toggle between Local and Remote execution modes
  */
 import React from 'react';
-import { Monitor, Container, Globe, Check } from 'lucide-react';
+import { Monitor, Globe, Check } from 'lucide-react';
 import type { ExecutionMode } from '@/types/execution';
 
 interface ExecutionModeSelectorProps {
@@ -17,12 +17,6 @@ const modes: { value: ExecutionMode; label: string; description: string; icon: R
     label: 'Local',
     description: 'Run tests on this machine',
     icon: <Monitor className="w-5 h-5" />,
-  },
-  {
-    value: 'docker',
-    label: 'Docker',
-    description: 'Run in containerized environment',
-    icon: <Container className="w-5 h-5" />,
   },
   {
     value: 'remote',
@@ -42,7 +36,7 @@ export const ExecutionModeSelector: React.FC<ExecutionModeSelectorProps> = ({
       <label className="block text-sm font-medium text-slate-300">
         Execution Mode
       </label>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         {modes.map((mode) => {
           const isSelected = value === mode.value;
           return (

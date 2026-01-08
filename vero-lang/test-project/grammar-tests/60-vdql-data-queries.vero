@@ -1,0 +1,246 @@
+# ==========================================
+# VDQL (Vero Data Query Language) Test File
+# Complete reference for data extraction
+# Comparable to Apache POI functionality
+# ==========================================
+
+FEATURE VDQLTests {
+    USE LoginPage
+
+    # ------------------------------------------
+    # BASIC DATA ACCESS (like POI sheet.getRow())
+    # ------------------------------------------
+
+    SCENARIO "Get all rows from table" @vdql {
+        data allUsers = TestData.Users
+        data allProducts = TestData.Products
+    }
+
+    SCENARIO "Get single column values as list" @vdql {
+        list emails = TestData.Users.email
+        list names = TestData.Users.name
+        list prices = TestData.Products.price
+    }
+
+    # ------------------------------------------
+    # ROW SELECTION (like POI getRow(index))
+    # ------------------------------------------
+
+    SCENARIO "Get first/last row" @vdql {
+        data firstUser = first TestData.Users
+        data lastUser = last TestData.Users
+    }
+
+    SCENARIO "Get random row for test variety" @vdql {
+        # NEW: Random row selection
+        data randomUser = random TestData.Users
+        data randomProduct = random TestData.Products
+
+        fill LoginPage.email with randomUser.email
+    }
+
+    SCENARIO "Get row by index" @vdql {
+        # Like POI: sheet.getRow(0)
+        data user = TestData.Users[0]
+        data thirdUser = TestData.Users[2]
+        text email = TestData.Users[0].email
+    }
+
+    SCENARIO "Get row range (like POI subList)" @vdql {
+        # NEW: Row range selection
+        data firstFive = TestData.Users[0..4]
+        data middleRows = TestData.Users[5..10]
+        data lastTen = TestData.Users[90..99]
+    }
+
+    # ------------------------------------------
+    # COLUMN SELECTION (like POI selecting cells)
+    # ------------------------------------------
+
+    SCENARIO "Select multiple columns" @vdql {
+        # NEW: Multi-column selection
+        data userInfo = TestData.Users.(email, name)
+        data contactInfo = TestData.Users.(email, phone, address)
+        data productSummary = TestData.Products.(name, price, stock)
+    }
+
+    # ------------------------------------------
+    # CELL ACCESS (like POI getCell())
+    # ------------------------------------------
+
+    SCENARIO "Get specific cell value" @vdql {
+        # By row/column index (like POI cell access)
+        text value = TestData.Users cell [0, 1]
+
+        # By row index + column name
+        text email = TestData.Users[0].email
+        number price = TestData.Products[5].price
+    }
+
+    # ------------------------------------------
+    # FILTERING (WHERE CLAUSE)
+    # ------------------------------------------
+
+    SCENARIO "Simple equality filter" @vdql {
+        data admin = TestData.Users where role == "admin"
+        data activeUsers = TestData.Users where status == "active"
+
+        fill LoginPage.email with admin.email
+        fill LoginPage.password with admin.password
+    }
+
+    SCENARIO "Comparison operators" @vdql {
+        data expensiveProducts = TestData.Products where price > 100
+        data cheapProducts = TestData.Products where price <= 50
+        data recentOrders = TestData.Orders where date >= "2024-01-01"
+    }
+
+    SCENARIO "Text operators" @vdql {
+        list gmailUsers = TestData.Users where email contains "@gmail"
+        list admins = TestData.Users where name starts with "Admin"
+        list comEmails = TestData.Users where email ends with ".com"
+        list patternMatch = TestData.Users where email matches ".*@test\\.com"
+    }
+
+    SCENARIO "IN clause" @vdql {
+        list managers = TestData.Users where role in ("admin", "manager", "lead")
+        list normalUsers = TestData.Users where role not in ("admin", "banned")
+    }
+
+    SCENARIO "NULL and EMPTY checks" @vdql {
+        list incomplete = TestData.Users where phone is empty
+        list complete = TestData.Users where phone is not empty
+        list nullDates = TestData.Users where deleted_at is null
+    }
+
+    SCENARIO "Compound conditions (AND/OR)" @vdql {
+        data activeAdmins = TestData.Users where role == "admin" and status == "active"
+        list adminOrManager = TestData.Users where role == "admin" or role == "manager"
+        list complex = TestData.Users where (role == "admin" or role == "manager") and status == "active"
+    }
+
+    SCENARIO "NOT operator" @vdql {
+        list notAdmins = TestData.Users where not role == "admin"
+        list notDeleted = TestData.Users where not status == "deleted"
+    }
+
+    # ------------------------------------------
+    # SORTING (ORDER BY)
+    # ------------------------------------------
+
+    SCENARIO "Sort results" @vdql {
+        list byName = TestData.Users order by lastName asc
+        list byPriceDesc = TestData.Products order by price desc
+        list byDateDesc = TestData.Orders where status == "completed" order by date desc
+    }
+
+    # ------------------------------------------
+    # PAGINATION (LIMIT/OFFSET)
+    # ------------------------------------------
+
+    SCENARIO "Limit results" @vdql {
+        list top5 = TestData.Users order by salary desc limit 5
+        list first10 = TestData.Users limit 10
+    }
+
+    SCENARIO "Pagination with offset" @vdql {
+        list page2 = TestData.Products limit 10 offset 10
+        list page3 = TestData.Products limit 10 offset 20
+    }
+
+    # ------------------------------------------
+    # AGGREGATION FUNCTIONS
+    # ------------------------------------------
+
+    SCENARIO "Count rows" @vdql {
+        number totalUsers = count TestData.Users
+        number activeCount = count TestData.Users where status == "active"
+    }
+
+    SCENARIO "Count distinct values" @vdql {
+        number uniqueRoles = count distinct TestData.Users.role
+        number uniqueCategories = count distinct TestData.Products.category
+    }
+
+    SCENARIO "Sum, Average, Min, Max" @vdql {
+        number totalRevenue = sum TestData.Orders.amount
+        number avgPrice = average TestData.Products.price
+        number minPrice = min TestData.Products.price
+        number maxPrice = max TestData.Products.price
+    }
+
+    SCENARIO "Aggregation with filter" @vdql {
+        number activeAdminCount = count TestData.Users where role == "admin" and status == "active"
+        number premiumRevenue = sum TestData.Orders.amount where tier == "premium"
+    }
+
+    # ------------------------------------------
+    # METADATA QUERIES (like POI getLastRowNum)
+    # ------------------------------------------
+
+    SCENARIO "Get table metadata" @vdql {
+        # Like POI: sheet.getLastRowNum()
+        number rowCount = rows in TestData.Users
+
+        # Like POI: row.getLastCellNum()
+        number colCount = columns in TestData.Users
+
+        # Like POI: getting header row
+        list headerNames = headers of TestData.Users
+    }
+
+    SCENARIO "Get distinct values" @vdql {
+        list uniqueRoles = distinct TestData.Users.role
+        list categories = distinct TestData.Products.category
+    }
+
+    # ------------------------------------------
+    # COMBINED QUERIES (COMPLEX)
+    # ------------------------------------------
+
+    SCENARIO "Complex combined query" @vdql {
+        # Full query with multiple modifiers
+        list topActiveAdmins = TestData.Users
+            where role == "admin"
+            and status != "deleted"
+            order by lastLogin desc
+            limit 5
+
+        data topAdmin = first topActiveAdmins
+        log topAdmin.email
+    }
+
+    # ------------------------------------------
+    # USING DATA IN TESTS
+    # ------------------------------------------
+
+    SCENARIO "Data-driven test with filtered data" @vdql {
+        data user = first TestData.LoginCredentials where enabled == true
+
+        OPEN "https://example.com/login"
+        FILL LoginPage.emailInput WITH user.email
+        FILL LoginPage.passwordInput WITH user.password
+        CLICK LoginPage.submitButton
+    }
+
+    SCENARIO "Iterate over filtered data" @vdql {
+        list activeUsers = TestData.Users where status == "active" limit 5
+
+        FOR EACH $user IN activeUsers {
+            OPEN "https://example.com/profile/" + $user.id
+            VERIFY "Welcome" IS VISIBLE
+        }
+    }
+
+    SCENARIO "Random test data for variety" @vdql {
+        # Get random row for each test run
+        data testUser = random TestData.Users where status == "active"
+
+        OPEN "https://example.com/login"
+        FILL "Email" WITH testUser.email
+        FILL "Password" WITH testUser.password
+        CLICK "Login"
+
+        VERIFY "Welcome" IS VISIBLE
+    }
+}

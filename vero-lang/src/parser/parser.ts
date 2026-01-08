@@ -3,7 +3,11 @@ import {
     ProgramNode, PageNode, FeatureNode, ScenarioNode, FieldNode,
     VariableNode, ActionDefinitionNode, HookNode, StatementNode,
     SelectorNode, TargetNode, ExpressionNode, VerifyCondition,
-    ParseError
+    ParseError, LoadStatement, ForEachStatement, WhereClause,
+    FixtureNode, FixtureUseNode, FixtureOptionNode, FixtureOptionValue,
+    FeatureAnnotation, ScenarioAnnotation,
+    VerifyUrlStatement, VerifyTitleStatement, VerifyHasStatement, UploadStatement,
+    HasCondition, HasCountCondition, HasValueCondition, HasAttributeCondition
 } from './ast.js';
 
 export class Parser {
@@ -19,13 +23,16 @@ export class Parser {
     parse(): { ast: ProgramNode; errors: ParseError[] } {
         const pages: PageNode[] = [];
         const features: FeatureNode[] = [];
+        const fixtures: FixtureNode[] = [];
 
         while (!this.isAtEnd()) {
             try {
                 if (this.check(TokenType.PAGE)) {
                     pages.push(this.parsePage());
-                } else if (this.check(TokenType.FEATURE)) {
+                } else if (this.check(TokenType.FEATURE) || this.isFeatureAnnotation()) {
                     features.push(this.parseFeature());
+                } else if (this.check(TokenType.FIXTURE)) {
+                    fixtures.push(this.parseFixture());
                 } else {
                     this.error(`Unexpected token: ${this.peek().value}`);
                     this.advance();
@@ -36,7 +43,7 @@ export class Parser {
         }
 
         return {
-            ast: { type: 'Program', pages, features },
+            ast: { type: 'Program', pages, features, fixtures },
             errors: this.errors
         };
     }
@@ -160,22 +167,60 @@ export class Parser {
 
     // ==================== FEATURE PARSING ====================
 
+    // Check if current position is at a feature annotation
+    private isFeatureAnnotation(): boolean {
+        if (!this.check(TokenType.AT_SIGN)) return false;
+        const nextToken = this.tokens[this.pos + 1];
+        if (!nextToken) return false;
+        return nextToken.type === TokenType.SERIAL ||
+               nextToken.type === TokenType.SKIP ||
+               nextToken.type === TokenType.ONLY;
+    }
+
+    // Check if current position is at a scenario annotation
+    private isScenarioAnnotation(): boolean {
+        if (!this.check(TokenType.AT_SIGN)) return false;
+        const nextToken = this.tokens[this.pos + 1];
+        if (!nextToken) return false;
+        return nextToken.type === TokenType.SKIP ||
+               nextToken.type === TokenType.ONLY ||
+               nextToken.type === TokenType.SLOW ||
+               nextToken.type === TokenType.FIXME;
+    }
+
     private parseFeature(): FeatureNode {
         const line = this.peek().line;
+
+        // Parse feature annotations: @serial @skip @only
+        const annotations: FeatureAnnotation[] = [];
+        while (this.isFeatureAnnotation()) {
+            this.consume(TokenType.AT_SIGN, "Expected '@'");
+            if (this.match(TokenType.SERIAL)) {
+                annotations.push('serial');
+            } else if (this.match(TokenType.SKIP)) {
+                annotations.push('skip');
+            } else if (this.match(TokenType.ONLY)) {
+                annotations.push('only');
+            }
+        }
+
         this.consume(TokenType.FEATURE, "Expected 'FEATURE'");
         const name = this.consume(TokenType.IDENTIFIER, "Expected feature name").value;
         this.consume(TokenType.LBRACE, "Expected '{'");
 
         const uses: string[] = [];
+        const fixtures: FixtureUseNode[] = [];
         const hooks: HookNode[] = [];
         const scenarios: ScenarioNode[] = [];
 
         while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
             if (this.check(TokenType.USE)) {
                 uses.push(this.parseUse());
+            } else if (this.check(TokenType.WITH)) {
+                fixtures.push(this.parseWithFixture());
             } else if (this.check(TokenType.BEFORE) || this.check(TokenType.AFTER)) {
                 hooks.push(this.parseHook());
-            } else if (this.check(TokenType.SCENARIO)) {
+            } else if (this.check(TokenType.SCENARIO) || this.isScenarioAnnotation()) {
                 scenarios.push(this.parseScenario());
             } else {
                 this.error(`Unexpected token in feature: ${this.peek().value}`);
@@ -185,12 +230,123 @@ export class Parser {
 
         this.consume(TokenType.RBRACE, "Expected '}'");
 
-        return { type: 'Feature', name, uses, hooks, scenarios, line };
+        return { type: 'Feature', name, annotations, uses, fixtures, hooks, scenarios, line };
     }
 
     private parseUse(): string {
         this.consume(TokenType.USE, "Expected 'USE'");
         return this.consume(TokenType.IDENTIFIER, "Expected page name").value;
+    }
+
+    // WITH FIXTURE authenticatedUser { role = "admin" }
+    private parseWithFixture(): FixtureUseNode {
+        const line = this.peek().line;
+        this.consume(TokenType.WITH, "Expected 'WITH'");
+        this.consume(TokenType.FIXTURE, "Expected 'FIXTURE'");
+        const fixtureName = this.consume(TokenType.IDENTIFIER, "Expected fixture name").value;
+
+        // Optional: { role = "admin", count = 5 }
+        const options: FixtureOptionValue[] = [];
+        if (this.match(TokenType.LBRACE)) {
+            // Parse first option
+            if (!this.check(TokenType.RBRACE)) {
+                options.push(this.parseFixtureOptionValue());
+                // Parse additional options
+                while (this.match(TokenType.COMMA)) {
+                    options.push(this.parseFixtureOptionValue());
+                }
+            }
+            this.consume(TokenType.RBRACE, "Expected '}'");
+        }
+
+        return { type: 'FixtureUse', fixtureName, options, line };
+    }
+
+    private parseFixtureOptionValue(): FixtureOptionValue {
+        const name = this.consume(TokenType.IDENTIFIER, "Expected option name").value;
+        this.consume(TokenType.EQUALS_SIGN, "Expected '='");
+        const value = this.parseExpression();
+        return { name, value };
+    }
+
+    // ==================== FIXTURE PARSING ====================
+
+    // FIXTURE authenticatedUser WITH role { SCOPE test ... }
+    private parseFixture(): FixtureNode {
+        const line = this.peek().line;
+        this.consume(TokenType.FIXTURE, "Expected 'FIXTURE'");
+        const name = this.consume(TokenType.IDENTIFIER, "Expected fixture name").value;
+
+        // Optional parameters: WITH param1, param2
+        const parameters: string[] = [];
+        if (this.match(TokenType.WITH)) {
+            parameters.push(this.consume(TokenType.IDENTIFIER, "Expected parameter").value);
+            while (this.match(TokenType.COMMA)) {
+                parameters.push(this.consume(TokenType.IDENTIFIER, "Expected parameter").value);
+            }
+        }
+
+        this.consume(TokenType.LBRACE, "Expected '{'");
+
+        // Parse fixture body: SCOPE, DEPENDS, AUTO, OPTION, SETUP, TEARDOWN
+        let scope: 'test' | 'worker' = 'test';
+        const dependencies: string[] = [];
+        let auto = false;
+        const options: FixtureOptionNode[] = [];
+        let setup: StatementNode[] = [];
+        let teardown: StatementNode[] = [];
+
+        while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
+            if (this.match(TokenType.SCOPE)) {
+                if (this.match(TokenType.TEST)) {
+                    scope = 'test';
+                } else if (this.match(TokenType.WORKER)) {
+                    scope = 'worker';
+                } else {
+                    this.error("Expected 'TEST' or 'WORKER' after 'SCOPE'");
+                }
+            } else if (this.match(TokenType.DEPENDS)) {
+                this.consume(TokenType.ON, "Expected 'ON' after 'DEPENDS'");
+                dependencies.push(this.consumeIdentifierOrKeyword("Expected dependency name"));
+                while (this.match(TokenType.COMMA)) {
+                    dependencies.push(this.consumeIdentifierOrKeyword("Expected dependency name"));
+                }
+            } else if (this.match(TokenType.AUTO)) {
+                auto = true;
+            } else if (this.match(TokenType.OPTION)) {
+                const optionLine = this.previous().line;
+                const optionName = this.consume(TokenType.IDENTIFIER, "Expected option name").value;
+                this.consume(TokenType.DEFAULT, "Expected 'DEFAULT'");
+                const defaultValue = this.parseExpression();
+                options.push({ type: 'FixtureOption', name: optionName, defaultValue, line: optionLine });
+            } else if (this.match(TokenType.SETUP)) {
+                this.consume(TokenType.LBRACE, "Expected '{'");
+                setup = this.parseStatementBlock();
+                this.consume(TokenType.RBRACE, "Expected '}'");
+            } else if (this.match(TokenType.TEARDOWN)) {
+                this.consume(TokenType.LBRACE, "Expected '{'");
+                teardown = this.parseStatementBlock();
+                this.consume(TokenType.RBRACE, "Expected '}'");
+            } else {
+                this.error(`Unexpected token in fixture: ${this.peek().value}`);
+                this.advance();
+            }
+        }
+
+        this.consume(TokenType.RBRACE, "Expected '}'");
+
+        return {
+            type: 'Fixture',
+            name,
+            parameters,
+            scope,
+            dependencies,
+            auto,
+            options,
+            setup,
+            teardown,
+            line
+        };
     }
 
     private parseHook(): HookNode {
@@ -215,12 +371,29 @@ export class Parser {
 
     private parseScenario(): ScenarioNode {
         const line = this.peek().line;
+
+        // Parse scenario annotations: @skip @only @slow @fixme
+        const annotations: ScenarioAnnotation[] = [];
+        while (this.isScenarioAnnotation()) {
+            this.consume(TokenType.AT_SIGN, "Expected '@'");
+            if (this.match(TokenType.SKIP)) {
+                annotations.push('skip');
+            } else if (this.match(TokenType.ONLY)) {
+                annotations.push('only');
+            } else if (this.match(TokenType.SLOW)) {
+                annotations.push('slow');
+            } else if (this.match(TokenType.FIXME)) {
+                annotations.push('fixme');
+            }
+        }
+
         this.consume(TokenType.SCENARIO, "Expected 'SCENARIO'");
         const name = this.consume(TokenType.STRING, "Expected scenario name").value;
 
-        // Parse tags: @smoke @regression
+        // Parse tags: @smoke @regression (user-defined tags)
         const tags: string[] = [];
-        while (this.match(TokenType.AT_SIGN)) {
+        while (this.check(TokenType.AT_SIGN) && !this.isScenarioAnnotation()) {
+            this.consume(TokenType.AT_SIGN, "Expected '@'");
             tags.push(this.consume(TokenType.IDENTIFIER, "Expected tag name").value);
         }
 
@@ -228,7 +401,7 @@ export class Parser {
         const statements = this.parseStatementBlock();
         this.consume(TokenType.RBRACE, "Expected '}'");
 
-        return { type: 'Scenario', name, tags, statements, line };
+        return { type: 'Scenario', name, annotations, tags, statements, line };
     }
 
     // ==================== STATEMENT PARSING ====================
@@ -267,7 +440,30 @@ export class Parser {
         }
 
         if (this.match(TokenType.VERIFY)) {
+            // Check for URL assertion: verify url contains/equals/matches "value"
+            if (this.match(TokenType.URL)) {
+                const condition = this.parseUrlCondition();
+                const value = this.parseExpression();
+                return { type: 'VerifyUrl', condition, value, line };
+            }
+
+            // Check for TITLE assertion: verify title contains/equals "value"
+            if (this.match(TokenType.TITLE)) {
+                const condition = this.parseTitleCondition();
+                const value = this.parseExpression();
+                return { type: 'VerifyTitle', condition, value, line };
+            }
+
+            // Parse target for element assertions
             const target = this.parseTarget();
+
+            // Check for HAS assertion: verify selector has count/value/attribute
+            if (this.match(TokenType.HAS)) {
+                const hasCondition = this.parseHasCondition();
+                return { type: 'VerifyHas', target, hasCondition, line };
+            }
+
+            // Standard element assertion: verify element is visible/etc.
             const condition = this.parseVerifyCondition();
             return { type: 'Verify', target, condition, line };
         }
@@ -324,9 +520,143 @@ export class Parser {
             return { type: 'TakeScreenshot', filename, line };
         }
 
+        // upload "file.pdf" to "#fileInput" | upload "file1.jpg", "file2.jpg" to "#multiUpload"
+        if (this.match(TokenType.UPLOAD)) {
+            const files: ExpressionNode[] = [];
+            files.push(this.parseExpression());
+            while (this.match(TokenType.COMMA)) {
+                files.push(this.parseExpression());
+            }
+            this.consume(TokenType.TO, "Expected 'TO'");
+            const target = this.parseTarget();
+            return { type: 'Upload', files, target, line };
+        }
+
+        // LOAD $variable FROM "tableName" WHERE field = value
+        if (this.match(TokenType.LOAD)) {
+            return this.parseLoadStatement(line);
+        }
+
+        // FOR EACH $item IN $collection { ... }
+        if (this.match(TokenType.FOR)) {
+            return this.parseForEachStatement(line);
+        }
+
         this.error(`Unexpected statement: ${this.peek().value}`);
         this.advance();
         return null;
+    }
+
+    private parseLoadStatement(line: number): LoadStatement {
+        // Expect: $variable
+        let variable: string;
+        if (this.check(TokenType.IDENTIFIER)) {
+            variable = this.advance().value;
+        } else {
+            this.error("Expected variable name after LOAD");
+            variable = 'data';
+        }
+
+        // Expect: FROM
+        this.consume(TokenType.FROM, "Expected 'FROM'");
+
+        // Expect: "tableName" or "ProjectName.TableName"
+        const tableRef = this.consume(TokenType.STRING, "Expected table name").value;
+
+        // Parse qualified reference (Project.Table) vs simple reference (Table)
+        let tableName: string;
+        let projectName: string | undefined;
+
+        if (tableRef.includes('.')) {
+            const parts = tableRef.split('.');
+            if (parts.length === 2) {
+                projectName = parts[0];
+                tableName = parts[1];
+            } else {
+                this.error(`Invalid table reference: ${tableRef}. Use "TableName" or "ProjectName.TableName"`);
+                tableName = tableRef;
+            }
+        } else {
+            tableName = tableRef;
+        }
+
+        // Optional: WHERE clause
+        let whereClause: WhereClause | undefined;
+        if (this.match(TokenType.WHERE)) {
+            whereClause = this.parseWhereClause();
+        }
+
+        return {
+            type: 'Load',
+            variable,
+            tableName,
+            projectName,
+            whereClause,
+            line
+        };
+    }
+
+    private parseWhereClause(): WhereClause {
+        // Expect: field
+        const field = this.consume(TokenType.IDENTIFIER, "Expected field name").value;
+
+        // Expect: operator - for now we only support = with EQUALS_SIGN token
+        // In the future, add !=, >, <, >=, <= tokens to the lexer
+        let operator: WhereClause['operator'] = '=';
+        if (this.check(TokenType.EQUALS_SIGN)) {
+            this.advance();
+            operator = '=';
+        } else if (this.check(TokenType.IS)) {
+            // Support "WHERE enabled IS true" syntax
+            this.advance();
+            operator = '=';
+        } else {
+            this.error("Expected '=' or 'IS' after field name");
+        }
+
+        // Expect: value
+        const value = this.parseExpression();
+
+        return { field, operator, value };
+    }
+
+    private parseForEachStatement(line: number): ForEachStatement {
+        // Expect: EACH
+        this.consume(TokenType.EACH, "Expected 'EACH' after 'FOR'");
+
+        // Expect: $itemVariable
+        let itemVariable: string;
+        if (this.check(TokenType.IDENTIFIER)) {
+            itemVariable = this.advance().value;
+        } else {
+            this.error("Expected variable name after 'FOR EACH'");
+            itemVariable = 'item';
+        }
+
+        // Expect: IN
+        this.consume(TokenType.IN, "Expected 'IN'");
+
+        // Expect: $collectionVariable
+        let collectionVariable: string;
+        if (this.check(TokenType.IDENTIFIER)) {
+            collectionVariable = this.advance().value;
+        } else {
+            this.error("Expected collection variable after 'IN'");
+            collectionVariable = 'data';
+        }
+
+        // Expect: { ... }
+        this.consume(TokenType.LBRACE, "Expected '{'");
+        const statements = this.parseStatementBlock();
+        this.consume(TokenType.RBRACE, "Expected '}'");
+
+        return {
+            type: 'ForEach',
+            itemVariable,
+            collectionVariable,
+            statements,
+            line
+        };
     }
 
     private parseVerifyCondition(): VerifyCondition {
@@ -358,6 +688,53 @@ export class Parser {
 
         this.error("Expected condition");
         return { type: 'Condition', operator: 'IS', value: 'VISIBLE' };
+    }
+
+    // Parse URL condition: contains | equals | matches
+    private parseUrlCondition(): 'contains' | 'equals' | 'matches' {
+        if (this.match(TokenType.CONTAINS)) {
+            return 'contains';
+        }
+        if (this.match(TokenType.EQUAL)) {
+            return 'equals';
+        }
+        if (this.match(TokenType.MATCHES)) {
+            return 'matches';
+        }
+        this.error("Expected 'CONTAINS', 'EQUALS', or 'MATCHES'");
+        return 'contains';
+    }
+
+    // Parse TITLE condition: contains | equals
+    private parseTitleCondition(): 'contains' | 'equals' {
+        if (this.match(TokenType.CONTAINS)) {
+            return 'contains';
+        }
+        if (this.match(TokenType.EQUAL)) {
+            return 'equals';
+        }
+        this.error("Expected 'CONTAINS' or 'EQUALS'");
+        return 'contains';
+    }
+
+    // Parse HAS condition: count N | value "text" | attribute "name" equal "value"
+    private parseHasCondition(): HasCondition {
+        if (this.match(TokenType.COUNT)) {
+            const count = this.parseExpression();
+            return { type: 'HasCount', count };
+        }
+        if (this.match(TokenType.VALUE)) {
+            const value = this.parseExpression();
+            return { type: 'HasValue', value };
+        }
+        if (this.match(TokenType.ATTRIBUTE)) {
+            const attribute = this.parseExpression();
+            this.consume(TokenType.EQUAL, "Expected 'EQUAL'");
+            const value = this.parseExpression();
+            return { type: 'HasAttribute', attribute, value };
+        }
+        this.error("Expected 'COUNT', 'VALUE', or 'ATTRIBUTE'");
+        return { type: 'HasCount', count: { type: 'NumberLiteral', value: 0 } };
     }
 
     private parseActionCall(): { type: 'ActionCall'; page?: string; action: string; arguments: ExpressionNode[] } {
@@ -475,6 +852,27 @@ export class Parser {
         return { type, value: '', line: this.peek().line, column: this.peek().column };
     }
 
+    /**
+     * Consume an identifier or keyword token (for contexts where keywords can be used as names)
+     * This is needed for things like DEPENDS ON page, context where page/context are keywords
+     */
+    private consumeIdentifierOrKeyword(message: string): string {
+        const token = this.peek();
+        // Accept IDENTIFIER or common keywords that might be used as dependency/parameter names
+        if (this.check(TokenType.IDENTIFIER) ||
+            this.check(TokenType.PAGE) ||
+            this.check(TokenType.FEATURE) ||
+            this.check(TokenType.TEXT) ||
+            this.check(TokenType.NUMBER) ||
+            this.check(TokenType.FLAG) ||
+            this.check(TokenType.LIST) ||
+            this.check(TokenType.TEST)) {
+            return this.advance().value;
+        }
+        this.error(message);
+        return '';
+    }
+
     private error(message: string): void {
         const token = this.peek();
         this.errors.push({
@@ -488,7 +886,8 @@ export class Parser {
         this.advance();
         while (!this.isAtEnd()) {
             if (this.check(TokenType.PAGE) || this.check(TokenType.FEATURE) ||
-                this.check(TokenType.SCENARIO) || this.check(TokenType.RBRACE)) {
+                this.check(TokenType.FIXTURE) || this.check(TokenType.SCENARIO) ||
+                this.check(TokenType.RBRACE)) {
                 return;
             }
             this.advance();

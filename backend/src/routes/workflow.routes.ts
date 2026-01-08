@@ -10,11 +10,11 @@ const workflowService = new WorkflowService();
 // All routes require authentication
 router.use(authenticateToken);
 
-// Get all workflows (optionally filtered by projectId)
+// Get all workflows (optionally filtered by applicationId)
 router.get('/', async (req: AuthRequest, res, next) => {
   try {
-    const projectId = req.query.projectId as string | undefined;
-    const workflows = await workflowService.findAll(req.userId!, projectId);
+    const applicationId = req.query.applicationId as string | undefined ?? req.query.projectId as string | undefined;
+    const workflows = await workflowService.findAll(req.userId!, applicationId);
     res.json({
       success: true,
       data: workflows,
@@ -24,11 +24,11 @@ router.get('/', async (req: AuthRequest, res, next) => {
   }
 });
 
-// Create workflow (requires projectId)
+// Create workflow (requires applicationId)
 router.post(
   '/',
   validate([
-    body('projectId').notEmpty().withMessage('Project ID is required'),
+    body('applicationId').notEmpty().withMessage('Application ID is required'),
     body('name').notEmpty().withMessage('Name is required'),
     body('description').optional().isString(),
   ]),

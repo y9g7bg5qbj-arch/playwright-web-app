@@ -1,0 +1,33 @@
+# Parallel Execution Test - 4 Scenarios Running Simultaneously
+# This feature tests that multiple scenarios execute in parallel using workers
+
+feature ParallelDemo {
+
+    scenario "Playwright Homepage Check" @parallel {
+        open "https://playwright.dev"
+        wait 1 second
+        verify "Playwright" is visible
+        log "Scenario 1 completed"
+    }
+
+    scenario "GitHub Homepage Check" @parallel {
+        open "https://github.com"
+        wait 1 second
+        verify "GitHub" is visible
+        log "Scenario 2 completed"
+    }
+
+    scenario "Google Homepage Check" @parallel {
+        open "https://google.com"
+        wait 1 second
+        verify "Google" is visible
+        log "Scenario 3 completed"
+    }
+
+    scenario "Example.com Homepage Check" @parallel {
+        open "https://example.com"
+        wait 1 second
+        verify "Example Domain" is visible
+        log "Scenario 4 completed"
+    }
+}

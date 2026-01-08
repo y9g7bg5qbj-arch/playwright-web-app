@@ -98,10 +98,9 @@ export class TestWorker extends EventEmitter {
         body: JSON.stringify({
           id: this.id,
           name: this.name,
-          type: 'docker',
+          type: 'local',
           host: process.env.HOSTNAME || 'localhost',
           port: parseInt(process.env.WORKER_PORT || '3002'),
-          vncPort: process.env.VNC_ENABLED === 'true' ? 6080 : undefined,
           capabilities: this.capabilities,
         }),
       });
@@ -521,10 +520,9 @@ export class TestWorker extends EventEmitter {
     return {
       id: this.id,
       name: this.name,
-      type: 'docker',
+      type: 'local',
       host: process.env.HOSTNAME || 'localhost',
       port: parseInt(process.env.WORKER_PORT || '3002'),
-      vncPort: process.env.VNC_ENABLED === 'true' ? 6080 : undefined,
       capabilities: this.capabilities,
       status: this.status,
       currentTests: Array.from(this.currentTests.keys()),

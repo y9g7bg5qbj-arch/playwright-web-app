@@ -52,6 +52,16 @@ export interface PageFieldRef {
     selector: string;
 }
 
+// Result of duplicate detection
+export interface DuplicateCheckResult {
+    isDuplicate: boolean;
+    existingRef: PageFieldRef | null;
+    similarity: number;           // 0-1 score
+    matchType: 'exact' | 'fuzzy' | 'semantic' | 'none';
+    recommendation: 'reuse' | 'create' | 'review';
+    reason?: string;
+}
+
 // Result of selector generation
 export interface SelectorResult {
     veroSelector: string;
@@ -275,6 +285,294 @@ export class PageObjectRegistry {
         }
 
         return null;
+    }
+
+    /**
+     * Calculate Levenshtein distance between two strings
+     */
+    private levenshteinDistance(a: string, b: string): number {
+        if (a.length === 0) return b.length;
+        if (b.length === 0) return a.length;
+
+        const matrix: number[][] = [];
+
+        // Initialize first column
+        for (let i = 0; i <= b.length; i++) {
+            matrix[i] = [i];
+        }
+
+        // Initialize first row
+        for (let j = 0; j <= a.length; j++) {
+            matrix[0][j] = j;
+        }
+
+        // Fill in the rest of the matrix
+        for (let i = 1; i <= b.length; i++) {
+            for (let j = 1; j <= a.length; j++) {
+                if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                    matrix[i][j] = matrix[i - 1][j - 1];
+                } else {
+                    matrix[i][j] = Math.min(
+                        matrix[i - 1][j - 1] + 1, // substitution
+                        matrix[i][j - 1] + 1,     // insertion
+                        matrix[i - 1][j] + 1      // deletion
+                    );
+                }
+            }
+        }
+
+        return matrix[b.length][a.length];
+    }
+
+    /**
+     * Calculate similarity score between two strings (0-1)
+     */
+    private calculateSimilarity(a: string, b: string): number {
+        const normalizedA = a.toLowerCase().trim();
+        const normalizedB = b.toLowerCase().trim();
+
+        if (normalizedA === normalizedB) return 1.0;
+        if (normalizedA.length === 0 || normalizedB.length === 0) return 0;
+
+        const distance = this.levenshteinDistance(normalizedA, normalizedB);
+        const maxLength = Math.max(normalizedA.length, normalizedB.length);
+        return 1 - distance / maxLength;
+    }
+
+    /**
+     * Extract the text value from a selector for comparison
+     */
+    private extractSelectorText(selector: string): string | null {
+        // Extract quoted values from selectors
+        const match = selector.match(/"([^"]+)"/);
+        return match ? match[1] : null;
+    }
+
+    /**
+     * Check if two selectors target semantically similar elements
+     */
+    private areSemanticallyRelated(selector1: string, selector2: string): boolean {
+        // Extract selector types
+        const type1 = this.extractSelectorType(selector1);
+        const type2 = this.extractSelectorType(selector2);
+
+        // Related types that might select the same element
+        const relatedGroups = [
+            ['button', 'role', 'text'],       // Interactive elements
+            ['label', 'placeholder', 'text'], // Form field identifiers
+            ['link', 'text'],                 // Navigation elements
+        ];
+
+        for (const group of relatedGroups) {
+            if (group.includes(type1) && group.includes(type2)) {
+                return true;
+            }
+        }
+
+        return type1 === type2;
+    }
+
+    /**
+     * Extract the selector type from a selector string
+     */
+    private extractSelectorType(selector: string): string {
+        if (selector.startsWith('testId') || selector.startsWith('testid')) return 'testid';
+        if (selector.startsWith('button')) return 'button';
+        if (selector.startsWith('link')) return 'link';
+        if (selector.startsWith('label')) return 'label';
+        if (selector.startsWith('placeholder')) return 'placeholder';
+        if (selector.startsWith('text')) return 'text';
+        if (selector.startsWith('role')) return 'role';
+        if (selector.startsWith('#')) return 'id';
+        if (selector.startsWith('.') || selector.includes('[')) return 'css';
+        return 'unknown';
+    }
+
+    /**
+     * Comprehensive duplicate detection with fuzzy matching
+     * Returns details about potential duplicates
+     */
+    checkForDuplicate(element: ElementInfo, newSelector: string, pageName?: string): DuplicateCheckResult {
+        // 1. Check for exact match first
+        const exactRef = this.findBySelector(newSelector);
+        if (exactRef) {
+            return {
+                isDuplicate: true,
+                existingRef: exactRef,
+                similarity: 1.0,
+                matchType: 'exact',
+                recommendation: 'reuse',
+                reason: `Exact selector already exists as ${exactRef.pageName}.${exactRef.fieldName}`
+            };
+        }
+
+        // 2. Check for similar selector (exact variations)
+        const similarRef = this.findSimilarSelector(element);
+        if (similarRef) {
+            return {
+                isDuplicate: true,
+                existingRef: similarRef,
+                similarity: 1.0,
+                matchType: 'exact',
+                recommendation: 'reuse',
+                reason: `Same element already exists as ${similarRef.pageName}.${similarRef.fieldName}`
+            };
+        }
+
+        // 3. Fuzzy matching against all existing selectors
+        const newText = this.extractSelectorText(newSelector);
+        let bestMatch: { ref: PageFieldRef; similarity: number; matchType: 'fuzzy' | 'semantic' } | null = null;
+
+        // Search in specified page first, then all pages
+        const pagesToSearch = pageName
+            ? [this.pages.get(pageName), ...Array.from(this.pages.values()).filter(p => p.name !== pageName)]
+            : Array.from(this.pages.values());
+
+        for (const page of pagesToSearch) {
+            if (!page) continue;
+
+            for (const [, field] of page.fields) {
+                const existingText = this.extractSelectorText(field.selector);
+
+                if (newText && existingText) {
+                    const similarity = this.calculateSimilarity(newText, existingText);
+
+                    // Check for high text similarity
+                    if (similarity >= 0.8) {
+                        const ref: PageFieldRef = {
+                            pageName: page.name,
+                            fieldName: field.name,
+                            selector: field.selector
+                        };
+
+                        if (!bestMatch || similarity > bestMatch.similarity) {
+                            bestMatch = { ref, similarity, matchType: 'fuzzy' };
+                        }
+                    }
+                    // Check for semantic relationship with lower threshold
+                    else if (similarity >= 0.6 && this.areSemanticallyRelated(newSelector, field.selector)) {
+                        const ref: PageFieldRef = {
+                            pageName: page.name,
+                            fieldName: field.name,
+                            selector: field.selector
+                        };
+
+                        if (!bestMatch || similarity > bestMatch.similarity) {
+                            bestMatch = { ref, similarity, matchType: 'semantic' };
+                        }
+                    }
+                }
+
+                // Also check for substring matches (e.g., "Submit" matches "Submit Button")
+                if (newText && existingText) {
+                    const lowerNew = newText.toLowerCase();
+                    const lowerExisting = existingText.toLowerCase();
+
+                    if (lowerNew.includes(lowerExisting) || lowerExisting.includes(lowerNew)) {
+                        const similarity = Math.min(lowerNew.length, lowerExisting.length) /
+                                          Math.max(lowerNew.length, lowerExisting.length);
+
+                        if (similarity >= 0.7) {
+                            const ref: PageFieldRef = {
+                                pageName: page.name,
+                                fieldName: field.name,
+                                selector: field.selector
+                            };
+
+                            if (!bestMatch || similarity > bestMatch.similarity) {
+                                bestMatch = { ref, similarity, matchType: 'semantic' };
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Return best fuzzy match if found
+        if (bestMatch) {
+            const { ref, similarity, matchType } = bestMatch;
+
+            // High similarity = likely duplicate
+            if (similarity >= 0.9) {
+                return {
+                    isDuplicate: true,
+                    existingRef: ref,
+                    similarity,
+                    matchType,
+                    recommendation: 'reuse',
+                    reason: `Very similar to ${ref.pageName}.${ref.fieldName} (${Math.round(similarity * 100)}% match)`
+                };
+            }
+
+            // Medium similarity = needs review
+            if (similarity >= 0.7) {
+                return {
+                    isDuplicate: false,
+                    existingRef: ref,
+                    similarity,
+                    matchType,
+                    recommendation: 'review',
+                    reason: `Similar to ${ref.pageName}.${ref.fieldName} (${Math.round(similarity * 100)}% match) - review if targeting same element`
+                };
+            }
+        }
+
+        // No duplicate found
+        return {
+            isDuplicate: false,
+            existingRef: null,
+            similarity: 0,
+            matchType: 'none',
+            recommendation: 'create',
+            reason: 'No similar selector found'
+        };
+    }
+
+    /**
+     * Find all fields in a page that might be duplicates of each other
+     * Useful for cleanup and deduplication
+     */
+    findDuplicatesInPage(pageName: string): Array<{
+        field1: PageField;
+        field2: PageField;
+        similarity: number;
+        recommendation: string;
+    }> {
+        const page = this.pages.get(pageName);
+        if (!page) return [];
+
+        const duplicates: Array<{
+            field1: PageField;
+            field2: PageField;
+            similarity: number;
+            recommendation: string;
+        }> = [];
+
+        const fields = Array.from(page.fields.values());
+
+        for (let i = 0; i < fields.length; i++) {
+            for (let j = i + 1; j < fields.length; j++) {
+                const text1 = this.extractSelectorText(fields[i].selector);
+                const text2 = this.extractSelectorText(fields[j].selector);
+
+                if (text1 && text2) {
+                    const similarity = this.calculateSimilarity(text1, text2);
+
+                    if (similarity >= 0.7) {
+                        duplicates.push({
+                            field1: fields[i],
+                            field2: fields[j],
+                            similarity,
+                            recommendation: similarity >= 0.9
+                                ? 'Remove one field - likely duplicates'
+                                : 'Review - might target same element'
+                        });
+                    }
+                }
+            }
+        }
+
+        return duplicates;
     }
 
     /**

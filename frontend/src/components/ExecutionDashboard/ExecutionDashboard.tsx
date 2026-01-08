@@ -11,17 +11,32 @@ import {
   Filter,
   Activity,
   Clock,
+  Github,
+  Monitor,
+  Loader2,
 } from 'lucide-react';
 import { ExecutionCard } from './ExecutionCard';
-// import { executionsApi } from '@/api/executions';
-import type { ShardInfo } from '../execution/LiveExecutionViewer';
+import { GitHubExecutionCard } from './GitHubExecutionCard';
+import { useGitHubExecutionStore, GitHubExecution } from '@/store/useGitHubExecutionStore';
+
+/**
+ * Shard information for parallel execution
+ */
+export interface ShardInfo {
+  id: string;
+  index: number;
+  status: 'pending' | 'running' | 'passed' | 'failed';
+  passedTests: number;
+  failedTests: number;
+  totalTests: number;
+}
 
 export interface ExecutionWithDetails {
   id: string;
   testFlowId: string;
   testFlowName: string;
   status: 'pending' | 'running' | 'passed' | 'failed' | 'cancelled';
-  target: 'local' | 'docker' | 'remote';
+  target: 'local' | 'remote';
   triggeredBy: {
     type: 'user' | 'scheduled' | 'api' | 'webhook';
     name?: string;
@@ -84,12 +99,13 @@ export interface ExecutionScenario {
 }
 
 export interface ExecutionDashboardProps {
-  onViewLive: (executionId: string, mode: 'docker' | 'local', shards?: ShardInfo[]) => void;
+  onViewLive: (executionId: string, mode: 'local' | 'remote', shards?: ShardInfo[]) => void;
   onViewTrace: (traceUrl: string, testName: string) => void;
   onBack: () => void;
 }
 
 type StatusFilter = 'all' | 'running' | 'passed' | 'failed';
+type ExecutionSource = 'local' | 'github';
 
 export const ExecutionDashboard: React.FC<ExecutionDashboardProps> = ({
   onViewLive,
@@ -101,64 +117,116 @@ export const ExecutionDashboard: React.FC<ExecutionDashboardProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<StatusFilter>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [activeSource, setActiveSource] = useState<ExecutionSource>('github');
 
-  // Fetch executions from both local storage and Docker traces
+  // GitHub executions from store
+  const githubExecutions = useGitHubExecutionStore((state) => state.executions);
+  const clearGitHubExecutions = useGitHubExecutionStore((state) => state.clearAll);
+  const addExecution = useGitHubExecutionStore((state) => state.addExecution);
+  const updateExecution = useGitHubExecutionStore((state) => state.updateExecution);
+
+  // Count running GitHub executions
+  const runningGitHubCount = githubExecutions.filter(
+    (e) => e.status === 'queued' || e.status === 'in_progress'
+  ).length;
+
+  // Fetch GitHub runs from API and update store
+  const fetchGitHubRuns = useCallback(async () => {
+    try {
+      // Get auth token
+      const authToken = localStorage.getItem('auth_token');
+      const headers: Record<string, string> = authToken
+        ? { 'Authorization': `Bearer ${authToken}` }
+        : {};
+
+      // Get repo settings from localStorage
+      const savedSettings = localStorage.getItem('github-settings');
+      let owner = 'y9g7bg5qbj-arch';
+      let repo = 'playwright-web-app';
+
+      if (savedSettings) {
+        const settings = JSON.parse(savedSettings);
+        owner = settings.owner || owner;
+        repo = settings.repo || repo;
+      }
+
+      const response = await fetch(`/api/github/runs?owner=${owner}&repo=${repo}&limit=20`, { headers });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch runs: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.success && data.data) {
+        // Update store with fetched runs
+        for (const run of data.data) {
+          // Check for existing by runId OR by the generated id pattern
+          const newId = `github-${run.id}`;
+          const existingRun = githubExecutions.find(e =>
+            e.runId === run.id || e.id === newId
+          );
+
+          // Map run status to GitHubExecution status type
+          const mapStatus = (status: string): 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled' => {
+            if (status === 'completed') return 'completed';
+            if (status === 'in_progress') return 'in_progress';
+            if (status === 'queued') return 'queued';
+            if (status === 'failure') return 'failed';
+            if (status === 'cancelled') return 'cancelled';
+            return 'completed';
+          };
+
+          const execution: Partial<GitHubExecution> = {
+            id: newId,
+            runId: run.id,
+            runNumber: run.runNumber,
+            workflowName: run.name,
+            status: mapStatus(run.status),
+            conclusion: run.conclusion,
+            browsers: ['chromium'],
+            workers: 2,
+            shards: 1,
+            triggeredAt: run.createdAt,
+            startedAt: run.createdAt,
+            completedAt: run.updatedAt,
+            totalTests: 0,  // Will be populated from GitHub run status updates
+            passedTests: 0,
+            failedTests: 0,
+            skippedTests: 0,
+            htmlUrl: run.htmlUrl,
+            owner,
+            repo,
+          };
+
+          if (existingRun) {
+            updateExecution(existingRun.id, execution);
+          } else {
+            addExecution(execution as any);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[ExecutionDashboard] Failed to fetch GitHub runs:', error);
+    }
+  }, [githubExecutions, addExecution, updateExecution]);
+
+  // Fetch executions from local storage
   const fetchExecutions = useCallback(async (showRefresh = false) => {
     if (showRefresh) setIsRefreshing(true);
     try {
-      // Fetch Docker executions from API
-      const dockerExecutions: ExecutionWithDetails[] = [];
-      try {
-        const response = await fetch('/api/executions/docker/list');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && Array.isArray(data.data)) {
-            // Convert Docker executions to ExecutionWithDetails format
-            const dockerExecs = data.data.map((exec: {
-              id: string;
-              name: string;
-              shard: string;
-              status: 'passed' | 'failed';
-              traceUrl: string;
-              timestamp: string;
-            }) => ({
-              id: exec.id,
-              testFlowId: `docker-${exec.shard}`,
-              testFlowName: exec.name,
-              status: exec.status,
-              target: 'docker' as const,
-              triggeredBy: { type: 'api' as const, name: `Docker ${exec.shard}` },
-              startedAt: exec.timestamp,
-              finishedAt: exec.timestamp,
-              stepCount: 1,
-              passedCount: exec.status === 'passed' ? 1 : 0,
-              failedCount: exec.status === 'failed' ? 1 : 0,
-              skippedCount: 0,
-              scenarios: [{
-                id: exec.id,
-                name: exec.name,
-                tags: [`@${exec.shard}`, '@docker'],
-                status: exec.status,
-                traceUrl: exec.traceUrl,
-              }],
-            }));
-            dockerExecutions.push(...dockerExecs);
-          }
-        }
-      } catch (err) {
-        console.log('Docker executions not available:', err);
+      // If on GitHub Actions tab, fetch from API
+      if (activeSource === 'github') {
+        await fetchGitHubRuns();
       }
 
-      // Combine Docker executions with mock data (or real local executions when available)
+      // Get mock executions (or real local executions when available)
       const mockExecs = getMockExecutions();
-      const allExecutions = [...dockerExecutions, ...mockExecs];
 
       // Sort by date, newest first
-      allExecutions.sort((a, b) =>
+      mockExecs.sort((a, b) =>
         new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
       );
 
-      setExecutions(allExecutions);
+      setExecutions(mockExecs);
     } catch (error) {
       console.error('Failed to fetch executions:', error);
       // Fallback to mock data
@@ -167,21 +235,13 @@ export const ExecutionDashboard: React.FC<ExecutionDashboardProps> = ({
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, []);
+  }, [activeSource, fetchGitHubRuns]);
 
+  // Initial fetch - and when activeSource changes
   useEffect(() => {
     fetchExecutions();
-
-    // Auto-refresh every 3 seconds if there are running executions
-    const interval = setInterval(() => {
-      const hasRunning = executions.some(e => e.status === 'running');
-      if (hasRunning) {
-        fetchExecutions();
-      }
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [fetchExecutions, executions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSource]);
 
   const toggleExpand = (id: string) => {
     setExpandedIds(prev => {
@@ -224,6 +284,35 @@ export const ExecutionDashboard: React.FC<ExecutionDashboardProps> = ({
             <Activity className="w-5 h-5 text-blue-400" />
             <h1 className="text-lg font-semibold text-slate-100">Execution History</h1>
           </div>
+          {/* Source Tabs */}
+          <div className="flex items-center gap-1 ml-6 bg-slate-800 rounded-lg p-1">
+            <button
+              onClick={() => setActiveSource('local')}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${activeSource === 'local'
+                ? 'bg-slate-700 text-white'
+                : 'text-slate-400 hover:text-slate-200'
+                }`}
+            >
+              <Monitor className="w-4 h-4" />
+              Local
+            </button>
+            <button
+              onClick={() => setActiveSource('github')}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${activeSource === 'github'
+                ? 'bg-slate-700 text-white'
+                : 'text-slate-400 hover:text-slate-200'
+                }`}
+            >
+              <Github className="w-4 h-4" />
+              GitHub Actions
+              {runningGitHubCount > 0 && (
+                <span className="flex items-center gap-1 ml-1 px-1.5 py-0.5 bg-blue-500/20 text-blue-400 text-xs rounded-full">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  {runningGitHubCount}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
 
         <button
@@ -236,64 +325,123 @@ export const ExecutionDashboard: React.FC<ExecutionDashboardProps> = ({
         </button>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="px-6 py-3 border-b border-slate-800 flex items-center gap-2">
-        <Filter className="w-4 h-4 text-slate-500" />
-        {(['all', 'running', 'passed', 'failed'] as StatusFilter[]).map(status => (
-          <button
-            key={status}
-            onClick={() => setFilter(status)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
-              filter === status
+      {/* Filter Tabs - Only show for local executions */}
+      {activeSource === 'local' && (
+        <div className="px-6 py-3 border-b border-slate-800 flex items-center gap-2">
+          <Filter className="w-4 h-4 text-slate-500" />
+          {(['all', 'running', 'passed', 'failed'] as StatusFilter[]).map(status => (
+            <button
+              key={status}
+              onClick={() => setFilter(status)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5 ${filter === status
                 ? status === 'running' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
                   status === 'passed' ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
-                  status === 'failed' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
-                  'bg-slate-700 text-slate-200 border border-slate-600'
+                    status === 'failed' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                      'bg-slate-700 text-slate-200 border border-slate-600'
                 : 'bg-slate-800/50 text-slate-500 hover:text-slate-300 border border-transparent'
-            }`}
-          >
-            {status.charAt(0).toUpperCase() + status.slice(1)}
-            <span className="text-xs opacity-70">({filterCounts[status]})</span>
-          </button>
-        ))}
-      </div>
+                }`}
+            >
+              {status.charAt(0).toUpperCase() + status.slice(1)}
+              <span className="text-xs opacity-70">({filterCounts[status]})</span>
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* Execution List */}
+      {/* Content Area */}
       <div className="flex-1 overflow-y-auto p-6">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center space-y-3">
-              <div className="w-12 h-12 border-4 border-slate-700 border-t-blue-500 rounded-full animate-spin mx-auto" />
-              <p className="text-slate-400 text-sm">Loading executions...</p>
-            </div>
-          </div>
-        ) : filteredExecutions.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-              <Clock className="w-8 h-8 text-slate-600" />
-            </div>
-            <p className="text-slate-400 font-medium">No executions found</p>
-            <p className="text-sm text-slate-500 mt-1">
-              {filter !== 'all' ? 'Try changing your filter' : 'Run a test to see execution history'}
-            </p>
+        {/* GitHub Actions View */}
+        {activeSource === 'github' ? (
+          <div className="max-w-5xl mx-auto">
+            {/* Clear button */}
+            {githubExecutions.length > 0 && (
+              <div className="flex justify-end mb-4">
+                <button
+                  onClick={() => {
+                    if (confirm('Clear all GitHub execution history?')) {
+                      clearGitHubExecutions();
+                    }
+                  }}
+                  className="text-xs text-slate-500 hover:text-slate-300"
+                >
+                  Clear History
+                </button>
+              </div>
+            )}
+            {githubExecutions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-64 text-center">
+                <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-4">
+                  <Github className="w-8 h-8 text-slate-600" />
+                </div>
+                <p className="text-slate-400 font-medium">No GitHub Actions runs yet</p>
+                <p className="text-sm text-slate-500 mt-1">
+                  Run tests with GitHub Actions to see execution history here
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Sort all executions by triggeredAt date (newest first), then show running first */}
+                {[...githubExecutions]
+                  .sort((a, b) => {
+                    // Running executions always come first
+                    const aRunning = a.status === 'queued' || a.status === 'in_progress';
+                    const bRunning = b.status === 'queued' || b.status === 'in_progress';
+                    if (aRunning && !bRunning) return -1;
+                    if (!aRunning && bRunning) return 1;
+                    // Then sort by date (newest first)
+                    const aDate = new Date(a.triggeredAt || a.startedAt || 0).getTime();
+                    const bDate = new Date(b.triggeredAt || b.startedAt || 0).getTime();
+                    return bDate - aDate;
+                  })
+                  .map((execution) => (
+                    <GitHubExecutionCard
+                      key={execution.id}
+                      execution={execution}
+                      onViewTrace={onViewTrace}
+                    />
+                  ))}
+              </div>
+            )}
           </div>
         ) : (
-          <div className="space-y-3 max-w-5xl mx-auto">
-            {filteredExecutions.map(execution => (
-              <ExecutionCard
-                key={execution.id}
-                execution={execution}
-                isExpanded={expandedIds.has(execution.id)}
-                onToggle={() => toggleExpand(execution.id)}
-                onViewLive={() => onViewLive(
-                  execution.id,
-                  execution.target === 'docker' ? 'docker' : 'local',
-                  execution.shards
-                )}
-                onViewTrace={onViewTrace}
-              />
-            ))}
-          </div>
+          /* Local Executions View */
+          <>
+            {isLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center space-y-3">
+                  <div className="w-12 h-12 border-4 border-slate-700 border-t-blue-500 rounded-full animate-spin mx-auto" />
+                  <p className="text-slate-400 text-sm">Loading executions...</p>
+                </div>
+              </div>
+            ) : filteredExecutions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center">
+                <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-4">
+                  <Clock className="w-8 h-8 text-slate-600" />
+                </div>
+                <p className="text-slate-400 font-medium">No executions found</p>
+                <p className="text-sm text-slate-500 mt-1">
+                  {filter !== 'all' ? 'Try changing your filter' : 'Run a test to see execution history'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3 max-w-5xl mx-auto">
+                {filteredExecutions.map(execution => (
+                  <ExecutionCard
+                    key={execution.id}
+                    execution={execution}
+                    isExpanded={expandedIds.has(execution.id)}
+                    onToggle={() => toggleExpand(execution.id)}
+                    onViewLive={() => onViewLive(
+                      execution.id,
+                      execution.target,
+                      execution.shards
+                    )}
+                    onViewTrace={onViewTrace}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -308,7 +456,7 @@ function getMockExecutions(): ExecutionWithDetails[] {
       testFlowId: 'flow-1',
       testFlowName: 'Login Flow Test',
       status: 'running',
-      target: 'docker',
+      target: 'local',
       triggeredBy: { type: 'user', name: 'John Doe' },
       startedAt: new Date(Date.now() - 120000).toISOString(),
       stepCount: 8,
@@ -316,9 +464,9 @@ function getMockExecutions(): ExecutionWithDetails[] {
       failedCount: 0,
       skippedCount: 0,
       shards: [
-        { id: 'shard-1', shardIndex: 0, totalShards: 3, vncUrl: 'http://localhost:6081/vnc.html', status: 'running', currentTest: 'Login with valid credentials', progress: { passed: 1, failed: 0, total: 3 } },
-        { id: 'shard-2', shardIndex: 1, totalShards: 3, vncUrl: 'http://localhost:6082/vnc.html', status: 'running', currentTest: 'Login with invalid password', progress: { passed: 1, failed: 0, total: 2 } },
-        { id: 'shard-3', shardIndex: 2, totalShards: 3, vncUrl: 'http://localhost:6083/vnc.html', status: 'pending', progress: { passed: 0, failed: 0, total: 3 } },
+        { id: 'shard-1', index: 0, status: 'running', passedTests: 1, failedTests: 0, totalTests: 3 },
+        { id: 'shard-2', index: 1, status: 'running', passedTests: 1, failedTests: 0, totalTests: 2 },
+        { id: 'shard-3', index: 2, status: 'pending', passedTests: 0, failedTests: 0, totalTests: 3 },
       ],
       scenarios: [
         {
@@ -527,7 +675,7 @@ function getMockExecutions(): ExecutionWithDetails[] {
       testFlowId: 'flow-1',
       testFlowName: 'Login Flow Test',
       status: 'passed',
-      target: 'docker',
+      target: 'local',
       triggeredBy: { type: 'api' },
       startedAt: new Date(Date.now() - 7200000).toISOString(),
       finishedAt: new Date(Date.now() - 7140000).toISOString(),

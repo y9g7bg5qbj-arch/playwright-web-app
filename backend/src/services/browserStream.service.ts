@@ -30,6 +30,13 @@ import {
     getBestLocator,
     ElementInfo as LocatorElementInfo
 } from '../locators/locatorRanker';
+import { screenshotService } from './screenshotService';
+import {
+    validateSelector,
+    findFirstValidSelector,
+    isElementInteractable,
+    SelectorValidationResult
+} from './selectorHealing';
 
 interface RecordingSession {
     sessionId: string;
@@ -44,6 +51,8 @@ interface RecordingSession {
     url: string;
     registry: PageObjectRegistry;
     scenarioName?: string;
+    stepCount: number; // Track step count for screenshots
+    captureScreenshots: boolean; // Whether to capture screenshots (user configurable)
 }
 
 interface PageObjectEntry {
@@ -150,7 +159,9 @@ export class BrowserStreamService extends EventEmitter {
                 lastCodeLength: 0,
                 url,
                 registry,
-                scenarioName
+                scenarioName,
+                stepCount: 0,
+                captureScreenshots: false // Off by default - user can enable via API
             });
 
             // Note: We don't track framenavigated events because:
@@ -374,15 +385,39 @@ export class BrowserStreamService extends EventEmitter {
         pagePath?: string;
         pageCode?: string;
         fieldCreated?: { pageName: string; fieldName: string };
+        screenshot?: string; // Base64 screenshot data URL
+        stepNumber?: number;
     } | null> {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
+        // Capture current step number
+        const stepNumber = session.stepCount++;
+        let screenshotDataUrl: string | undefined;
+
         const registry = session.registry;
+
+        // Capture screenshot after action (only if enabled)
+        const captureScreenshot = async () => {
+            if (!session.captureScreenshots) return undefined;
+            try {
+                const buffer = await session.page.screenshot({
+                    type: 'png',
+                    fullPage: false
+                });
+                // Save to file and get data URL
+                await screenshotService.saveStepScreenshot(sessionId, stepNumber, buffer);
+                return screenshotService.bufferToDataUrl(buffer);
+            } catch (e) {
+                console.warn('[BrowserStream] Failed to capture screenshot:', e);
+                return undefined;
+            }
+        };
 
         // Handle keypress actions
         if (action.type === 'keypress' && action.key) {
-            return { veroCode: `press "${action.key}"` };
+            screenshotDataUrl = await captureScreenshot();
+            return { veroCode: `press "${action.key}"`, screenshot: screenshotDataUrl, stepNumber };
         }
 
         // Skip if no element info
@@ -457,7 +492,10 @@ export class BrowserStreamService extends EventEmitter {
             console.log(`[BrowserStream] Created field ${fieldRef.pageName}.${fieldRef.fieldName} = ${veroSelector}`);
         }
 
-        return { veroCode, pagePath, pageCode, fieldCreated };
+        // Capture screenshot after action
+        screenshotDataUrl = await captureScreenshot();
+
+        return { veroCode, pagePath, pageCode, fieldCreated, screenshot: screenshotDataUrl, stepNumber };
     }
 
     /**
@@ -1020,6 +1058,82 @@ export class BrowserStreamService extends EventEmitter {
     }
 
     /**
+     * Enable or disable screenshot capture for a session
+     */
+    setScreenshotCapture(sessionId: string, enabled: boolean): boolean {
+        const session = this.sessions.get(sessionId);
+        if (!session) return false;
+        session.captureScreenshots = enabled;
+        console.log(`[BrowserStream] Screenshot capture ${enabled ? 'enabled' : 'disabled'} for session ${sessionId}`);
+        return true;
+    }
+
+    /**
+     * Take an on-demand screenshot for reporting
+     */
+    async takeScreenshot(sessionId: string): Promise<string | null> {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        try {
+            const buffer = await session.page.screenshot({
+                type: 'png',
+                fullPage: false
+            });
+            const metadata = await screenshotService.saveStepScreenshot(
+                sessionId,
+                session.stepCount,
+                buffer
+            );
+            return screenshotService.bufferToDataUrl(buffer);
+        } catch (e) {
+            console.warn('[BrowserStream] Failed to take screenshot:', e);
+            return null;
+        }
+    }
+
+    /**
+     * Validate a selector against the live page
+     */
+    async validateSelector(sessionId: string, selector: string): Promise<SelectorValidationResult | null> {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        return validateSelector(session.page, selector);
+    }
+
+    /**
+     * Validate multiple selectors and find the first valid one
+     */
+    async findValidSelector(
+        sessionId: string,
+        selectors: string[]
+    ): Promise<{ selector: string; result: SelectorValidationResult } | null> {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        return findFirstValidSelector(session.page, selectors);
+    }
+
+    /**
+     * Check if an element is interactable (visible and enabled)
+     */
+    async checkElementInteractable(
+        sessionId: string,
+        selector: string
+    ): Promise<{
+        exists: boolean;
+        visible: boolean;
+        enabled: boolean;
+        interactable: boolean;
+    } | null> {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        return isElementInteractable(session.page, selector);
+    }
+
+    /**
      * Dispatch mouse click to browser via Playwright's mouse API
      * This is more reliable than raw CDP events for triggering actual DOM clicks
      * Returns detailed info about the click for debugging
@@ -1252,6 +1366,294 @@ export class BrowserStreamService extends EventEmitter {
         // Store a lightweight session for iframe proxy mode
         // We don't have a browser, just registry state
         console.log(`[BrowserStream] Created iframe session: ${sessionId} for URL: ${url}`);
+    }
+
+    /**
+     * Highlight an element on the page using CDP Overlay
+     * @param sessionId - The recording session ID
+     * @param selector - Vero selector to highlight
+     * @param options - Highlight options (color, duration)
+     */
+    async highlightElement(
+        sessionId: string,
+        selector: string,
+        options: {
+            color?: { r: number; g: number; b: number; a: number };
+            borderColor?: { r: number; g: number; b: number; a: number };
+            showInfo?: boolean;
+            durationMs?: number;
+        } = {}
+    ): Promise<boolean> {
+        const session = this.sessions.get(sessionId);
+        if (!session) return false;
+
+        const {
+            color = { r: 66, g: 133, b: 244, a: 0.3 },        // Blue fill
+            borderColor = { r: 66, g: 133, b: 244, a: 1 },    // Blue border
+            showInfo = true,
+            durationMs = 2000
+        } = options;
+
+        try {
+            // Enable overlay
+            await session.cdp.send('Overlay.enable');
+
+            // Find the element using Playwright and get its node ID
+            const element = await this.findElementByVeroSelector(session.page, selector);
+            if (!element) {
+                console.log(`[BrowserStream] Element not found for highlight: ${selector}`);
+                return false;
+            }
+
+            // Get the element's bounding box for highlight
+            const box = await element.boundingBox();
+            if (!box) {
+                console.log(`[BrowserStream] Element has no bounding box: ${selector}`);
+                return false;
+            }
+
+            // Use highlightRect for the bounding box highlight
+            await session.cdp.send('Overlay.highlightRect', {
+                x: Math.round(box.x),
+                y: Math.round(box.y),
+                width: Math.round(box.width),
+                height: Math.round(box.height),
+                color,
+                outlineColor: borderColor
+            });
+
+            // Auto-hide after duration
+            if (durationMs > 0) {
+                setTimeout(async () => {
+                    try {
+                        await session.cdp.send('Overlay.hideHighlight');
+                    } catch {
+                        // Session may have ended
+                    }
+                }, durationMs);
+            }
+
+            return true;
+        } catch (e) {
+            console.warn(`[BrowserStream] Failed to highlight element:`, e);
+            return false;
+        }
+    }
+
+    /**
+     * Highlight an element by its coordinates (for immediate feedback during recording)
+     */
+    async highlightAtPoint(
+        sessionId: string,
+        x: number,
+        y: number,
+        options: {
+            color?: { r: number; g: number; b: number; a: number };
+            borderColor?: { r: number; g: number; b: number; a: number };
+            durationMs?: number;
+        } = {}
+    ): Promise<boolean> {
+        const session = this.sessions.get(sessionId);
+        if (!session) return false;
+
+        const {
+            color = { r: 76, g: 175, b: 80, a: 0.3 },         // Green fill for click
+            borderColor = { r: 76, g: 175, b: 80, a: 1 },      // Green border
+            durationMs = 1000
+        } = options;
+
+        try {
+            await session.cdp.send('Overlay.enable');
+
+            // Get element at point using CDP
+            const { nodeId } = await session.cdp.send('DOM.getNodeForLocation', {
+                x: Math.round(x),
+                y: Math.round(y)
+            });
+
+            if (nodeId) {
+                await session.cdp.send('Overlay.highlightNode', {
+                    nodeId,
+                    highlightConfig: {
+                        contentColor: color,
+                        borderColor,
+                        showInfo: true,
+                        showExtensionLines: false
+                    }
+                });
+
+                // Auto-hide
+                if (durationMs > 0) {
+                    setTimeout(async () => {
+                        try {
+                            await session.cdp.send('Overlay.hideHighlight');
+                        } catch {
+                            // Session may have ended
+                        }
+                    }, durationMs);
+                }
+
+                return true;
+            }
+
+            return false;
+        } catch (e) {
+            console.warn(`[BrowserStream] Failed to highlight at point:`, e);
+            return false;
+        }
+    }
+
+    /**
+     * Hide all highlights
+     */
+    async hideHighlight(sessionId: string): Promise<boolean> {
+        const session = this.sessions.get(sessionId);
+        if (!session) return false;
+
+        try {
+            await session.cdp.send('Overlay.hideHighlight');
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /**
+     * Enable hover highlight (shows element info on hover)
+     */
+    async enableHoverHighlight(sessionId: string, enabled: boolean = true): Promise<boolean> {
+        const session = this.sessions.get(sessionId);
+        if (!session) return false;
+
+        try {
+            if (enabled) {
+                await session.cdp.send('Overlay.enable');
+                await session.cdp.send('Overlay.setInspectMode', {
+                    mode: 'searchForNode',
+                    highlightConfig: {
+                        contentColor: { r: 111, g: 168, b: 220, a: 0.66 },
+                        paddingColor: { r: 147, g: 196, b: 125, a: 0.55 },
+                        borderColor: { r: 255, g: 229, b: 153, a: 0.66 },
+                        marginColor: { r: 246, g: 178, b: 107, a: 0.66 },
+                        showInfo: true,
+                        showExtensionLines: true
+                    }
+                });
+            } else {
+                await session.cdp.send('Overlay.setInspectMode', {
+                    mode: 'none',
+                    highlightConfig: {}
+                });
+            }
+            return true;
+        } catch (e) {
+            console.warn(`[BrowserStream] Failed to toggle hover highlight:`, e);
+            return false;
+        }
+    }
+
+    /**
+     * Highlight with selector validation feedback
+     * Shows green for valid, red for invalid, yellow for non-unique
+     */
+    async highlightWithValidation(
+        sessionId: string,
+        selector: string,
+        durationMs: number = 2000
+    ): Promise<{
+        highlighted: boolean;
+        validation: SelectorValidationResult | null;
+    }> {
+        const session = this.sessions.get(sessionId);
+        if (!session) return { highlighted: false, validation: null };
+
+        // First validate the selector
+        const validation = await validateSelector(session.page, selector);
+
+        // Choose color based on validation result
+        let color: { r: number; g: number; b: number; a: number };
+        let borderColor: { r: number; g: number; b: number; a: number };
+
+        if (!validation.isValid) {
+            // Red for invalid/not found
+            color = { r: 244, g: 67, b: 54, a: 0.3 };
+            borderColor = { r: 244, g: 67, b: 54, a: 1 };
+        } else if (!validation.isUnique) {
+            // Yellow for multiple matches
+            color = { r: 255, g: 193, b: 7, a: 0.3 };
+            borderColor = { r: 255, g: 193, b: 7, a: 1 };
+        } else {
+            // Green for valid and unique
+            color = { r: 76, g: 175, b: 80, a: 0.3 };
+            borderColor = { r: 76, g: 175, b: 80, a: 1 };
+        }
+
+        // Highlight with appropriate color
+        const highlighted = await this.highlightElement(sessionId, selector, {
+            color,
+            borderColor,
+            durationMs
+        });
+
+        return { highlighted, validation };
+    }
+
+    /**
+     * Find an element by Vero selector
+     */
+    private async findElementByVeroSelector(page: Page, selector: string) {
+        // testId "login-btn"
+        let match = selector.match(/testId "(.+?)"/);
+        if (match) {
+            return page.getByTestId(match[1]).first();
+        }
+
+        // button "Submit" (role with name)
+        match = selector.match(/^(\w+) "(.+?)"/);
+        if (match) {
+            const role = match[1] as any;
+            const name = match[2];
+            return page.getByRole(role, { name }).first();
+        }
+
+        // role "button" (role without name)
+        match = selector.match(/role "(\w+)"/);
+        if (match) {
+            return page.getByRole(match[1] as any).first();
+        }
+
+        // label "Email"
+        match = selector.match(/label "(.+?)"/);
+        if (match) {
+            return page.getByLabel(match[1]).first();
+        }
+
+        // placeholder "Enter email"
+        match = selector.match(/placeholder "(.+?)"/);
+        if (match) {
+            return page.getByPlaceholder(match[1]).first();
+        }
+
+        // text "Click me"
+        match = selector.match(/text "(.+?)"/);
+        if (match) {
+            return page.getByText(match[1]).first();
+        }
+
+        // alt "Logo"
+        match = selector.match(/alt "(.+?)"/);
+        if (match) {
+            return page.getByAltText(match[1]).first();
+        }
+
+        // title "Tooltip"
+        match = selector.match(/title "(.+?)"/);
+        if (match) {
+            return page.getByTitle(match[1]).first();
+        }
+
+        // CSS selector (#id, .class, tag)
+        return page.locator(selector).first();
     }
 
     /**

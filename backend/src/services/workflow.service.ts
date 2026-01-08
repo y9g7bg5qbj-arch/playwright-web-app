@@ -4,33 +4,33 @@ import type { Workflow, WorkflowCreate, WorkflowUpdate } from '@playwright-web-a
 
 export class WorkflowService {
   /**
-   * Check if user has access to a project (owner or member)
+   * Check if user has access to an application (owner or member)
    */
-  private async checkProjectAccess(userId: string, projectId: string): Promise<boolean> {
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
+  private async checkApplicationAccess(userId: string, applicationId: string): Promise<boolean> {
+    const application = await prisma.application.findUnique({
+      where: { id: applicationId },
       include: { members: true },
     });
 
-    if (!project) {
+    if (!application) {
       return false;
     }
 
-    // User is owner or a member
-    return project.userId === userId ||
-           project.members.some(m => m.userId === userId);
+    // User is owner of the application or a member
+    return application.userId === userId ||
+      application.members.some(m => m.userId === userId);
   }
 
   async create(userId: string, data: WorkflowCreate): Promise<Workflow> {
-    // Verify user has access to the project
-    const hasAccess = await this.checkProjectAccess(userId, data.projectId);
+    // Verify user has access to the application
+    const hasAccess = await this.checkApplicationAccess(userId, data.applicationId);
     if (!hasAccess) {
-      throw new ForbiddenError('Access denied to this project');
+      throw new ForbiddenError('Access denied to this application');
     }
 
     const workflow = await prisma.workflow.create({
       data: {
-        projectId: data.projectId,
+        applicationId: data.applicationId,
         userId,
         name: data.name,
         description: data.description,
@@ -44,18 +44,18 @@ export class WorkflowService {
   }
 
   /**
-   * Find all workflows in a project that user has access to
+   * Find all workflows in an application that user has access to
    */
-  async findAll(userId: string, projectId?: string): Promise<Workflow[]> {
-    // If projectId is provided, filter by project
-    if (projectId) {
-      const hasAccess = await this.checkProjectAccess(userId, projectId);
+  async findAll(userId: string, applicationId?: string): Promise<Workflow[]> {
+    // If applicationId is provided, filter by application
+    if (applicationId) {
+      const hasAccess = await this.checkApplicationAccess(userId, applicationId);
       if (!hasAccess) {
-        throw new ForbiddenError('Access denied to this project');
+        throw new ForbiddenError('Access denied to this application');
       }
 
       const workflows = await prisma.workflow.findMany({
-        where: { projectId },
+        where: { applicationId },
         include: {
           testFlows: {
             include: {
@@ -72,7 +72,7 @@ export class WorkflowService {
       return workflows.map(this.formatWorkflow);
     }
 
-    // Legacy: If no projectId, return all workflows user owns
+    // Legacy: If no applicationId, return all workflows user owns
     // This maintains backward compatibility
     const workflows = await prisma.workflow.findMany({
       where: { userId },
@@ -111,14 +111,14 @@ export class WorkflowService {
       throw new NotFoundError('Workflow not found');
     }
 
-    // Check access via project membership or ownership
-    if (workflow.projectId) {
-      const hasAccess = await this.checkProjectAccess(userId, workflow.projectId);
+    // Check access via application membership or ownership
+    if (workflow.applicationId) {
+      const hasAccess = await this.checkApplicationAccess(userId, workflow.applicationId);
       if (!hasAccess) {
         throw new ForbiddenError('Access denied');
       }
     } else if (workflow.userId !== userId) {
-      // Legacy workflows without projectId - check userId
+      // Legacy workflows without applicationId - check userId
       throw new ForbiddenError('Access denied');
     }
 
@@ -134,9 +134,9 @@ export class WorkflowService {
       throw new NotFoundError('Workflow not found');
     }
 
-    // Check access via project membership or ownership
-    if (existing.projectId) {
-      const hasAccess = await this.checkProjectAccess(userId, existing.projectId);
+    // Check access via application membership or ownership
+    if (existing.applicationId) {
+      const hasAccess = await this.checkApplicationAccess(userId, existing.applicationId);
       if (!hasAccess) {
         throw new ForbiddenError('Access denied');
       }
@@ -167,9 +167,9 @@ export class WorkflowService {
       throw new NotFoundError('Workflow not found');
     }
 
-    // Check access via project membership or ownership
-    if (existing.projectId) {
-      const hasAccess = await this.checkProjectAccess(userId, existing.projectId);
+    // Check access via application membership or ownership
+    if (existing.applicationId) {
+      const hasAccess = await this.checkApplicationAccess(userId, existing.applicationId);
       if (!hasAccess) {
         throw new ForbiddenError('Access denied');
       }
@@ -185,7 +185,7 @@ export class WorkflowService {
   private formatWorkflow(workflow: any): Workflow {
     return {
       id: workflow.id,
-      projectId: workflow.projectId || '',
+      applicationId: workflow.applicationId || '',
       userId: workflow.userId,
       name: workflow.name,
       description: workflow.description,

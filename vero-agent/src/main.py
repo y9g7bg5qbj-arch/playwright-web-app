@@ -2,12 +2,15 @@
 Vero Agent - FastAPI Server
 
 REST API for generating Vero DSL from plain English test steps.
+Includes WebSocket support for live execution with real-time feedback.
 """
 import os
+import uuid
 from pathlib import Path
 from contextlib import asynccontextmanager
+from typing import List
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -15,6 +18,7 @@ from .config import get_llm, LLM_PROVIDER, VERO_PROJECT_PATH, MAX_RETRIES
 from .agent.selector_resolver import SelectorResolver
 from .agent.vero_generator import VeroGenerator
 from .agent.retry_executor import RetryExecutor
+from .live_execution_server import handle_websocket, manager as ws_manager
 
 
 # Global instances (initialized on startup)
@@ -233,6 +237,89 @@ async def get_existing_pages():
     if not selector_resolver:
         return {"pages": {}}
     return {"pages": selector_resolver.existing_pages}
+
+
+# ============= LIVE EXECUTION =============
+
+class LiveExecutionRequest(BaseModel):
+    """Request to start live execution"""
+    steps: List[str]
+    url: str | None = None
+    headless: bool = False
+    step_delay_ms: int = 500
+
+
+class LiveExecutionResponse(BaseModel):
+    """Response with session ID for WebSocket connection"""
+    session_id: str
+    websocket_url: str
+    message: str
+
+
+@app.post("/api/live/start", response_model=LiveExecutionResponse)
+async def start_live_execution(request: LiveExecutionRequest):
+    """
+    Start a live execution session.
+
+    Returns a session ID that should be used to connect via WebSocket
+    for real-time updates and interactive control.
+
+    WebSocket flow:
+    1. Call this endpoint to get session_id
+    2. Connect to /ws/live/{session_id}
+    3. Send 'start' message with steps
+    4. Receive real-time updates
+    5. Use 'pause', 'resume', 'correct', 'stop' for control
+    """
+    session_id = str(uuid.uuid4())
+
+    return LiveExecutionResponse(
+        session_id=session_id,
+        websocket_url=f"/ws/live/{session_id}",
+        message="Session created. Connect via WebSocket and send 'start' message."
+    )
+
+
+@app.websocket("/ws/live/{session_id}")
+async def websocket_live_execution(websocket: WebSocket, session_id: str):
+    """
+    WebSocket endpoint for live execution with real-time feedback.
+
+    Client Messages:
+    - { "type": "start", "steps": [...], "url": "...", "headless": false }
+    - { "type": "pause" }
+    - { "type": "resume" }
+    - { "type": "stop" }
+    - { "type": "correct", "correction": "Click the BLUE button instead" }
+    - { "type": "skip" }
+    - { "type": "get_state" }
+
+    Server Messages:
+    - { "type": "state_change", "data": { "state": "running" } }
+    - { "type": "step_complete", "data": { "step_index": 0, "success": true, ... } }
+    - { "type": "screenshot", "data": { "image": "base64..." } }
+    - { "type": "execution_complete", "data": { "success": true, "results": [...] } }
+    - { "type": "error", "data": { "message": "..." } }
+    """
+    await handle_websocket(websocket, session_id)
+
+
+@app.get("/api/live/sessions")
+async def list_active_sessions():
+    """List all active live execution sessions"""
+    return {
+        "sessions": list(ws_manager.active_connections.keys()),
+        "count": len(ws_manager.active_connections)
+    }
+
+
+@app.delete("/api/live/sessions/{session_id}")
+async def stop_session(session_id: str):
+    """Stop a specific live execution session"""
+    if session_id in ws_manager.active_connections:
+        ws_manager.disconnect(session_id)
+        return {"success": True, "message": f"Session {session_id} stopped"}
+    raise HTTPException(status_code=404, detail="Session not found")
 
 
 if __name__ == "__main__":

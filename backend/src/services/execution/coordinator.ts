@@ -29,10 +29,9 @@ import { createStrategy } from '../sharding/strategies';
 export interface WorkerRegistration {
   id?: string;
   name: string;
-  type: 'local' | 'docker' | 'remote';
+  type: 'local' | 'remote';
   host: string;
   port: number;
-  vncPort?: number;
   capabilities: WorkerCapabilities;
   metadata?: Record<string, any>;
 }
@@ -86,7 +85,6 @@ export class TestCoordinator extends EventEmitter {
       type: registration.type,
       host: registration.host,
       port: registration.port,
-      vncPort: registration.vncPort,
       capabilities: registration.capabilities,
       status: 'idle',
       registeredAt: new Date(),

@@ -58,6 +58,21 @@ export function registerVeroLanguage(monaco: Monaco) {
             'text', 'number', 'flag', 'list', 'seconds', 'milliseconds'
         ],
 
+        // VDQL (Data Query Language) keywords
+        vdqlKeywords: [
+            'data', 'where', 'order', 'by', 'asc', 'desc',
+            'limit', 'offset', 'first', 'last', 'random', 'default'
+        ],
+
+        vdqlOperators: [
+            'or', 'starts', 'ends', 'matches', 'null'
+        ],
+
+        vdqlFunctions: [
+            'count', 'sum', 'average', 'min', 'max', 'distinct',
+            'rows', 'columns', 'headers'
+        ],
+
         tokenizer: {
             root: [
                 // Comments
@@ -94,6 +109,21 @@ export function registerVeroLanguage(monaco: Monaco) {
                 // Types
                 [/\b(text|number|flag|list|seconds|milliseconds)\b/, 'type'],
 
+                // VDQL keywords
+                [/\b(data|where|order|by|asc|desc|limit|offset|first|last|random|default)\b/, 'keyword.vdql'],
+
+                // VDQL logical/text operators
+                [/\b(or|starts|ends|matches|null)\b/, 'keyword.vdql.operator'],
+
+                // VDQL aggregation functions
+                [/\b(count|sum|average|min|max|distinct|rows|columns|headers)\b/, 'function.vdql'],
+
+                // VDQL comparison operators
+                [/==|!=|>=|<=|>|</, 'operator.vdql'],
+
+                // VDQL table reference: TestData.TableName
+                [/\bTestData\.[A-Z][a-zA-Z0-9]*/, 'variable.vdql.table'],
+
                 // Identifiers
                 [/\b[A-Z][a-zA-Z0-9]*\b/, 'type.identifier'],
                 [/\b[a-z][a-zA-Z0-9]*\b/, 'identifier'],
@@ -122,6 +152,12 @@ export function registerVeroLanguage(monaco: Monaco) {
             { token: 'type.identifier', foreground: 'E0E0E0' },  // White/Grey for PageNames
             { token: 'variable.name', foreground: 'E0E0E0' },  // White/Grey for Page.method
             { token: 'identifier', foreground: 'E0E0E0' },  // White/Grey for others
+            // VDQL tokens
+            { token: 'keyword.vdql', foreground: '03DAC5', fontStyle: 'bold' },  // Teal for VDQL keywords
+            { token: 'keyword.vdql.operator', foreground: '03DAC5' },  // Teal for VDQL operators
+            { token: 'function.vdql', foreground: 'CF6679', fontStyle: 'bold' },  // Pink for VDQL functions
+            { token: 'operator.vdql', foreground: 'FF7043' },  // Orange for comparison operators
+            { token: 'variable.vdql.table', foreground: 'FFAB40', fontStyle: 'bold' },  // Amber for TestData tables
         ],
         colors: {
             'editor.background': '#121212',
@@ -154,6 +190,12 @@ export function registerVeroLanguage(monaco: Monaco) {
             { token: 'type.identifier', foreground: '267F99' },
             { token: 'variable.name', foreground: '001080' },
             { token: 'identifier', foreground: '000000' },
+            // VDQL tokens
+            { token: 'keyword.vdql', foreground: '0097A7', fontStyle: 'bold' },  // Cyan for VDQL keywords
+            { token: 'keyword.vdql.operator', foreground: '0097A7' },  // Cyan for VDQL operators
+            { token: 'function.vdql', foreground: 'C2185B', fontStyle: 'bold' },  // Pink for VDQL functions
+            { token: 'operator.vdql', foreground: 'E65100' },  // Orange for comparison operators
+            { token: 'variable.vdql.table', foreground: 'FF6F00', fontStyle: 'bold' },  // Amber for TestData tables
         ],
         colors: {
             'editor.background': '#FFFFFF',
@@ -532,6 +574,276 @@ export function registerVeroCompletionProvider(monaco: Monaco) {
             }
 
             return { suggestions: [] };
+        },
+    });
+
+    // ========================================
+    // Register VDQL (Data Query) completions
+    // ========================================
+    registerVDQLCompletionProvider(monaco);
+}
+
+/**
+ * Register VDQL-specific completion providers
+ */
+function registerVDQLCompletionProvider(monaco: Monaco) {
+    // VDQL keyword completions
+    monaco.languages.registerCompletionItemProvider('vero', {
+        triggerCharacters: [' ', '\n'],
+
+        provideCompletionItems: (model: any, position: any) => {
+            const lineContent = model.getLineContent(position.lineNumber);
+            const textBeforeCursor = lineContent.substring(0, position.column - 1).trim();
+            const suggestions: any[] = [];
+
+            // ========================================
+            // CASE 1: Start of data query - suggest 'data', 'list', etc.
+            // ========================================
+            if (textBeforeCursor === '' || textBeforeCursor.match(/^\s*$/)) {
+                // Suggest VDQL variable declarations
+                suggestions.push({
+                    label: 'data',
+                    kind: monaco.languages.CompletionItemKind.Keyword,
+                    insertText: 'data ${1:varName} = TestData.${2:TableName}',
+                    insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                    detail: 'VDQL: Declare data variable',
+                    documentation: 'Query test data into a variable\nExample: data admin = TestData.Users where role == "admin"',
+                });
+
+                suggestions.push({
+                    label: 'list',
+                    kind: monaco.languages.CompletionItemKind.Keyword,
+                    insertText: 'list ${1:varName} = TestData.${2:TableName}.${3:column}',
+                    insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                    detail: 'VDQL: Declare list variable',
+                    documentation: 'Query column values into a list\nExample: list emails = TestData.Users.email',
+                });
+
+                suggestions.push({
+                    label: 'number',
+                    kind: monaco.languages.CompletionItemKind.Keyword,
+                    insertText: 'number ${1:varName} = count TestData.${2:TableName}',
+                    insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                    detail: 'VDQL: Declare number variable',
+                    documentation: 'Query aggregated value into a number\nExample: number total = count TestData.Users',
+                });
+            }
+
+            // ========================================
+            // CASE 2: After TestData.TableName - suggest 'where', 'order by', columns
+            // ========================================
+            const afterTableMatch = textBeforeCursor.match(/TestData\.\w+\s*$/);
+            if (afterTableMatch) {
+                suggestions.push({
+                    label: 'where',
+                    kind: monaco.languages.CompletionItemKind.Keyword,
+                    insertText: 'where ${1:column} ${2|==,!=,>,<,>=,<=,contains,starts with,ends with|} ${3:value}',
+                    insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                    detail: 'Filter rows',
+                    documentation: 'Add a WHERE clause to filter data',
+                });
+
+                suggestions.push({
+                    label: 'order by',
+                    kind: monaco.languages.CompletionItemKind.Keyword,
+                    insertText: 'order by ${1:column} ${2|asc,desc|}',
+                    insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                    detail: 'Sort results',
+                    documentation: 'Sort results by a column',
+                });
+
+                suggestions.push({
+                    label: 'limit',
+                    kind: monaco.languages.CompletionItemKind.Keyword,
+                    insertText: 'limit ${1:10}',
+                    insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                    detail: 'Limit results',
+                    documentation: 'Limit the number of results returned',
+                });
+            }
+
+            // ========================================
+            // CASE 3: After 'where' - suggest column names and operators
+            // ========================================
+            const afterWhereMatch = textBeforeCursor.match(/where\s+$/i);
+            if (afterWhereMatch) {
+                // Get sheets and suggest their columns
+                const sheets = getRegisteredTestDataSheets();
+                sheets.forEach(sheet => {
+                    sheet.columns.forEach(col => {
+                        suggestions.push({
+                            label: col.name,
+                            kind: monaco.languages.CompletionItemKind.Field,
+                            insertText: col.name,
+                            detail: `Column (${col.type})`,
+                            documentation: `Column "${col.name}" from ${sheet.name}`,
+                        });
+                    });
+                });
+            }
+
+            // ========================================
+            // CASE 4: After column name in where - suggest operators
+            // ========================================
+            const afterColumnMatch = textBeforeCursor.match(/where\s+\w+\s*$/i);
+            if (afterColumnMatch) {
+                const operators = [
+                    { label: '==', detail: 'Equals' },
+                    { label: '!=', detail: 'Not equals' },
+                    { label: '>', detail: 'Greater than' },
+                    { label: '<', detail: 'Less than' },
+                    { label: '>=', detail: 'Greater than or equal' },
+                    { label: '<=', detail: 'Less than or equal' },
+                    { label: 'contains', detail: 'Text contains' },
+                    { label: 'starts with', detail: 'Text starts with' },
+                    { label: 'ends with', detail: 'Text ends with' },
+                    { label: 'matches', detail: 'Regex match' },
+                    { label: 'is empty', detail: 'Is empty or null' },
+                    { label: 'is not empty', detail: 'Is not empty' },
+                    { label: 'in', detail: 'Value in list' },
+                ];
+
+                operators.forEach(op => {
+                    suggestions.push({
+                        label: op.label,
+                        kind: monaco.languages.CompletionItemKind.Operator,
+                        insertText: op.label + ' ',
+                        detail: op.detail,
+                    });
+                });
+            }
+
+            // ========================================
+            // CASE 5: Aggregation functions after '='
+            // ========================================
+            const afterEqualsMatch = textBeforeCursor.match(/number\s+\w+\s*=\s*$/i);
+            if (afterEqualsMatch) {
+                const aggFunctions = [
+                    { label: 'count', detail: 'Count rows', doc: 'Count total rows\nExample: count TestData.Users' },
+                    { label: 'sum', detail: 'Sum values', doc: 'Sum column values\nExample: sum TestData.Orders.amount' },
+                    { label: 'average', detail: 'Average values', doc: 'Calculate average\nExample: average TestData.Products.price' },
+                    { label: 'min', detail: 'Minimum value', doc: 'Get minimum value\nExample: min TestData.Products.price' },
+                    { label: 'max', detail: 'Maximum value', doc: 'Get maximum value\nExample: max TestData.Products.price' },
+                    { label: 'rows in', detail: 'Row count', doc: 'Get row count\nExample: rows in TestData.Users' },
+                    { label: 'columns in', detail: 'Column count', doc: 'Get column count\nExample: columns in TestData.Users' },
+                ];
+
+                aggFunctions.forEach(fn => {
+                    suggestions.push({
+                        label: fn.label,
+                        kind: monaco.languages.CompletionItemKind.Function,
+                        insertText: fn.label + ' TestData.',
+                        detail: fn.detail,
+                        documentation: fn.doc,
+                    });
+                });
+            }
+
+            // ========================================
+            // CASE 6: After 'and' or 'or' in where clause
+            // ========================================
+            const afterLogicalMatch = textBeforeCursor.match(/\b(and|or)\s*$/i);
+            if (afterLogicalMatch) {
+                const sheets = getRegisteredTestDataSheets();
+                sheets.forEach(sheet => {
+                    sheet.columns.forEach(col => {
+                        suggestions.push({
+                            label: col.name,
+                            kind: monaco.languages.CompletionItemKind.Field,
+                            insertText: col.name,
+                            detail: `Column (${col.type})`,
+                        });
+                    });
+                });
+            }
+
+            // ========================================
+            // CASE 7: After condition - suggest 'and', 'or', 'order by', 'limit'
+            // ========================================
+            const afterConditionMatch = textBeforeCursor.match(/["']\s*$/);
+            if (afterConditionMatch && textBeforeCursor.includes('where')) {
+                suggestions.push({
+                    label: 'and',
+                    kind: monaco.languages.CompletionItemKind.Keyword,
+                    insertText: 'and ',
+                    detail: 'Add another condition',
+                });
+
+                suggestions.push({
+                    label: 'or',
+                    kind: monaco.languages.CompletionItemKind.Keyword,
+                    insertText: 'or ',
+                    detail: 'Add alternative condition',
+                });
+
+                suggestions.push({
+                    label: 'order by',
+                    kind: monaco.languages.CompletionItemKind.Keyword,
+                    insertText: 'order by ',
+                    detail: 'Sort results',
+                });
+
+                suggestions.push({
+                    label: 'limit',
+                    kind: monaco.languages.CompletionItemKind.Keyword,
+                    insertText: 'limit ',
+                    detail: 'Limit results',
+                });
+            }
+
+            return { suggestions };
+        },
+    });
+
+    // ========================================
+    // VDQL column completion after TestData.TableName.
+    // ========================================
+    monaco.languages.registerCompletionItemProvider('vero', {
+        triggerCharacters: ['.'],
+
+        provideCompletionItems: (model: any, position: any) => {
+            const lineContent = model.getLineContent(position.lineNumber);
+            const textBeforeCursor = lineContent.substring(0, position.column - 1);
+
+            // Match TestData.TableName. for column suggestions
+            const tableColumnMatch = textBeforeCursor.match(/\bTestData\.(\w+)\.$/);
+
+            if (!tableColumnMatch) {
+                return { suggestions: [] };
+            }
+
+            const sheetClassName = tableColumnMatch[1];
+            const sheets = getRegisteredTestDataSheets();
+            const sheet = sheets.find(s => toPascalCase(s.name) === sheetClassName);
+
+            if (!sheet) {
+                return { suggestions: [] };
+            }
+
+            const suggestions: any[] = [];
+
+            // Add column suggestions for VDQL column access
+            sheet.columns.forEach(col => {
+                suggestions.push({
+                    label: col.name,
+                    kind: monaco.languages.CompletionItemKind.Field,
+                    insertText: col.name,
+                    detail: `Column (${col.type})`,
+                    documentation: `Access column "${col.name}" values`,
+                });
+            });
+
+            // Add indexed row access
+            suggestions.push({
+                label: '[index]',
+                kind: monaco.languages.CompletionItemKind.Snippet,
+                insertText: '[${1:0}]',
+                insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                detail: 'Access row by index',
+                documentation: 'Access a specific row by index\nExample: TestData.Users[0]',
+            });
+
+            return { suggestions };
         },
     });
 }

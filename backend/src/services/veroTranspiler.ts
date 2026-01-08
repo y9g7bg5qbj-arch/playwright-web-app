@@ -23,10 +23,15 @@ interface FeatureDefinition {
     scenarios: ScenarioDefinition[];
 }
 
+interface TranspileOptions {
+    debugMode?: boolean;
+}
+
 /**
  * Transpiles Vero DSL code into Playwright TypeScript test code
  */
-export function transpileVero(veroCode: string): string {
+export function transpileVero(veroCode: string, options: TranspileOptions = {}): string {
+    const { debugMode = false } = options;
     const pages: PageDefinition[] = [];
     const features: FeatureDefinition[] = [];
 
@@ -39,6 +44,11 @@ import { test, expect, Page } from '@playwright/test';
 
 `;
 
+    // Add debug helper if debugMode is enabled
+    if (debugMode) {
+        output += generateDebugHelper();
+    }
+
     // Generate page objects
     for (const page of pages) {
         output += generatePageObject(page);
@@ -46,10 +56,78 @@ import { test, expect, Page } from '@playwright/test';
 
     // Generate test suites
     for (const feature of features) {
-        output += generateTestSuite(feature, pages);
+        output += generateTestSuite(feature, pages, debugMode);
     }
 
     return output;
+}
+
+/**
+ * Generates the debug helper code that gets injected into the test file
+ */
+function generateDebugHelper(): string {
+    return `// Debug helper for step-by-step execution
+const __debug__ = {
+    breakpoints: new Set<number>(),
+    currentLine: 0,
+    paused: false,
+
+    async beforeStep(line: number, action: string, target?: string): Promise<void> {
+        this.currentLine = line;
+        if (process.send) {
+            process.send({ type: 'step:before', line, action, target });
+        }
+
+        if (this.breakpoints.has(line) || this.paused) {
+            if (process.send) {
+                process.send({ type: 'execution:paused', line });
+            }
+            await this.waitForResume();
+        }
+    },
+
+    async afterStep(line: number, action: string, success: boolean = true, duration?: number): Promise<void> {
+        if (process.send) {
+            process.send({ type: 'step:after', line, action, success, duration });
+        }
+    },
+
+    async waitForResume(): Promise<void> {
+        return new Promise<void>((resolve) => {
+            const handler = (msg: any) => {
+                if (msg.type === 'resume') {
+                    this.paused = false;
+                    process.off('message', handler);
+                    resolve();
+                } else if (msg.type === 'step') {
+                    this.paused = true;
+                    process.off('message', handler);
+                    resolve();
+                } else if (msg.type === 'set-breakpoints') {
+                    this.breakpoints = new Set(msg.breakpoints);
+                } else if (msg.type === 'stop') {
+                    process.exit(0);
+                }
+            };
+            process.on('message', handler);
+        });
+    },
+
+    setBreakpoints(lines: number[]): void {
+        this.breakpoints = new Set(lines);
+    }
+};
+
+// Listen for debug commands from parent process
+if (process.send) {
+    process.on('message', (msg: any) => {
+        if (msg.type === 'set-breakpoints') {
+            __debug__.setBreakpoints(msg.breakpoints);
+        }
+    });
+}
+
+`;
 }
 
 function parseVeroCode(code: string, pages: PageDefinition[], features: FeatureDefinition[]) {
@@ -242,7 +320,7 @@ function generatePageObject(page: PageDefinition): string {
     return output;
 }
 
-function generateTestSuite(feature: FeatureDefinition, pages: PageDefinition[]): string {
+function generateTestSuite(feature: FeatureDefinition, pages: PageDefinition[], debugMode: boolean = false): string {
     let output = `test.describe('${feature.name}', () => {\n`;
 
     // Generate beforeEach
@@ -264,6 +342,7 @@ function generateTestSuite(feature: FeatureDefinition, pages: PageDefinition[]):
     }
 
     // Generate tests
+    let lineCounter = 1;
     for (const scenario of feature.scenarios) {
         const tagComment = scenario.tags.length > 0 ? ` // @${scenario.tags.join(' @')}` : '';
         output += `    test('${scenario.name}', async ({ page }) => {${tagComment}\n`;
@@ -271,13 +350,77 @@ function generateTestSuite(feature: FeatureDefinition, pages: PageDefinition[]):
             const transpiled = transpileStatement(stmt);
             // Don't add semicolon to control flow statements
             const needsSemicolon = !transpiled.endsWith('{') && !transpiled.endsWith('}') && transpiled !== '} else {';
-            output += `        ${transpiled}${needsSemicolon ? ';' : ''}\n`;
+
+            if (debugMode) {
+                const action = getActionFromStatement(stmt);
+                const target = getTargetFromStatement(stmt);
+                output += `        await __debug__.beforeStep(${lineCounter}, '${action}', ${target ? `'${escapeString(target)}'` : 'undefined'});\n`;
+                output += `        const _startTime${lineCounter} = Date.now();\n`;
+                output += `        try {\n`;
+                output += `            ${transpiled}${needsSemicolon ? ';' : ''}\n`;
+                output += `            await __debug__.afterStep(${lineCounter}, '${action}', true, Date.now() - _startTime${lineCounter});\n`;
+                output += `        } catch (e) {\n`;
+                output += `            await __debug__.afterStep(${lineCounter}, '${action}', false, Date.now() - _startTime${lineCounter});\n`;
+                output += `            throw e;\n`;
+                output += `        }\n`;
+            } else {
+                output += `        ${transpiled}${needsSemicolon ? ';' : ''}\n`;
+            }
+            lineCounter++;
         }
         output += `    });\n\n`;
     }
 
     output += `});\n`;
     return output;
+}
+
+/**
+ * Extract the action type from a Vero statement
+ */
+function getActionFromStatement(stmt: string): string {
+    const trimmed = stmt.trim().toLowerCase();
+    if (trimmed.startsWith('open')) return 'navigate';
+    if (trimmed.startsWith('click')) return 'click';
+    if (trimmed.startsWith('fill')) return 'fill';
+    if (trimmed.startsWith('wait')) return 'wait';
+    if (trimmed.startsWith('verify')) return 'verify';
+    if (trimmed.startsWith('select')) return 'select';
+    if (trimmed.startsWith('check')) return 'check';
+    if (trimmed.startsWith('uncheck')) return 'uncheck';
+    if (trimmed.startsWith('hover')) return 'hover';
+    if (trimmed.startsWith('press')) return 'press';
+    if (trimmed.startsWith('scroll')) return 'scroll';
+    if (trimmed.startsWith('clear')) return 'clear';
+    if (trimmed.startsWith('upload')) return 'upload';
+    return 'action';
+}
+
+/**
+ * Extract the target (selector/url) from a Vero statement
+ */
+function getTargetFromStatement(stmt: string): string | undefined {
+    const trimmed = stmt.trim();
+
+    // open "url"
+    const openMatch = trimmed.match(/^open\s+"([^"]+)"/i);
+    if (openMatch) return openMatch[1];
+
+    // click/fill/verify etc with selector
+    const selectorMatch = trimmed.match(/^(?:click|fill|verify|select|check|uncheck|hover|wait\s+for|scroll\s+to|clear)\s+("(?:[^"\\]|\\.)*"|\S+)/i);
+    if (selectorMatch) {
+        // Remove quotes if present
+        return selectorMatch[1].replace(/^"(.*)"$/, '$1');
+    }
+
+    return undefined;
+}
+
+/**
+ * Escape string for JavaScript
+ */
+function escapeString(str: string): string {
+    return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
 }
 
 function transpileStatement(stmt: string, contextPage?: PageDefinition): string {

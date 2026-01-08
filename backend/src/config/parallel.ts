@@ -7,25 +7,6 @@
 import { ShardingStrategyType } from '../services/sharding/types';
 
 /**
- * Docker worker configuration
- */
-export interface DockerWorkerConfig {
-  /** Docker image to use for workers */
-  image: string;
-  /** Docker network name */
-  network: string;
-  /** Volume mounts (source:target format) */
-  volumes: string[];
-  /** Additional environment variables */
-  env?: Record<string, string>;
-  /** Resource limits */
-  resources?: {
-    memory?: string; // e.g., "2g"
-    cpus?: string; // e.g., "1.0"
-  };
-}
-
-/**
  * Remote worker authentication
  */
 export interface RemoteAuthConfig {
@@ -118,14 +99,12 @@ export interface TimeoutConfig {
  */
 export interface ParallelConfig {
   /** Execution mode */
-  mode: 'local' | 'docker' | 'remote';
+  mode: 'local' | 'remote';
 
   /** Worker configuration by mode */
   workers: {
     /** Number of local workers (when mode is 'local') */
     local: number;
-    /** Docker worker configuration (when mode is 'docker') */
-    docker: DockerWorkerConfig;
     /** Remote worker configuration (when mode is 'remote') */
     remote: RemoteWorkerConfig;
   };
@@ -156,11 +135,6 @@ export const defaultParallelConfig: ParallelConfig = {
   mode: 'local',
   workers: {
     local: 2,
-    docker: {
-      image: 'mcr.microsoft.com/playwright:v1.40.0-jammy',
-      network: 'vero-network',
-      volumes: [],
-    },
     remote: {
       endpoints: [],
     },
@@ -203,10 +177,10 @@ export function validateParallelConfig(config: Partial<ParallelConfig>): Validat
   const errors: ValidationError[] = [];
 
   // Validate mode
-  if (config.mode && !['local', 'docker', 'remote'].includes(config.mode)) {
+  if (config.mode && !['local', 'remote'].includes(config.mode)) {
     errors.push({
       field: 'mode',
-      message: 'Mode must be one of: local, docker, remote',
+      message: 'Mode must be one of: local, remote',
     });
   }
 
@@ -216,15 +190,6 @@ export function validateParallelConfig(config: Partial<ParallelConfig>): Validat
       errors.push({
         field: 'workers.local',
         message: 'Local worker count must be a positive number',
-      });
-    }
-  }
-
-  if (config.mode === 'docker' && config.workers?.docker) {
-    if (!config.workers.docker.image) {
-      errors.push({
-        field: 'workers.docker.image',
-        message: 'Docker image is required',
       });
     }
   }
@@ -341,10 +306,6 @@ export function mergeWithDefaults(config: Partial<ParallelConfig>): ParallelConf
     mode: config.mode ?? defaultParallelConfig.mode,
     workers: {
       local: config.workers?.local ?? defaultParallelConfig.workers.local,
-      docker: {
-        ...defaultParallelConfig.workers.docker,
-        ...config.workers?.docker,
-      },
       remote: {
         ...defaultParallelConfig.workers.remote,
         ...config.workers?.remote,
@@ -374,17 +335,14 @@ export function mergeWithDefaults(config: Partial<ParallelConfig>): ParallelConf
  * Load configuration from environment variables
  */
 export function loadConfigFromEnv(): Partial<ParallelConfig> {
+  const localWorkers = process.env.PARALLEL_WORKERS
+    ? parseInt(process.env.PARALLEL_WORKERS)
+    : defaultParallelConfig.workers.local;
+
   return {
-    mode: (process.env.PARALLEL_MODE as 'local' | 'docker' | 'remote') || undefined,
+    mode: (process.env.PARALLEL_MODE as 'local' | 'remote') || undefined,
     workers: {
-      local: process.env.PARALLEL_WORKERS
-        ? parseInt(process.env.PARALLEL_WORKERS)
-        : undefined,
-      docker: {
-        image: process.env.DOCKER_IMAGE || 'mcr.microsoft.com/playwright:v1.40.0-jammy',
-        network: process.env.DOCKER_NETWORK || 'vero-network',
-        volumes: process.env.DOCKER_VOLUMES?.split(',') || [],
-      },
+      local: localWorkers,
       remote: {
         endpoints: process.env.REMOTE_ENDPOINTS?.split(',') || [],
       },

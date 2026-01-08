@@ -11,14 +11,12 @@ import {
   Zap,
   Clock,
   RefreshCw,
-  Container,
 } from 'lucide-react';
 import type { ParallelConfig } from '@/types/execution';
 import { ExecutionModeSelector } from './ExecutionModeSelector';
 import { BrowserSelector } from './BrowserSelector';
 import { WorkerCountSlider } from './WorkerCountSlider';
 import { ArtifactSettings } from './ArtifactSettings';
-import { DockerConfig } from './DockerConfig';
 
 interface ExecutionConfigPanelProps {
   config: ParallelConfig;
@@ -196,32 +194,13 @@ export const ExecutionConfigPanel: React.FC<ExecutionConfigPanelProps> = ({
             disabled={isLoading}
           />
         </Section>
-
-        {/* Docker Configuration - Only show when Docker mode is selected */}
-        {config.mode === 'docker' && (
-          <Section title="Docker Sharding" icon={<Container className="w-4 h-4" />} defaultOpen={true}>
-            <DockerConfig
-              config={config.docker || {
-                enabled: true,
-                image: 'vero-worker:latest',
-                scaleMin: 2,
-                scaleMax: 4,
-              }}
-              onChange={(docker) => updateConfig('docker', docker)}
-              disabled={isLoading}
-            />
-          </Section>
-        )}
       </div>
 
       {/* Footer with summary */}
       <div className="px-4 py-3 border-t border-slate-800 bg-slate-800/50">
         <div className="flex items-center justify-between text-xs text-slate-400">
           <span>
-            {config.mode === 'docker' && config.docker
-              ? `${config.docker.scaleMin} shard${config.docker.scaleMin !== 1 ? 's' : ''}`
-              : `${config.workerCount} worker${config.workerCount !== 1 ? 's' : ''}`
-            } | {config.browsers.length} browser
+            {config.workerCount} worker{config.workerCount !== 1 ? 's' : ''} | {config.browsers.length} browser
             {config.browsers.length !== 1 ? 's' : ''} | {config.mode} mode
           </span>
           {hasChanges && (

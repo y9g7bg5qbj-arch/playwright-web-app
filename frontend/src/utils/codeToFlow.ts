@@ -162,3 +162,265 @@ export function stepToNode(step: PlaywrightStep, existingNodesCount: number): Fl
     },
   };
 }
+
+// ============= VERO DSL CONVERSION =============
+
+// Convert a PlaywrightStep to Vero DSL syntax
+function stepToVero(step: PlaywrightStep): string {
+  switch (step.type) {
+    case 'navigate':
+      return `navigate to "${step.url}"`;
+
+    case 'click':
+      if (step.selectorName) {
+        return `click "${step.selectorName}"`;
+      }
+      // Extract text from selector if possible
+      const clickText = extractTextFromSelector(step.selector);
+      if (clickText) {
+        return `click "${clickText}"`;
+      }
+      return `click ${formatSelector(step.selector)}`;
+
+    case 'fill':
+      const fieldName = step.selectorName || extractTextFromSelector(step.selector) || 'field';
+      const value = step.value || '';
+      return `fill "${fieldName}" with "${value}"`;
+
+    case 'select':
+      const selectField = step.selectorName || extractTextFromSelector(step.selector) || 'dropdown';
+      return `select "${selectField}" option "${step.value || ''}"`;
+
+    case 'check':
+      const checkField = step.selectorName || extractTextFromSelector(step.selector) || 'checkbox';
+      return step.action === 'uncheck' ? `uncheck "${checkField}"` : `check "${checkField}"`;
+
+    case 'hover':
+      const hoverTarget = step.selectorName || extractTextFromSelector(step.selector) || 'element';
+      return `hover over "${hoverTarget}"`;
+
+    case 'wait':
+      if (step.selector) {
+        const waitTarget = step.selectorName || extractTextFromSelector(step.selector) || 'element';
+        return `wait for "${waitTarget}" to be visible`;
+      }
+      return 'wait 1 second';
+
+    case 'expect':
+      const expectTarget = step.selectorName || extractTextFromSelector(step.selector) || 'element';
+      return `assert "${expectTarget}" is visible`;
+
+    default:
+      return `# Unknown action: ${step.action || step.type}`;
+  }
+}
+
+// Extract human-readable text from selector
+function extractTextFromSelector(selector?: string): string | null {
+  if (!selector) return null;
+
+  // role[name="..."]
+  const roleMatch = selector.match(/^\w+\[name="([^"]+)"\]$/);
+  if (roleMatch) return roleMatch[1];
+
+  // text=...
+  if (selector.startsWith('text=')) {
+    return selector.slice(5).replace(/^["']|["']$/g, '');
+  }
+
+  // label=...
+  if (selector.startsWith('label=')) {
+    return selector.slice(6).replace(/^["']|["']$/g, '');
+  }
+
+  // placeholder=...
+  if (selector.startsWith('placeholder=')) {
+    return selector.slice(12).replace(/^["']|["']$/g, '');
+  }
+
+  // data-testid=...
+  if (selector.startsWith('data-testid=')) {
+    return selector.slice(12).replace(/[-_]/g, ' ');
+  }
+
+  return null;
+}
+
+// Format selector for Vero DSL
+function formatSelector(selector?: string): string {
+  if (!selector) return 'css ""';
+
+  const strategy = detectLocatorStrategy(selector);
+
+  switch (strategy) {
+    case 'role':
+      return `role "${selector}"`;
+    case 'text':
+      return `text "${selector.replace('text=', '')}"`;
+    case 'label':
+      return `label "${selector.replace('label=', '')}"`;
+    case 'test-id':
+      return `testId "${selector.replace('data-testid=', '')}"`;
+    case 'xpath':
+      return `xpath "${selector.replace('xpath=', '')}"`;
+    default:
+      return `css "${selector}"`;
+  }
+}
+
+/**
+ * Convert Playwright recording code to Vero DSL
+ */
+export function convertPlaywrightToVero(
+  code: string,
+  options?: {
+    featureName?: string;
+    scenarioName?: string;
+    includeComments?: boolean;
+  }
+): string {
+  const steps = parsePlaywrightCode(code);
+  const featureName = options?.featureName || 'RecordedFeature';
+  const scenarioName = options?.scenarioName || 'Recorded Test Scenario';
+  const includeComments = options?.includeComments ?? true;
+
+  if (steps.length === 0) {
+    return `# No steps recorded
+feature ${featureName}
+
+scenario "${scenarioName}"
+    # Add your test steps here
+end
+`;
+  }
+
+  const lines: string[] = [];
+
+  // Header
+  if (includeComments) {
+    lines.push(`# Auto-generated from Playwright recording`);
+    lines.push(`# Generated at: ${new Date().toISOString()}`);
+    lines.push('');
+  }
+
+  lines.push(`feature ${featureName}`);
+  lines.push('');
+  lines.push(`scenario "${scenarioName}"`);
+
+  // Convert each step
+  for (const step of steps) {
+    const veroLine = stepToVero(step);
+    lines.push(`    ${veroLine}`);
+  }
+
+  lines.push('end');
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+/**
+ * Convert flow nodes to Vero DSL
+ */
+export function convertFlowToVero(
+  nodes: FlowNode[],
+  edges: Edge[],
+  options?: {
+    featureName?: string;
+    scenarioName?: string;
+  }
+): string {
+  const featureName = options?.featureName || 'ExportedFeature';
+  const scenarioName = options?.scenarioName || 'Exported Scenario';
+
+  // Get execution order
+  const startNode = nodes.find(n => n.type === 'start');
+  if (!startNode) {
+    return `# No start node found
+feature ${featureName}
+
+scenario "${scenarioName}"
+    # No steps to export
+end
+`;
+  }
+
+  const orderedNodes: FlowNode[] = [];
+  const visited = new Set<string>();
+
+  const traverse = (nodeId: string) => {
+    if (visited.has(nodeId)) return;
+    visited.add(nodeId);
+
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return;
+
+    if (node.type === 'action') {
+      orderedNodes.push(node);
+    }
+
+    // Find next nodes
+    const outgoingEdges = edges.filter(e => e.source === nodeId);
+    for (const edge of outgoingEdges) {
+      traverse(edge.target);
+    }
+  };
+
+  traverse(startNode.id);
+
+  const lines: string[] = [];
+  lines.push(`# Exported from visual flow editor`);
+  lines.push('');
+  lines.push(`feature ${featureName}`);
+  lines.push('');
+  lines.push(`scenario "${scenarioName}"`);
+
+  for (const node of orderedNodes) {
+    const data = node.data;
+    let veroLine = '';
+
+    switch (data.actionType) {
+      case 'navigate':
+        veroLine = `navigate to "${data.url || ''}"`;
+        break;
+      case 'click':
+        veroLine = `click "${data.selector || data.label || 'element'}"`;
+        break;
+      case 'fill':
+        veroLine = `fill "${data.selector || data.label || 'field'}" with "${data.value || ''}"`;
+        break;
+      case 'select-option':
+        veroLine = `select "${data.selector || data.label || 'dropdown'}" option "${data.value || ''}"`;
+        break;
+      case 'check':
+        veroLine = `check "${data.selector || data.label || 'checkbox'}"`;
+        break;
+      case 'uncheck':
+        veroLine = `uncheck "${data.selector || data.label || 'checkbox'}"`;
+        break;
+      case 'hover':
+        veroLine = `hover over "${data.selector || data.label || 'element'}"`;
+        break;
+      case 'wait-for-element':
+        veroLine = `wait for "${data.selector || data.label || 'element'}" to be visible`;
+        break;
+      case 'assert-visible':
+        veroLine = `assert "${data.selector || data.label || 'element'}" is visible`;
+        break;
+      default:
+        // Handle raw Vero if available
+        if (data.rawVero && typeof data.rawVero === 'string') {
+          veroLine = data.rawVero;
+        } else {
+          veroLine = `# ${data.actionType}: ${data.label || 'action'}`;
+        }
+    }
+
+    lines.push(`    ${veroLine}`);
+  }
+
+  lines.push('end');
+  lines.push('');
+
+  return lines.join('\n');
+}

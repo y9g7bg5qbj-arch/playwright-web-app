@@ -1,8 +1,54 @@
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, fork } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
+import { EventEmitter } from 'events';
 import { logger } from '../utils/logger';
 import { config } from '../config';
+
+/**
+ * Debug session state
+ */
+export interface DebugSession {
+  executionId: string;
+  breakpoints: Set<number>;
+  currentLine: number;
+  isPaused: boolean;
+  stepMode: 'run' | 'step-over' | 'step-into';
+  process: ChildProcess | null;
+}
+
+/**
+ * Debug event types from child process
+ */
+export interface DebugStepEvent {
+  type: 'step:before' | 'step:after';
+  line: number;
+  action: string;
+  target?: string;
+  success?: boolean;
+  duration?: number;
+  error?: string;
+}
+
+export interface DebugPauseEvent {
+  type: 'execution:paused';
+  line: number;
+}
+
+export interface DebugVariableEvent {
+  type: 'variable:set';
+  name: string;
+  value: any;
+}
+
+export interface DebugLogEvent {
+  type: 'log';
+  line?: number;
+  message: string;
+  level: 'info' | 'warn' | 'error';
+}
+
+export type DebugEvent = DebugStepEvent | DebugPauseEvent | DebugVariableEvent | DebugLogEvent;
 
 // Storage path for recordings and executions
 const STORAGE_PATH = path.resolve(process.env.STORAGE_PATH || './storage');
@@ -73,10 +119,12 @@ function injectScreenshots(code: string, screenshotDir: string): string {
   return modifiedLines.join('\n');
 }
 
-export class PlaywrightService {
+export class PlaywrightService extends EventEmitter {
   private activeProcesses: Map<string, ChildProcess> = new Map();
+  private debugSessions: Map<string, DebugSession> = new Map();
 
   constructor() {
+    super();
     // Ensure storage directory exists
     fs.mkdir(STORAGE_PATH, { recursive: true }).catch(err => {
       logger.error('Failed to create storage directory:', err);
@@ -387,5 +435,297 @@ export default defineConfig({
    */
   getStoragePath(): string {
     return STORAGE_PATH;
+  }
+
+  // ============== DEBUG EXECUTION METHODS ==============
+
+  /**
+   * Execute a test with debug mode enabled
+   * Uses IPC to communicate with the test process for breakpoints and stepping
+   */
+  async executeTestWithDebug(
+    code: string,
+    executionId: string,
+    breakpoints: number[],
+    onDebugEvent: (event: DebugEvent) => void,
+    onLog: (message: string, level: 'info' | 'warn' | 'error') => void,
+    onComplete: (exitCode: number, duration: number) => void
+  ): Promise<void> {
+    const startTime = Date.now();
+
+    // Cancel any existing debug sessions
+    const existingSession = this.debugSessions.get(executionId);
+    if (existingSession?.process) {
+      existingSession.process.kill('SIGTERM');
+    }
+
+    try {
+      // Create storage directory
+      const storageDir = path.join(STORAGE_PATH, executionId);
+      await fs.mkdir(storageDir, { recursive: true });
+
+      // Create screenshots directory
+      const screenshotsDir = path.join(storageDir, 'screenshots');
+      await fs.mkdir(screenshotsDir, { recursive: true });
+
+      // Write test code to file
+      const testFile = path.join(storageDir, 'test.spec.ts');
+      await fs.writeFile(testFile, code);
+
+      // Create playwright.config.ts
+      const configFile = path.join(storageDir, 'playwright.config.ts');
+      const configContent = `
+import { defineConfig } from '@playwright/test';
+export default defineConfig({
+  testDir: '.',
+  testMatch: 'test.spec.ts',
+  use: {
+    headless: false,
+    trace: 'on',
+  },
+  timeout: 0,  // No timeout in debug mode
+});
+`;
+      await fs.writeFile(configFile, configContent);
+
+      // Create a wrapper script that enables IPC
+      const wrapperFile = path.join(storageDir, 'debug-runner.js');
+      const wrapperContent = `
+const { spawn } = require('child_process');
+
+// Run Playwright test
+const child = spawn('npx', ['playwright', 'test', 'test.spec.ts', '--headed'], {
+  cwd: '${storageDir.replace(/\\/g, '/')}',
+  stdio: ['inherit', 'pipe', 'pipe'],
+  shell: true,
+  env: {
+    ...process.env,
+    VERO_DEBUG: 'true',
+    VERO_BREAKPOINTS: '${breakpoints.join(',')}'
+  }
+});
+
+// Forward stdout/stderr
+child.stdout.on('data', (data) => {
+  process.stdout.write(data);
+});
+
+child.stderr.on('data', (data) => {
+  process.stderr.write(data);
+});
+
+// Listen for messages from parent
+process.on('message', (msg) => {
+  // Forward control messages to test via environment signaling
+  if (msg.type === 'resume' || msg.type === 'step' || msg.type === 'stop') {
+    // For now, we'll use file-based signaling
+    require('fs').writeFileSync('${storageDir.replace(/\\/g, '/')}/debug-signal.json', JSON.stringify(msg));
+  }
+});
+
+child.on('close', (code) => {
+  process.exit(code);
+});
+`;
+      await fs.writeFile(wrapperFile, wrapperContent);
+
+      // Create debug session
+      const session: DebugSession = {
+        executionId,
+        breakpoints: new Set(breakpoints),
+        currentLine: 0,
+        isPaused: false,
+        stepMode: 'run',
+        process: null,
+      };
+      this.debugSessions.set(executionId, session);
+
+      logger.info(`Starting debug execution: ${testFile}`);
+      onLog('Starting test execution in debug mode...', 'info');
+
+      // Fork the wrapper script with IPC
+      const child = fork(wrapperFile, [], {
+        cwd: storageDir,
+        stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+      });
+
+      session.process = child;
+      this.activeProcesses.set(executionId, child);
+
+      // Handle IPC messages from child
+      child.on('message', (msg: any) => {
+        logger.debug('Debug IPC message:', msg);
+
+        switch (msg.type) {
+          case 'step:before':
+            session.currentLine = msg.line;
+            onDebugEvent({
+              type: 'step:before',
+              line: msg.line,
+              action: msg.action,
+              target: msg.target,
+            });
+            break;
+
+          case 'step:after':
+            onDebugEvent({
+              type: 'step:after',
+              line: msg.line,
+              action: msg.action,
+              success: msg.success,
+              duration: msg.duration,
+              error: msg.error,
+            });
+            break;
+
+          case 'execution:paused':
+            session.isPaused = true;
+            onDebugEvent({
+              type: 'execution:paused',
+              line: msg.line,
+            });
+            break;
+
+          case 'variable:set':
+            onDebugEvent({
+              type: 'variable:set',
+              name: msg.name,
+              value: msg.value,
+            });
+            break;
+
+          case 'log':
+            onDebugEvent({
+              type: 'log',
+              message: msg.message,
+              level: msg.level || 'info',
+            });
+            break;
+        }
+      });
+
+      child.stdout?.on('data', (data) => {
+        const message = data.toString().trim();
+        if (message) {
+          logger.info(`Debug stdout: ${message}`);
+          onLog(message, 'info');
+        }
+      });
+
+      child.stderr?.on('data', (data) => {
+        const message = data.toString().trim();
+        if (message) {
+          logger.warn(`Debug stderr: ${message}`);
+          const isError = message.toLowerCase().includes('error') ||
+            message.toLowerCase().includes('failed');
+          onLog(message, isError ? 'error' : 'warn');
+        }
+      });
+
+      child.on('close', (code) => {
+        const duration = Date.now() - startTime;
+        this.activeProcesses.delete(executionId);
+        this.debugSessions.delete(executionId);
+
+        logger.info(`Debug execution completed with code ${code} in ${duration}ms`);
+        onLog(`Test completed with exit code ${code}`, code === 0 ? 'info' : 'error');
+        onComplete(code || 0, duration);
+      });
+
+      child.on('error', (error) => {
+        const duration = Date.now() - startTime;
+        this.activeProcesses.delete(executionId);
+        this.debugSessions.delete(executionId);
+
+        logger.error('Debug execution error:', error);
+        onLog(`Execution error: ${error.message}`, 'error');
+        onComplete(1, duration);
+      });
+
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      logger.error('Failed to start debug execution:', error);
+      onLog(`Failed to execute: ${error.message}`, 'error');
+      onComplete(1, duration);
+    }
+  }
+
+  /**
+   * Set breakpoints for a debug session
+   */
+  setBreakpoints(executionId: string, lines: number[]): void {
+    const session = this.debugSessions.get(executionId);
+    if (session) {
+      session.breakpoints = new Set(lines);
+      logger.info(`Set breakpoints for ${executionId}: ${lines.join(', ')}`);
+    }
+  }
+
+  /**
+   * Resume execution (continue running)
+   */
+  resumeDebug(executionId: string): void {
+    const session = this.debugSessions.get(executionId);
+    if (session?.process) {
+      session.isPaused = false;
+      session.stepMode = 'run';
+      session.process.send({ type: 'resume' });
+      logger.info(`Resumed debug execution: ${executionId}`);
+    }
+  }
+
+  /**
+   * Step over (execute current line and pause at next)
+   */
+  stepOverDebug(executionId: string): void {
+    const session = this.debugSessions.get(executionId);
+    if (session?.process) {
+      session.stepMode = 'step-over';
+      session.process.send({ type: 'step', mode: 'over' });
+      logger.info(`Step over debug execution: ${executionId}`);
+    }
+  }
+
+  /**
+   * Step into (used for future procedure stepping)
+   */
+  stepIntoDebug(executionId: string): void {
+    const session = this.debugSessions.get(executionId);
+    if (session?.process) {
+      session.stepMode = 'step-into';
+      session.process.send({ type: 'step', mode: 'into' });
+      logger.info(`Step into debug execution: ${executionId}`);
+    }
+  }
+
+  /**
+   * Stop debug execution
+   */
+  stopDebug(executionId: string): void {
+    const session = this.debugSessions.get(executionId);
+    if (session?.process) {
+      session.process.send({ type: 'stop' });
+      setTimeout(() => {
+        // Force kill if not terminated gracefully
+        if (this.activeProcesses.has(executionId)) {
+          session.process?.kill('SIGTERM');
+        }
+      }, 1000);
+      logger.info(`Stopped debug execution: ${executionId}`);
+    }
+  }
+
+  /**
+   * Get current debug session state
+   */
+  getDebugSession(executionId: string): DebugSession | undefined {
+    return this.debugSessions.get(executionId);
+  }
+
+  /**
+   * Check if a debug session is active
+   */
+  isDebugActive(executionId: string): boolean {
+    return this.debugSessions.has(executionId);
   }
 }

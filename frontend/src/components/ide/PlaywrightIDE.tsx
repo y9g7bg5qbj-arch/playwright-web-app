@@ -12,9 +12,12 @@ import {
     Settings,
     Zap,
     ChevronDown,
+    Bot,
 } from 'lucide-react';
 import { IDEFlowCanvas } from './IDEFlowCanvas';
 import { IDEPropertiesPanel } from './IDEPropertiesPanel';
+import { AIAgentPanel } from './AIAgentPanel';
+import { LiveExecutionPanel } from './LiveExecutionPanel';
 import { useFlowStore } from '@/store/useFlowStore';
 import { useWorkflowStore } from '@/store/workflowStore';
 import { generateCodeFromGraph } from './graph/graphToCode';
@@ -61,6 +64,8 @@ export function PlaywrightIDE({ testFlowId }: PlaywrightIDEProps) {
     const [showSettings, setShowSettings] = useState(false);
     const [showRunConfigModal, setShowRunConfigModal] = useState(false);
     const [showRunDropdown, setShowRunDropdown] = useState(false);
+    const [showAIPanel, setShowAIPanel] = useState(false);
+    const [showLiveExecution, setShowLiveExecution] = useState(false);
 
     // Run configuration store - with safe fallbacks
     const runConfigState = useRunConfigStore();
@@ -346,6 +351,127 @@ export function PlaywrightIDE({ testFlowId }: PlaywrightIDEProps) {
         clearExecutionState();
     };
 
+    // Handle AI-generated code insertion
+    const handleAICodeInsert = useCallback((veroCode: string) => {
+        // For now, we'll convert the Vero code to flow nodes
+        // In production, this would parse the Vero DSL and create appropriate nodes
+        try {
+            // Basic conversion - treat each line as an action
+            const lines = veroCode.split('\n').filter(line =>
+                line.trim() &&
+                !line.trim().startsWith('#') &&
+                !line.trim().startsWith('feature') &&
+                !line.trim().startsWith('scenario') &&
+                !line.trim().startsWith('end')
+            );
+
+            // Find existing nodes to calculate positions
+            const existingEndNode = nodes.find(n => n.type === 'end');
+            const startY = existingEndNode ? existingEndNode.position.y : 200;
+            const newNodes: any[] = [];
+            const newEdges: any[] = [];
+
+            lines.forEach((line, index) => {
+                const trimmed = line.trim();
+                if (!trimmed) return;
+
+                const nodeId = `ai-${Date.now()}-${index}`;
+                let actionType = 'action';
+                let label = trimmed;
+
+                // Parse common Vero commands
+                if (trimmed.startsWith('navigate to')) {
+                    actionType = 'goto';
+                    label = trimmed.replace('navigate to', 'Go to').replace(/"/g, '');
+                } else if (trimmed.startsWith('click')) {
+                    actionType = 'click';
+                    label = trimmed.replace(/"/g, '');
+                } else if (trimmed.startsWith('fill')) {
+                    actionType = 'fill';
+                    label = trimmed.replace(/"/g, '');
+                } else if (trimmed.startsWith('assert') || trimmed.startsWith('verify')) {
+                    actionType = 'assert';
+                    label = trimmed.replace(/"/g, '');
+                } else if (trimmed.startsWith('wait')) {
+                    actionType = 'wait';
+                    label = trimmed;
+                }
+
+                newNodes.push({
+                    id: nodeId,
+                    type: 'action',
+                    position: { x: 250, y: startY + (index * 80) },
+                    data: {
+                        label,
+                        actionType,
+                        rawVero: trimmed
+                    }
+                });
+
+                // Connect nodes
+                if (index > 0) {
+                    newEdges.push({
+                        id: `edge-ai-${Date.now()}-${index}`,
+                        source: newNodes[index - 1].id,
+                        target: nodeId,
+                        type: 'default'
+                    });
+                }
+            });
+
+            if (newNodes.length > 0) {
+                // Insert before end node
+                const updatedNodes = [...nodes];
+                const updatedEdges = [...edges];
+
+                // Find and update end node position
+                const endNodeIndex = updatedNodes.findIndex(n => n.type === 'end');
+                if (endNodeIndex !== -1) {
+                    updatedNodes[endNodeIndex] = {
+                        ...updatedNodes[endNodeIndex],
+                        position: { x: 250, y: startY + (newNodes.length * 80) + 80 }
+                    };
+                }
+
+                // Find edge to end node and replace it
+                const lastNodeBeforeEnd = updatedEdges.find(e =>
+                    e.target === updatedNodes[endNodeIndex]?.id
+                );
+
+                if (lastNodeBeforeEnd) {
+                    // Connect last existing node to first new node
+                    const edgeIndex = updatedEdges.findIndex(e => e.id === lastNodeBeforeEnd.id);
+                    if (edgeIndex !== -1) {
+                        updatedEdges[edgeIndex] = {
+                            ...updatedEdges[edgeIndex],
+                            target: newNodes[0].id
+                        };
+                    }
+                }
+
+                // Add new nodes and edges
+                setNodes([...updatedNodes, ...newNodes]);
+                setEdges([
+                    ...updatedEdges,
+                    ...newEdges,
+                    // Connect last new node to end
+                    {
+                        id: `edge-ai-to-end-${Date.now()}`,
+                        source: newNodes[newNodes.length - 1].id,
+                        target: updatedNodes[endNodeIndex]?.id || 'end-default',
+                        type: 'default'
+                    }
+                ]);
+
+                setHasUnsavedChanges(true);
+                setShowAIPanel(false);
+            }
+        } catch (error) {
+            console.error('Failed to insert AI code:', error);
+            alert('Failed to insert generated code into flow');
+        }
+    }, [nodes, edges, setNodes, setEdges]);
+
     // Save flow
     const handleSaveFlow = async () => {
         if (!testFlowId) return;
@@ -438,6 +564,34 @@ export function PlaywrightIDE({ testFlowId }: PlaywrightIDEProps) {
                                 Record
                             </>
                         )}
+                    </button>
+
+                    {/* AI Agent Button */}
+                    <button
+                        onClick={() => setShowAIPanel(!showAIPanel)}
+                        disabled={isRunning || isRecording}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            showAIPanel
+                                ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                        } disabled:opacity-50`}
+                    >
+                        <Bot className="w-3.5 h-3.5" />
+                        AI Agent
+                    </button>
+
+                    {/* Live Execution Button */}
+                    <button
+                        onClick={() => setShowLiveExecution(!showLiveExecution)}
+                        disabled={isRecording}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            showLiveExecution
+                                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                        } disabled:opacity-50`}
+                    >
+                        <Monitor className="w-3.5 h-3.5" />
+                        Live Run
                     </button>
 
                     {/* Run/Stop Button with Dropdown */}
@@ -591,6 +745,31 @@ export function PlaywrightIDE({ testFlowId }: PlaywrightIDEProps) {
                         <>
                             <IDEFlowCanvas />
                             <IDEPropertiesPanel />
+
+                            {/* AI Agent Panel (Overlay from right) */}
+                            {showAIPanel && (
+                                <div className="absolute top-0 right-0 h-full z-30">
+                                    <AIAgentPanel
+                                        isVisible={showAIPanel}
+                                        onClose={() => setShowAIPanel(false)}
+                                        onInsertCode={handleAICodeInsert}
+                                        onGeneratedCode={(code) => {
+                                            // Optional: Log generated code for debugging
+                                            console.log('[AI Agent] Generated code:', code.substring(0, 100) + '...');
+                                        }}
+                                    />
+                                </div>
+                            )}
+
+                            {/* Live Execution Panel (Overlay from right) */}
+                            {showLiveExecution && (
+                                <div className="absolute top-0 right-0 h-full z-30">
+                                    <LiveExecutionPanel
+                                        isVisible={showLiveExecution}
+                                        onClose={() => setShowLiveExecution(false)}
+                                    />
+                                </div>
+                            )}
 
                             {/* Execution Preview (shown during/after run) */}
                             {(isRunning || currentScreenshot || traceUrl) && (

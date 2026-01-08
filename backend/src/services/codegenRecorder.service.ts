@@ -19,11 +19,21 @@ import { tmpdir } from 'os';
 import { EventEmitter } from 'events';
 import {
     PageObjectRegistry,
-    initPageObjectRegistry
+    initPageObjectRegistry,
+    ElementInfo,
+    DuplicateCheckResult
 } from './pageObjectRegistry';
+import { recordingPersistenceService, CreateStepDTO } from './recordingPersistence.service';
+import {
+    generateResilientSelector,
+    playwrightToVeroSelector,
+    CapturedElement,
+    serializeFallbacks
+} from './selectorHealing';
 
 interface CodegenSession {
     sessionId: string;
+    dbSessionId?: string; // Database session ID for persistence
     codegenProcess: ChildProcess;
     outputFile: string;
     fileWatcher?: FSWatcher;
@@ -32,6 +42,7 @@ interface CodegenSession {
     url: string;
     registry: PageObjectRegistry;
     scenarioName?: string;
+    stepCount: number; // Track step count for persistence
 }
 
 interface ParsedAction {
@@ -39,6 +50,15 @@ interface ParsedAction {
     selector?: string;
     value?: string;
     originalLine: string;
+}
+
+interface DuplicateWarning {
+    newSelector: string;
+    existingField: string;
+    similarity: number;
+    matchType: string;
+    recommendation: 'reuse' | 'create' | 'review';
+    reason: string;
 }
 
 export class CodegenRecorderService extends EventEmitter {
@@ -56,14 +76,40 @@ export class CodegenRecorderService extends EventEmitter {
     async startRecording(
         url: string,
         sessionId: string,
-        onAction: (veroCode: string, pagePath?: string, pageCode?: string, fieldCreated?: { pageName: string; fieldName: string }) => void,
+        onAction: (
+            veroCode: string,
+            pagePath?: string,
+            pageCode?: string,
+            fieldCreated?: { pageName: string; fieldName: string },
+            duplicateWarning?: DuplicateWarning
+        ) => void,
         onError: (error: string) => void,
-        scenarioName?: string
+        scenarioName?: string,
+        userId?: string,
+        testFlowId?: string
     ): Promise<void> {
         try {
             // Initialize page object registry
             const registry = initPageObjectRegistry(this.projectPath);
             await registry.loadFromDisk();
+
+            // Create database session for persistence
+            let dbSessionId: string | undefined;
+            if (userId) {
+                try {
+                    const dbSession = await recordingPersistenceService.createSession({
+                        userId,
+                        testFlowId,
+                        startUrl: url,
+                        scenarioName,
+                        pageName: registry.suggestPageName(url),
+                    });
+                    dbSessionId = dbSession.id;
+                    console.log(`[CodegenRecorder] Created DB session: ${dbSessionId}`);
+                } catch (dbError) {
+                    console.warn('[CodegenRecorder] Failed to create DB session, continuing without persistence:', dbError);
+                }
+            }
 
             // Create temp file for codegen output
             const tempDir = join(tmpdir(), 'vero-codegen');
@@ -117,13 +163,15 @@ export class CodegenRecorderService extends EventEmitter {
             // Store session
             const session: CodegenSession = {
                 sessionId,
+                dbSessionId,
                 codegenProcess,
                 outputFile,
                 lastCode: '',
                 lastLineCount: 0,
                 url,
                 registry,
-                scenarioName
+                scenarioName,
+                stepCount: 0
             };
             this.sessions.set(sessionId, session);
 
@@ -173,7 +221,13 @@ export class CodegenRecorderService extends EventEmitter {
     private async processCodeChanges(
         session: CodegenSession,
         newCode: string,
-        onAction: (veroCode: string, pagePath?: string, pageCode?: string, fieldCreated?: { pageName: string; fieldName: string }) => void
+        onAction: (
+            veroCode: string,
+            pagePath?: string,
+            pageCode?: string,
+            fieldCreated?: { pageName: string; fieldName: string },
+            duplicateWarning?: DuplicateWarning
+        ) => void
     ): Promise<void> {
         // Parse all actions from new code
         const actions = this.parsePlaywrightCode(newCode);
@@ -189,14 +243,186 @@ export class CodegenRecorderService extends EventEmitter {
             const result = await this.convertToVero(action, session);
             if (result) {
                 console.log(`[CodegenRecorder] Emitting: ${result.veroCode}`);
+
+                // Log duplicate warning if present
+                if (result.duplicateWarning) {
+                    console.log(`[CodegenRecorder] Duplicate warning: ${result.duplicateWarning.reason}`);
+                    // Emit duplicate detection event
+                    this.emit('duplicate-detected', {
+                        sessionId: session.sessionId,
+                        warning: result.duplicateWarning
+                    });
+                }
+
+                // Persist step to database if session is tracked
+                if (session.dbSessionId) {
+                    try {
+                        // Generate resilient selector with fallbacks
+                        const capturedElement = this.selectorToCapturedElement(action.selector || '');
+                        const resilientSelector = generateResilientSelector(capturedElement);
+
+                        const stepData: CreateStepDTO = {
+                            sessionId: session.dbSessionId,
+                            stepNumber: session.stepCount,
+                            actionType: action.type,
+                            veroCode: result.veroCode,
+                            primarySelector: resilientSelector.primary.selector,
+                            selectorType: resilientSelector.primary.strategy,
+                            fallbackSelectors: resilientSelector.fallbacks.map(f => f.selector),
+                            confidence: resilientSelector.overallConfidence,
+                            isStable: resilientSelector.isReliable,
+                            value: action.value,
+                            url: session.url,
+                            pageName: result.fieldCreated?.pageName,
+                            fieldName: result.fieldCreated?.fieldName,
+                            elementTag: capturedElement.tagName,
+                            elementText: capturedElement.innerText,
+                        };
+                        await recordingPersistenceService.addStep(stepData);
+                        console.log(`[CodegenRecorder] Persisted step ${session.stepCount} with ${resilientSelector.fallbacks.length} fallbacks`);
+                    } catch (dbError) {
+                        console.warn('[CodegenRecorder] Failed to persist step:', dbError);
+                    }
+                }
+
+                session.stepCount++;
+
                 onAction(
                     result.veroCode,
                     result.pagePath,
                     result.pageCode,
-                    result.fieldCreated
+                    result.fieldCreated,
+                    result.duplicateWarning
                 );
             }
         }
+    }
+
+    /**
+     * Convert a Vero selector string to a CapturedElement for resilient selector generation
+     */
+    private selectorToCapturedElement(selector: string): CapturedElement {
+        const element: CapturedElement = {
+            tagName: 'div', // Default tag
+        };
+
+        // testId "login-btn"
+        let match = selector.match(/testId "(.+?)"/);
+        if (match) {
+            element.testId = match[1];
+            return element;
+        }
+
+        // button "Submit" or role "button"
+        match = selector.match(/^(\w+) "(.+?)"/);
+        if (match) {
+            element.role = match[1];
+            element.innerText = match[2];
+            // Infer tag from role
+            if (match[1] === 'button') element.tagName = 'button';
+            else if (match[1] === 'link') element.tagName = 'a';
+            else if (match[1] === 'textbox') element.tagName = 'input';
+            return element;
+        }
+
+        // label "Email"
+        match = selector.match(/label "(.+?)"/);
+        if (match) {
+            element.ariaLabel = match[1];
+            element.tagName = 'input';
+            return element;
+        }
+
+        // placeholder "Enter email"
+        match = selector.match(/placeholder "(.+?)"/);
+        if (match) {
+            element.placeholder = match[1];
+            element.tagName = 'input';
+            return element;
+        }
+
+        // text "Click me"
+        match = selector.match(/text "(.+?)"/);
+        if (match) {
+            element.innerText = match[1];
+            return element;
+        }
+
+        // alt "Logo"
+        match = selector.match(/alt "(.+?)"/);
+        if (match) {
+            element.alt = match[1];
+            element.tagName = 'img';
+            return element;
+        }
+
+        // title "Tooltip"
+        match = selector.match(/title "(.+?)"/);
+        if (match) {
+            element.title = match[1];
+            return element;
+        }
+
+        // #id
+        match = selector.match(/^#([\w-]+)/);
+        if (match) {
+            element.id = match[1];
+            return element;
+        }
+
+        // .class
+        match = selector.match(/^\.([\w-]+)/);
+        if (match) {
+            element.className = match[1];
+            return element;
+        }
+
+        // CSS selector with tag: input[type="text"]
+        match = selector.match(/^(\w+)/);
+        if (match) {
+            element.tagName = match[1];
+        }
+
+        // Extract type from selector
+        match = selector.match(/\[type="(\w+)"\]/);
+        if (match) {
+            element.type = match[1];
+        }
+
+        // Extract name from selector
+        match = selector.match(/\[name="(\w+)"\]/);
+        if (match) {
+            element.name = match[1];
+        }
+
+        return element;
+    }
+
+    /**
+     * Detect selector type from selector string
+     */
+    private detectSelectorType(selector: string): string {
+        if (selector.startsWith('testId')) return 'testId';
+        if (selector.startsWith('role') || selector.match(/^\w+ "/)) return 'role';
+        if (selector.startsWith('label')) return 'label';
+        if (selector.startsWith('placeholder')) return 'placeholder';
+        if (selector.startsWith('text')) return 'text';
+        if (selector.startsWith('#') || selector.startsWith('.')) return 'css';
+        return 'unknown';
+    }
+
+    /**
+     * Check if selector is stable (won't change with i18n or dynamic content)
+     */
+    private isSelectorStable(selector: string): boolean {
+        // testId and CSS ID selectors are stable
+        if (selector.startsWith('testId')) return true;
+        if (selector.startsWith('#')) return true;
+        // Text-based selectors are not stable (can change with i18n)
+        if (selector.startsWith('text')) return false;
+        if (selector.match(/^\w+ "/)) return false; // role with text
+        // Default to moderately stable
+        return true;
     }
 
     /**
@@ -391,6 +617,7 @@ export class CodegenRecorderService extends EventEmitter {
         pagePath?: string;
         pageCode?: string;
         fieldCreated?: { pageName: string; fieldName: string };
+        duplicateWarning?: DuplicateWarning;
     } | null> {
         const registry = session.registry;
 
@@ -412,28 +639,76 @@ export class CodegenRecorderService extends EventEmitter {
             let pagePath: string | undefined;
             let pageCode: string | undefined;
             let fieldCreated: { pageName: string; fieldName: string } | undefined;
+            let duplicateWarning: DuplicateWarning | undefined;
 
             if (!fieldRef) {
-                // Create new page object field
+                // Get target page name
                 const pageName = registry.suggestPageName(session.url);
-                const fieldName = this.generateFieldName(action);
 
-                // Get or create the page
-                registry.getOrCreatePage(session.url);
+                // Convert selector to ElementInfo for duplicate detection
+                const elementInfo = this.selectorToElementInfo(action.selector);
 
-                // Add the field
-                fieldRef = registry.addField(pageName, fieldName, action.selector);
+                // Check for duplicates using fuzzy matching
+                const duplicateCheck = registry.checkForDuplicate(elementInfo, action.selector, pageName);
 
-                // Persist to disk
-                pagePath = await registry.persist(pageName);
-                pageCode = registry.getPageContent(pageName) || undefined;
+                if (duplicateCheck.isDuplicate && duplicateCheck.existingRef) {
+                    // Reuse existing field instead of creating duplicate
+                    fieldRef = duplicateCheck.existingRef;
 
-                fieldCreated = {
-                    pageName: fieldRef.pageName,
-                    fieldName: fieldRef.fieldName
-                };
+                    duplicateWarning = {
+                        newSelector: action.selector,
+                        existingField: `${duplicateCheck.existingRef.pageName}.${duplicateCheck.existingRef.fieldName}`,
+                        similarity: duplicateCheck.similarity,
+                        matchType: duplicateCheck.matchType,
+                        recommendation: duplicateCheck.recommendation,
+                        reason: duplicateCheck.reason || 'Duplicate detected'
+                    };
 
-                console.log(`[CodegenRecorder] Created field ${fieldRef.pageName}.${fieldRef.fieldName} = ${action.selector}`);
+                    console.log(`[CodegenRecorder] Duplicate detected: reusing ${fieldRef.pageName}.${fieldRef.fieldName} (${Math.round(duplicateCheck.similarity * 100)}% match)`);
+                } else if (duplicateCheck.recommendation === 'review' && duplicateCheck.existingRef) {
+                    // Create new field but emit warning for review
+                    const fieldName = this.generateFieldName(action);
+                    registry.getOrCreatePage(session.url);
+                    fieldRef = registry.addField(pageName, fieldName, action.selector);
+                    pagePath = await registry.persist(pageName);
+                    pageCode = registry.getPageContent(pageName) || undefined;
+
+                    fieldCreated = {
+                        pageName: fieldRef.pageName,
+                        fieldName: fieldRef.fieldName
+                    };
+
+                    duplicateWarning = {
+                        newSelector: action.selector,
+                        existingField: `${duplicateCheck.existingRef.pageName}.${duplicateCheck.existingRef.fieldName}`,
+                        similarity: duplicateCheck.similarity,
+                        matchType: duplicateCheck.matchType,
+                        recommendation: duplicateCheck.recommendation,
+                        reason: duplicateCheck.reason || 'Similar field exists - please review'
+                    };
+
+                    console.log(`[CodegenRecorder] Created field with warning: ${fieldRef.pageName}.${fieldRef.fieldName} (similar to ${duplicateCheck.existingRef.pageName}.${duplicateCheck.existingRef.fieldName})`);
+                } else {
+                    // No duplicate - create new page object field
+                    const fieldName = this.generateFieldName(action);
+
+                    // Get or create the page
+                    registry.getOrCreatePage(session.url);
+
+                    // Add the field
+                    fieldRef = registry.addField(pageName, fieldName, action.selector);
+
+                    // Persist to disk
+                    pagePath = await registry.persist(pageName);
+                    pageCode = registry.getPageContent(pageName) || undefined;
+
+                    fieldCreated = {
+                        pageName: fieldRef.pageName,
+                        fieldName: fieldRef.fieldName
+                    };
+
+                    console.log(`[CodegenRecorder] Created field ${fieldRef.pageName}.${fieldRef.fieldName} = ${action.selector}`);
+                }
             }
 
             // Build Vero action with page object reference
@@ -470,10 +745,77 @@ export class CodegenRecorderService extends EventEmitter {
                     veroCode = `# ${action.originalLine}`;
             }
 
-            return { veroCode, pagePath, pageCode, fieldCreated };
+            return { veroCode, pagePath, pageCode, fieldCreated, duplicateWarning };
         }
 
         return null;
+    }
+
+    /**
+     * Convert a Vero selector to ElementInfo for duplicate detection
+     */
+    private selectorToElementInfo(selector: string): ElementInfo {
+        const element: ElementInfo = {
+            tagName: 'div', // Default tag
+        };
+
+        // testId "login-btn"
+        let match = selector.match(/testId "(.+?)"/);
+        if (match) {
+            element.testId = match[1];
+            return element;
+        }
+
+        // button "Submit" or link "Click here"
+        match = selector.match(/^(\w+) "(.+?)"/);
+        if (match) {
+            element.role = match[1];
+            element.ariaLabel = match[2];
+            element.text = match[2];
+            if (match[1] === 'button') element.tagName = 'button';
+            else if (match[1] === 'link') element.tagName = 'a';
+            else if (match[1] === 'textbox') element.tagName = 'input';
+            return element;
+        }
+
+        // label "Email"
+        match = selector.match(/label "(.+?)"/);
+        if (match) {
+            element.ariaLabel = match[1];
+            element.tagName = 'input';
+            return element;
+        }
+
+        // placeholder "Enter email"
+        match = selector.match(/placeholder "(.+?)"/);
+        if (match) {
+            element.placeholder = match[1];
+            element.tagName = 'input';
+            return element;
+        }
+
+        // text "Click me"
+        match = selector.match(/text "(.+?)"/);
+        if (match) {
+            element.text = match[1];
+            return element;
+        }
+
+        // #id
+        match = selector.match(/^#([\w-]+)/);
+        if (match) {
+            element.id = match[1];
+            return element;
+        }
+
+        // .class
+        match = selector.match(/^\.([\w-]+)/);
+        if (match) {
+            element.className = match[1];
+            return element;
+        }
+
+        return element;
     }
 
     /**
@@ -568,10 +910,59 @@ export class CodegenRecorderService extends EventEmitter {
             // No code generated
         }
 
+        // Complete the database session
+        if (session.dbSessionId) {
+            try {
+                // Generate final Vero code from all persisted steps
+                const veroCode = await recordingPersistenceService.generateVeroFromSteps(session.dbSessionId);
+                await recordingPersistenceService.completeSession(session.dbSessionId, veroCode);
+                console.log(`[CodegenRecorder] Completed DB session: ${session.dbSessionId}`);
+            } catch (dbError) {
+                console.warn('[CodegenRecorder] Failed to complete DB session:', dbError);
+                // Try to mark as failed
+                try {
+                    await recordingPersistenceService.failSession(session.dbSessionId, 'Recording stopped unexpectedly');
+                } catch (e) {
+                    // Ignore
+                }
+            }
+        }
+
         // Clean up
         this.sessions.delete(sessionId);
 
         return finalCode;
+    }
+
+    /**
+     * Get the database session ID for a recording session
+     */
+    getDbSessionId(sessionId: string): string | undefined {
+        return this.sessions.get(sessionId)?.dbSessionId;
+    }
+
+    /**
+     * Recover a recording session from the database
+     */
+    async recoverSession(dbSessionId: string): Promise<{
+        veroCode: string;
+        steps: any[];
+        status: string;
+    } | null> {
+        try {
+            const session = await recordingPersistenceService.getSessionWithSteps(dbSessionId);
+            if (!session) return null;
+
+            const veroCode = await recordingPersistenceService.generateVeroFromSteps(dbSessionId);
+            return {
+                veroCode,
+                steps: session.steps,
+                status: session.status
+            };
+        } catch (e) {
+            console.error('[CodegenRecorder] Failed to recover session:', e);
+            return null;
+        }
     }
 
     /**

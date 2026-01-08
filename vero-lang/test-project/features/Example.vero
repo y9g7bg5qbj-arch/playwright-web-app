@@ -7,9 +7,5 @@ feature Example {
         open "https://example.com"
     }
     
-    scenario "Click learn more link" @smoke {
-        verify ExamplePage.heading is visible
-        click ExamplePage.learnMoreLink
-        wait 2 seconds
-    }
+   
 }

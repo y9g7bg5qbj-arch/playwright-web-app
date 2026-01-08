@@ -12,12 +12,27 @@ import { FieldDeclarationContext } from "./VeroParser.js";
 import { ActionDeclarationContext } from "./VeroParser.js";
 import { ParameterListContext } from "./VeroParser.js";
 import { FeatureDeclarationContext } from "./VeroParser.js";
+import { FeatureAnnotationContext } from "./VeroParser.js";
 import { FeatureBodyContext } from "./VeroParser.js";
 import { FeatureMemberContext } from "./VeroParser.js";
 import { UseStatementContext } from "./VeroParser.js";
 import { HookDeclarationContext } from "./VeroParser.js";
 import { ScenarioDeclarationContext } from "./VeroParser.js";
+import { ScenarioAnnotationContext } from "./VeroParser.js";
 import { TagContext } from "./VeroParser.js";
+import { FixtureDeclarationContext } from "./VeroParser.js";
+import { FixtureParamsContext } from "./VeroParser.js";
+import { FixtureBodyContext } from "./VeroParser.js";
+import { FixtureMemberContext } from "./VeroParser.js";
+import { FixtureScopeStatementContext } from "./VeroParser.js";
+import { FixtureDependsStatementContext } from "./VeroParser.js";
+import { FixtureAutoStatementContext } from "./VeroParser.js";
+import { FixtureOptionStatementContext } from "./VeroParser.js";
+import { FixtureSetupBlockContext } from "./VeroParser.js";
+import { FixtureTeardownBlockContext } from "./VeroParser.js";
+import { WithFixtureStatementContext } from "./VeroParser.js";
+import { FixtureOptionsBlockContext } from "./VeroParser.js";
+import { FixtureOptionContext } from "./VeroParser.js";
 import { StatementContext } from "./VeroParser.js";
 import { ActionStatementContext } from "./VeroParser.js";
 import { ClickActionContext } from "./VeroParser.js";
@@ -36,10 +51,15 @@ import { RefreshActionContext } from "./VeroParser.js";
 import { ClearActionContext } from "./VeroParser.js";
 import { ScreenshotActionContext } from "./VeroParser.js";
 import { LogActionContext } from "./VeroParser.js";
+import { UploadActionContext } from "./VeroParser.js";
+import { FileListContext } from "./VeroParser.js";
 import { AssertionStatementContext } from "./VeroParser.js";
 import { SelectorOrTextContext } from "./VeroParser.js";
 import { ConditionContext } from "./VeroParser.js";
 import { ContainsConditionContext } from "./VeroParser.js";
+import { UrlConditionContext } from "./VeroParser.js";
+import { TitleConditionContext } from "./VeroParser.js";
+import { HasConditionContext } from "./VeroParser.js";
 import { ControlFlowStatementContext } from "./VeroParser.js";
 import { IfStatementContext } from "./VeroParser.js";
 import { RepeatStatementContext } from "./VeroParser.js";
@@ -48,6 +68,27 @@ import { ComparisonOperatorContext } from "./VeroParser.js";
 import { VariableDeclarationContext } from "./VeroParser.js";
 import { VariableTypeContext } from "./VeroParser.js";
 import { ReturnStatementContext } from "./VeroParser.js";
+import { DataQueryStatementContext } from "./VeroParser.js";
+import { DataResultTypeContext } from "./VeroParser.js";
+import { DataQueryContext } from "./VeroParser.js";
+import { AggregationQueryContext } from "./VeroParser.js";
+import { TableQueryContext } from "./VeroParser.js";
+import { TableReferenceContext } from "./VeroParser.js";
+import { ColumnSelectorContext } from "./VeroParser.js";
+import { IdentifierListContext } from "./VeroParser.js";
+import { ColumnReferenceContext } from "./VeroParser.js";
+import { QueryModifierContext } from "./VeroParser.js";
+import { DataWhereClauseContext } from "./VeroParser.js";
+import { DataConditionContext } from "./VeroParser.js";
+import { DataComparisonContext } from "./VeroParser.js";
+import { TextOperatorContext } from "./VeroParser.js";
+import { DateComparisonContext } from "./VeroParser.js";
+import { ExpressionListContext } from "./VeroParser.js";
+import { OrderByClauseContext } from "./VeroParser.js";
+import { OrderColumnContext } from "./VeroParser.js";
+import { LimitClauseContext } from "./VeroParser.js";
+import { OffsetClauseContext } from "./VeroParser.js";
+import { DefaultClauseContext } from "./VeroParser.js";
 import { ExpressionContext } from "./VeroParser.js";
 import { SelectorExpressionContext } from "./VeroParser.js";
 import { PageMethodReferenceContext } from "./VeroParser.js";
@@ -151,6 +192,16 @@ export class VeroListener implements ParseTreeListener {
      */
     exitFeatureDeclaration?: (ctx: FeatureDeclarationContext) => void;
     /**
+     * Enter a parse tree produced by `VeroParser.featureAnnotation`.
+     * @param ctx the parse tree
+     */
+    enterFeatureAnnotation?: (ctx: FeatureAnnotationContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.featureAnnotation`.
+     * @param ctx the parse tree
+     */
+    exitFeatureAnnotation?: (ctx: FeatureAnnotationContext) => void;
+    /**
      * Enter a parse tree produced by `VeroParser.featureBody`.
      * @param ctx the parse tree
      */
@@ -201,6 +252,16 @@ export class VeroListener implements ParseTreeListener {
      */
     exitScenarioDeclaration?: (ctx: ScenarioDeclarationContext) => void;
     /**
+     * Enter a parse tree produced by `VeroParser.scenarioAnnotation`.
+     * @param ctx the parse tree
+     */
+    enterScenarioAnnotation?: (ctx: ScenarioAnnotationContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.scenarioAnnotation`.
+     * @param ctx the parse tree
+     */
+    exitScenarioAnnotation?: (ctx: ScenarioAnnotationContext) => void;
+    /**
      * Enter a parse tree produced by `VeroParser.tag`.
      * @param ctx the parse tree
      */
@@ -210,6 +271,136 @@ export class VeroListener implements ParseTreeListener {
      * @param ctx the parse tree
      */
     exitTag?: (ctx: TagContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.fixtureDeclaration`.
+     * @param ctx the parse tree
+     */
+    enterFixtureDeclaration?: (ctx: FixtureDeclarationContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.fixtureDeclaration`.
+     * @param ctx the parse tree
+     */
+    exitFixtureDeclaration?: (ctx: FixtureDeclarationContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.fixtureParams`.
+     * @param ctx the parse tree
+     */
+    enterFixtureParams?: (ctx: FixtureParamsContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.fixtureParams`.
+     * @param ctx the parse tree
+     */
+    exitFixtureParams?: (ctx: FixtureParamsContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.fixtureBody`.
+     * @param ctx the parse tree
+     */
+    enterFixtureBody?: (ctx: FixtureBodyContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.fixtureBody`.
+     * @param ctx the parse tree
+     */
+    exitFixtureBody?: (ctx: FixtureBodyContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.fixtureMember`.
+     * @param ctx the parse tree
+     */
+    enterFixtureMember?: (ctx: FixtureMemberContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.fixtureMember`.
+     * @param ctx the parse tree
+     */
+    exitFixtureMember?: (ctx: FixtureMemberContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.fixtureScopeStatement`.
+     * @param ctx the parse tree
+     */
+    enterFixtureScopeStatement?: (ctx: FixtureScopeStatementContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.fixtureScopeStatement`.
+     * @param ctx the parse tree
+     */
+    exitFixtureScopeStatement?: (ctx: FixtureScopeStatementContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.fixtureDependsStatement`.
+     * @param ctx the parse tree
+     */
+    enterFixtureDependsStatement?: (ctx: FixtureDependsStatementContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.fixtureDependsStatement`.
+     * @param ctx the parse tree
+     */
+    exitFixtureDependsStatement?: (ctx: FixtureDependsStatementContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.fixtureAutoStatement`.
+     * @param ctx the parse tree
+     */
+    enterFixtureAutoStatement?: (ctx: FixtureAutoStatementContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.fixtureAutoStatement`.
+     * @param ctx the parse tree
+     */
+    exitFixtureAutoStatement?: (ctx: FixtureAutoStatementContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.fixtureOptionStatement`.
+     * @param ctx the parse tree
+     */
+    enterFixtureOptionStatement?: (ctx: FixtureOptionStatementContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.fixtureOptionStatement`.
+     * @param ctx the parse tree
+     */
+    exitFixtureOptionStatement?: (ctx: FixtureOptionStatementContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.fixtureSetupBlock`.
+     * @param ctx the parse tree
+     */
+    enterFixtureSetupBlock?: (ctx: FixtureSetupBlockContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.fixtureSetupBlock`.
+     * @param ctx the parse tree
+     */
+    exitFixtureSetupBlock?: (ctx: FixtureSetupBlockContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.fixtureTeardownBlock`.
+     * @param ctx the parse tree
+     */
+    enterFixtureTeardownBlock?: (ctx: FixtureTeardownBlockContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.fixtureTeardownBlock`.
+     * @param ctx the parse tree
+     */
+    exitFixtureTeardownBlock?: (ctx: FixtureTeardownBlockContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.withFixtureStatement`.
+     * @param ctx the parse tree
+     */
+    enterWithFixtureStatement?: (ctx: WithFixtureStatementContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.withFixtureStatement`.
+     * @param ctx the parse tree
+     */
+    exitWithFixtureStatement?: (ctx: WithFixtureStatementContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.fixtureOptionsBlock`.
+     * @param ctx the parse tree
+     */
+    enterFixtureOptionsBlock?: (ctx: FixtureOptionsBlockContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.fixtureOptionsBlock`.
+     * @param ctx the parse tree
+     */
+    exitFixtureOptionsBlock?: (ctx: FixtureOptionsBlockContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.fixtureOption`.
+     * @param ctx the parse tree
+     */
+    enterFixtureOption?: (ctx: FixtureOptionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.fixtureOption`.
+     * @param ctx the parse tree
+     */
+    exitFixtureOption?: (ctx: FixtureOptionContext) => void;
     /**
      * Enter a parse tree produced by `VeroParser.statement`.
      * @param ctx the parse tree
@@ -391,6 +582,26 @@ export class VeroListener implements ParseTreeListener {
      */
     exitLogAction?: (ctx: LogActionContext) => void;
     /**
+     * Enter a parse tree produced by `VeroParser.uploadAction`.
+     * @param ctx the parse tree
+     */
+    enterUploadAction?: (ctx: UploadActionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.uploadAction`.
+     * @param ctx the parse tree
+     */
+    exitUploadAction?: (ctx: UploadActionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.fileList`.
+     * @param ctx the parse tree
+     */
+    enterFileList?: (ctx: FileListContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.fileList`.
+     * @param ctx the parse tree
+     */
+    exitFileList?: (ctx: FileListContext) => void;
+    /**
      * Enter a parse tree produced by `VeroParser.assertionStatement`.
      * @param ctx the parse tree
      */
@@ -430,6 +641,36 @@ export class VeroListener implements ParseTreeListener {
      * @param ctx the parse tree
      */
     exitContainsCondition?: (ctx: ContainsConditionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.urlCondition`.
+     * @param ctx the parse tree
+     */
+    enterUrlCondition?: (ctx: UrlConditionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.urlCondition`.
+     * @param ctx the parse tree
+     */
+    exitUrlCondition?: (ctx: UrlConditionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.titleCondition`.
+     * @param ctx the parse tree
+     */
+    enterTitleCondition?: (ctx: TitleConditionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.titleCondition`.
+     * @param ctx the parse tree
+     */
+    exitTitleCondition?: (ctx: TitleConditionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.hasCondition`.
+     * @param ctx the parse tree
+     */
+    enterHasCondition?: (ctx: HasConditionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.hasCondition`.
+     * @param ctx the parse tree
+     */
+    exitHasCondition?: (ctx: HasConditionContext) => void;
     /**
      * Enter a parse tree produced by `VeroParser.controlFlowStatement`.
      * @param ctx the parse tree
@@ -510,6 +751,216 @@ export class VeroListener implements ParseTreeListener {
      * @param ctx the parse tree
      */
     exitReturnStatement?: (ctx: ReturnStatementContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.dataQueryStatement`.
+     * @param ctx the parse tree
+     */
+    enterDataQueryStatement?: (ctx: DataQueryStatementContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.dataQueryStatement`.
+     * @param ctx the parse tree
+     */
+    exitDataQueryStatement?: (ctx: DataQueryStatementContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.dataResultType`.
+     * @param ctx the parse tree
+     */
+    enterDataResultType?: (ctx: DataResultTypeContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.dataResultType`.
+     * @param ctx the parse tree
+     */
+    exitDataResultType?: (ctx: DataResultTypeContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.dataQuery`.
+     * @param ctx the parse tree
+     */
+    enterDataQuery?: (ctx: DataQueryContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.dataQuery`.
+     * @param ctx the parse tree
+     */
+    exitDataQuery?: (ctx: DataQueryContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.aggregationQuery`.
+     * @param ctx the parse tree
+     */
+    enterAggregationQuery?: (ctx: AggregationQueryContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.aggregationQuery`.
+     * @param ctx the parse tree
+     */
+    exitAggregationQuery?: (ctx: AggregationQueryContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.tableQuery`.
+     * @param ctx the parse tree
+     */
+    enterTableQuery?: (ctx: TableQueryContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.tableQuery`.
+     * @param ctx the parse tree
+     */
+    exitTableQuery?: (ctx: TableQueryContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.tableReference`.
+     * @param ctx the parse tree
+     */
+    enterTableReference?: (ctx: TableReferenceContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.tableReference`.
+     * @param ctx the parse tree
+     */
+    exitTableReference?: (ctx: TableReferenceContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.columnSelector`.
+     * @param ctx the parse tree
+     */
+    enterColumnSelector?: (ctx: ColumnSelectorContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.columnSelector`.
+     * @param ctx the parse tree
+     */
+    exitColumnSelector?: (ctx: ColumnSelectorContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.identifierList`.
+     * @param ctx the parse tree
+     */
+    enterIdentifierList?: (ctx: IdentifierListContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.identifierList`.
+     * @param ctx the parse tree
+     */
+    exitIdentifierList?: (ctx: IdentifierListContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.columnReference`.
+     * @param ctx the parse tree
+     */
+    enterColumnReference?: (ctx: ColumnReferenceContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.columnReference`.
+     * @param ctx the parse tree
+     */
+    exitColumnReference?: (ctx: ColumnReferenceContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.queryModifier`.
+     * @param ctx the parse tree
+     */
+    enterQueryModifier?: (ctx: QueryModifierContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.queryModifier`.
+     * @param ctx the parse tree
+     */
+    exitQueryModifier?: (ctx: QueryModifierContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.dataWhereClause`.
+     * @param ctx the parse tree
+     */
+    enterDataWhereClause?: (ctx: DataWhereClauseContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.dataWhereClause`.
+     * @param ctx the parse tree
+     */
+    exitDataWhereClause?: (ctx: DataWhereClauseContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.dataCondition`.
+     * @param ctx the parse tree
+     */
+    enterDataCondition?: (ctx: DataConditionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.dataCondition`.
+     * @param ctx the parse tree
+     */
+    exitDataCondition?: (ctx: DataConditionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.dataComparison`.
+     * @param ctx the parse tree
+     */
+    enterDataComparison?: (ctx: DataComparisonContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.dataComparison`.
+     * @param ctx the parse tree
+     */
+    exitDataComparison?: (ctx: DataComparisonContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.textOperator`.
+     * @param ctx the parse tree
+     */
+    enterTextOperator?: (ctx: TextOperatorContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.textOperator`.
+     * @param ctx the parse tree
+     */
+    exitTextOperator?: (ctx: TextOperatorContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.dateComparison`.
+     * @param ctx the parse tree
+     */
+    enterDateComparison?: (ctx: DateComparisonContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.dateComparison`.
+     * @param ctx the parse tree
+     */
+    exitDateComparison?: (ctx: DateComparisonContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.expressionList`.
+     * @param ctx the parse tree
+     */
+    enterExpressionList?: (ctx: ExpressionListContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.expressionList`.
+     * @param ctx the parse tree
+     */
+    exitExpressionList?: (ctx: ExpressionListContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.orderByClause`.
+     * @param ctx the parse tree
+     */
+    enterOrderByClause?: (ctx: OrderByClauseContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.orderByClause`.
+     * @param ctx the parse tree
+     */
+    exitOrderByClause?: (ctx: OrderByClauseContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.orderColumn`.
+     * @param ctx the parse tree
+     */
+    enterOrderColumn?: (ctx: OrderColumnContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.orderColumn`.
+     * @param ctx the parse tree
+     */
+    exitOrderColumn?: (ctx: OrderColumnContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.limitClause`.
+     * @param ctx the parse tree
+     */
+    enterLimitClause?: (ctx: LimitClauseContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.limitClause`.
+     * @param ctx the parse tree
+     */
+    exitLimitClause?: (ctx: LimitClauseContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.offsetClause`.
+     * @param ctx the parse tree
+     */
+    enterOffsetClause?: (ctx: OffsetClauseContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.offsetClause`.
+     * @param ctx the parse tree
+     */
+    exitOffsetClause?: (ctx: OffsetClauseContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.defaultClause`.
+     * @param ctx the parse tree
+     */
+    enterDefaultClause?: (ctx: DefaultClauseContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.defaultClause`.
+     * @param ctx the parse tree
+     */
+    exitDefaultClause?: (ctx: DefaultClauseContext) => void;
     /**
      * Enter a parse tree produced by `VeroParser.expression`.
      * @param ctx the parse tree

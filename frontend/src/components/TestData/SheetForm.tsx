@@ -1,8 +1,13 @@
 /**
- * SheetForm - Form for creating/editing test data sheets
+ * SheetForm - Form for creating/editing test data tables (entities)
+ *
+ * Data tables are project-level entities (Users, Products, Orders, etc.)
+ * that can be referenced in Vero scripts via:
+ *   - Simple: load $users from "Users"
+ *   - Qualified: load $users from "ProjectName.Users"
  */
 import React, { useState } from 'react';
-import { Plus, Trash2, Save, X } from 'lucide-react';
+import { Plus, Trash2, Save, X, ChevronDown, ChevronUp } from 'lucide-react';
 import type { DataSheet, DataColumn } from './TestDataPage';
 
 interface SheetFormProps {
@@ -19,6 +24,7 @@ export const SheetForm: React.FC<SheetFormProps> = ({
   const [name, setName] = useState(sheet?.name || '');
   const [pageObject, setPageObject] = useState(sheet?.pageObject || '');
   const [description, setDescription] = useState(sheet?.description || '');
+  const [showAdvanced, setShowAdvanced] = useState(!!sheet?.pageObject);
   const [columns, setColumns] = useState<DataColumn[]>(
     sheet?.columns && sheet.columns.length > 0
       ? sheet.columns
@@ -48,50 +54,65 @@ export const SheetForm: React.FC<SheetFormProps> = ({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Sheet Name */}
+      {/* Data Table Name */}
       <div>
         <label className="block text-sm font-medium text-slate-300 mb-1">
-          Sheet Name
+          Data Table Name
         </label>
         <input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g., LoginData, UserCredentials"
+          placeholder="e.g., Users, Products, Orders"
           className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500"
           required
         />
-      </div>
-
-      {/* Page Object Association */}
-      <div>
-        <label className="block text-sm font-medium text-slate-300 mb-1">
-          Associated Page Object
-        </label>
-        <input
-          type="text"
-          value={pageObject}
-          onChange={(e) => setPageObject(e.target.value)}
-          placeholder="e.g., LoginPage, HomePage"
-          className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500"
-        />
         <p className="text-xs text-slate-500 mt-1">
-          Link this data sheet to a page object for @testId references
+          Reference in Vero: <code className="text-emerald-400">load $data from "{name || 'TableName'}"</code>
         </p>
       </div>
 
       {/* Description */}
       <div>
         <label className="block text-sm font-medium text-slate-300 mb-1">
-          Description
+          Description <span className="text-slate-500 font-normal">(optional)</span>
         </label>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Describe the test data..."
+          placeholder="e.g., Test user accounts for login scenarios"
           rows={2}
           className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500 resize-none"
         />
+      </div>
+
+      {/* Advanced Options (collapsible) */}
+      <div className="border border-slate-700 rounded">
+        <button
+          type="button"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="w-full flex items-center justify-between px-3 py-2 text-sm text-slate-400 hover:text-slate-300 transition-colors"
+        >
+          <span>Advanced Options</span>
+          {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        {showAdvanced && (
+          <div className="px-3 pb-3 border-t border-slate-700">
+            <label className="block text-sm font-medium text-slate-300 mb-1 mt-2">
+              Page Object Association <span className="text-slate-500 font-normal">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={pageObject}
+              onChange={(e) => setPageObject(e.target.value)}
+              placeholder="e.g., LoginPage, CheckoutPage"
+              className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500"
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Optional: Link to a page object for page-specific data binding
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Columns */}
@@ -152,10 +173,10 @@ export const SheetForm: React.FC<SheetFormProps> = ({
         </button>
         <button
           type="submit"
-          className="flex items-center gap-1.5 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
+          className="flex items-center gap-1.5 px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors"
         >
           <Save className="w-4 h-4" />
-          Save Sheet
+          {sheet ? 'Update' : 'Create'} Data Table
         </button>
       </div>
     </form>

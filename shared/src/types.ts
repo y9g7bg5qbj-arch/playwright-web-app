@@ -255,6 +255,13 @@ export type ClientToServerEvents = {
   'recording:cancel': (data: { testFlowId: string; executionId: string }) => void;
   'execution:start': (data: { executionId: string; target: ExecutionTarget; code: string }) => void;
   'execution:cancel': (data: { executionId: string }) => void;
+  // Debug client events
+  'debug:start': (data: { executionId: string; testFlowId: string; code: string; breakpoints: number[] }) => void;
+  'debug:set-breakpoints': (data: { executionId: string; breakpoints: number[] }) => void;
+  'debug:resume': (data: { executionId: string }) => void;
+  'debug:step-over': (data: { executionId: string }) => void;
+  'debug:step-into': (data: { executionId: string }) => void;
+  'debug:stop': (data: { executionId: string }) => void;
 };
 
 export type ServerToClientEvents = {
@@ -265,6 +272,15 @@ export type ServerToClientEvents = {
   'execution:screenshot': (data: { executionId: string; stepNumber: number; imageData: string }) => void;
   'agent:status': (data: { agentId: string; status: AgentStatus }) => void;
   'error': (data: { message: string; executionId?: string }) => void;
+  // Debug events
+  'debug:step:before': (data: { executionId: string; line: number; action: string; target?: string }) => void;
+  'debug:step:after': (data: { executionId: string; line: number; action: string; success: boolean; duration?: number }) => void;
+  'debug:paused': (data: { executionId: string; line: number }) => void;
+  'debug:variable': (data: { executionId: string; name: string; value: unknown; type: string }) => void;
+  'debug:log': (data: { executionId: string; line: number; message: string; level: 'info' | 'warn' | 'error' }) => void;
+  'debug:complete': (data: { executionId: string; exitCode: number; duration: number }) => void;
+  'debug:resumed': (data: { executionId: string }) => void;
+  'debug:stopped': (data: { executionId: string }) => void;
 };
 
 // WebSocket Event Types - Agent
@@ -380,6 +396,17 @@ export interface ScheduleExecutionConfig {
   video?: 'always' | 'on-failure' | 'never';
 }
 
+// Execution target for schedules (where tests run)
+export type ScheduleExecutionTarget = 'local' | 'github-actions';
+
+// GitHub Actions configuration for schedules
+export interface ScheduleGitHubActionsConfig {
+  repoFullName: string;      // e.g., "owner/repo"
+  branch: string;            // e.g., "main"
+  workflowFile: string;      // e.g., "vero-tests.yml"
+  inputs?: Record<string, string>; // Workflow inputs
+}
+
 // Request to trigger a run with parameters
 export interface ScheduleTriggerRequest {
   parameterValues?: ScheduleParameterValues;
@@ -406,6 +433,10 @@ export interface Schedule {
   // Parameter system
   parameters?: ScheduleParameterDefinition[];
   defaultExecutionConfig?: ScheduleExecutionConfig;
+  // Execution target
+  executionTarget: ScheduleExecutionTarget;
+  // GitHub Actions configuration (when executionTarget = "github-actions")
+  githubConfig?: ScheduleGitHubActionsConfig;
 }
 
 export interface ScheduleCreate {
@@ -420,6 +451,10 @@ export interface ScheduleCreate {
   // Parameter system
   parameters?: ScheduleParameterDefinition[];
   defaultExecutionConfig?: ScheduleExecutionConfig;
+  // Execution target
+  executionTarget?: ScheduleExecutionTarget;
+  // GitHub Actions configuration
+  githubConfig?: ScheduleGitHubActionsConfig;
 }
 
 export interface ScheduleUpdate {
@@ -433,6 +468,10 @@ export interface ScheduleUpdate {
   // Parameter system
   parameters?: ScheduleParameterDefinition[];
   defaultExecutionConfig?: ScheduleExecutionConfig;
+  // Execution target
+  executionTarget?: ScheduleExecutionTarget;
+  // GitHub Actions configuration
+  githubConfig?: ScheduleGitHubActionsConfig;
 }
 
 // Schedule run entity
@@ -456,6 +495,9 @@ export interface ScheduleRun {
   parameterValues?: ScheduleParameterValues;
   executionConfig?: ScheduleExecutionConfig;
   triggeredBy?: string;  // User email or "system" for cron
+  // GitHub Actions tracking (when executed via GitHub Actions)
+  githubRunId?: number;
+  githubRunUrl?: string;
 }
 
 // Individual test result in a run

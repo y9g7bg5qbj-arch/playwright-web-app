@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import Editor, { OnMount, Monaco } from '@monaco-editor/react';
 import * as monacoEditor from 'monaco-editor';
 import { registerVeroLanguage, registerVeroCompletionProvider, parseVeroCode, VeroCodeItem } from './veroLanguage';
 import { Circle, Plus } from 'lucide-react';
+import { useEditorErrors } from '../../errors/useEditorErrors';
+import { ErrorPanel } from '../../errors/ErrorPanel';
 
 interface VeroEditorProps {
     initialValue?: string;
@@ -16,9 +18,22 @@ interface VeroEditorProps {
     onAppendCode?: (code: string) => void;
     readOnly?: boolean;
     theme?: 'vero-camel' | 'vero-light';
+    // Debug props
+    breakpoints?: Set<number>;
+    onToggleBreakpoint?: (line: number) => void;
+    debugCurrentLine?: number | null;
+    isDebugging?: boolean;
+    // Error panel props
+    showErrorPanel?: boolean;
+    errorPanelCollapsed?: boolean;
+    token?: string | null;
 }
 
-export function VeroEditor({
+export interface VeroEditorHandle {
+    goToLine: (line: number) => void;
+}
+
+export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function VeroEditor({
     initialValue = '',
     onChange,
     onRunScenario,
@@ -29,12 +44,59 @@ export function VeroEditor({
     activeRecordingScenario = null,
     readOnly = false,
     theme = 'vero-camel',
-}: VeroEditorProps) {
+    // Debug props
+    breakpoints = new Set(),
+    onToggleBreakpoint,
+    debugCurrentLine = null,
+    isDebugging = false,
+    // Error panel props
+    showErrorPanel = true,
+    errorPanelCollapsed = false,
+    token = null,
+}, ref) {
     const [code, setCode] = useState(initialValue);
     const [codeItems, setCodeItems] = useState<VeroCodeItem[]>([]);
     const editorRef = useRef<monacoEditor.editor.IStandaloneCodeEditor | null>(null);
     const monacoRef = useRef<Monaco | null>(null);
     const decorationsRef = useRef<string[]>([]);
+    const debugDecorationsRef = useRef<string[]>([]);
+
+    // State for Monaco model (needed for error validation hook)
+    const [editorModel, setEditorModel] = useState<monacoEditor.editor.ITextModel | null>(null);
+
+    // Use error validation hook
+    const {
+        errors,
+        warnings,
+        stats,
+        isValidating,
+    } = useEditorErrors(monacoRef.current, editorModel, {
+        debounceMs: 500,
+        enableValidation: true,
+        token,
+    });
+
+    // Navigate to error location
+    const handleNavigateToError = useCallback((line: number, column?: number) => {
+        const editor = editorRef.current;
+        if (editor) {
+            editor.revealLineInCenter(line);
+            editor.setPosition({ lineNumber: line, column: column || 1 });
+            editor.focus();
+        }
+    }, []);
+
+    // Expose goToLine method via ref
+    useImperativeHandle(ref, () => ({
+        goToLine: (lineNumber: number) => {
+            const editor = editorRef.current;
+            if (editor) {
+                editor.revealLineInCenter(lineNumber);
+                editor.setPosition({ lineNumber, column: 1 });
+                editor.focus();
+            }
+        }
+    }), []);
 
     // Sync code state when initialValue prop changes (file selection)
     useEffect(() => {
@@ -62,6 +124,12 @@ export function VeroEditor({
     const handleEditorDidMount: OnMount = useCallback((editor, monaco) => {
         editorRef.current = editor;
         monacoRef.current = monaco;
+
+        // Set the editor model for error validation
+        const model = editor.getModel();
+        if (model) {
+            setEditorModel(model);
+        }
 
         // Update code items when content changes
         editor.onDidChangeModelContent(() => {
@@ -140,8 +208,16 @@ export function VeroEditor({
 
             const item = codeItems.find((i) => i.line === lineNumber);
 
-            // Glyph margin click = run
+            // Glyph margin click = run or toggle breakpoint
             if (e.target.type === monacoEditor.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
+                // Check if click is on breakpoint area (left side of glyph margin)
+                const element = e.target.element as HTMLElement;
+                if (element?.classList.contains('vero-breakpoint') ||
+                    element?.classList.contains('vero-breakpoint-active')) {
+                    onToggleBreakpoint?.(lineNumber);
+                    return;
+                }
+
                 if (item) {
                     if (item.type === 'scenario') {
                         onRunScenario?.(item.name);
@@ -149,6 +225,12 @@ export function VeroEditor({
                         onRunFeature?.(item.name);
                     }
                 }
+            }
+
+            // Line number click = toggle breakpoint
+            if (e.target.type === monacoEditor.editor.MouseTargetType.GUTTER_LINE_NUMBERS) {
+                onToggleBreakpoint?.(lineNumber);
+                return;
             }
 
             // Line decoration click = add or record
@@ -163,7 +245,45 @@ export function VeroEditor({
         });
 
         return () => disposable.dispose();
-    }, [codeItems, onRunScenario, onRunFeature, onAddScenario, onStartRecording]);
+    }, [codeItems, onRunScenario, onRunFeature, onAddScenario, onStartRecording, onToggleBreakpoint]);
+
+    // Update debug decorations (breakpoints and current line)
+    useEffect(() => {
+        const editor = editorRef.current;
+        const monaco = monacoRef.current;
+        if (!editor || !monaco) return;
+
+        const debugDecorations: monacoEditor.editor.IModelDeltaDecoration[] = [];
+
+        // Add breakpoint decorations
+        breakpoints.forEach((line) => {
+            debugDecorations.push({
+                range: new monaco.Range(line, 1, line, 1),
+                options: {
+                    isWholeLine: true,
+                    glyphMarginClassName: 'vero-breakpoint-active',
+                    glyphMarginHoverMessage: { value: 'Breakpoint (click to remove)' },
+                },
+            });
+        });
+
+        // Add current debug line decoration
+        if (debugCurrentLine !== null && isDebugging) {
+            debugDecorations.push({
+                range: new monaco.Range(debugCurrentLine, 1, debugCurrentLine, 1),
+                options: {
+                    isWholeLine: true,
+                    className: 'vero-debug-current-line',
+                    glyphMarginClassName: 'vero-debug-arrow',
+                },
+            });
+
+            // Scroll to current line
+            editor.revealLineInCenter(debugCurrentLine);
+        }
+
+        debugDecorationsRef.current = editor.deltaDecorations(debugDecorationsRef.current, debugDecorations);
+    }, [breakpoints, debugCurrentLine, isDebugging]);
 
     // Append code at cursor position (for live recording)
     const appendAtCursor = useCallback((newCode: string) => {
@@ -310,6 +430,19 @@ export function VeroEditor({
                 />
             </div>
 
+            {/* Error Panel */}
+            {showErrorPanel && (
+                <ErrorPanel
+                    errors={errors}
+                    warnings={warnings}
+                    stats={stats}
+                    isValidating={isValidating}
+                    onNavigateToError={handleNavigateToError}
+                    defaultCollapsed={errorPanelCollapsed}
+                    maxHeight={180}
+                />
+            )}
+
             {/* Inline styles for glyph margin icons */}
             <style>{`
         .vero-run-scenario {
@@ -347,7 +480,27 @@ export function VeroEditor({
           0%, 100% { opacity: 1; }
           50% { opacity: 0.5; }
         }
+
+        /* Breakpoint styles */
+        .vero-breakpoint-active {
+          background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='%23ef4444'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3C/svg%3E") center center no-repeat;
+          cursor: pointer;
+        }
+        .vero-breakpoint-active:hover {
+          background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='%23dc2626'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3C/svg%3E") center center no-repeat;
+        }
+
+        /* Debug current line indicator (yellow arrow) */
+        .vero-debug-arrow {
+          background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='%23eab308'%3E%3Cpolygon points='4 4 20 12 4 20 4 4'/%3E%3C/svg%3E") center center no-repeat;
+        }
+
+        /* Debug current line highlight */
+        .vero-debug-current-line {
+          background-color: rgba(234, 179, 8, 0.15) !important;
+          border-left: 2px solid #eab308 !important;
+        }
       `}</style>
         </div>
     );
-}
+});

@@ -24,9 +24,12 @@ import type {
   ScheduleRun,
   ScheduleTriggerRequest,
   ScheduleParameterDefinition,
+  ScheduleExecutionTarget,
 } from '@playwright-web-app/shared';
 import { RunParametersModal } from './RunParametersModal';
 import { ParameterBuilder } from './ParameterBuilder';
+import { useGitHubStore } from '@/store/useGitHubStore';
+import { Github, Monitor } from 'lucide-react';
 
 // =============================================
 // Types
@@ -150,6 +153,12 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <h3 className="font-medium text-slate-200 truncate">{schedule.name}</h3>
+              {schedule.executionTarget === 'github-actions' && (
+                <span className="flex items-center gap-1 text-xs text-green-400 bg-green-900/30 px-1.5 py-0.5 rounded">
+                  <Github className="w-3 h-3" />
+                  Actions
+                </span>
+              )}
               {!schedule.isActive && (
                 <span className="text-xs text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded">Paused</span>
               )}
@@ -296,6 +305,26 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
   const [parameters, setParameters] = useState<ScheduleParameterDefinition[]>(schedule?.parameters || []);
   const [showParameterSection, setShowParameterSection] = useState(false);
 
+  // Execution target (local or github-actions)
+  const [executionTarget, setExecutionTarget] = useState<ScheduleExecutionTarget>(
+    schedule?.executionTarget || 'local'
+  );
+
+  // GitHub Actions configuration
+  const [githubRepoFullName, setGithubRepoFullName] = useState(schedule?.githubConfig?.repoFullName || '');
+  const [githubBranch, setGithubBranch] = useState(schedule?.githubConfig?.branch || 'main');
+  const [githubWorkflowFile, setGithubWorkflowFile] = useState(schedule?.githubConfig?.workflowFile || 'vero-tests.yml');
+
+  // GitHub store for repo list
+  const { isConnected, repositories, loadRepositories } = useGitHubStore();
+
+  // Load repositories when GitHub Actions is selected
+  useEffect(() => {
+    if (executionTarget === 'github-actions' && isConnected() && repositories.length === 0) {
+      loadRepositories();
+    }
+  }, [executionTarget, isConnected, repositories.length, loadRepositories]);
+
   // Validate cron on change
   useEffect(() => {
     if (!cronExpression) return;
@@ -344,6 +373,18 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
     e.preventDefault();
     if (!name || !cronExpression || cronError) return;
 
+    // Validate GitHub Actions config if selected
+    if (executionTarget === 'github-actions') {
+      if (!githubRepoFullName) {
+        alert('Please select a GitHub repository');
+        return;
+      }
+      if (!githubWorkflowFile) {
+        alert('Please enter a workflow file name');
+        return;
+      }
+    }
+
     onSave({
       name,
       description,
@@ -356,6 +397,14 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
       isActive: true,
       // Parameter system
       parameters: parameters.length > 0 ? parameters : undefined,
+      // Execution target
+      executionTarget,
+      // GitHub Actions configuration
+      githubConfig: executionTarget === 'github-actions' ? {
+        repoFullName: githubRepoFullName,
+        branch: githubBranch,
+        workflowFile: githubWorkflowFile,
+      } : undefined,
     });
   };
 
@@ -389,6 +438,114 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
           className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
+
+      {/* Execution Target */}
+      <div>
+        <label className="block text-sm font-medium text-slate-300 mb-2">
+          Run Tests On
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => setExecutionTarget('local')}
+            className={`p-4 flex flex-col items-center gap-2 border rounded-lg transition-all ${
+              executionTarget === 'local'
+                ? 'border-blue-500 bg-blue-900/30 text-blue-300'
+                : 'border-slate-700 hover:border-slate-600 text-slate-400'
+            }`}
+          >
+            <Monitor className="w-6 h-6" />
+            <div className="text-sm font-medium">Local Machine</div>
+            <div className="text-xs text-slate-500">Run tests on your machine</div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setExecutionTarget('github-actions')}
+            className={`p-4 flex flex-col items-center gap-2 border rounded-lg transition-all ${
+              executionTarget === 'github-actions'
+                ? 'border-green-500 bg-green-900/30 text-green-300'
+                : 'border-slate-700 hover:border-slate-600 text-slate-400'
+            }`}
+          >
+            <Github className="w-6 h-6" />
+            <div className="text-sm font-medium">GitHub Actions</div>
+            <div className="text-xs text-slate-500">Run tests in the cloud</div>
+          </button>
+        </div>
+      </div>
+
+      {/* GitHub Actions Configuration */}
+      {executionTarget === 'github-actions' && (
+        <div className="space-y-4 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+          <div className="flex items-center gap-2 text-green-400 text-sm font-medium">
+            <Github className="w-4 h-4" />
+            GitHub Actions Configuration
+          </div>
+
+          {!isConnected() ? (
+            <div className="p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
+              <p className="text-sm text-yellow-300">
+                Connect your GitHub account to use GitHub Actions.
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                Go to Settings → GitHub to connect.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Repository Selection */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">
+                  Repository *
+                </label>
+                <select
+                  value={githubRepoFullName}
+                  onChange={(e) => setGithubRepoFullName(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-green-500"
+                >
+                  <option value="">Select a repository...</option>
+                  {repositories.map((repo) => (
+                    <option key={repo.fullName} value={repo.fullName}>
+                      {repo.fullName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Branch */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">
+                  Branch
+                </label>
+                <input
+                  type="text"
+                  value={githubBranch}
+                  onChange={(e) => setGithubBranch(e.target.value)}
+                  placeholder="main"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+
+              {/* Workflow File */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">
+                  Workflow File *
+                </label>
+                <input
+                  type="text"
+                  value={githubWorkflowFile}
+                  onChange={(e) => setGithubWorkflowFile(e.target.value)}
+                  placeholder="vero-tests.yml"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  The workflow file in .github/workflows/ directory
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Cron Presets */}
       <div>

@@ -1,7 +1,7 @@
 {
   "name": "test-project",
   "version": "1.0.0",
-  "description": "Vero test project",
+  "description": "Vero test project with Allure reporting",
   "type": "module",
   "scripts": {
     "vero": "node ../dist/cli/index.js",
@@ -10,12 +10,16 @@
     "vero:run:headed": "node ../dist/cli/index.js compile && npx playwright test --headed",
     "vero:run:smoke": "node ../dist/cli/index.js compile && npx playwright test --grep @smoke",
     "vero:run:debug": "node ../dist/cli/index.js compile && npx playwright test --debug",
-    "test": "npx playwright test"
+    "test": "npx playwright test",
+    "allure:generate": "allure generate allure-results --clean -o allure-report",
+    "allure:open": "allure open allure-report"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@playwright/test": "^1.57.0"
+    "@playwright/test": "^1.57.0",
+    "allure-commandline": "^2.29.0",
+    "allure-playwright": "^3.4.4"
   }
 }

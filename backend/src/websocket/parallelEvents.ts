@@ -63,13 +63,12 @@ export interface ParallelServerToClientEvents {
 export interface WorkerInfo {
   id: string;
   name: string;
-  type: 'local' | 'docker' | 'remote';
+  type: 'local' | 'remote';
   status: WorkerStatus;
   capabilities: {
     browsers: string[];
     maxConcurrent: number;
   };
-  vncUrl?: string;
   currentTests?: string[];
 }
 
@@ -428,9 +427,6 @@ function formatWorkerInfo(worker: Worker): WorkerInfo {
       browsers: worker.capabilities.browsers,
       maxConcurrent: worker.capabilities.maxConcurrent,
     },
-    vncUrl: worker.vncPort
-      ? `http://${worker.host}:${worker.vncPort}/vnc.html`
-      : undefined,
     currentTests: worker.currentTests,
   };
 }

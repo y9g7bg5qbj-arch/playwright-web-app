@@ -1,0 +1,109 @@
+# P0 Feature Test - Test Annotations, Serial, URL/Title, Upload
+
+# Feature with @serial annotation - tests run sequentially
+@serial
+FEATURE SerialLoginTests {
+    SCENARIO "first login test" @smoke {
+        open "https://example.com/login"
+        fill "Email" with "user1@test.com"
+        click "Login"
+        verify url contains "/dashboard"
+        verify title equals "Dashboard"
+    }
+
+    SCENARIO "second login test" {
+        open "https://example.com/login"
+        fill "Email" with "user2@test.com"
+        click "Login"
+        verify url equals "https://example.com/dashboard"
+        verify title contains "Dashboard"
+    }
+}
+
+# Feature with @skip annotation - entire feature skipped
+@skip
+FEATURE SkippedFeature {
+    SCENARIO "this test will be skipped" {
+        open "https://example.com"
+    }
+}
+
+# Feature with @only annotation - only this feature runs
+@only
+FEATURE FocusedFeature {
+    SCENARIO "this runs" {
+        open "https://example.com"
+    }
+}
+
+# Feature with scenario-level annotations
+FEATURE TestAnnotations {
+    # @skip - this scenario is skipped
+    @skip
+    SCENARIO "skipped test" {
+        open "https://example.com"
+        # This never runs
+    }
+
+    # @only - run only this test
+    @only
+    SCENARIO "focused test" @smoke @regression {
+        open "https://example.com"
+        verify "Welcome" is visible
+    }
+
+    # @slow - triple the timeout
+    @slow
+    SCENARIO "slow test" {
+        open "https://example.com/large-page"
+        wait 5 seconds
+        verify "Loaded" is visible
+    }
+
+    # @fixme - mark as known issue
+    @fixme
+    SCENARIO "known issue test" {
+        open "https://example.com/buggy"
+        # Known to fail, marked as fixme
+    }
+}
+
+# Feature testing URL and Title assertions
+FEATURE UrlTitleAssertions {
+    SCENARIO "verify url patterns" {
+        open "https://example.com/dashboard/users"
+        verify url contains "/dashboard"
+        verify url equals "https://example.com/dashboard/users"
+        verify url matches ".*dashboard.*"
+    }
+
+    SCENARIO "verify title patterns" {
+        open "https://example.com"
+        verify title equals "Example Domain"
+        verify title contains "Example"
+    }
+
+    SCENARIO "verify element has properties" {
+        open "https://example.com/form"
+        verify "#email" has value "test@example.com"
+        verify ".items" has count 5
+        verify "#link" has attribute "href" equal "/home"
+    }
+}
+
+# Feature testing file upload
+FEATURE FileUpload {
+    SCENARIO "single file upload" {
+        open "https://example.com/upload"
+        upload "test-files/document.pdf" to "#fileInput"
+        click "Submit"
+        verify "Upload successful" is visible
+    }
+
+    SCENARIO "multiple file upload" {
+        open "https://example.com/gallery"
+        upload "images/photo1.jpg", "images/photo2.jpg", "images/photo3.jpg" to "#multiUpload"
+        click "Upload All"
+        verify ".uploaded-count" has count 3
+    }
+}

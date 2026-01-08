@@ -6,6 +6,7 @@ import { RegisterPage } from './pages/RegisterPage';
 import { VeroIDE } from './components/vero';
 import { ExecutionReportPage } from './pages/ExecutionReportPage';
 import { ExecutionHistoryPage } from './pages/ExecutionHistoryPage';
+import { ScenarioDashboard } from './components/ScenarioDashboard';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
@@ -40,6 +41,18 @@ export function App() {
             <ProtectedRoute>
               <ErrorBoundary>
                 <VeroIDE />
+              </ErrorBoundary>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Scenario Dashboard */}
+        <Route
+          path="/scenarios"
+          element={
+            <ProtectedRoute>
+              <ErrorBoundary>
+                <ScenarioDashboard />
               </ErrorBoundary>
             </ProtectedRoute>
           }

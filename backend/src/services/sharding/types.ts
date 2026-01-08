@@ -53,10 +53,9 @@ export type WorkerStatus = 'idle' | 'busy' | 'offline' | 'error';
 export interface Worker {
   id: string;
   name: string;
-  type: 'local' | 'docker' | 'remote';
+  type: 'local' | 'remote';
   host: string;
   port: number;
-  vncPort?: number;
   capabilities: WorkerCapabilities;
   status: WorkerStatus;
   currentTests?: string[];
@@ -152,14 +151,9 @@ export interface ExecutionSession {
  * Parallel execution configuration
  */
 export interface ParallelExecutionConfig {
-  mode: 'local' | 'docker' | 'remote';
+  mode: 'local' | 'remote';
   workers: {
     local: number;
-    docker: {
-      image: string;
-      network: string;
-      volumes: string[];
-    };
     remote: {
       endpoints: string[];
       auth?: AuthConfig;

@@ -2,19 +2,23 @@
  * Test Data Management Page
  *
  * Main page for managing test data sheets, rows, and Excel import/export.
- * Provides Excel-like grid editing with scenario-based data linking.
+ * Provides Excel-like grid editing with AG Grid and CSV support.
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import Papa from 'papaparse';
 import {
-    Database, Plus, Upload, Download, RefreshCw, Settings, FileSpreadsheet,
-    Code, Check, AlertTriangle
+    Database, Plus, Upload, Download, RefreshCw, Settings,
+    Code, Check, AlertTriangle, FileText
 } from 'lucide-react';
 import { apiUrl } from '@/config';
 import { SheetList } from './SheetList';
-import { DataTable } from './DataTable';
+import { AGGridDataTable, DataColumn as AGDataColumn } from './AGGridDataTable';
+import type { BulkUpdate } from './BulkUpdateModal';
 import { SheetForm } from './SheetForm';
 import { ImportExcelModal } from './ImportExcelModal';
+import { ImportCSVModal } from './ImportCSVModal';
+import { ColumnEditorModal } from './ColumnEditorModal';
 import { EnvironmentManager } from './EnvironmentManager';
 
 // ============================================
@@ -72,6 +76,8 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
     const [showSheetForm, setShowSheetForm] = useState(false);
     const [editingSheet, setEditingSheet] = useState<DataSheet | null>(null);
     const [showImportModal, setShowImportModal] = useState(false);
+    const [showCSVImportModal, setShowCSVImportModal] = useState(false);
+    const [showColumnEditor, setShowColumnEditor] = useState(false);
     const [showEnvironments, setShowEnvironments] = useState(false);
 
     // Messages
@@ -195,7 +201,7 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
     };
 
     const handleDeleteSheet = async (id: string) => {
-        if (!confirm('Delete this sheet and all its data? This cannot be undone.')) {
+        if (!confirm('Delete this data table and all its rows? This cannot be undone.')) {
             return;
         }
 
@@ -218,7 +224,11 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
 
     // Row handlers
     const handleAddRow = async () => {
-        if (!selectedSheet) return;
+        console.log('[handleAddRow] Called, selectedSheet:', selectedSheet?.id);
+        if (!selectedSheet) {
+            console.log('[handleAddRow] No sheet selected, returning');
+            return;
+        }
 
         const defaultData: Record<string, any> = {};
         selectedSheet.columns.forEach(col => {
@@ -239,6 +249,7 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
         const nextScenarioId = `TC${String(maxIdNumber + 1).padStart(3, '0')}`;
 
         try {
+            console.log('[handleAddRow] Making API request to add row with scenarioId:', nextScenarioId);
             const res = await fetch(apiUrl(`/api/test-data/sheets/${selectedSheet.id}/rows`), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -249,7 +260,9 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
                 })
             });
             const data = await res.json();
+            console.log('[handleAddRow] API response:', data);
             if (data.success) {
+                console.log('[handleAddRow] Success! Adding row to state');
                 setRows([...rows, data.row]);
             } else if (res.status === 409) {
                 showError(data.error || 'A row with this Test ID already exists');
@@ -257,6 +270,7 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
                 showError(data.error);
             }
         } catch (err) {
+            console.error('[handleAddRow] Error:', err);
             showError('Failed to add row');
         }
     };
@@ -298,13 +312,261 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
         fetchSheets();
     };
 
-    // Export handler
+    // Export Excel handler
     const handleExport = async () => {
         try {
             const url = apiUrl(`/api/test-data/export?projectId=${projectId}`);
             window.open(url, '_blank');
         } catch (err) {
             showError('Failed to export');
+        }
+    };
+
+    // Export CSV handler
+    const handleExportCSV = () => {
+        if (!selectedSheet || rows.length === 0) return;
+
+        // Convert rows to CSV format
+        const csvData = rows.map(row => {
+            const rowData: Record<string, any> = { TestID: row.scenarioId };
+            selectedSheet.columns.forEach(col => {
+                rowData[col.name] = row.data[col.name] ?? '';
+            });
+            rowData['enabled'] = row.enabled;
+            return rowData;
+        });
+
+        const csv = Papa.unparse(csvData);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${selectedSheet.name}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+    };
+
+    // CSV Import handler
+    const handleCSVImport = async (importedRows: Record<string, any>[], newColumns?: AGDataColumn[]) => {
+        if (!selectedSheet) return;
+
+        // Add new columns if any
+        if (newColumns && newColumns.length > 0) {
+            const updatedColumns: DataColumn[] = [
+                ...selectedSheet.columns,
+                ...newColumns.map(col => ({
+                    name: col.name,
+                    type: col.type === 'text' ? 'string' as const : col.type,
+                    required: false
+                }))
+            ];
+            await handleUpdateSheet(selectedSheet.id, { columns: updatedColumns });
+        }
+
+        // Bulk add rows
+        try {
+            const res = await fetch(apiUrl(`/api/test-data/sheets/${selectedSheet.id}/rows/bulk`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    rows: importedRows.map((rowData, idx) => ({
+                        scenarioId: `TC${String(rows.length + idx + 1).padStart(3, '0')}`,
+                        data: rowData,
+                        enabled: true
+                    }))
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showSuccess(`Imported ${importedRows.length} rows`);
+                fetchRows(selectedSheet.id);
+            } else {
+                showError(data.error || 'Failed to import rows');
+            }
+        } catch (err) {
+            showError('Failed to import rows');
+        }
+    };
+
+    // Column handlers for AG Grid
+    const handleAddColumn = () => {
+        setShowColumnEditor(true);
+    };
+
+    const handleSaveNewColumn = async (column: AGDataColumn) => {
+        if (!selectedSheet) return;
+
+        const newColumn: DataColumn = {
+            name: column.name,
+            type: column.type === 'text' ? 'string' : column.type,
+            required: false
+        };
+
+        await handleUpdateSheet(selectedSheet.id, {
+            columns: [...selectedSheet.columns, newColumn]
+        });
+    };
+
+    const handleRemoveColumn = async (columnName: string) => {
+        if (!selectedSheet) return;
+        if (!confirm(`Remove column "${columnName}"? Data in this column will be lost.`)) return;
+
+        const updatedColumns = selectedSheet.columns.filter(c => c.name !== columnName);
+        await handleUpdateSheet(selectedSheet.id, { columns: updatedColumns });
+    };
+
+    const handleRenameColumn = async (oldName: string, newName: string) => {
+        if (!selectedSheet) return;
+
+        const updatedColumns = selectedSheet.columns.map(c =>
+            c.name === oldName ? { ...c, name: newName } : c
+        );
+
+        // Also update row data
+        const updatedRows = rows.map(r => {
+            const newData = { ...r.data };
+            if (oldName in newData) {
+                newData[newName] = newData[oldName];
+                delete newData[oldName];
+            }
+            return { ...r, data: newData };
+        });
+
+        await handleUpdateSheet(selectedSheet.id, { columns: updatedColumns });
+        // Update rows with new column name
+        for (const row of updatedRows) {
+            await handleUpdateRow(row.id, { data: row.data });
+        }
+    };
+
+    const handleColumnTypeChange = async (columnName: string, newType: AGDataColumn['type']) => {
+        if (!selectedSheet) return;
+
+        const updatedColumns = selectedSheet.columns.map(c =>
+            c.name === columnName ? { ...c, type: newType === 'text' ? 'string' as const : newType } : c
+        );
+        await handleUpdateSheet(selectedSheet.id, { columns: updatedColumns });
+    };
+
+    // Bulk operations for AG Grid
+    const handleBulkDeleteRows = async (rowIds: string[]) => {
+        try {
+            await Promise.all(rowIds.map(id =>
+                fetch(apiUrl(`/api/test-data/rows/${id}`), { method: 'DELETE' })
+            ));
+            setRows(rows.filter(r => !rowIds.includes(r.id)));
+            showSuccess(`Deleted ${rowIds.length} rows`);
+        } catch (err) {
+            showError('Failed to delete rows');
+        }
+    };
+
+    const handleBulkPaste = async (pastedRows: Record<string, any>[]) => {
+        if (!selectedSheet) return;
+
+        try {
+            const res = await fetch(apiUrl(`/api/test-data/sheets/${selectedSheet.id}/rows/bulk`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    rows: pastedRows.map((data, idx) => ({
+                        scenarioId: `TC${String(rows.length + idx + 1).padStart(3, '0')}`,
+                        data,
+                        enabled: true
+                    }))
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showSuccess(`Added ${pastedRows.length} rows`);
+                fetchRows(selectedSheet.id);
+            }
+        } catch (err) {
+            showError('Failed to paste rows');
+        }
+    };
+
+    // Cell change handler for AG Grid
+    const handleCellChange = async (rowId: string, columnName: string, value: any) => {
+        const row = rows.find(r => r.id === rowId);
+        if (!row) return;
+
+        const updatedData = { ...row.data, [columnName]: value };
+        await handleUpdateRow(rowId, { data: updatedData });
+    };
+
+    // Generate column data handler for AG Grid
+    const handleGenerateColumnData = async (columnName: string, values: (string | number | boolean)[]) => {
+        if (!selectedSheet) return;
+
+        // Update each row with the generated value
+        const updatedRows = rows.map((row, index) => ({
+            ...row,
+            data: {
+                ...row.data,
+                [columnName]: values[index] ?? row.data[columnName]
+            }
+        }));
+
+        // Batch update all rows
+        try {
+            await Promise.all(
+                updatedRows.map((row, index) => {
+                    if (values[index] !== undefined) {
+                        return handleUpdateRow(row.id, { data: row.data });
+                    }
+                    return Promise.resolve();
+                })
+            );
+            setRows(updatedRows);
+            showSuccess(`Generated ${values.length} values for "${columnName}"`);
+        } catch (err) {
+            showError('Failed to generate column data');
+        }
+    };
+
+    // Bulk update handler for AG Grid
+    const handleBulkUpdate = async (updates: BulkUpdate[]) => {
+        if (!selectedSheet || updates.length === 0) return;
+
+        try {
+            // Group updates by row for the API
+            const rowUpdates = new Map<string, Record<string, any>>();
+            for (const update of updates) {
+                const row = rows.find(r => r.id === update.rowId);
+                if (row) {
+                    const existing = rowUpdates.get(update.rowId) || { ...row.data };
+                    existing[update.columnName] = update.newValue;
+                    rowUpdates.set(update.rowId, existing);
+                }
+            }
+
+            // Use the bulk update API endpoint
+            const res = await fetch(apiUrl(`/api/test-data/sheets/${selectedSheet.id}/rows/bulk-update`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    updates: Array.from(rowUpdates.entries()).map(([rowId, data]) => ({
+                        rowId,
+                        data
+                    }))
+                })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                // Update local state
+                setRows(rows.map(row => {
+                    const newData = rowUpdates.get(row.id);
+                    return newData ? { ...row, data: newData } : row;
+                }));
+                showSuccess(`Updated ${rowUpdates.size} rows`);
+            } else {
+                showError(data.error || 'Failed to update rows');
+            }
+        } catch (err) {
+            console.error('Bulk update error:', err);
+            showError('Failed to update rows');
         }
     };
 
@@ -340,7 +602,7 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
                         <button
                             onClick={() => setShowSheetForm(true)}
                             className="flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-500 rounded text-xs text-white"
-                            title="New Sheet"
+                            title="New Data Table"
                         >
                             <Plus className="w-3 h-3" />
                             New
@@ -390,27 +652,28 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
                 {selectedSheet && (
                     <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900/50 flex-shrink-0">
                         <div className="flex items-center gap-3">
-                            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                            <Database className="w-4 h-4 text-emerald-400" />
                             <div>
                                 <h2 className="text-sm font-medium text-slate-200">{selectedSheet.name}</h2>
                                 {selectedSheet.pageObject && selectedSheet.pageObject !== selectedSheet.name && (
                                     <span className="text-xs text-slate-500">
-                                        Page: {selectedSheet.pageObject}
+                                        Linked to: {selectedSheet.pageObject}
                                     </span>
                                 )}
                             </div>
                             <span className="text-xs text-slate-500">
-                                {rows.length} scenarios
+                                {rows.length} {rows.length === 1 ? 'row' : 'rows'}
                             </span>
                         </div>
 
                         <div className="flex items-center gap-2">
                             <button
-                                onClick={handleAddRow}
+                                onClick={() => setShowCSVImportModal(true)}
                                 className="flex items-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs text-slate-200"
+                                title="Import CSV"
                             >
-                                <Plus className="w-3 h-3" />
-                                Add Row
+                                <FileText className="w-3 h-3" />
+                                CSV
                             </button>
                             <button
                                 onClick={handleGenerateCode}
@@ -431,24 +694,43 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
                     </div>
                 )}
 
-                {/* Data Table Container - fixed area with internal scroll */}
+                {/* Data Table Container - AG Grid */}
                 <div className="flex-1 min-h-0 relative">
                     {selectedSheet ? (
                         <div className="absolute inset-0">
-                            <DataTable
-                                sheet={selectedSheet}
-                                rows={rows}
+                            <AGGridDataTable
+                                tableName={selectedSheet.name}
+                                columns={selectedSheet.columns.map(c => ({
+                                    name: c.name,
+                                    type: c.type === 'string' ? 'text' : c.type,
+                                    required: c.required
+                                }))}
+                                rows={rows.map((r, idx) => ({
+                                    id: r.id,
+                                    data: r.data,
+                                    order: idx
+                                }))}
                                 loading={loadingRows}
-                                onUpdateRow={handleUpdateRow}
-                                onDeleteRow={handleDeleteRow}
-                                onUpdateColumns={(columns) => handleUpdateSheet(selectedSheet.id, { columns })}
+                                onCellChange={handleCellChange}
+                                onRowAdd={handleAddRow}
+                                onRowDelete={handleDeleteRow}
+                                onRowsDelete={handleBulkDeleteRows}
+                                onColumnAdd={handleAddColumn}
+                                onColumnRemove={handleRemoveColumn}
+                                onColumnRename={handleRenameColumn}
+                                onColumnTypeChange={handleColumnTypeChange}
+                                onBulkPaste={handleBulkPaste}
+                                onExportCSV={handleExportCSV}
+                                onImportCSV={() => setShowCSVImportModal(true)}
+                                onGenerateColumnData={handleGenerateColumnData}
+                                onBulkUpdate={handleBulkUpdate}
                             />
                         </div>
                     ) : (
                         <div className="flex flex-col items-center justify-center h-full text-slate-500">
                             <Database className="w-16 h-16 mb-4 opacity-20" />
-                            <p className="text-lg mb-2">No sheet selected</p>
-                            <p className="text-sm">Select a sheet from the sidebar or create a new one</p>
+                            <p className="text-lg mb-2">No data table selected</p>
+                            <p className="text-sm">Select a table from the sidebar or create a new one</p>
                         </div>
                     )}
                 </div>
@@ -495,6 +777,28 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
                 <EnvironmentManager
                     userId={projectId}
                     onClose={() => setShowEnvironments(false)}
+                />
+            )}
+
+            {showCSVImportModal && selectedSheet && (
+                <ImportCSVModal
+                    isOpen={showCSVImportModal}
+                    onClose={() => setShowCSVImportModal(false)}
+                    existingColumns={selectedSheet.columns.map(c => ({
+                        name: c.name,
+                        type: c.type === 'string' ? 'text' : c.type
+                    }))}
+                    onImport={handleCSVImport}
+                />
+            )}
+
+            {showColumnEditor && selectedSheet && (
+                <ColumnEditorModal
+                    isOpen={showColumnEditor}
+                    onClose={() => setShowColumnEditor(false)}
+                    onSave={handleSaveNewColumn}
+                    existingColumnNames={selectedSheet.columns.map(c => c.name)}
+                    mode="add"
                 />
             )}
         </div>

@@ -627,6 +627,67 @@ class GitHubService {
       take: limit,
     });
   }
+
+  /**
+   * Get logs for a specific job
+   */
+  async getJobLogs(userId: string, owner: string, repo: string, jobId: number): Promise<string> {
+    const token = await this.getToken(userId);
+    if (!token) {
+      throw new Error('GitHub not connected');
+    }
+
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/actions/jobs/${jobId}/logs`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      // GitHub returns 302 redirect for logs
+      if (response.status === 302) {
+        const redirectUrl = response.headers.get('location');
+        if (redirectUrl) {
+          const logsResponse = await fetch(redirectUrl);
+          return logsResponse.text();
+        }
+      }
+      throw new Error(`Failed to get job logs: ${response.statusText}`);
+    }
+
+    return response.text();
+  }
+
+  /**
+   * Get workflow run logs (all jobs)
+   */
+  async getRunLogs(userId: string, owner: string, repo: string, runId: number): Promise<string> {
+    const token = await this.getToken(userId);
+    if (!token) {
+      throw new Error('GitHub not connected');
+    }
+
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/logs`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+        redirect: 'follow',
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to get run logs: ${response.statusText}`);
+    }
+
+    return response.text();
+  }
 }
 
 export const githubService = new GitHubService();

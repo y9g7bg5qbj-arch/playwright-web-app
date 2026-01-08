@@ -13,9 +13,7 @@ import {
   Clock,
   Loader2,
   AlertTriangle,
-  PlayCircle,
   StopCircle,
-  RotateCcw,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';

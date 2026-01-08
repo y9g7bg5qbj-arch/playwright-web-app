@@ -129,10 +129,10 @@ class NotificationService {
       : false;
 
     return {
-      any: emailShouldSend || slackShouldSend || webhookShouldSend,
-      email: emailShouldSend,
-      slack: slackShouldSend,
-      webhook: webhookShouldSend,
+      any: Boolean(emailShouldSend || slackShouldSend || webhookShouldSend),
+      email: Boolean(emailShouldSend),
+      slack: Boolean(slackShouldSend),
+      webhook: Boolean(webhookShouldSend),
     };
   }
 

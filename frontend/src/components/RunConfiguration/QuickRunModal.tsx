@@ -8,9 +8,11 @@ import type {
   ExecutionEnvironment,
   RemoteRunner,
   RunConfiguration,
+  ExecutionTarget,
 } from '@playwright-web-app/shared';
 import { TagSelector } from './TagSelector';
 import { EnvironmentSelector } from './EnvironmentSelector';
+import { ExecutionTargetSelector } from './ExecutionTargetSelector';
 
 interface QuickRunModalProps {
   isOpen: boolean;
@@ -241,19 +243,14 @@ export const QuickRunModal: React.FC<QuickRunModalProps> = ({
                   <Monitor className="w-4 h-4" />
                   Execution
                 </div>
+
+                {/* Execution Target (Local/GitHub Actions) */}
+                <ExecutionTargetSelector
+                  value={(config.target as ExecutionTarget) || 'local'}
+                  onChange={(target) => updateConfig('target', target as any)}
+                />
+
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm text-slate-400 mb-1.5">Target</label>
-                    <select
-                      value={config.target}
-                      onChange={(e) => updateConfig('target', e.target.value as any)}
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200"
-                    >
-                      <option value="local">Local</option>
-                      <option value="docker">Docker</option>
-                      <option value="remote">Remote</option>
-                    </select>
-                  </div>
                   <div>
                     <label className="block text-sm text-slate-400 mb-1.5">Browser</label>
                     <select

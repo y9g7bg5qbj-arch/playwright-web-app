@@ -1,0 +1,11 @@
+FEATURE MyDataValidation {
+  SCENARIO "Load user data from table" {
+    load users from "Users"
+    Text username = users[0].
+    Text userPass = users
+    for each user in users {
+      log user.firstName
+      log user.email
+    }
+  }
+}

@@ -13,6 +13,8 @@ import type {
     ScheduleParameterDefinition,
     ScheduleParameterValues,
     ScheduleExecutionConfig,
+    ScheduleExecutionTarget,
+    ScheduleGitHubActionsConfig,
 } from '@playwright-web-app/shared';
 import { v4 as uuidv4 } from 'uuid';
 import { randomBytes } from 'crypto';
@@ -156,6 +158,16 @@ export class ScheduleService {
         // Generate a secure webhook token for this schedule
         const webhookToken = generateWebhookToken();
 
+        // Validate GitHub Actions config if target is github-actions
+        if (data.executionTarget === 'github-actions') {
+            if (!data.githubConfig?.repoFullName) {
+                throw new ValidationError('GitHub repository is required for GitHub Actions execution');
+            }
+            if (!data.githubConfig?.workflowFile) {
+                throw new ValidationError('GitHub workflow file is required for GitHub Actions execution');
+            }
+        }
+
         const schedule = await prisma.schedule.create({
             data: {
                 userId,
@@ -174,6 +186,13 @@ export class ScheduleService {
                 defaultExecutionConfig: data.defaultExecutionConfig
                     ? JSON.stringify(data.defaultExecutionConfig)
                     : null,
+                // Execution target
+                executionTarget: data.executionTarget || 'local',
+                // GitHub Actions configuration
+                githubRepoFullName: data.githubConfig?.repoFullName,
+                githubBranch: data.githubConfig?.branch || 'main',
+                githubWorkflowFile: data.githubConfig?.workflowFile,
+                githubInputs: data.githubConfig?.inputs ? JSON.stringify(data.githubConfig.inputs) : null,
             },
             include: {
                 runs: {
@@ -258,6 +277,19 @@ export class ScheduleService {
             nextRunAt = getNextRunTime(data.cronExpression, data.timezone || existing.timezone);
         }
 
+        // Validate GitHub Actions config if target is being changed to github-actions
+        const effectiveTarget = data.executionTarget ?? existing.executionTarget;
+        if (effectiveTarget === 'github-actions') {
+            const effectiveRepo = data.githubConfig?.repoFullName ?? existing.githubRepoFullName;
+            const effectiveWorkflow = data.githubConfig?.workflowFile ?? existing.githubWorkflowFile;
+            if (!effectiveRepo) {
+                throw new ValidationError('GitHub repository is required for GitHub Actions execution');
+            }
+            if (!effectiveWorkflow) {
+                throw new ValidationError('GitHub workflow file is required for GitHub Actions execution');
+            }
+        }
+
         const schedule = await prisma.schedule.update({
             where: { id: scheduleId },
             data: {
@@ -275,6 +307,15 @@ export class ScheduleService {
                     : undefined,
                 defaultExecutionConfig: data.defaultExecutionConfig !== undefined
                     ? (data.defaultExecutionConfig ? JSON.stringify(data.defaultExecutionConfig) : null)
+                    : undefined,
+                // Execution target
+                executionTarget: data.executionTarget,
+                // GitHub Actions configuration
+                githubRepoFullName: data.githubConfig?.repoFullName,
+                githubBranch: data.githubConfig?.branch,
+                githubWorkflowFile: data.githubConfig?.workflowFile,
+                githubInputs: data.githubConfig?.inputs !== undefined
+                    ? (data.githubConfig.inputs ? JSON.stringify(data.githubConfig.inputs) : null)
                     : undefined,
             },
             include: {
@@ -799,6 +840,20 @@ export class ScheduleService {
     // =============================================
 
     private formatSchedule(schedule: any): Schedule {
+        // Build GitHub config if present
+        const githubInputs = schedule.githubInputs
+            ? this.parseJSON<Record<string, string>>(schedule.githubInputs, {})
+            : undefined;
+
+        const githubConfig: ScheduleGitHubActionsConfig | undefined = schedule.githubRepoFullName
+            ? {
+                repoFullName: schedule.githubRepoFullName,
+                branch: schedule.githubBranch || 'main',
+                workflowFile: schedule.githubWorkflowFile || 'vero-tests.yml',
+                inputs: githubInputs && Object.keys(githubInputs).length > 0 ? githubInputs : undefined,
+            }
+            : undefined;
+
         return {
             id: schedule.id,
             userId: schedule.userId,
@@ -822,6 +877,10 @@ export class ScheduleService {
             defaultExecutionConfig: schedule.defaultExecutionConfig
                 ? this.parseJSON<ScheduleExecutionConfig>(schedule.defaultExecutionConfig, {})
                 : undefined,
+            // Execution target
+            executionTarget: (schedule.executionTarget || 'local') as ScheduleExecutionTarget,
+            // GitHub Actions configuration
+            githubConfig,
         };
     }
 
@@ -850,6 +909,9 @@ export class ScheduleService {
                 ? this.parseJSON<ScheduleExecutionConfig>(run.executionConfig, {})
                 : undefined,
             triggeredBy: run.triggeredByUser,
+            // GitHub Actions tracking
+            githubRunId: run.githubRunId ? Number(run.githubRunId) : undefined,
+            githubRunUrl: run.githubRunUrl,
         };
     }
 

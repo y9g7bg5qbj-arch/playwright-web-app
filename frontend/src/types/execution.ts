@@ -7,7 +7,7 @@
 // Execution Mode Types
 // =============================================================================
 
-export type ExecutionMode = 'local' | 'docker' | 'remote';
+export type ExecutionMode = 'local' | 'remote';
 
 export type BrowserType = 'chromium' | 'firefox' | 'webkit';
 
@@ -33,7 +33,6 @@ export interface ParallelConfig {
   sharding: ShardingConfig;
   artifacts: ArtifactConfig;
   remote?: RemoteConfig;
-  docker?: DockerConfig;
 }
 
 export interface ShardingConfig {
@@ -58,16 +57,6 @@ export interface ArtifactConfig {
   videos: 'always' | 'on-failure' | 'never';
   screenshots: 'always' | 'on-failure' | 'never';
   retentionDays: number;
-}
-
-export interface DockerConfig {
-  enabled: boolean;
-  image: string;
-  network?: string;
-  volumes?: string[];
-  environment?: Record<string, string>;
-  scaleMin: number;
-  scaleMax: number;
 }
 
 // =============================================================================

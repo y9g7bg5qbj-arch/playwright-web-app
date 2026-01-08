@@ -11,7 +11,6 @@ import {
   Users,
   Layers,
   Monitor,
-  Container,
   Globe,
   Check,
 } from 'lucide-react';
@@ -29,7 +28,6 @@ interface PresetCardProps {
 
 const modeIcons: Record<ExecutionMode, React.ReactNode> = {
   local: <Monitor className="w-4 h-4" />,
-  docker: <Container className="w-4 h-4" />,
   remote: <Globe className="w-4 h-4" />,
 };
 

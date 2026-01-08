@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import { VeroEditor } from './VeroEditor';
 import { updatePageRegistry, updateTestDataRegistry } from './veroLanguage';
@@ -8,8 +9,9 @@ import {
     Folder, FolderOpen, Plus, Pencil, Settings,
     Globe, Monitor, AlertTriangle, Database,
     FileSearch, Calendar, Activity,
-    Container, Zap, Grid3X3, Briefcase,
-    Search, Check, Trash2
+    Zap, Grid3X3, Briefcase, Layers,
+    Search, Check, Trash2, Github, Bot,
+    Pause, ArrowRight, Bug, Sparkles
 } from 'lucide-react';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { NewProjectModal } from '../ui/NewProjectModal';
@@ -22,15 +24,21 @@ import { TraceViewerPanel } from '../TraceViewer/TraceViewerPanel';
 import { TestResultsDashboard } from '../Results/TestResultsDashboard';
 import { ShardingConfig } from '../Sharding/ShardingConfig';
 import { TestDataPage } from '../TestData/TestDataPage';
-import { ExecutionDashboard, LiveExecutionGrid, LocalExecutionViewer } from '../ExecutionDashboard';
+import { ExecutionDashboard, LocalExecutionViewer } from '../ExecutionDashboard';
 import { SchedulerPanel } from '../Scheduler/SchedulerPanel';
-import type { ShardInfo } from '../execution/LiveExecutionViewer';
+import { AIAgentPanel } from '../ide/AIAgentPanel';
+import { LiveExecutionPanel } from '../ide/LiveExecutionPanel';
+import { CopilotPanel } from '../copilot/CopilotPanel';
 import { useWorkflowStore } from '@/store/workflowStore';
 import { useProjectStore } from '@/store/projectStore';
 
 // Import RunConfigurationModal and store
 import { RunConfigurationModal } from '../RunConfiguration';
 import { useRunConfigStore } from '@/store/useRunConfigStore';
+import { useGitHubStore } from '@/store/useGitHubStore';
+import { useGitHubExecutionStore, type GitHubExecution } from '@/store/useGitHubExecutionStore';
+import { GitHubRunModal, type GitHubRunConfig } from './GitHubRunModal';
+import { githubRepoApi, githubRunsApi } from '@/api/github';
 
 // Right panel tab type (deprecated - keeping for compatibility)
 type RightPanelTab = 'none' | 'console' | 'config' | 'workers' | 'sharding' | 'results' | 'trace' | 'testdata' | 'scheduler';
@@ -125,7 +133,7 @@ interface ExecutionConfig {
     // Tier 1 - Toolbar
     browserMode: 'headed' | 'headless';
     environment: string;
-    target: 'local' | 'docker';  // Execution target
+    target: 'local' | 'remote';  // Execution target
 
     // Tier 2 - Quick Settings
     browser: 'chromium' | 'firefox' | 'webkit';
@@ -141,9 +149,6 @@ interface ExecutionConfig {
     shardIndex?: number;
     shardTotal?: number;
     pauseOnFailure: boolean;
-
-    // Docker-specific
-    dockerShards?: number;  // Number of parallel Docker shards
 }
 
 // Viewport presets
@@ -156,6 +161,17 @@ const VIEWPORT_PRESETS = [
 ];
 
 export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProps) {
+    // Router hooks
+    const [searchParams, setSearchParams] = useSearchParams();
+    const navigate = useNavigate();
+
+    // URL params for navigation from Scenario Dashboard
+    const urlFile = searchParams.get('file');
+    const urlLine = searchParams.get('line');
+
+    // Ref to VeroEditor for programmatic control (goToLine for navigation from Scenario Dashboard)
+    const veroEditorRef = useRef<import('./VeroEditor').VeroEditorHandle | null>(null);
+
     // Store hooks
     const { workflows, currentWorkflow, fetchWorkflows } = useWorkflowStore();
     const { projects, currentProject, setCurrentProject, fetchProjects, createProject, updateProject } = useProjectStore();
@@ -176,10 +192,17 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
     const duplicateConfiguration = runConfigState.duplicateConfiguration;
     const createEnvironment = runConfigState.createEnvironment;
 
+    // GitHub Actions store
+    const {
+        isConnected: isGitHubConnected,
+        loadIntegration: loadGitHubIntegration
+    } = useGitHubStore();
+
     // Active flow state (for ProjectSidebar integration)
     const [activeFlowId, setActiveFlowId] = useState<string | undefined>();
     const [selectedDataTableId, setSelectedDataTableId] = useState<string | undefined>();
     const [showRunConfigModal, setShowRunConfigModal] = useState(false);
+    const [showGitHubRunModal, setShowGitHubRunModal] = useState(false);
 
     // App Launcher state (Salesforce-style 9-dot grid)
     const [showAppLauncher, setShowAppLauncher] = useState(false);
@@ -209,8 +232,13 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
     // Currently selected inner project (for file operations)
     const [selectedInnerProjectId, setSelectedInnerProjectId] = useState<string | null>(null);
     const [fileContent, setFileContent] = useState<string>('');
+    // Auth token for API calls (including validation)
+    const authToken = localStorage.getItem('auth_token');
     const [isRecording, setIsRecording] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
+    const [showAIPanel, setShowAIPanel] = useState(false);
+    const [showCopilotPanel, setShowCopilotPanel] = useState(false);
+    const [showLiveExecution, setShowLiveExecution] = useState(false);
     const [consoleOutput, setConsoleOutput] = useState<string[]>([]);
     const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['proj:default', 'pages', 'features']));
     const [isDirty, setIsDirty] = useState(false);
@@ -269,8 +297,6 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
 
     // Execution dashboard state
     const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
-    const [activeShards, setActiveShards] = useState<ShardInfo[]>([]);
-    const [executionMode, setExecutionMode] = useState<'docker' | 'local'>('local');
     const [previousView, setPreviousView] = useState<SettingsView>('explorer');
 
     const toggleRightPanel = (tab: RightPanelTab) => {
@@ -278,10 +304,8 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
     };
 
     // Execution dashboard handlers
-    const handleViewLive = (execId: string, mode: 'docker' | 'local', shards?: ShardInfo[]) => {
+    const handleViewLive = (execId: string) => {
         setActiveExecutionId(execId);
-        setExecutionMode(mode);
-        setActiveShards(shards || []);
         setPreviousView(activeSettingsView);
         setActiveSettingsView('live-execution');
     };
@@ -494,22 +518,170 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
     }, [currentProject, fetchWorkflows]);
 
     // Initialize run configuration store when workflows are loaded or active flow changes
+    // Also auto-create a default workflow if none exist
     useEffect(() => {
-        if (activeFlowId && workflows.length > 0) {
-            const workflow = workflows.find(w => w.testFlows?.some((f: any) => f.id === activeFlowId));
-            if (workflow) {
-                useRunConfigStore.getState().setWorkflowId(workflow.id);
+        const initializeWorkflowContext = async () => {
+            if (workflows.length === 0 && currentProject) {
+                // No workflows exist in store - try to create a default one
+                try {
+                    console.log('[VeroIDE] No workflows in store, creating default workflow for:', currentProject.id);
+                    const newWorkflow = await useWorkflowStore.getState().createWorkflow(
+                        'Default Workflow',
+                        currentProject.id,
+                        'Auto-created workflow for test execution'
+                    );
+                    useRunConfigStore.getState().setWorkflowId(newWorkflow.id);
+                    console.log('[VeroIDE] Created default workflow:', newWorkflow.id);
+                } catch (error) {
+                    // Workflow might already exist in database - refetch workflows
+                    console.log('[VeroIDE] Default workflow may already exist, refetching...');
+                    await useWorkflowStore.getState().fetchWorkflows(currentProject.id);
+                    const refreshedWorkflows = useWorkflowStore.getState().workflows;
+                    if (refreshedWorkflows.length > 0) {
+                        useRunConfigStore.getState().setWorkflowId(refreshedWorkflows[0].id);
+                        console.log('[VeroIDE] Using existing workflow:', refreshedWorkflows[0].id);
+                    }
+                }
+            } else if (activeFlowId && workflows.length > 0) {
+                const workflow = workflows.find(w => w.testFlows?.some((f: any) => f.id === activeFlowId));
+                if (workflow) {
+                    useRunConfigStore.getState().setWorkflowId(workflow.id);
+                }
+            } else if (workflows.length > 0 && workflows[0].id) {
+                // If no active flow, use the first workflow
+                useRunConfigStore.getState().setWorkflowId(workflows[0].id);
             }
-        } else if (workflows.length > 0 && workflows[0].id) {
-            // If no active flow, use the first workflow
-            useRunConfigStore.getState().setWorkflowId(workflows[0].id);
-        }
-    }, [activeFlowId, workflows]);
+        };
+        initializeWorkflowContext();
+    }, [activeFlowId, workflows, currentProject]);
 
     // Persist environments to localStorage
     useEffect(() => {
         localStorage.setItem('vero-environments', JSON.stringify(environments));
     }, [environments]);
+
+    // Resume polling for in-progress GitHub executions on mount
+    useEffect(() => {
+        const syncStuckExecutions = async () => {
+            // Wait a moment for Zustand store to rehydrate from localStorage
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            const executions = useGitHubExecutionStore.getState().executions;
+            console.log(`[VeroIDE] Checking ${executions.length} executions for sync...`);
+
+            const inProgress = executions.filter(
+                e => e.status === 'queued' || e.status === 'in_progress'
+            );
+
+            if (inProgress.length === 0) {
+                console.log(`[VeroIDE] No in-progress executions to sync`);
+                return;
+            }
+
+            console.log(`[VeroIDE] Found ${inProgress.length} in-progress GitHub execution(s), syncing status...`);
+
+            for (const exec of inProgress) {
+                // Parse owner/repo from htmlUrl or use stored values
+                let owner = exec.owner;
+                let repo = exec.repo;
+
+                if (!owner || !repo) {
+                    const match = exec.htmlUrl?.match(/github\.com\/([^/]+)\/([^/]+)/);
+                    if (match) {
+                        owner = match[1];
+                        repo = match[2];
+                    }
+                }
+
+                if (!owner || !repo) {
+                    console.log(`[VeroIDE] Cannot sync execution ${exec.id} - no owner/repo`);
+                    continue;
+                }
+
+                try {
+                    let runId = exec.runId;
+
+                    // If runId is 0, try to find the run by runNumber or time window
+                    if (!runId || runId === 0) {
+                        console.log(`[VeroIDE] Execution ${exec.id} has runId=0, fetching runs list...`);
+                        const runsResp = await fetch(`/api/github/runs?owner=${owner}&repo=${repo}&limit=10`);
+                        const runsData = await runsResp.json();
+
+                        if (runsData.success && runsData.data) {
+                            // Try to match by runNumber first
+                            if (exec.runNumber && exec.runNumber > 0) {
+                                const match = runsData.data.find((r: any) => r.runNumber === exec.runNumber);
+                                if (match) {
+                                    runId = match.id;
+                                    console.log(`[VeroIDE] Found run by runNumber: ${runId}`);
+                                }
+                            }
+
+                            // Or match by trigger time
+                            if (!runId) {
+                                const triggerTime = new Date(exec.triggeredAt).getTime();
+                                const match = runsData.data.find((r: any) => {
+                                    const createdAt = new Date(r.createdAt).getTime();
+                                    return Math.abs(createdAt - triggerTime) < 120000; // 2 min window
+                                });
+                                if (match) {
+                                    runId = match.id;
+                                    console.log(`[VeroIDE] Found run by time window: ${runId}`);
+                                }
+                            }
+                        }
+                    }
+
+                    if (!runId || runId === 0) {
+                        console.log(`[VeroIDE] Could not find runId for execution ${exec.id}`);
+                        continue;
+                    }
+
+                    console.log(`[VeroIDE] Checking status for run ${runId}`);
+                    const response = await fetch(`/api/github/runs/${runId}?owner=${owner}&repo=${repo}`);
+                    const data = await response.json();
+
+                    if (data.success && data.data) {
+                        const run = data.data;
+                        console.log(`[VeroIDE] Run ${runId} actual status: ${run.status}/${run.conclusion}`);
+
+                        // Update the execution with current status and runId
+                        useGitHubExecutionStore.getState().updateExecution(exec.id, {
+                            runId: runId,
+                            runNumber: run.runNumber,
+                            status: run.status,
+                            conclusion: run.conclusion,
+                            owner,
+                            repo,
+                        });
+
+                        // If completed, also fetch jobs
+                        if (run.status === 'completed') {
+                            try {
+                                const jobsResp = await fetch(`/api/github/runs/${runId}/jobs?owner=${owner}&repo=${repo}`);
+                                const jobsData = await jobsResp.json();
+                                if (jobsData.success && jobsData.data) {
+                                    useGitHubExecutionStore.getState().updateExecution(exec.id, {
+                                        jobs: jobsData.data.map((j: any) => ({
+                                            id: j.id, name: j.name, status: j.status, conclusion: j.conclusion,
+                                        })),
+                                    });
+                                }
+                            } catch (e) { /* ignore */ }
+                        } else {
+                            // Still in progress - resume polling
+                            pollGitHubRunStatus(exec.id, owner, repo, new Date(exec.triggeredAt).getTime());
+                        }
+                    }
+                } catch (error) {
+                    console.error(`[VeroIDE] Failed to sync execution ${exec.id}:`, error);
+                }
+            }
+        };
+
+        syncStuckExecutions();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Only run on mount
 
     const [executionConfig, setExecutionConfig] = useState<ExecutionConfig>(() => {
         // Load from localStorage or use defaults
@@ -531,7 +703,6 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                     timeout: 30000,
                     retries: 0,
                     pauseOnFailure: false,
-                    dockerShards: 2,
                     ...parsed
                 };
             } catch {
@@ -550,8 +721,7 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
             workers: 1,
             timeout: 30000,
             retries: 0,
-            pauseOnFailure: false,
-            dockerShards: 2
+            pauseOnFailure: false
         };
     });
 
@@ -577,6 +747,11 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
     useEffect(() => {
         loadTestDataSchema();
     }, []);
+
+    // Load GitHub integration status on mount
+    useEffect(() => {
+        loadGitHubIntegration();
+    }, [loadGitHubIntegration]);
 
     // Load test data schema for autocomplete
     const loadTestDataSchema = async () => {
@@ -732,6 +907,40 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
             console.error('Failed to save file:', error);
             addConsoleOutput('✗ Failed to save file');
         }
+    };
+
+    // Handle URL params from Scenario Dashboard navigation
+    useEffect(() => {
+        if (urlFile) {
+            const lineNumber = urlLine ? parseInt(urlLine, 10) : undefined;
+
+            // Load the file
+            loadFile(urlFile).then(() => {
+                // Clear URL params after loading
+                setSearchParams((prev) => {
+                    prev.delete('file');
+                    prev.delete('line');
+                    return prev;
+                });
+
+                // Scroll to line after a short delay for editor to mount
+                if (lineNumber && veroEditorRef.current) {
+                    setTimeout(() => {
+                        veroEditorRef.current?.goToLine(lineNumber);
+                    }, 100);
+                }
+            });
+        }
+    }, [urlFile, urlLine]);
+
+    // Navigate to Scenario Dashboard
+    const handleOpenScenarioDashboard = () => {
+        const params = new URLSearchParams();
+        if (currentProject?.id) params.set('projectId', currentProject.id);
+        // veroPath may exist on some project types
+        const veroPath = (currentProject as any)?.veroPath;
+        if (veroPath) params.set('veroPath', veroPath);
+        navigate(`/scenarios?${params}`);
     };
 
     const handleCodeChange = (value: string) => {
@@ -1242,7 +1451,160 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
     // Run current file in browser
     const [isRunning, setIsRunning] = useState(false);
 
-    const runCurrentFile = async () => {
+    // Debug mode state
+    const [isDebugging, setIsDebugging] = useState(false);
+    const [debugPaused, setDebugPaused] = useState(false);
+    const [debugCurrentLine, setDebugCurrentLine] = useState<number | null>(null);
+    const [breakpoints, setBreakpoints] = useState<Set<number>>(new Set());
+    const [debugLogs, setDebugLogs] = useState<Array<{ timestamp: Date; message: string; type: 'step' | 'info' | 'error' }>>([]);
+    const debugSocketRef = useRef<Socket | null>(null);
+    const debugExecutionIdRef = useRef<string | null>(null);
+
+    // Toggle breakpoint handler
+    const toggleBreakpoint = useCallback((line: number) => {
+        setBreakpoints(prev => {
+            const next = new Set(prev);
+            if (next.has(line)) {
+                next.delete(line);
+            } else {
+                next.add(line);
+            }
+            return next;
+        });
+    }, []);
+
+    // Add debug log
+    const addDebugLog = useCallback((message: string, type: 'step' | 'info' | 'error' = 'info') => {
+        setDebugLogs(prev => [...prev, { timestamp: new Date(), message, type }]);
+    }, []);
+
+    // Run in debug mode
+    const runDebug = async () => {
+        if (!selectedFile || isRunning || isDebugging) return;
+
+        // Save file first if dirty
+        if (isDirty) {
+            await saveFile();
+        }
+
+        setIsDebugging(true);
+        setDebugPaused(false);
+        setDebugCurrentLine(null);
+        setDebugLogs([]);
+        addDebugLog('Starting debug session...', 'info');
+
+        try {
+            // Call debug endpoint
+            const response = await fetch('/api/vero/debug', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filePath: selectedFile,
+                    content: fileContent,
+                    breakpoints: Array.from(breakpoints),
+                }),
+            });
+
+            const data = await response.json();
+            if (!data.success) {
+                addDebugLog(`Error: ${data.error}`, 'error');
+                setIsDebugging(false);
+                return;
+            }
+
+            debugExecutionIdRef.current = data.executionId;
+            addDebugLog(`Debug session started: ${data.executionId}`, 'info');
+
+            // Connect WebSocket for debug events
+            const socket = io('http://localhost:3000', {
+                transports: ['websocket'],
+                auth: { token: localStorage.getItem('token') || '' }
+            });
+
+            debugSocketRef.current = socket;
+
+            socket.on('connect', () => {
+                addDebugLog('Connected to debug server', 'info');
+                // Start the debug execution
+                socket.emit('debug:start', {
+                    executionId: data.executionId,
+                    testFlowId: data.testFlowId,
+                    code: data.generatedCode,
+                    breakpoints: Array.from(breakpoints),
+                });
+            });
+
+            socket.on('debug:step:before', (event: { line: number; action: string; target?: string }) => {
+                setDebugCurrentLine(event.line);
+                addDebugLog(`[Line ${event.line}] ${event.action}${event.target ? ` "${event.target}"` : ''}`, 'step');
+            });
+
+            socket.on('debug:step:after', (event: { line: number; action: string; success: boolean; duration?: number }) => {
+                const status = event.success ? '✓' : '✗';
+                const durationStr = event.duration ? ` (${event.duration}ms)` : '';
+                addDebugLog(`${status} Line ${event.line} completed${durationStr}`, event.success ? 'step' : 'error');
+            });
+
+            socket.on('debug:paused', (event: { line: number }) => {
+                setDebugPaused(true);
+                setDebugCurrentLine(event.line);
+                addDebugLog(`⏸ Paused at line ${event.line}`, 'info');
+            });
+
+            socket.on('debug:resumed', () => {
+                setDebugPaused(false);
+                addDebugLog('▶ Resumed execution', 'info');
+            });
+
+            socket.on('debug:complete', (event: { exitCode: number; duration: number }) => {
+                const status = event.exitCode === 0 ? '✓ Passed' : '✗ Failed';
+                addDebugLog(`${status} - completed in ${event.duration}ms`, event.exitCode === 0 ? 'info' : 'error');
+                setIsDebugging(false);
+                setDebugPaused(false);
+                setDebugCurrentLine(null);
+                socket.disconnect();
+            });
+
+            socket.on('debug:stopped', () => {
+                addDebugLog('⏹ Debug session stopped', 'info');
+                setIsDebugging(false);
+                setDebugPaused(false);
+                setDebugCurrentLine(null);
+                socket.disconnect();
+            });
+
+            socket.on('disconnect', () => {
+                if (isDebugging) {
+                    addDebugLog('Disconnected from debug server', 'error');
+                }
+            });
+
+        } catch (error) {
+            addDebugLog(`Error: ${error}`, 'error');
+            setIsDebugging(false);
+        }
+    };
+
+    // Debug control functions
+    const debugResume = useCallback(() => {
+        if (debugSocketRef.current && debugExecutionIdRef.current) {
+            debugSocketRef.current.emit('debug:resume', { executionId: debugExecutionIdRef.current });
+        }
+    }, []);
+
+    const debugStepOver = useCallback(() => {
+        if (debugSocketRef.current && debugExecutionIdRef.current) {
+            debugSocketRef.current.emit('debug:step-over', { executionId: debugExecutionIdRef.current });
+        }
+    }, []);
+
+    const debugStop = useCallback(() => {
+        if (debugSocketRef.current && debugExecutionIdRef.current) {
+            debugSocketRef.current.emit('debug:stop', { executionId: debugExecutionIdRef.current });
+        }
+    }, []);
+
+    const runCurrentFile = async (scenarioName?: string) => {
         if (!selectedFile || isRunning) return;
 
         // Save file first if dirty
@@ -1261,7 +1623,8 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                 body: JSON.stringify({
                     filePath: selectedFile,
                     content: fileContent,
-                    config: executionConfig
+                    config: executionConfig,
+                    scenarioName  // Filter to specific scenario if provided
                 }),
             });
 
@@ -1291,126 +1654,346 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
         }
     };
 
-    // Run tests in Docker with VNC
-    const runInDocker = async (shardCountOverride?: number) => {
-        if (!selectedFile || isRunning) return;
-
-        // Use shards from parallelConfig.docker if available, otherwise use override or default
-        const shardCount = shardCountOverride ?? parallelConfig.docker?.scaleMin ?? 1;
-
-        // Save file first if dirty
-        if (isDirty) {
-            await saveFile();
-        }
-
-        setIsRunning(true);
-        const executionId = `exec-${Date.now()}`;
-        addConsoleOutput(`🐳 Starting Docker execution with ${shardCount} shard${shardCount > 1 ? 's' : ''}...`);
-
-        try {
-            // First, check Docker availability and optionally start cluster
-            const statusResponse = await fetch('/api/docker/status');
-            const statusData = await statusResponse.json();
-
-            if (!statusData.success || !statusData.docker?.available) {
-                addConsoleOutput(`✗ Docker is not available: ${statusData.docker?.error || 'Unknown error'}`);
-                addConsoleOutput(`   Please ensure Docker Desktop is running.`);
-                setIsRunning(false);
-                return;
-            }
-
-            // If cluster is not running, start it with the configured shard count
-            if (!statusData.cluster?.isRunning) {
-                addConsoleOutput(`   Starting Docker cluster with ${shardCount} shards...`);
-                const startResponse = await fetch('/api/docker/cluster/start', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        shardCount,
-                        vncEnabled: true,
-                        browsers: parallelConfig.browsers || ['chromium'],
-                        maxConcurrentPerShard: 2,
-                        memory: parallelConfig.docker?.environment?.MEMORY || '2G',
-                        cpus: parallelConfig.docker?.environment?.CPUS || '1.0',
-                    }),
-                });
-
-                const startData = await startResponse.json();
-                if (!startData.success) {
-                    addConsoleOutput(`✗ Failed to start Docker cluster: ${startData.error}`);
-                    setIsRunning(false);
-                    return;
-                }
-
-                addConsoleOutput(`✓ Docker cluster started with ${startData.cluster.healthyShards} healthy shards`);
-            } else {
-                addConsoleOutput(`   Using existing Docker cluster with ${statusData.cluster.healthyShards} shards`);
-            }
-
-            // Now run the tests in Docker
-            const response = await fetch('/api/vero/run-docker', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    filePath: selectedFile,
-                    content: fileContent,
-                    config: {
-                        ...executionConfig,
-                        target: 'docker',
-                        dockerShards: shardCount,
-                        browsers: parallelConfig.browsers,
-                        timeout: parallelConfig.timeout,
-                        maxRetries: parallelConfig.maxRetries,
-                    },
-                    executionId
-                }),
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                addConsoleOutput(`✓ Tests submitted to Docker cluster`);
-
-                // Create shard info for live view
-                const shards: ShardInfo[] = Array.from({ length: shardCount }, (_, i) => ({
-                    id: `shard-${i + 1}`,
-                    shardIndex: i,
-                    totalShards: shardCount,
-                    vncUrl: `http://localhost:${6081 + i}/vnc.html`,
-                    status: 'running' as const,
-                    currentTest: 'Starting...',
-                    progress: { passed: 0, failed: 0, total: 0 }
-                }));
-
-                // Switch to live execution view
-                addConsoleOutput(`📺 Opening live execution view...`);
-                addConsoleOutput(`   Shard VNC URLs:`);
-                shards.forEach((s, i) => {
-                    addConsoleOutput(`   - Shard ${i + 1}: http://localhost:${6081 + i}/vnc.html`);
-                });
-
-                // Trigger the live view
-                handleViewLive(executionId, 'docker', shards);
-
-            } else {
-                addConsoleOutput(`✗ Docker error: ${data.error}`);
-                setIsRunning(false);
-            }
-        } catch (error) {
-            addConsoleOutput(`✗ Failed to start Docker: ${error}`);
-            setIsRunning(false);
-        }
-    };
-
     // Legacy run handlers (kept for compatibility)
     const handleRunScenario = async (scenarioName: string) => {
         addConsoleOutput(`▶ Running scenario: ${scenarioName}`);
-        await runCurrentFile();
+        await runCurrentFile(scenarioName);
     };
 
     const handleRunFeature = async (featureName: string) => {
         addConsoleOutput(`▶ Running feature: ${featureName}`);
         await runCurrentFile();
+    };
+
+    // GitHub Execution Store
+    const { addExecution, updateExecution, startPolling, stopPolling } = useGitHubExecutionStore();
+
+    // Poll GitHub run status - tracks specific run once found
+    const pollGitHubRunStatus = async (
+        executionId: string,
+        owner: string,
+        repo: string,
+        triggerTime: number, // When we triggered the workflow
+        interval = 5000
+    ) => {
+        console.log(`[GitHub Poll] Starting polling for ${executionId}, owner=${owner}, repo=${repo}`);
+
+        // Note: Backend uses the stored GitHub integration token for API calls
+        // No user auth_token required for polling
+        const headers: Record<string, string> = {};
+
+        startPolling(executionId);
+        let pollCount = 0;
+        const maxPolls = 360; // 30 minutes max
+        let trackedRunId: number | null = null;
+
+        const poll = async () => {
+            pollCount++;
+
+            try {
+                // If we have a tracked run ID, poll that specific run
+                if (trackedRunId) {
+                    console.log(`[GitHub Poll #${pollCount}] Checking run ${trackedRunId}`);
+                    // Add timestamp to prevent caching
+                    const runResponse = await fetch(`/api/github/runs/${trackedRunId}?owner=${owner}&repo=${repo}&_t=${Date.now()}`, { headers });
+                    const runData = await runResponse.json();
+
+                    if (runData.success && runData.data) {
+                        const run = runData.data;
+                        console.log(`[GitHub Poll] Run #${run.runNumber}: ${run.status} / ${run.conclusion}`, run);
+
+                        updateExecution(executionId, {
+                            status: run.status,
+                            conclusion: run.conclusion,
+                        });
+
+                        if (run.status === 'completed') {
+                            stopPolling(executionId);
+                            addConsoleOutput(`✓ Run #${run.runNumber} completed: ${run.conclusion}`);
+
+                            // Fetch final jobs status
+                            try {
+                                const jobsResp = await fetch(`/api/github/runs/${trackedRunId}/jobs?owner=${owner}&repo=${repo}`, { headers });
+                                const jobsData = await jobsResp.json();
+                                if (jobsData.success && jobsData.data) {
+                                    updateExecution(executionId, {
+                                        jobs: jobsData.data.map((j: any) => ({
+                                            id: j.id, name: j.name, status: j.status, conclusion: j.conclusion,
+                                        })),
+                                    });
+                                }
+                            } catch (e) { /* ignore */ }
+
+                            updateExecution(executionId, {
+                                duration: new Date(run.updatedAt).getTime() - new Date(run.createdAt).getTime(),
+                            });
+                            fetchGitHubArtifacts(executionId, owner, repo, trackedRunId);
+                            return;
+                        }
+                    }
+
+                    if (pollCount < maxPolls) setTimeout(poll, interval);
+                    return;
+                }
+
+                // Find our run from the list
+                console.log(`[GitHub Poll #${pollCount}] Searching for our run (triggered at ${new Date(triggerTime).toISOString()})`);
+                const runsResponse = await fetch(`/api/github/runs?owner=${owner}&repo=${repo}&limit=10`, { headers });
+                const runsData = await runsResponse.json();
+
+                if (!runsData.success || !runsData.data?.length) {
+                    console.log('[GitHub Poll] No runs yet...');
+                    if (pollCount < maxPolls) setTimeout(poll, interval);
+                    return;
+                }
+
+                // Find run created after our trigger (within 2 min window)
+                const ourRun = runsData.data.find((r: any) => {
+                    const createdAt = new Date(r.createdAt).getTime();
+                    return r.event === 'workflow_dispatch' &&
+                        createdAt >= triggerTime - 10000 &&
+                        createdAt <= triggerTime + 120000;
+                });
+
+                if (!ourRun) {
+                    // Fall back to most recent workflow_dispatch
+                    const latestDispatch = runsData.data.find((r: any) => r.event === 'workflow_dispatch');
+                    if (latestDispatch) {
+                        console.log(`[GitHub Poll] Using latest dispatch run #${latestDispatch.runNumber}`);
+                        trackedRunId = latestDispatch.id;
+                        updateExecution(executionId, {
+                            runId: latestDispatch.id,
+                            runNumber: latestDispatch.runNumber,
+                            status: latestDispatch.status,
+                            conclusion: latestDispatch.conclusion,
+                            htmlUrl: latestDispatch.htmlUrl,
+                        });
+                    } else {
+                        console.log('[GitHub Poll] No workflow_dispatch runs found');
+                    }
+                    if (pollCount < maxPolls) setTimeout(poll, interval);
+                    return;
+                }
+
+                console.log(`[GitHub Poll] Found our run #${ourRun.runNumber}, locking onto it`);
+                trackedRunId = ourRun.id;
+
+                updateExecution(executionId, {
+                    runId: ourRun.id,
+                    runNumber: ourRun.runNumber,
+                    status: ourRun.status,
+                    conclusion: ourRun.conclusion,
+                    startedAt: ourRun.createdAt,
+                    htmlUrl: ourRun.htmlUrl,
+                });
+
+                // Fetch jobs
+                try {
+                    const jobsResp = await fetch(`/api/github/runs/${ourRun.id}/jobs?owner=${owner}&repo=${repo}`, { headers });
+                    const jobsData = await jobsResp.json();
+                    if (jobsData.success && jobsData.data) {
+                        updateExecution(executionId, {
+                            jobs: jobsData.data.map((j: any) => ({
+                                id: j.id, name: j.name, status: j.status, conclusion: j.conclusion,
+                            })),
+                        });
+                    }
+                } catch (e) { /* ignore */ }
+
+                if (ourRun.status === 'completed') {
+                    stopPolling(executionId);
+                    addConsoleOutput(`✓ Run #${ourRun.runNumber} completed: ${ourRun.conclusion}`);
+                    fetchGitHubArtifacts(executionId, owner, repo, ourRun.id);
+                    return;
+                }
+
+                if (pollCount < maxPolls) setTimeout(poll, interval);
+            } catch (error) {
+                console.error('[GitHub Poll] Error:', error);
+                if (pollCount < maxPolls) setTimeout(poll, interval * 2);
+            }
+        };
+
+        setTimeout(poll, 5000);
+    };
+
+    // Fetch artifacts and parse report after completion
+    const fetchGitHubArtifacts = async (
+        executionId: string,
+        owner: string,
+        repo: string,
+        runId: number
+    ) => {
+        // Get auth token for API calls
+        const authToken = localStorage.getItem('auth_token');
+        const headers: Record<string, string> = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
+
+        try {
+            // First, list artifacts
+            const artifactsResponse = await fetch(`/api/github/runs/${runId}/artifacts?owner=${owner}&repo=${repo}`, { headers });
+            const artifactsData = await artifactsResponse.json();
+
+            if (artifactsData.success && artifactsData.data?.length) {
+                addConsoleOutput(`  Found ${artifactsData.data.length} artifact(s)`);
+
+                // Look for playwright report artifact
+                const reportArtifact = artifactsData.data.find((a: { name: string }) =>
+                    a.name.includes('playwright-report') || a.name.includes('test-results')
+                );
+
+                if (reportArtifact) {
+                    updateExecution(executionId, {
+                        htmlReportUrl: `/api/github/artifacts/${reportArtifact.id}/download?owner=${owner}&repo=${repo}`,
+                    });
+                }
+            }
+
+            // Fetch and parse the detailed report
+            addConsoleOutput('  📊 Parsing test results...');
+            const reportResponse = await fetch(`/api/github/runs/${runId}/report?owner=${owner}&repo=${repo}`, { headers });
+            const reportData = await reportResponse.json();
+
+            if (reportData.success && reportData.data) {
+                const { summary, scenarios } = reportData.data;
+
+                // Update execution with parsed results
+                updateExecution(executionId, {
+                    totalTests: summary.total,
+                    passedTests: summary.passed,
+                    failedTests: summary.failed,
+                    skippedTests: summary.skipped,
+                    scenarios: scenarios.map((s: any) => ({
+                        id: s.id,
+                        name: s.name,
+                        status: s.status,
+                        duration: s.duration,
+                        error: s.error,
+                        traceUrl: s.traceUrl,
+                        steps: s.steps,
+                    })),
+                });
+
+                addConsoleOutput(`  ✓ Report parsed: ${summary.passed} passed, ${summary.failed} failed, ${summary.skipped} skipped`);
+            }
+        } catch (error) {
+            console.error('Failed to fetch artifacts:', error);
+            addConsoleOutput('  ⚠ Could not parse test report');
+        }
+    };
+
+    // Run on GitHub Actions with config from modal
+    const runOnGitHub = async (config: GitHubRunConfig) => {
+        console.log('[runOnGitHub] Called with config:', config);
+        console.log('[runOnGitHub] selectedFile:', selectedFile, 'isRunning:', isRunning);
+
+        if (!selectedFile || isRunning) {
+            console.log('[runOnGitHub] Early return - no file or already running');
+            return;
+        }
+
+        // Check if GitHub is connected
+        const connected = isGitHubConnected();
+        console.log('[runOnGitHub] isGitHubConnected:', connected);
+
+        if (!connected) {
+            addConsoleOutput('⚠ GitHub not connected. Please connect in Settings > Integrations.');
+            console.log('[runOnGitHub] GitHub not connected, returning');
+            return;
+        }
+
+        // Save file first if dirty
+        if (isDirty) {
+            console.log('[runOnGitHub] File is dirty, saving...');
+            await saveFile();
+            console.log('[runOnGitHub] File saved');
+        }
+
+        setIsRunning(true);
+        console.log('[runOnGitHub] setIsRunning(true)');
+        addConsoleOutput(`☁️ Triggering GitHub Actions run for: ${selectedFile.split('/').pop()}`);
+
+        try {
+            // Fetch repositories using API layer
+            console.log('[runOnGitHub] Fetching repos via API...');
+            const repos = await githubRepoApi.list();
+            console.log('[runOnGitHub] Found repos:', repos.length);
+
+            if (!repos?.length) {
+                addConsoleOutput('⚠ No GitHub repositories found. Please check your GitHub connection.');
+                setIsRunning(false);
+                return;
+            }
+
+            // Use the playwright-web-app repo or the first available repo
+            const targetRepo = repos.find((r) => r.name === 'playwright-web-app') || repos[0];
+
+            addConsoleOutput(`  Repository: ${targetRepo.fullName}`);
+            addConsoleOutput(`  Browser: ${config.browsers.join(', ')}`);
+            addConsoleOutput(`  Workers: ${config.workers} per job`);
+            addConsoleOutput(`  Shards: ${config.shards} parallel jobs`);
+            addConsoleOutput(`  Total parallel: ${config.workers * config.shards * config.browsers.length} browsers`);
+
+            // Trigger the workflow via API layer
+            // NOTE: apiClient throws on errors, so if this doesn't throw, it's success
+            console.log('[runOnGitHub] Triggering workflow...');
+            await githubRunsApi.trigger(
+                targetRepo.owner,
+                targetRepo.name,
+                '.github/workflows/vero-tests.yml',
+                targetRepo.defaultBranch || 'main',
+                {
+                    browsers: config.browsers.join(','),
+                    workers: config.workers.toString(),
+                    shards: config.shards.toString(),
+                }
+            );
+
+            // If we get here, the trigger succeeded
+            console.log('[runOnGitHub] SUCCESS! Workflow triggered');
+            addConsoleOutput('✓ GitHub Actions workflow triggered successfully!');
+            addConsoleOutput(`  Branch: ${targetRepo.defaultBranch || 'main'}`);
+            addConsoleOutput('  View progress: Execution tab → GitHub Actions');
+            addConsoleOutput(`  Or at: https://github.com/${targetRepo.fullName}/actions`);
+
+            // Create execution record with timestamp
+            const triggerTime = Date.now();
+            const executionId = `gh-${triggerTime}`;
+            const newExecution: GitHubExecution = {
+                id: executionId,
+                runId: 0, // Will be updated when run starts
+                runNumber: 0,
+                workflowName: 'Vero Tests',
+                status: 'queued',
+                browsers: config.browsers,
+                workers: config.workers,
+                shards: config.shards,
+                triggeredAt: new Date(triggerTime).toISOString(),
+                totalTests: 0,
+                passedTests: 0,
+                failedTests: 0,
+                skippedTests: 0,
+                htmlUrl: `https://github.com/${targetRepo.fullName}/actions`,
+                owner: targetRepo.owner,
+                repo: targetRepo.name,
+            };
+
+            console.log('[runOnGitHub] Adding execution:', newExecution);
+            addExecution(newExecution);
+            addConsoleOutput('  📊 Tracking execution in Execution tab...');
+
+            // Start polling for status with trigger timestamp
+            console.log('[runOnGitHub] Starting polling...');
+            pollGitHubRunStatus(executionId, targetRepo.owner, targetRepo.name, triggerTime);
+
+            // Navigate to Execution tab
+            console.log('[runOnGitHub] Navigating to executions view');
+            setActiveSettingsView('executions');
+        } catch (error) {
+            console.error('[runOnGitHub] Error:', error);
+            addConsoleOutput(`✗ Error triggering GitHub Actions: ${error}`);
+        } finally {
+            setIsRunning(false);
+        }
     };
 
     const toggleFolder = (path: string) => {
@@ -1694,7 +2277,7 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                         className={`p-2 rounded-lg transition-all ${showAppLauncher
                             ? 'bg-blue-600 text-white'
                             : 'hover:bg-gray-700 text-gray-400 hover:text-white'
-                        }`}
+                            }`}
                         title="App Launcher"
                     >
                         <Grid3X3 className="w-5 h-5" />
@@ -1737,17 +2320,15 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                                                             setCurrentProject(project);
                                                             setShowAppLauncher(false);
                                                         }}
-                                                        className={`flex flex-col items-center gap-2 p-3 rounded-lg transition-all ${
-                                                            currentProject?.id === project.id
-                                                                ? 'bg-blue-600/20 border border-blue-500'
-                                                                : 'hover:bg-gray-800 border border-transparent'
-                                                        }`}
+                                                        className={`flex flex-col items-center gap-2 p-3 rounded-lg transition-all ${currentProject?.id === project.id
+                                                            ? 'bg-blue-600/20 border border-blue-500'
+                                                            : 'hover:bg-gray-800 border border-transparent'
+                                                            }`}
                                                     >
-                                                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                                                            currentProject?.id === project.id
-                                                                ? 'bg-blue-600'
-                                                                : 'bg-gradient-to-br from-purple-500 to-blue-600'
-                                                        }`}>
+                                                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${currentProject?.id === project.id
+                                                            ? 'bg-blue-600'
+                                                            : 'bg-gradient-to-br from-purple-500 to-blue-600'
+                                                            }`}>
                                                             <Briefcase className="w-5 h-5 text-white" />
                                                         </div>
                                                         <span className="text-xs text-center text-gray-300 truncate w-full">
@@ -1790,11 +2371,10 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                                                                                 handleFlowSelect(flow.id);
                                                                                 setShowAppLauncher(false);
                                                                             }}
-                                                                            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm transition-colors ${
-                                                                                activeFlowId === flow.id
-                                                                                    ? 'bg-blue-600/30 text-blue-300'
-                                                                                    : 'hover:bg-gray-700 text-gray-400'
-                                                                            }`}
+                                                                            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm transition-colors ${activeFlowId === flow.id
+                                                                                ? 'bg-blue-600/30 text-blue-300'
+                                                                                : 'hover:bg-gray-700 text-gray-400'
+                                                                                }`}
                                                                         >
                                                                             <FileText className="w-3.5 h-3.5" />
                                                                             <span className="truncate">{flow.name}</span>
@@ -1895,7 +2475,7 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                         <div className="relative">
                             <div className="flex">
                                 <button
-                                    onClick={runCurrentFile}
+                                    onClick={() => runCurrentFile()}
                                     disabled={!canRun}
                                     className={`flex items-center gap-1 px-3 py-1.5 rounded-l text-sm ${!canRun
                                         ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
@@ -1939,14 +2519,34 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            setExecutionConfig(c => ({ ...c, browserMode: 'headed', slowMo: 500, pauseOnFailure: true }));
-                                            runCurrentFile();
+                                            runDebug();
                                             setShowRunDropdown(false);
                                         }}
-                                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-700"
+                                        disabled={isDebugging}
+                                        className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left ${isDebugging ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700'}`}
                                     >
                                         <span className="w-4 text-center">🐛</span>
-                                        Run with Debug
+                                        {isDebugging ? 'Debugging...' : 'Run with Debug'}
+                                    </button>
+                                    <div className="border-t border-gray-700" />
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setShowGitHubRunModal(true);
+                                            setShowRunDropdown(false);
+                                        }}
+                                        disabled={!isGitHubConnected()}
+                                        className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left ${isGitHubConnected()
+                                            ? 'hover:bg-gray-700'
+                                            : 'opacity-50 cursor-not-allowed'
+                                            }`}
+                                        title={isGitHubConnected() ? 'Run on GitHub Actions' : 'GitHub not connected'}
+                                    >
+                                        <Github className="w-4 h-4 text-purple-400" />
+                                        Run on GitHub Actions
+                                        {!isGitHubConnected() && (
+                                            <span className="ml-auto text-xs text-gray-500">(not connected)</span>
+                                        )}
                                     </button>
                                     <div className="border-t border-gray-700" />
                                     <button
@@ -1966,6 +2566,132 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                     );
                 })()}
 
+                {/* Debug Controls - visible when debugging */}
+                {isDebugging && (
+                    <>
+                        <div className="w-px h-6 bg-gray-600 mx-1" />
+                        <div className="flex items-center gap-1">
+                            {debugPaused ? (
+                                <button
+                                    onClick={debugResume}
+                                    className="flex items-center gap-1 px-2 py-1.5 rounded text-sm bg-green-600 hover:bg-green-700 text-white"
+                                    title="Continue (F5)"
+                                >
+                                    <Play className="w-4 h-4" />
+                                    <span className="hidden sm:inline">Continue</span>
+                                </button>
+                            ) : (
+                                <div className="flex items-center gap-1 px-2 py-1 text-sm text-yellow-400">
+                                    <span className="animate-pulse">●</span>
+                                    <span>Running...</span>
+                                </div>
+                            )}
+                            <button
+                                onClick={debugStepOver}
+                                disabled={!debugPaused}
+                                className={`flex items-center gap-1 px-2 py-1.5 rounded text-sm ${debugPaused
+                                    ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                                    : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                    }`}
+                                title="Step Over (F10)"
+                            >
+                                <ArrowRight className="w-4 h-4" />
+                                <span className="hidden sm:inline">Step</span>
+                            </button>
+                            <button
+                                onClick={debugStop}
+                                className="flex items-center gap-1 px-2 py-1.5 rounded text-sm bg-red-600 hover:bg-red-700 text-white"
+                                title="Stop Debugging (Shift+F5)"
+                            >
+                                <Square className="w-4 h-4" />
+                                <span className="hidden sm:inline">Stop</span>
+                            </button>
+                        </div>
+                        {debugCurrentLine && (
+                            <div className="text-xs text-gray-400 ml-2">
+                                Line {debugCurrentLine}
+                            </div>
+                        )}
+                    </>
+                )}
+
+                {/* Copilot Button */}
+                <button
+                    onClick={() => {
+                        setShowCopilotPanel(!showCopilotPanel);
+                        if (!showCopilotPanel) setShowAIPanel(false); // Close AI Agent if opening Copilot
+                    }}
+                    disabled={isRunning || isRecording}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors ${showCopilotPanel
+                        ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
+                        : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+                        } disabled:opacity-50`}
+                    title="Vero Copilot - AI-powered test automation assistant"
+                >
+                    <Sparkles className="w-4 h-4" />
+                    <span className="hidden lg:inline">Copilot</span>
+                </button>
+
+                {/* AI Agent Button */}
+                <button
+                    onClick={() => {
+                        setShowAIPanel(!showAIPanel);
+                        if (!showAIPanel) setShowCopilotPanel(false); // Close Copilot if opening AI Agent
+                    }}
+                    disabled={isRunning || isRecording}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors ${showAIPanel
+                        ? 'bg-purple-600 text-white'
+                        : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+                        } disabled:opacity-50`}
+                    title="AI Agent - Generate tests from natural language"
+                >
+                    <Bot className="w-4 h-4" />
+                    <span className="hidden lg:inline">AI Agent</span>
+                </button>
+
+                {/* Live Run Button */}
+                <button
+                    onClick={() => setShowLiveExecution(!showLiveExecution)}
+                    disabled={isRecording}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors ${showLiveExecution
+                        ? 'bg-cyan-600 text-white'
+                        : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+                        } disabled:opacity-50`}
+                    title="Live Run - Execute with AI assistance"
+                >
+                    <Monitor className="w-4 h-4" />
+                    <span className="hidden lg:inline">Live Run</span>
+                </button>
+
+                {/* Record Button */}
+                <button
+                    onClick={() => {
+                        if (isRecording) {
+                            stopRecording();
+                        } else {
+                            setShowRecordingDialog(true);
+                        }
+                    }}
+                    disabled={!selectedFile || isRunning}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors ${isRecording
+                        ? 'bg-red-600 text-white animate-pulse'
+                        : 'bg-red-500 hover:bg-red-600 text-white'
+                        } disabled:opacity-50 disabled:bg-gray-700 disabled:text-gray-400`}
+                    title={isRecording ? 'Stop Recording' : 'Start Recording - Record browser actions'}
+                >
+                    {isRecording ? (
+                        <>
+                            <Square className="w-4 h-4 fill-current" />
+                            <span>Stop</span>
+                        </>
+                    ) : (
+                        <>
+                            <Circle className="w-4 h-4 fill-current" />
+                            <span>Record</span>
+                        </>
+                    )}
+                </button>
+
                 <div className="w-px h-6 bg-gray-600 mx-1" />
 
                 {/* Execution Dashboard Button */}
@@ -1978,15 +2704,24 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                             setActiveSettingsView('executions');
                         }
                     }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors ${
-                        activeSettingsView === 'executions' || activeSettingsView === 'live-execution'
-                            ? 'bg-blue-600 text-white'
-                            : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
-                    }`}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors ${activeSettingsView === 'executions' || activeSettingsView === 'live-execution'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+                        }`}
                     title="Execution History"
                 >
                     <Activity className="w-4 h-4" />
                     <span className="hidden lg:inline">Execution</span>
+                </button>
+
+                {/* Scenario Dashboard Button */}
+                <button
+                    onClick={handleOpenScenarioDashboard}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-gray-700"
+                    title="Scenario Dashboard - View all scenarios by tags"
+                >
+                    <Layers className="w-4 h-4" />
+                    <span className="hidden lg:inline">Scenarios</span>
                 </button>
 
                 <div className="w-px h-6 bg-gray-600 mx-1" />
@@ -2073,6 +2808,27 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                     )}
                 </div>
             </div>
+
+            {/* Recording Status Bar - shows when recording is active */}
+            {isRecording && (
+                <div className="bg-red-600 text-white px-4 py-2 flex items-center justify-between border-b border-red-700">
+                    <div className="flex items-center gap-2">
+                        <Circle className="w-3 h-3 fill-current animate-pulse" />
+                        <span className="font-medium">Recording: {activeRecordingScenario || 'New Scenario'}</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-sm">
+                        <span className="text-red-200">
+                            {recordedActions.length} action{recordedActions.length !== 1 ? 's' : ''} captured
+                        </span>
+                        <button
+                            onClick={stopRecording}
+                            className="bg-white text-red-600 px-3 py-1 rounded text-xs font-medium hover:bg-red-100 transition-colors"
+                        >
+                            Stop Recording
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Main content */}
             <div className="flex-1 flex min-h-0">
@@ -2292,6 +3048,7 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                                     {/* Editor - 50% */}
                                     <div className="w-[50%] min-w-[400px]">
                                         <VeroEditor
+                                            ref={veroEditorRef}
                                             initialValue={fileContent}
                                             onChange={handleCodeChange}
                                             onRunScenario={handleRunScenario}
@@ -2303,14 +3060,20 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                                             }}
                                             isRecording={isRecording && !isPaused}
                                             activeRecordingScenario={activeRecordingScenario}
+                                            breakpoints={breakpoints}
+                                            onToggleBreakpoint={toggleBreakpoint}
+                                            debugCurrentLine={debugCurrentLine}
+                                            isDebugging={isDebugging}
+                                            token={authToken}
                                         />
                                     </div>
                                 </div>
                             ) : (
                                 /* Normal editor */
-                                <div className="flex-1 min-h-0">
+                                <div className="flex-1 min-h-0 relative">
                                     {selectedFile ? (
                                         <VeroEditor
+                                            ref={veroEditorRef}
                                             initialValue={fileContent}
                                             onChange={handleCodeChange}
                                             onRunScenario={handleRunScenario}
@@ -2322,6 +3085,11 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                                             }}
                                             isRecording={isRecording && !isPaused}
                                             activeRecordingScenario={activeRecordingScenario}
+                                            breakpoints={breakpoints}
+                                            onToggleBreakpoint={toggleBreakpoint}
+                                            debugCurrentLine={debugCurrentLine}
+                                            isDebugging={isDebugging}
+                                            token={authToken}
                                         />
                                     ) : (
                                         <div className="flex items-center justify-center h-full text-gray-500">
@@ -2332,6 +3100,116 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                                             </div>
                                         </div>
                                     )}
+
+                                    {/* AI Agent Panel (Overlay from right) */}
+                                    {showAIPanel && (
+                                        <div className="absolute top-0 right-0 h-full z-30">
+                                            <AIAgentPanel
+                                                isVisible={showAIPanel}
+                                                onClose={() => setShowAIPanel(false)}
+                                                onInsertCode={(veroCode) => {
+                                                    // Insert generated Vero code at cursor or end of file
+                                                    if (fileContent.includes('feature ')) {
+                                                        // Insert before last 'end' or at end of file
+                                                        const lastEndMatch = fileContent.lastIndexOf('\nend');
+                                                        if (lastEndMatch !== -1) {
+                                                            const before = fileContent.substring(0, lastEndMatch);
+                                                            const after = fileContent.substring(lastEndMatch);
+                                                            setFileContent(before + '\n\n' + veroCode + after);
+                                                        } else {
+                                                            setFileContent(fileContent + '\n\n' + veroCode);
+                                                        }
+                                                    } else {
+                                                        setFileContent(fileContent + '\n\n' + veroCode);
+                                                    }
+                                                    setIsDirty(true);
+                                                    setShowAIPanel(false);
+                                                    addConsoleOutput('✨ AI-generated code inserted');
+                                                }}
+                                                onGeneratedCode={(code) => {
+                                                    console.log('[AI Agent] Generated code:', code.substring(0, 100) + '...');
+                                                }}
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Live Execution Panel (Overlay from right) */}
+                                    {showLiveExecution && (
+                                        <div className="absolute top-0 right-0 h-full z-30">
+                                            <LiveExecutionPanel
+                                                isVisible={showLiveExecution}
+                                                onClose={() => setShowLiveExecution(false)}
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Copilot Panel (Overlay from right) */}
+                                    {showCopilotPanel && (
+                                        <div className="absolute top-0 right-0 h-full z-30 w-96">
+                                            <CopilotPanel
+                                                projectId={currentProject?.id || 'default'}
+                                                onCodeGenerated={(code, filePath) => {
+                                                    // Insert generated Vero code
+                                                    if (fileContent.includes('feature ') || fileContent.includes('FEATURE ')) {
+                                                        const lastEndMatch = fileContent.lastIndexOf('\nend');
+                                                        if (lastEndMatch !== -1) {
+                                                            const before = fileContent.substring(0, lastEndMatch);
+                                                            const after = fileContent.substring(lastEndMatch);
+                                                            setFileContent(before + '\n\n' + code + after);
+                                                        } else {
+                                                            setFileContent(fileContent + '\n\n' + code);
+                                                        }
+                                                    } else {
+                                                        setFileContent(code);
+                                                    }
+                                                    setIsDirty(true);
+                                                    addConsoleOutput(`✨ Copilot generated: ${filePath}`);
+                                                }}
+                                                className="h-full border-l border-gray-700"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Debug Console Panel - visible when debugging */}
+                            {isDebugging && (
+                                <div className="h-48 min-h-[8rem] max-h-[16rem] border-t border-gray-700 bg-gray-900 flex flex-col">
+                                    <div className="flex items-center gap-2 px-3 py-2 bg-gray-800 border-b border-gray-700">
+                                        <Bug className="w-4 h-4 text-orange-400" />
+                                        <span className="text-sm font-medium text-white">Debug Console</span>
+                                        {debugPaused && debugCurrentLine && (
+                                            <span className="ml-2 px-2 py-0.5 text-xs bg-yellow-600 text-white rounded">
+                                                Paused at line {debugCurrentLine}
+                                            </span>
+                                        )}
+                                        <div className="flex-1" />
+                                        <span className="text-xs text-gray-500">
+                                            {debugLogs.length} entries
+                                        </span>
+                                    </div>
+                                    <div className="flex-1 overflow-y-auto font-mono text-xs p-2 space-y-1">
+                                        {debugLogs.length === 0 ? (
+                                            <div className="text-gray-500 italic">Waiting for debug output...</div>
+                                        ) : (
+                                            debugLogs.map((log, i) => (
+                                                <div
+                                                    key={i}
+                                                    className={`py-0.5 px-2 rounded ${log.type === 'error'
+                                                        ? 'bg-red-900/30 text-red-300'
+                                                        : log.type === 'step'
+                                                            ? 'bg-blue-900/30 text-blue-300'
+                                                            : 'text-gray-300'
+                                                        }`}
+                                                >
+                                                    <span className="text-gray-500 mr-2">
+                                                        [{log.timestamp.toLocaleTimeString()}]
+                                                    </span>
+                                                    {log.message}
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
                                 </div>
                             )}
                         </>
@@ -2349,7 +3227,7 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                         <div className="flex-1 overflow-y-auto p-6">
                             <WorkerDashboard
                                 workers={[]}
-                                canScale={parallelConfig.mode === 'docker' || parallelConfig.mode === 'remote'}
+                                canScale={parallelConfig.mode === 'remote'}
                                 onRefresh={() => addConsoleOutput('Refreshing workers...')}
                             />
                         </div>
@@ -2426,7 +3304,7 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                     {/* Execution Dashboard in Canvas */}
                     {activeSettingsView === 'executions' && (
                         <ExecutionDashboard
-                            onViewLive={handleViewLive}
+                            onViewLive={(execId) => handleViewLive(execId)}
                             onViewTrace={handleViewTrace}
                             onBack={handleExecutionBack}
                         />
@@ -2434,19 +3312,10 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
 
                     {/* Live Execution View in Canvas */}
                     {activeSettingsView === 'live-execution' && activeExecutionId && (
-                        executionMode === 'docker' ? (
-                            <LiveExecutionGrid
-                                executionId={activeExecutionId}
-                                shards={activeShards}
-                                mode={executionMode}
-                                onBack={handleExecutionBack}
-                            />
-                        ) : (
-                            <LocalExecutionViewer
-                                executionId={activeExecutionId}
-                                onBack={handleExecutionBack}
-                            />
-                        )
+                        <LocalExecutionViewer
+                            executionId={activeExecutionId}
+                            onBack={handleExecutionBack}
+                        />
                     )}
                 </div>
             </div>
@@ -2455,8 +3324,16 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
             {
                 showRecordingDialog && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                        <div className="bg-gray-800 rounded-lg p-6 w-96 shadow-xl border border-gray-600">
-                            <h3 className="text-lg font-semibold mb-4 text-white">➕ Add New Scenario</h3>
+                        <div className="bg-gray-800 rounded-lg p-6 w-[420px] shadow-xl border border-gray-600">
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="w-10 h-10 bg-red-600 rounded-full flex items-center justify-center">
+                                    <Circle className="w-5 h-5 text-white fill-current" />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-semibold text-white">Start Recording</h3>
+                                    <p className="text-xs text-gray-400">Create a new test scenario</p>
+                                </div>
+                            </div>
 
                             <div className="space-y-4">
                                 <div>
@@ -2465,34 +3342,42 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                                         type="text"
                                         value={recordingScenarioName}
                                         onChange={(e) => setRecordingScenarioName(e.target.value)}
-                                        placeholder="e.g., Login with valid credentials"
-                                        className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-green-500"
+                                        placeholder="e.g., User can login successfully"
+                                        className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-red-500"
                                         autoFocus
-                                        onKeyDown={(e) => e.key === 'Enter' && recordingScenarioName.trim() && createEmptyScenario()}
+                                        onKeyDown={(e) => e.key === 'Enter' && recordingScenarioName.trim() && recordingStartUrl.trim() && (() => {
+                                            createEmptyScenario();
+                                            setTimeout(() => startEmbeddedRecording(), 100);
+                                        })()}
                                     />
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm text-gray-300 mb-1">Start URL (for recording)</label>
+                                    <label className="block text-sm text-gray-300 mb-1">Start URL</label>
                                     <input
-                                        type="text"
+                                        type="url"
                                         value={recordingStartUrl}
                                         onChange={(e) => setRecordingStartUrl(e.target.value)}
                                         placeholder="https://example.com"
-                                        className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-green-500"
-                                        onKeyDown={(e) => e.key === 'Enter' && recordingScenarioName.trim() && createEmptyScenario()}
+                                        className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-red-500"
                                     />
                                 </div>
 
-                                <p className="text-xs text-gray-400">
-                                    Choose "Start Recording" to capture browser actions with auto-generated page objects, or "Add Empty" to create a scenario manually.
-                                </p>
+                                <div className="bg-gray-700/50 rounded p-3 text-xs text-gray-400">
+                                    <p className="font-medium text-gray-300 mb-1">What happens next:</p>
+                                    <ul className="list-disc list-inside space-y-0.5">
+                                        <li>A Playwright browser window will open</li>
+                                        <li>Click and type to record actions</li>
+                                        <li>Vero code appears in real-time in the editor</li>
+                                        <li>Page objects are auto-generated</li>
+                                    </ul>
+                                </div>
                             </div>
 
                             <div className="flex justify-end gap-2 mt-6">
                                 <button
                                     onClick={() => setShowRecordingDialog(false)}
-                                    className="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded text-sm"
+                                    className="px-4 py-2 text-gray-400 hover:text-white text-sm"
                                 >
                                     Cancel
                                 </button>
@@ -2501,7 +3386,7 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                                     disabled={!recordingScenarioName.trim()}
                                     className={`px-4 py-2 rounded text-sm flex items-center gap-2 ${recordingScenarioName.trim()
                                         ? 'bg-gray-700 hover:bg-gray-600 border border-gray-500'
-                                        : 'bg-gray-600 text-gray-400'
+                                        : 'bg-gray-600 text-gray-400 cursor-not-allowed'
                                         }`}
                                 >
                                     <Plus className="w-4 h-4" />
@@ -2514,13 +3399,13 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                                         // Start recording immediately
                                         setTimeout(() => startEmbeddedRecording(), 100);
                                     }}
-                                    disabled={!recordingScenarioName.trim()}
-                                    className={`px-4 py-2 rounded text-sm flex items-center gap-2 ${recordingScenarioName.trim()
-                                        ? 'bg-red-600 hover:bg-red-700'
-                                        : 'bg-gray-600 text-gray-400'
+                                    disabled={!recordingScenarioName.trim() || !recordingStartUrl.trim()}
+                                    className={`px-4 py-2 rounded text-sm flex items-center gap-2 font-medium ${recordingScenarioName.trim() && recordingStartUrl.trim()
+                                        ? 'bg-red-600 hover:bg-red-700 text-white'
+                                        : 'bg-gray-600 text-gray-400 cursor-not-allowed'
                                         }`}
                                 >
-                                    <Circle className="w-4 h-4" />
+                                    <Circle className="w-4 h-4 fill-current" />
                                     Start Recording
                                 </button>
                             </div>
@@ -2949,7 +3834,18 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                     onRun={(config) => {
                         setShowRunConfigModal(false);
                         selectConfiguration(config.id);
-                        runCurrentFile();
+                        // Check if target is GitHub Actions
+                        if (config.target === 'github-actions') {
+                            // Trigger GitHub Actions run with config settings
+                            runOnGitHub({
+                                browser: (config.browser || 'chromium') as 'chromium' | 'firefox' | 'webkit',
+                                browsers: [config.browser || 'chromium'],
+                                workers: config.workers || 2,
+                                shards: config.shardCount || 1,
+                            });
+                        } else {
+                            runCurrentFile();
+                        }
                     }}
                     onCreateEnvironment={async (data) => {
                         await createEnvironment(data);
@@ -3045,11 +3941,10 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                             <button
                                 onClick={handleCreateProject}
                                 disabled={!newProjectName.trim() || isCreatingProject}
-                                className={`px-5 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${
-                                    !newProjectName.trim() || isCreatingProject
-                                        ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                                        : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white shadow-lg shadow-purple-500/20'
-                                }`}
+                                className={`px-5 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${!newProjectName.trim() || isCreatingProject
+                                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                    : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white shadow-lg shadow-purple-500/20'
+                                    }`}
                             >
                                 {isCreatingProject ? (
                                     <>
@@ -3143,11 +4038,10 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                             <button
                                 onClick={handleRenameProject}
                                 disabled={!renameProjectName.trim() || isRenamingProject || renameProjectName.trim() === currentProject.name}
-                                className={`px-5 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${
-                                    !renameProjectName.trim() || isRenamingProject || renameProjectName.trim() === currentProject.name
-                                        ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                                        : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white shadow-lg shadow-blue-500/20'
-                                }`}
+                                className={`px-5 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${!renameProjectName.trim() || isRenamingProject || renameProjectName.trim() === currentProject.name
+                                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                    : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white shadow-lg shadow-blue-500/20'
+                                    }`}
                             >
                                 {isRenamingProject ? (
                                     <>
@@ -3195,6 +4089,15 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                 }))}
                 onClose={() => setShowNewInnerProjectModal(false)}
                 onCreate={handleCreateInnerProject}
+            />
+
+            {/* GitHub Run Modal */}
+            <GitHubRunModal
+                isOpen={showGitHubRunModal}
+                onClose={() => setShowGitHubRunModal(false)}
+                onRun={runOnGitHub}
+                fileName={selectedFile ?? undefined}
+                isConnected={isGitHubConnected()}
             />
         </div>
     );

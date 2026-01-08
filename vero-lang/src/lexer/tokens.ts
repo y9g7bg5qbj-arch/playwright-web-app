@@ -6,6 +6,13 @@ export enum TokenType {
     FIELD = 'FIELD',
     USE = 'USE',
 
+    // Test Annotations
+    SKIP = 'SKIP',
+    ONLY = 'ONLY',
+    SLOW = 'SLOW',
+    FIXME = 'FIXME',
+    SERIAL = 'SERIAL',
+
     // Variable Types
     TEXT = 'TEXT',
     NUMBER = 'NUMBER',
@@ -17,6 +24,19 @@ export enum TokenType {
     AFTER = 'AFTER',
     ALL = 'ALL',
     EACH = 'EACH',
+
+    // Fixtures
+    FIXTURE = 'FIXTURE',
+    SCOPE = 'SCOPE',
+    TEST = 'TEST',
+    WORKER = 'WORKER',
+    SETUP = 'SETUP',
+    TEARDOWN = 'TEARDOWN',
+    DEPENDS = 'DEPENDS',
+    ON = 'ON',
+    AUTO = 'AUTO',
+    OPTION = 'OPTION',
+    DEFAULT = 'DEFAULT',
 
     // Actions
     CLICK = 'CLICK',
@@ -32,9 +52,17 @@ export enum TokenType {
     DO = 'DO',
     REFRESH = 'REFRESH',
     CLEAR = 'CLEAR',
+    UPLOAD = 'UPLOAD',
 
     // Assertions
     VERIFY = 'VERIFY',
+    URL = 'URL',
+    TITLE = 'TITLE',
+    EQUAL = 'EQUAL',
+    HAS = 'HAS',
+    VALUE = 'VALUE',
+    ATTRIBUTE = 'ATTRIBUTE',
+    COUNT = 'COUNT',
 
     // Conditions
     IS = 'IS',
@@ -45,6 +73,7 @@ export enum TokenType {
     DISABLED = 'DISABLED',
     CHECKED = 'CHECKED',
     CONTAINS = 'CONTAINS',
+    MATCHES = 'MATCHES',
     EMPTY = 'EMPTY',
 
     // Selectors
@@ -61,6 +90,12 @@ export enum TokenType {
     ELSE = 'ELSE',
     REPEAT = 'REPEAT',
     TIMES = 'TIMES',
+    FOR = 'FOR',
+
+    // Data Management
+    LOAD = 'LOAD',
+    WHERE = 'WHERE',
+    AS = 'AS',
 
     // Utilities
     TAKE = 'TAKE',

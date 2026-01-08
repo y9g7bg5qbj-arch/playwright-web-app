@@ -194,6 +194,63 @@ model ExecutionStep {
   @@map("execution_steps")
 }
 
+// ============================================
+// RECORDING PERSISTENCE
+// ============================================
+
+// RecordingSession - Persists recording sessions to survive server restart
+model RecordingSession {
+  id              String    @id @default(uuid())
+  testFlowId      String?   @map("test_flow_id")
+  userId          String    @map("user_id")
+  status          String    @default("active") // active, paused, completed, failed
+  startUrl        String    @map("start_url")
+  scenarioName    String?   @map("scenario_name")
+  pageName        String?   @map("page_name") // Current page object being recorded to
+  veroCode        String?   @map("vero_code") // Final generated Vero code
+  errorMessage    String?   @map("error_message")
+  browserPid      Int?      @map("browser_pid") // Process ID for recovery
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  completedAt     DateTime? @map("completed_at")
+
+  steps           RecordingStep[]
+
+  @@index([testFlowId])
+  @@index([userId])
+  @@index([status])
+  @@map("recording_sessions")
+}
+
+// RecordingStep - Individual recorded action with selector resilience
+model RecordingStep {
+  id                String    @id @default(uuid())
+  sessionId         String    @map("session_id")
+  stepNumber        Int       @map("step_number")
+  actionType        String    @map("action_type") // click, fill, navigate, select, etc.
+  veroCode          String    @map("vero_code") // Generated Vero DSL for this step
+  primarySelector   String    @map("primary_selector")
+  selectorType      String    @map("selector_type") // testId, role, label, text, css
+  fallbackSelectors String    @default("[]") @map("fallback_selectors") // JSON array
+  confidence        Float     @default(0.0) // 0-100 confidence score
+  isStable          Boolean   @default(true) @map("is_stable") // Won't change with i18n
+  value             String?   // Value for fill actions
+  url               String    // URL at time of action
+  pageName          String?   @map("page_name") // Page object this element belongs to
+  fieldName         String?   @map("field_name") // Field name in page object
+  screenshotPath    String?   @map("screenshot_path")
+  elementTag        String?   @map("element_tag") // HTML tag (button, input, etc.)
+  elementText       String?   @map("element_text") // Visible text of element
+  boundingBox       String?   @map("bounding_box") // JSON: {x, y, width, height}
+  timestamp         DateTime  @default(now())
+
+  session           RecordingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([stepNumber])
+  @@map("recording_steps")
+}
+
 model Agent {
   id         String    @id @default(uuid())
   userId     String    @map("user_id")
@@ -435,6 +492,15 @@ model Schedule {
   parameters             String?       @map("parameters") // JSON: ScheduleParameterDefinition[]
   defaultExecutionConfig String?       @map("default_execution_config") // JSON: ScheduleExecutionConfig
 
+  // Execution target: where to run tests
+  executionTarget        String        @default("local") @map("execution_target") // "local" | "github-actions"
+
+  // GitHub Actions configuration (when executionTarget = "github-actions")
+  githubRepoFullName     String?       @map("github_repo_full_name") // e.g., "owner/repo"
+  githubBranch           String?       @map("github_branch") // e.g., "main"
+  githubWorkflowFile     String?       @map("github_workflow_file") // e.g., "vero-tests.yml"
+  githubInputs           String?       @map("github_inputs") // JSON: Record<string, string> for workflow inputs
+
   runs               ScheduleRun[]
 
   @@index([userId])
@@ -465,6 +531,10 @@ model ScheduleRun {
   parameterValues String?   @map("parameter_values") // JSON: ScheduleParameterValues
   executionConfig String?   @map("execution_config") // JSON: ScheduleExecutionConfig
   triggeredByUser String?   @map("triggered_by_user") // User email or "system"
+
+  // GitHub Actions tracking (when schedule.executionTarget = "github-actions")
+  githubRunId     BigInt?   @map("github_run_id") // GitHub Actions workflow run ID
+  githubRunUrl    String?   @map("github_run_url") // URL to the GitHub Actions run page
 
   schedule       Schedule  @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
   testResults    ScheduleTestResult[]
@@ -864,4 +934,177 @@ model GitHubWorkflowJob {
   @@index([runDbId])
   @@index([status])
   @@map("github_workflow_jobs")
+}
+
+// ============================================
+// VERO COPILOT AGENT
+// ============================================
+
+// CopilotSession - Active copilot conversation sessions
+model CopilotSession {
+  id               String    @id @default(uuid())
+  userId           String    @map("user_id")
+  projectId        String    @map("project_id")
+  state            String    @default("idle") // idle, analyzing, clarifying, exploring, generating, validating, reflecting, staging, awaiting_approval, merging, complete
+  conversationJson String    @default("[]") @map("conversation_json") // JSON: Message[]
+  reflectionCount  Int       @default(0) @map("reflection_count")
+  maxReflections   Int       @default(5) @map("max_reflections")
+  currentTaskJson  String?   @map("current_task_json") // JSON: Current task being worked on
+  errorMessage     String?   @map("error_message")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  completedAt      DateTime? @map("completed_at")
+
+  stagedChanges    CopilotStagedChange[]
+  explorations     CopilotExploration[]
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([state])
+  @@map("copilot_sessions")
+}
+
+// CopilotStagedChange - Pending file changes awaiting approval
+model CopilotStagedChange {
+  id            String   @id @default(uuid())
+  sessionId     String   @map("session_id")
+  filePath      String   @map("file_path")
+  originalContent String? @map("original_content") // Original file content (null for new files)
+  newContent    String   @map("new_content")
+  changeType    String   @map("change_type") // create, modify, delete
+  diffJson      String   @default("[]") @map("diff_json") // JSON: UnifiedDiff hunks
+  status        String   @default("pending") // pending, approved, rejected, modified
+  reasoningJson String?  @map("reasoning_json") // JSON: AI's explanation for the change
+  userFeedback  String?  @map("user_feedback") // User's modification notes
+  order         Int      @default(0)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  session       CopilotSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([status])
+  @@map("copilot_staged_changes")
+}
+
+// CopilotExploration - Browser exploration sessions for discovering selectors
+model CopilotExploration {
+  id              String    @id @default(uuid())
+  sessionId       String    @map("session_id")
+  targetUrl       String    @map("target_url")
+  status          String    @default("pending") // pending, running, completed, failed
+  resultsJson     String?   @map("results_json") // JSON: DiscoveredElement[]
+  screenshotsJson String?   @map("screenshots_json") // JSON: Screenshot paths/base64
+  errorMessage    String?   @map("error_message")
+  stagehandLogJson String?  @map("stagehand_log_json") // JSON: Stagehand action logs
+  startedAt       DateTime? @map("started_at")
+  completedAt     DateTime? @map("completed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  session         CopilotSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([status])
+  @@map("copilot_explorations")
+}
+
+// CopilotLearnedSelector - Selectors learned from successful explorations
+model CopilotLearnedSelector {
+  id                 String   @id @default(uuid())
+  projectId          String   @map("project_id")
+  elementDescription String   @map("element_description") // "Login button", "Email input"
+  primarySelector    String   @map("primary_selector") // Best selector
+  selectorType       String   @map("selector_type") // testid, role, label, text, css
+  fallbacksJson      String   @default("[]") @map("fallbacks_json") // JSON: Alternative selectors
+  pageUrl            String?  @map("page_url") // URL pattern where this element appears
+  confidence         Float    @default(0.0)
+  usageCount         Int      @default(0) @map("usage_count")
+  lastUsedAt         DateTime? @map("last_used_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([projectId])
+  @@index([elementDescription])
+  @@index([usageCount])
+  @@map("copilot_learned_selectors")
+}
+
+// GraphRAGNode - Nodes in the codebase knowledge graph
+model GraphRAGNode {
+  id           String   @id @default(uuid())
+  projectId    String   @map("project_id")
+  nodeType     String   @map("node_type") // page, field, selector, feature, scenario, action
+  name         String
+  filePath     String   @map("file_path")
+  lineNumber   Int?     @map("line_number")
+  content      String?  // Relevant code snippet
+  embeddingJson String? @map("embedding_json") // JSON: Float[] vector embedding
+  metadata     String?  // JSON: Additional type-specific metadata
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  outgoingEdges GraphRAGEdge[] @relation("FromNode")
+  incomingEdges GraphRAGEdge[] @relation("ToNode")
+
+  @@index([projectId])
+  @@index([nodeType])
+  @@index([name])
+  @@map("graphrag_nodes")
+}
+
+// GraphRAGEdge - Edges connecting nodes in the knowledge graph
+model GraphRAGEdge {
+  id         String   @id @default(uuid())
+  fromNodeId String   @map("from_node_id")
+  toNodeId   String   @map("to_node_id")
+  edgeType   String   @map("edge_type") // contains, uses_selector, imports, references, similar_to
+  weight     Float    @default(1.0) // Relationship strength
+  metadata   String?  // JSON: Edge-specific metadata
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  fromNode   GraphRAGNode @relation("FromNode", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode     GraphRAGNode @relation("ToNode", fields: [toNodeId], references: [id], onDelete: Cascade)
+
+  @@unique([fromNodeId, toNodeId, edgeType])
+  @@index([fromNodeId])
+  @@index([toNodeId])
+  @@index([edgeType])
+  @@map("graphrag_edges")
+}
+
+// ============================================
+// AI SETTINGS (User-configurable AI providers)
+// ============================================
+
+model AISettings {
+  id        String   @id @default(uuid())
+  userId    String   @unique @map("user_id")
+
+  // Provider selection
+  provider  String   @default("gemini") // gemini, openai, anthropic
+
+  // Gemini settings
+  geminiApiKey     String? @map("gemini_api_key")
+  geminiModel      String  @default("gemini-3-pro") @map("gemini_model")
+
+  // OpenAI settings (future)
+  openaiApiKey     String? @map("openai_api_key")
+  openaiModel      String  @default("gpt-4o") @map("openai_model")
+
+  // Anthropic settings (future)
+  anthropicApiKey  String? @map("anthropic_api_key")
+  anthropicModel   String  @default("claude-sonnet-4-20250514") @map("anthropic_model")
+
+  // Browserbase settings (optional cloud browser)
+  browserbaseApiKey String? @map("browserbase_api_key")
+  useBrowserbase    Boolean @default(false) @map("use_browserbase")
+
+  // Stagehand settings
+  stagehandHeadless Boolean @default(true) @map("stagehand_headless")
+  stagehandDebug    Boolean @default(false) @map("stagehand_debug")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("ai_settings")
 }

@@ -50,7 +50,6 @@ router.post('/', async (req: Request, res: Response) => {
       mode: fullConfig.mode,
       workers: {
         local: fullConfig.workers.local,
-        docker: fullConfig.workers.docker,
         remote: fullConfig.workers.remote,
       },
       sharding: {
@@ -250,7 +249,6 @@ router.get('/workers', (req: Request, res: Response) => {
       port: w.port,
       status: w.status,
       capabilities: w.capabilities,
-      vncUrl: w.vncPort ? `http://${w.host}:${w.vncPort}/vnc.html` : undefined,
       currentTests: w.currentTests,
       registeredAt: w.registeredAt,
       lastHeartbeat: w.lastHeartbeat,

@@ -573,7 +573,7 @@ function extractSelector(locatorString: string): string {
 // Run Vero file - transpiles to Playwright and executes
 router.post('/run', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { filePath, content, config } = req.body;
+        const { filePath, content, config, scenarioName } = req.body;
         const isHeadless = config?.browserMode === 'headless';
         const userId = (req as AuthRequest).userId!;
 
@@ -651,8 +651,10 @@ router.post('/run', authenticateToken, async (req: AuthRequest, res: Response, n
 
         // Run Playwright - use headless or headed based on config
         const headedFlag = isHeadless ? '' : '--headed';
-        const command = `npx playwright test .vero-temp-test.spec.ts ${headedFlag} --timeout=60000`.trim().replace(/\s+/g, ' ');
-        console.log(`[Vero Run] Executing (${isHeadless ? 'headless' : 'headed'}):`, command);
+        // Filter to specific scenario if scenarioName is provided
+        const grepFlag = scenarioName ? `--grep "${scenarioName}"` : '';
+        const command = `npx playwright test .vero-temp-test.spec.ts ${headedFlag} ${grepFlag} --timeout=60000`.trim().replace(/\s+/g, ' ');
+        console.log(`[Vero Run] Executing (${isHeadless ? 'headless' : 'headed'}${scenarioName ? `, scenario: ${scenarioName}` : ''}):`, command);
 
         const testProcess = spawn(command, [], {
             cwd: VERO_PROJECT_PATH,
@@ -733,6 +735,87 @@ router.post('/run', authenticateToken, async (req: AuthRequest, res: Response, n
     } catch (error) {
         console.error('Failed to run tests:', error);
         res.status(500).json({ success: false, error: `Failed to run tests: ${error}` });
+    }
+});
+
+// Debug mode execution - transpiles with debug markers, returns executionId for WebSocket
+router.post('/debug', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { filePath, content, breakpoints = [] } = req.body;
+        const userId = (req as AuthRequest).userId!;
+
+        console.log(`[Vero Debug] Starting debug session for: ${filePath || 'inline content'}`);
+        console.log(`[Vero Debug] Breakpoints:`, breakpoints);
+
+        // Get Vero content - either from request or read from file
+        let veroContent = content;
+        if (!veroContent && filePath) {
+            const fullPath = join(VERO_PROJECT_PATH, filePath);
+            veroContent = await readFile(fullPath, 'utf-8');
+        }
+
+        if (!veroContent) {
+            return res.status(400).json({ success: false, error: 'No content provided' });
+        }
+
+        // Get or create a test flow for this Vero file to track executions
+        const flowName = filePath ? filePath.split('/').pop()?.replace('.vero', '') || 'Vero Test' : 'Vero Test';
+        let testFlow = await getOrCreateVeroTestFlow(userId, filePath || 'inline', flowName, veroContent);
+
+        // Create execution record with 'pending' status (will be 'running' when WebSocket connects)
+        const executionId = uuidv4();
+
+        await prisma.execution.create({
+            data: {
+                id: executionId,
+                testFlowId: testFlow.id,
+                status: 'pending',
+                target: 'local',
+                triggeredBy: 'debug',
+                configSnapshot: JSON.stringify({
+                    debugMode: true,
+                    breakpoints,
+                }),
+            },
+        });
+        console.log(`[Vero Debug] Created debug execution record: ${executionId}`);
+
+        // Extract USE statements to find referenced pages
+        const useMatches = veroContent.match(/USE\s+(\w+)/gi) || [];
+        const pageNames = useMatches.map((m: string) => m.replace(/USE\s+/i, '').trim());
+
+        // Load referenced page files and prepend to content
+        let combinedContent = '';
+        for (const pageName of pageNames) {
+            const pageFilePath = join(VERO_PROJECT_PATH, 'pages', `${pageName}.vero`);
+            try {
+                const pageContent = await readFile(pageFilePath, 'utf-8');
+                combinedContent += pageContent + '\n\n';
+            } catch (e) {
+                // Page not found
+            }
+        }
+        combinedContent += veroContent;
+
+        // Import transpiler dynamically with debug mode enabled
+        const { transpileVero } = await import('../services/veroTranspiler');
+
+        // Transpile Vero to Playwright with debug mode
+        console.log('[Vero Debug] Transpiling Vero with debug markers...');
+        const playwrightCode = transpileVero(combinedContent, { debugMode: true });
+
+        // Return executionId and generated code - frontend will connect via WebSocket
+        res.json({
+            success: true,
+            executionId,
+            testFlowId: testFlow.id,
+            generatedCode: playwrightCode,
+            breakpoints,
+            message: 'Debug session prepared. Connect via WebSocket to start execution.',
+        });
+    } catch (error) {
+        console.error('Failed to prepare debug session:', error);
+        res.status(500).json({ success: false, error: `Failed to prepare debug: ${error}` });
     }
 });
 
@@ -1130,6 +1213,554 @@ router.get('/agent/pages', authenticateToken, async (req: AuthRequest, res: Resp
         });
     }
 });
+
+// Streaming generation endpoint using Server-Sent Events
+router.post('/agent/generate-stream', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    const { steps, url, featureName, scenarioName, useAi = true } = req.body;
+
+    if (!steps) {
+        return res.status(400).json({ success: false, error: 'Steps are required' });
+    }
+
+    // Set up SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    const sendEvent = (event: string, data: any) => {
+        res.write(`event: ${event}\n`);
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    try {
+        sendEvent('start', { message: 'Starting generation...', timestamp: Date.now() });
+
+        // Step 1: Parse English steps
+        sendEvent('progress', { step: 'parsing', message: 'Parsing English steps...' });
+
+        // Step 2: Build context from existing pages
+        sendEvent('progress', { step: 'context', message: 'Loading existing page objects...' });
+
+        // Step 3: Call the Python agent
+        sendEvent('progress', { step: 'generating', message: 'Generating Vero code with AI...' });
+
+        const response = await fetch(`${VERO_AGENT_URL}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                steps,
+                url,
+                feature_name: featureName || 'GeneratedFeature',
+                scenario_name: scenarioName || 'Generated Scenario',
+                use_ai: useAi
+            })
+        });
+
+        const data = await response.json() as AgentGenerateResponse;
+
+        if (!response.ok) {
+            sendEvent('error', { error: data.detail || 'Generation failed' });
+            res.end();
+            return;
+        }
+
+        // Step 4: Send the result
+        sendEvent('progress', { step: 'complete', message: 'Generation complete!' });
+        sendEvent('result', {
+            success: true,
+            veroCode: data.vero_code,
+            newPages: data.new_pages || {},
+            message: data.message
+        });
+
+        sendEvent('end', { timestamp: Date.now() });
+        res.end();
+    } catch (error) {
+        console.error('Streaming generation error:', error);
+        sendEvent('error', {
+            error: `Vero Agent not available. Is it running on ${VERO_AGENT_URL}?`
+        });
+        res.end();
+    }
+});
+
+// ============= GENERATION HISTORY =============
+
+// In-memory history storage (could be moved to database)
+const generationHistory = new Map<string, {
+    id: string;
+    userId: string;
+    steps: string;
+    generatedCode: string;
+    featureName: string;
+    scenarioName: string;
+    createdAt: Date;
+}[]>();
+
+// Save generation to history
+router.post('/agent/history', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) {
+            return res.status(401).json({ success: false, error: 'User not authenticated' });
+        }
+
+        const { steps, generatedCode, featureName, scenarioName } = req.body;
+
+        const entry = {
+            id: uuidv4(),
+            userId,
+            steps,
+            generatedCode,
+            featureName: featureName || 'GeneratedFeature',
+            scenarioName: scenarioName || 'Generated Scenario',
+            createdAt: new Date()
+        };
+
+        const userHistory = generationHistory.get(userId) || [];
+        userHistory.unshift(entry); // Add to front (newest first)
+
+        // Keep only last 50 entries per user
+        if (userHistory.length > 50) {
+            userHistory.pop();
+        }
+
+        generationHistory.set(userId, userHistory);
+
+        res.json({ success: true, entry });
+    } catch (error) {
+        console.error('Failed to save history:', error);
+        res.status(500).json({ success: false, error: 'Failed to save history' });
+    }
+});
+
+// Get generation history
+router.get('/agent/history', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) {
+            return res.status(401).json({ success: false, error: 'User not authenticated' });
+        }
+
+        const userHistory = generationHistory.get(userId) || [];
+        res.json({ success: true, history: userHistory });
+    } catch (error) {
+        res.status(500).json({ success: false, error: 'Failed to fetch history' });
+    }
+});
+
+// Delete history entry
+router.delete('/agent/history/:entryId', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) {
+            return res.status(401).json({ success: false, error: 'User not authenticated' });
+        }
+
+        const { entryId } = req.params;
+        const userHistory = generationHistory.get(userId) || [];
+        const filtered = userHistory.filter(e => e.id !== entryId);
+        generationHistory.set(userId, filtered);
+
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: 'Failed to delete history entry' });
+    }
+});
+
+// ============= SCENARIO DASHBOARD =============
+
+// Types for scenario index
+interface TagSummary {
+    name: string;
+    count: number;
+}
+
+interface ScenarioMeta {
+    name: string;
+    tags: string[];
+    line: number;
+    featureName: string;
+    filePath: string;
+}
+
+interface FeatureWithScenarios {
+    name: string;
+    filePath: string;
+    scenarios: ScenarioMeta[];
+}
+
+interface ScenarioIndex {
+    totalScenarios: number;
+    totalFeatures: number;
+    tags: TagSummary[];
+    features: FeatureWithScenarios[];
+}
+
+// Parse a single .vero file and extract scenarios with metadata
+function extractScenariosFromVero(content: string, filePath: string): FeatureWithScenarios | null {
+    const lines = content.split('\n');
+
+    // Find feature name
+    const featureMatch = content.match(/^feature\s+(\w+)\s*{/im);
+    if (!featureMatch) {
+        return null;
+    }
+
+    const featureName = featureMatch[1];
+    const scenarios: ScenarioMeta[] = [];
+
+    // Find all scenarios with tags
+    // Pattern: scenario "Name" @tag1 @tag2 {
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const scenarioMatch = line.match(/^\s*scenario\s+"([^"]+)"\s*((?:@\w+\s*)*)\s*{/i);
+
+        if (scenarioMatch) {
+            const scenarioName = scenarioMatch[1];
+            const tagsStr = scenarioMatch[2] || '';
+            const tags = (tagsStr.match(/@(\w+)/g) || []).map(t => t.substring(1)); // Remove @ prefix
+
+            scenarios.push({
+                name: scenarioName,
+                tags,
+                line: i + 1, // 1-indexed line number
+                featureName,
+                filePath
+            });
+        }
+    }
+
+    if (scenarios.length === 0) {
+        return null;
+    }
+
+    return {
+        name: featureName,
+        filePath,
+        scenarios
+    };
+}
+
+// Recursively scan for .vero files and extract scenarios
+async function scanForScenarios(dirPath: string, relativePath = ''): Promise<FeatureWithScenarios[]> {
+    const results: FeatureWithScenarios[] = [];
+
+    try {
+        const entries = await readdir(dirPath);
+
+        for (const entry of entries) {
+            const fullPath = join(dirPath, entry);
+            const relPath = relativePath ? `${relativePath}/${entry}` : entry;
+            const stats = await stat(fullPath);
+
+            if (stats.isDirectory()) {
+                // Recursively scan subdirectories (especially 'features')
+                const subResults = await scanForScenarios(fullPath, relPath);
+                results.push(...subResults);
+            } else if (entry.endsWith('.vero')) {
+                try {
+                    const content = await readFile(fullPath, 'utf-8');
+                    const feature = extractScenariosFromVero(content, relPath);
+                    if (feature) {
+                        results.push(feature);
+                    }
+                } catch (err) {
+                    console.warn(`[Vero Scenarios] Failed to read ${relPath}:`, err);
+                }
+            }
+        }
+    } catch (err) {
+        console.warn(`[Vero Scenarios] Failed to scan ${dirPath}:`, err);
+    }
+
+    return results;
+}
+
+// GET /api/vero/scenarios - Get all scenarios with tags for the dashboard
+router.get('/scenarios', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const projectId = req.query.projectId as string | undefined;
+        const veroPathParam = req.query.veroPath as string | undefined;
+
+        // Get project path
+        let projectPath: string;
+        if (veroPathParam) {
+            projectPath = veroPathParam;
+        } else {
+            projectPath = await getProjectPath(projectId);
+        }
+
+        const fullPath = projectPath.startsWith('/') ? projectPath : join(process.cwd(), projectPath);
+
+        // Check if directory exists
+        if (!existsSync(fullPath)) {
+            return res.json({
+                success: true,
+                data: {
+                    totalScenarios: 0,
+                    totalFeatures: 0,
+                    tags: [],
+                    features: []
+                } as ScenarioIndex
+            });
+        }
+
+        // Scan all .vero files for scenarios
+        const features = await scanForScenarios(fullPath);
+
+        // Build tag summary
+        const tagCounts = new Map<string, number>();
+        let totalScenarios = 0;
+
+        for (const feature of features) {
+            for (const scenario of feature.scenarios) {
+                totalScenarios++;
+                for (const tag of scenario.tags) {
+                    tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+                }
+            }
+        }
+
+        // Convert tag counts to sorted array
+        const tags: TagSummary[] = Array.from(tagCounts.entries())
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count); // Sort by count descending
+
+        const result: ScenarioIndex = {
+            totalScenarios,
+            totalFeatures: features.length,
+            tags,
+            features
+        };
+
+        console.log(`[Vero Scenarios] Found ${totalScenarios} scenarios in ${features.length} features with ${tags.length} unique tags`);
+
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error('[Vero Scenarios] Failed to get scenarios:', error);
+        res.status(500).json({ success: false, error: 'Failed to get scenarios' });
+    }
+});
+
+// ============= VALIDATION =============
+
+// Validate Vero code and return errors/warnings in VeroError format
+router.post('/validate', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { code } = req.body;
+
+        if (!code || typeof code !== 'string') {
+            return res.json({
+                success: true,
+                errors: [],
+                warnings: []
+            });
+        }
+
+        // Import vero-lang parsing and validation functions
+        const { tokenize } = await import('../../node_modules/vero-lang/dist/lexer/lexer.js');
+        const { Parser } = await import('../../node_modules/vero-lang/dist/parser/parser.js');
+        const { validate } = await import('../../node_modules/vero-lang/dist/validator/validator.js');
+
+        const veroErrors: VeroValidationError[] = [];
+        const veroWarnings: VeroValidationError[] = [];
+
+        try {
+            // Step 1: Tokenize
+            const lexResult = tokenize(code);
+
+            // Convert lexer errors
+            for (const err of lexResult.errors) {
+                veroErrors.push({
+                    code: 'VERO-101',
+                    category: 'lexer',
+                    severity: 'error',
+                    location: {
+                        line: err.line,
+                        column: err.column
+                    },
+                    title: 'Syntax Error',
+                    whatWentWrong: err.message,
+                    howToFix: 'Check the syntax at this location. Make sure strings are properly quoted and keywords are spelled correctly.',
+                    suggestions: [{ text: 'Review the Vero syntax guide' }]
+                });
+            }
+
+            if (lexResult.errors.length > 0) {
+                return res.json({
+                    success: false,
+                    errors: veroErrors,
+                    warnings: veroWarnings
+                });
+            }
+
+            // Step 2: Parse
+            const parser = new Parser(lexResult.tokens);
+            const parseResult = parser.parse();
+
+            // Convert parser errors
+            for (const err of parseResult.errors) {
+                veroErrors.push({
+                    code: getParserErrorCode(err.message),
+                    category: 'parser',
+                    severity: 'error',
+                    location: {
+                        line: err.line,
+                        column: err.column
+                    },
+                    title: getParserErrorTitle(err.message),
+                    whatWentWrong: err.message,
+                    howToFix: getParserErrorFix(err.message),
+                    suggestions: [{ text: 'Check the structure of your Vero code' }]
+                });
+            }
+
+            if (parseResult.errors.length > 0) {
+                return res.json({
+                    success: false,
+                    errors: veroErrors,
+                    warnings: veroWarnings
+                });
+            }
+
+            // Step 3: Validate
+            const validationResult = validate(parseResult.ast);
+
+            // Convert validation errors
+            for (const err of validationResult.errors) {
+                veroErrors.push({
+                    code: getValidationErrorCode(err.message),
+                    category: 'validation',
+                    severity: 'error',
+                    location: err.line ? { line: err.line } : undefined,
+                    title: getValidationErrorTitle(err.message),
+                    whatWentWrong: err.message,
+                    howToFix: err.suggestion || getValidationErrorFix(err.message),
+                    suggestions: err.suggestion ? [{ text: err.suggestion }] : []
+                });
+            }
+
+            // Convert validation warnings
+            for (const warn of validationResult.warnings) {
+                veroWarnings.push({
+                    code: 'VERO-350',
+                    category: 'validation',
+                    severity: 'warning',
+                    location: warn.line ? { line: warn.line } : undefined,
+                    title: 'Style Warning',
+                    whatWentWrong: warn.message,
+                    howToFix: warn.suggestion || 'Consider following Vero naming conventions.',
+                    suggestions: warn.suggestion ? [{ text: warn.suggestion }] : []
+                });
+            }
+
+            res.json({
+                success: validationResult.valid,
+                errors: veroErrors,
+                warnings: veroWarnings
+            });
+
+        } catch (parseError) {
+            // Catch any unexpected parsing errors
+            console.error('[Vero Validate] Parse error:', parseError);
+            veroErrors.push({
+                code: 'VERO-199',
+                category: 'parser',
+                severity: 'error',
+                title: 'Parse Error',
+                whatWentWrong: parseError instanceof Error ? parseError.message : 'Unknown parsing error',
+                howToFix: 'Check your Vero code syntax.',
+                suggestions: []
+            });
+
+            res.json({
+                success: false,
+                errors: veroErrors,
+                warnings: veroWarnings
+            });
+        }
+
+    } catch (error) {
+        console.error('[Vero Validate] Error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to validate code'
+        });
+    }
+});
+
+// VeroError types for validation endpoint
+interface VeroValidationError {
+    code: string;
+    category: string;
+    severity: 'error' | 'warning' | 'info' | 'hint';
+    location?: {
+        line: number;
+        column?: number;
+        endLine?: number;
+        endColumn?: number;
+    };
+    title: string;
+    whatWentWrong: string;
+    howToFix: string;
+    suggestions: Array<{ text: string; action?: string }>;
+    veroStatement?: string;
+    selector?: string;
+}
+
+// Helper functions for error code mapping
+function getParserErrorCode(message: string): string {
+    if (message.includes('Expected') && message.includes('{')) return 'VERO-202';
+    if (message.includes('Expected') && message.includes('}')) return 'VERO-202';
+    if (message.includes('Expected') && message.includes('string')) return 'VERO-204';
+    if (message.includes('Expected') && message.includes('name')) return 'VERO-205';
+    if (message.includes('Unexpected token')) return 'VERO-206';
+    if (message.includes('Missing')) return 'VERO-201';
+    return 'VERO-203';
+}
+
+function getParserErrorTitle(message: string): string {
+    if (message.includes('Expected') && message.includes('{')) return 'Missing Opening Brace';
+    if (message.includes('Expected') && message.includes('}')) return 'Missing Closing Brace';
+    if (message.includes('Expected') && message.includes('string')) return 'Missing String';
+    if (message.includes('Expected') && message.includes('name')) return 'Missing Name';
+    if (message.includes('Unexpected token')) return 'Unexpected Token';
+    if (message.includes('Missing')) return 'Missing Keyword';
+    return 'Invalid Statement';
+}
+
+function getParserErrorFix(message: string): string {
+    if (message.includes('{')) return 'Add an opening brace "{" after the declaration.';
+    if (message.includes('}')) return 'Add a closing brace "}" to end the block.';
+    if (message.includes('string')) return 'Add a quoted string (e.g., "example").';
+    if (message.includes('name')) return 'Provide a name for this element.';
+    return 'Check the syntax at this location.';
+}
+
+function getValidationErrorCode(message: string): string {
+    if (message.includes('Duplicate page')) return 'VERO-303';
+    if (message.includes('Duplicate field')) return 'VERO-303';
+    if (message.includes('not defined')) return 'VERO-301';
+    if (message.includes('not in USE list')) return 'VERO-304';
+    return 'VERO-302';
+}
+
+function getValidationErrorTitle(message: string): string {
+    if (message.includes('Duplicate page')) return 'Duplicate Page Definition';
+    if (message.includes('Duplicate field')) return 'Duplicate Field Definition';
+    if (message.includes('not defined')) return 'Undefined Reference';
+    if (message.includes('not in USE list')) return 'Missing Import';
+    return 'Validation Error';
+}
+
+function getValidationErrorFix(message: string): string {
+    if (message.includes('Duplicate')) return 'Remove or rename the duplicate definition.';
+    if (message.includes('not defined')) return 'Define this element before using it, or check the spelling.';
+    if (message.includes('not in USE list')) return 'Add a USE statement at the top of the feature.';
+    return 'Fix the validation issue.';
+}
 
 // ============= HELPERS =============
 

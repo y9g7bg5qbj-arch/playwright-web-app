@@ -64,7 +64,6 @@ export const QueueManager: React.FC = () => {
   const [jobs, setJobs] = useState<QueueJob[]>([]);
   const [jobStatus, setJobStatus] = useState<string>('waiting');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [redisConnected, setRedisConnected] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 

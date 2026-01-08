@@ -1,0 +1,434 @@
+/**
+ * CSV Import Modal
+ *
+ * Import CSV files into data tables with:
+ * - Drag and drop file upload
+ * - Preview of parsed data
+ * - Automatic type inference
+ * - Column mapping
+ * - Error handling
+ */
+
+import { useState, useCallback, useRef } from 'react';
+import Papa from 'papaparse';
+import { X, Upload, FileText, AlertCircle, Check } from 'lucide-react';
+import type { DataColumn } from './AGGridDataTable';
+
+interface ImportCSVModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    existingColumns: DataColumn[];
+    onImport: (rows: Record<string, any>[], newColumns?: DataColumn[]) => Promise<void>;
+}
+
+interface ParsedData {
+    headers: string[];
+    rows: Record<string, any>[];
+    inferredTypes: Record<string, DataColumn['type']>;
+    errors: string[];
+}
+
+// Infer column type from sample values
+function inferColumnType(values: any[]): DataColumn['type'] {
+    const nonEmptyValues = values.filter((v) => v !== null && v !== undefined && v !== '');
+
+    if (nonEmptyValues.length === 0) return 'text';
+
+    // Check for boolean
+    const booleanValues = ['true', 'false', 'yes', 'no', '1', '0'];
+    if (nonEmptyValues.every((v) => booleanValues.includes(String(v).toLowerCase()))) {
+        return 'boolean';
+    }
+
+    // Check for number
+    if (nonEmptyValues.every((v) => !isNaN(Number(v)) && v !== '')) {
+        return 'number';
+    }
+
+    // Check for date (ISO format or common date formats)
+    const dateRegex = /^\d{4}-\d{2}-\d{2}|^\d{2}\/\d{2}\/\d{4}|^\d{2}-\d{2}-\d{4}/;
+    if (nonEmptyValues.every((v) => dateRegex.test(String(v)) || !isNaN(Date.parse(String(v))))) {
+        const allValidDates = nonEmptyValues.every((v) => {
+            const date = new Date(v);
+            return !isNaN(date.getTime());
+        });
+        if (allValidDates) return 'date';
+    }
+
+    return 'text';
+}
+
+// Convert value based on type
+function convertValue(value: any, type: DataColumn['type']): any {
+    if (value === null || value === undefined || value === '') {
+        return type === 'boolean' ? false : type === 'number' ? null : '';
+    }
+
+    switch (type) {
+        case 'number':
+            return Number(value);
+        case 'boolean':
+            const strValue = String(value).toLowerCase();
+            return strValue === 'true' || strValue === 'yes' || strValue === '1';
+        case 'date':
+            return new Date(value).toISOString().split('T')[0];
+        default:
+            return String(value);
+    }
+}
+
+export function ImportCSVModal({
+    isOpen,
+    onClose,
+    existingColumns,
+    onImport,
+}: ImportCSVModalProps) {
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [dragOver, setDragOver] = useState(false);
+    const [parsedData, setParsedData] = useState<ParsedData | null>(null);
+    const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
+    const [columnTypes, setColumnTypes] = useState<Record<string, DataColumn['type']>>({});
+    const [importing, setImporting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleFile = useCallback((file: File) => {
+        setError(null);
+
+        if (!file.name.endsWith('.csv')) {
+            setError('Please upload a CSV file');
+            return;
+        }
+
+        Papa.parse(file, {
+            header: true,
+            skipEmptyLines: true,
+            complete: (results) => {
+                if (results.errors.length > 0) {
+                    setError(`Parse errors: ${results.errors.map((e) => e.message).join(', ')}`);
+                }
+
+                const headers = results.meta.fields || [];
+                const rows = results.data as Record<string, any>[];
+
+                // Infer types for each column
+                const inferredTypes: Record<string, DataColumn['type']> = {};
+                headers.forEach((header) => {
+                    const columnValues = rows.slice(0, 100).map((row) => row[header]);
+                    inferredTypes[header] = inferColumnType(columnValues);
+                });
+
+                // Initialize column mapping
+                const mapping: Record<string, string> = {};
+                headers.forEach((header) => {
+                    // Try to match with existing columns
+                    const existingCol = existingColumns.find(
+                        (col) => col.name.toLowerCase() === header.toLowerCase()
+                    );
+                    mapping[header] = existingCol ? existingCol.name : header;
+                });
+
+                setParsedData({
+                    headers,
+                    rows,
+                    inferredTypes,
+                    errors: results.errors.map((e) => e.message),
+                });
+                setColumnMapping(mapping);
+                setColumnTypes(inferredTypes);
+            },
+            error: (err) => {
+                setError(`Failed to parse CSV: ${err.message}`);
+            },
+        });
+    }, [existingColumns]);
+
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setDragOver(false);
+
+        const file = e.dataTransfer.files[0];
+        if (file) handleFile(file);
+    }, [handleFile]);
+
+    const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) handleFile(file);
+    }, [handleFile]);
+
+    const handleImport = async () => {
+        if (!parsedData) return;
+
+        setImporting(true);
+        setError(null);
+
+        try {
+            // Build new columns list
+            const newColumns: DataColumn[] = [];
+            const existingColNames = new Set(existingColumns.map((c) => c.name));
+
+            Object.entries(columnMapping).forEach(([csvHeader, targetName]) => {
+                if (!existingColNames.has(targetName)) {
+                    newColumns.push({
+                        name: targetName,
+                        type: columnTypes[csvHeader] || 'text',
+                    });
+                }
+            });
+
+            // Transform rows
+            const transformedRows = parsedData.rows.map((row) => {
+                const newRow: Record<string, any> = {};
+                Object.entries(columnMapping).forEach(([csvHeader, targetName]) => {
+                    const type = columnTypes[csvHeader] || 'text';
+                    newRow[targetName] = convertValue(row[csvHeader], type);
+                });
+                return newRow;
+            });
+
+            await onImport(transformedRows, newColumns.length > 0 ? newColumns : undefined);
+            onClose();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Import failed');
+        } finally {
+            setImporting(false);
+        }
+    };
+
+    const handleClose = () => {
+        setParsedData(null);
+        setColumnMapping({});
+        setColumnTypes({});
+        setError(null);
+        onClose();
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+            <div className="bg-slate-900 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+                {/* Header */}
+                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+                    <h2 className="text-lg font-semibold text-slate-200">Import CSV</h2>
+                    <button
+                        onClick={handleClose}
+                        className="p-1 hover:bg-slate-800 rounded-md transition-colors"
+                    >
+                        <X className="w-5 h-5 text-slate-400" />
+                    </button>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 overflow-auto p-6">
+                    {error && (
+                        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-md flex items-start gap-2">
+                            <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                            <p className="text-sm text-red-400">{error}</p>
+                        </div>
+                    )}
+
+                    {!parsedData ? (
+                        /* File Upload */
+                        <div
+                            onDrop={handleDrop}
+                            onDragOver={(e) => {
+                                e.preventDefault();
+                                setDragOver(true);
+                            }}
+                            onDragLeave={() => setDragOver(false)}
+                            className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
+                                dragOver
+                                    ? 'border-emerald-500 bg-emerald-500/10'
+                                    : 'border-slate-700 hover:border-slate-600'
+                            }`}
+                        >
+                            <Upload className="w-12 h-12 text-slate-500 mx-auto mb-4" />
+                            <p className="text-slate-300 mb-2">
+                                Drag and drop a CSV file here, or{' '}
+                                <button
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="text-emerald-400 hover:text-emerald-300"
+                                >
+                                    browse
+                                </button>
+                            </p>
+                            <p className="text-xs text-slate-500">
+                                First row will be used as column headers
+                            </p>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept=".csv"
+                                onChange={handleFileSelect}
+                                className="hidden"
+                            />
+                        </div>
+                    ) : (
+                        /* Preview & Mapping */
+                        <div className="space-y-6">
+                            {/* Summary */}
+                            <div className="flex items-center gap-4 p-3 bg-slate-800/50 rounded-md">
+                                <FileText className="w-5 h-5 text-emerald-400" />
+                                <div>
+                                    <p className="text-sm text-slate-200">
+                                        {parsedData.rows.length} rows, {parsedData.headers.length} columns
+                                    </p>
+                                    {parsedData.errors.length > 0 && (
+                                        <p className="text-xs text-amber-400">
+                                            {parsedData.errors.length} parsing warnings
+                                        </p>
+                                    )}
+                                </div>
+                                <button
+                                    onClick={() => setParsedData(null)}
+                                    className="ml-auto text-xs text-slate-400 hover:text-slate-300"
+                                >
+                                    Choose different file
+                                </button>
+                            </div>
+
+                            {/* Column Mapping */}
+                            <div>
+                                <h3 className="text-sm font-medium text-slate-300 mb-3">Column Mapping</h3>
+                                <div className="border border-slate-800 rounded-md overflow-hidden">
+                                    <table className="w-full text-sm">
+                                        <thead>
+                                            <tr className="bg-slate-800/50">
+                                                <th className="px-3 py-2 text-left text-xs font-medium text-slate-400">
+                                                    CSV Column
+                                                </th>
+                                                <th className="px-3 py-2 text-left text-xs font-medium text-slate-400">
+                                                    Target Column
+                                                </th>
+                                                <th className="px-3 py-2 text-left text-xs font-medium text-slate-400">
+                                                    Type
+                                                </th>
+                                                <th className="px-3 py-2 text-left text-xs font-medium text-slate-400">
+                                                    Sample Values
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-800">
+                                            {parsedData.headers.map((header) => (
+                                                <tr key={header} className="hover:bg-slate-800/30">
+                                                    <td className="px-3 py-2 text-slate-300">{header}</td>
+                                                    <td className="px-3 py-2">
+                                                        <input
+                                                            type="text"
+                                                            value={columnMapping[header] || ''}
+                                                            onChange={(e) =>
+                                                                setColumnMapping({
+                                                                    ...columnMapping,
+                                                                    [header]: e.target.value,
+                                                                })
+                                                            }
+                                                            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                                                        />
+                                                    </td>
+                                                    <td className="px-3 py-2">
+                                                        <select
+                                                            value={columnTypes[header] || 'text'}
+                                                            onChange={(e) =>
+                                                                setColumnTypes({
+                                                                    ...columnTypes,
+                                                                    [header]: e.target.value as DataColumn['type'],
+                                                                })
+                                                            }
+                                                            className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                                                        >
+                                                            <option value="text">Text</option>
+                                                            <option value="number">Number</option>
+                                                            <option value="boolean">Boolean</option>
+                                                            <option value="date">Date</option>
+                                                        </select>
+                                                    </td>
+                                                    <td className="px-3 py-2 text-xs text-slate-500 max-w-xs truncate">
+                                                        {parsedData.rows
+                                                            .slice(0, 3)
+                                                            .map((r) => r[header])
+                                                            .filter(Boolean)
+                                                            .join(', ')}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            {/* Data Preview */}
+                            <div>
+                                <h3 className="text-sm font-medium text-slate-300 mb-3">
+                                    Data Preview (first 5 rows)
+                                </h3>
+                                <div className="border border-slate-800 rounded-md overflow-auto max-h-48">
+                                    <table className="w-full text-xs">
+                                        <thead>
+                                            <tr className="bg-slate-800/50 sticky top-0">
+                                                <th className="px-2 py-1.5 text-left font-medium text-slate-400">
+                                                    #
+                                                </th>
+                                                {parsedData.headers.map((header) => (
+                                                    <th
+                                                        key={header}
+                                                        className="px-2 py-1.5 text-left font-medium text-slate-400"
+                                                    >
+                                                        {columnMapping[header] || header}
+                                                    </th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-800/50">
+                                            {parsedData.rows.slice(0, 5).map((row, idx) => (
+                                                <tr key={idx} className="hover:bg-slate-800/20">
+                                                    <td className="px-2 py-1.5 text-slate-500">{idx + 1}</td>
+                                                    {parsedData.headers.map((header) => (
+                                                        <td
+                                                            key={header}
+                                                            className="px-2 py-1.5 text-slate-300 max-w-32 truncate"
+                                                        >
+                                                            {String(row[header] ?? '')}
+                                                        </td>
+                                                    ))}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer */}
+                <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-800">
+                    <button
+                        onClick={handleClose}
+                        className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleImport}
+                        disabled={!parsedData || importing}
+                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 rounded-md text-sm text-white transition-colors"
+                    >
+                        {importing ? (
+                            <>
+                                <span className="animate-spin">⏳</span>
+                                Importing...
+                            </>
+                        ) : (
+                            <>
+                                <Check className="w-4 h-4" />
+                                Import {parsedData?.rows.length || 0} rows
+                            </>
+                        )}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+export default ImportCSVModal;

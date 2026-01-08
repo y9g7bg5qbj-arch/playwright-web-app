@@ -43,8 +43,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }
   },
 
-  createWorkflow: async (name, projectId, description) => {
-    const workflow = await workflowsApi.create({ name, projectId, description });
+  createWorkflow: async (name, applicationId, description) => {
+    const workflow = await workflowsApi.create({ name, applicationId, description });
     set({ workflows: [workflow, ...get().workflows] });
     return workflow;
   },

@@ -21,7 +21,7 @@ class IdentificationResult:
 
 class GeminiComputerUse:
     MODEL_THINKING = "gemini-2.0-flash-thinking-exp-01-21"
-    MODEL_STANDARD = "gemini-2.0-flash"
+    MODEL_STANDARD = "gemini-3-pro"
 
     def __init__(self, api_key=None):
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")

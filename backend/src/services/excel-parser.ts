@@ -49,12 +49,12 @@ export class ExcelParserService {
      * Import Excel file into database as TestDataSheets
      *
      * @param filePath - Path to the Excel file
-     * @param projectId - Project/user ID to associate the data with
+     * @param applicationId - Application ID to associate the data with
      * @param options - Import options
      */
     async importExcel(
         filePath: string,
-        projectId: string,
+        applicationId: string,
         options: {
             overwriteExisting?: boolean;
             skipEmptyRows?: boolean;
@@ -98,8 +98,8 @@ export class ExcelParserService {
                     // Check for existing sheet
                     const existingSheet = await prisma.testDataSheet.findUnique({
                         where: {
-                            projectId_name: {
-                                projectId,
+                            applicationId_name: {
+                                applicationId,
                                 name: sheetName
                             }
                         }
@@ -130,7 +130,7 @@ export class ExcelParserService {
                         // Create new sheet
                         dataSheet = await prisma.testDataSheet.create({
                             data: {
-                                projectId,
+                                applicationId,
                                 name: sheetName,
                                 pageObject: sheetName, // Default to sheet name
                                 columns: JSON.stringify(columns)
@@ -208,7 +208,7 @@ export class ExcelParserService {
      */
     async importExcelBuffer(
         buffer: Buffer,
-        projectId: string,
+        applicationId: string,
         options?: Parameters<ExcelParserService['importExcel']>[2]
     ): Promise<ImportResult> {
         const result: ImportResult = {
@@ -240,13 +240,13 @@ export class ExcelParserService {
 
                     const dataSheet = await prisma.testDataSheet.upsert({
                         where: {
-                            projectId_name: {
-                                projectId,
+                            applicationId_name: {
+                                applicationId,
                                 name: sheetName
                             }
                         },
                         create: {
-                            projectId,
+                            applicationId,
                             name: sheetName,
                             pageObject: sheetName,
                             columns: JSON.stringify(columns)
@@ -299,15 +299,15 @@ export class ExcelParserService {
     /**
      * Export test data to Excel format
      *
-     * @param projectId - Project ID to export data from
+     * @param applicationId - Application ID to export data from
      * @param sheetIds - Optional specific sheet IDs to export (exports all if not provided)
      */
     async exportExcel(
-        projectId: string,
+        applicationId: string,
         sheetIds?: string[]
     ): Promise<Buffer> {
         // Fetch sheets to export
-        const whereClause: any = { projectId };
+        const whereClause: any = { applicationId };
         if (sheetIds && sheetIds.length > 0) {
             whereClause.id = { in: sheetIds };
         }

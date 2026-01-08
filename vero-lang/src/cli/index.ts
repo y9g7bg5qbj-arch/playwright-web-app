@@ -98,7 +98,7 @@ program
             process.exit(1);
         }
 
-        const combinedAst: ProgramNode = { type: 'Program', pages: [], features: [] };
+        const combinedAst: ProgramNode = { type: 'Program', pages: [], features: [], fixtures: [] };
         let hasErrors = false;
 
         for (const file of [...pageFiles, ...featureFiles]) {
@@ -128,6 +128,7 @@ program
 
             combinedAst.pages.push(...ast.pages);
             combinedAst.features.push(...ast.features);
+            combinedAst.fixtures.push(...(ast.fixtures || []));
         }
 
         if (hasErrors) {
@@ -164,12 +165,25 @@ program
 
         mkdirSync('generated/pages', { recursive: true });
         mkdirSync('generated/tests', { recursive: true });
+        mkdirSync('generated/fixtures', { recursive: true });
 
         console.log('\n  Generated files:');
 
         for (const [name, code] of result.pages) {
             writeFileSync(`generated/pages/${name}.ts`, code);
             console.log(`  ✓ generated/pages/${name}.ts`);
+        }
+
+        // Generate fixture files
+        for (const [name, code] of result.fixtures) {
+            writeFileSync(`generated/fixtures/${name}.ts`, code);
+            console.log(`  ✓ generated/fixtures/${name}.ts`);
+        }
+
+        // Generate fixtures index if there are fixtures
+        if (result.fixturesIndex) {
+            writeFileSync('generated/fixtures/index.ts', result.fixturesIndex);
+            console.log(`  ✓ generated/fixtures/index.ts`);
         }
 
         for (const [name, code] of result.tests) {
@@ -190,7 +204,7 @@ program
         const pageFiles = findVeroFiles('pages');
         const featureFiles = findVeroFiles('features');
 
-        const combinedAst: ProgramNode = { type: 'Program', pages: [], features: [] };
+        const combinedAst: ProgramNode = { type: 'Program', pages: [], features: [], fixtures: [] };
         let hasErrors = false;
 
         for (const file of [...pageFiles, ...featureFiles]) {
@@ -220,6 +234,7 @@ program
             console.log(`✓ ${file}`);
             combinedAst.pages.push(...ast.pages);
             combinedAst.features.push(...ast.features);
+            combinedAst.fixtures.push(...(ast.fixtures || []));
         }
 
         // Validate
@@ -270,7 +285,7 @@ program
             process.exit(1);
         }
 
-        const combinedAst: ProgramNode = { type: 'Program', pages: [], features: [] };
+        const combinedAst: ProgramNode = { type: 'Program', pages: [], features: [], fixtures: [] };
 
         for (const file of [...pageFiles, ...featureFiles]) {
             const source = readFileSync(file, 'utf-8');
@@ -287,6 +302,7 @@ program
             }
 
             combinedAst.pages.push(...ast.pages);
+            combinedAst.fixtures.push(...(ast.fixtures || []));
             combinedAst.features.push(...ast.features);
         }
 

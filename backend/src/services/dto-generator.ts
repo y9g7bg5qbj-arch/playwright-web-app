@@ -40,10 +40,10 @@ export interface GenerationOptions {
 
 export class DtoGenerator {
     /**
-     * Generate TypeScript DTO classes from all sheets in a project
+     * Generate TypeScript DTO classes from all sheets in an application
      */
     async generateDtoClasses(
-        projectId: string,
+        applicationId: string,
         options: GenerationOptions = {}
     ): Promise<string> {
         const {
@@ -52,9 +52,9 @@ export class DtoGenerator {
             exportFormat = 'both'
         } = options;
 
-        // Fetch all sheets for the project
+        // Fetch all sheets for the application
         const sheets = await prisma.testDataSheet.findMany({
-            where: { projectId },
+            where: { applicationId },
             include: {
                 rows: {
                     orderBy: { scenarioId: 'asc' }
@@ -79,7 +79,7 @@ export class DtoGenerator {
         const parts: string[] = [];
 
         // Header
-        parts.push(this.generateHeader(projectId));
+        parts.push(this.generateHeader(applicationId));
 
         // Data resolver (runtime service)
         if (includeResolver) {
@@ -131,13 +131,13 @@ export class DtoGenerator {
     /**
      * Generate header comment
      */
-    private generateHeader(projectId: string): string {
+    private generateHeader(applicationId: string): string {
         const timestamp = new Date().toISOString();
 
         return `/**
  * Auto-generated Test Data DTOs
  * Generated: ${timestamp}
- * Project: ${projectId}
+ * Application: ${applicationId}
  *
  * DO NOT EDIT MANUALLY - This file is auto-generated from test data sheets.
  *
@@ -473,6 +473,6 @@ export const dtoGenerator = new DtoGenerator();
 /**
  * Convenience function to generate DTO code for a project
  */
-export async function generateDtoCode(projectId: string): Promise<string> {
-    return dtoGenerator.generateDtoClasses(projectId);
+export async function generateDtoCode(applicationId: string): Promise<string> {
+    return dtoGenerator.generateDtoClasses(applicationId);
 }

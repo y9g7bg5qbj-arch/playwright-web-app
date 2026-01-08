@@ -6,7 +6,7 @@ export interface ExecutionWithDetails {
   testFlowId: string;
   testFlowName: string;
   status: 'pending' | 'running' | 'passed' | 'failed' | 'cancelled';
-  target: 'local' | 'docker' | 'remote';
+  target: 'local' | 'remote';
   triggeredBy: {
     type: 'user' | 'scheduled' | 'api' | 'webhook';
     name?: string;
@@ -48,7 +48,6 @@ export interface ExecutionFull extends ExecutionWithDetails {
     id: string;
     shardIndex: number;
     totalShards: number;
-    vncUrl: string;
     status: string;
     currentTest?: string;
   }[];

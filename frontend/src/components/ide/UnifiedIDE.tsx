@@ -11,10 +11,9 @@ import {
     History,
     X,
 } from 'lucide-react';
-import type { ShardInfo } from '../execution/LiveExecutionViewer';
 
 // Import components
-import { ExecutionDashboard, LiveExecutionGrid, LocalExecutionViewer } from '../ExecutionDashboard';
+import { ExecutionDashboard, LocalExecutionViewer } from '../ExecutionDashboard';
 import { TraceViewerPanel } from '../TraceViewer/TraceViewerPanel';
 
 type CanvasView = 'flow' | 'executions' | 'live-execution' | 'trace';
@@ -30,8 +29,6 @@ export function UnifiedIDE() {
     const [canvasView, setCanvasView] = useState<CanvasView>('flow');
     const [viewHistory, setViewHistory] = useState<CanvasView[]>([]);
     const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
-    const [activeShards, setActiveShards] = useState<ShardInfo[]>([]);
-    const [executionMode, setExecutionMode] = useState<'docker' | 'local'>('local');
     const [selectedTraceUrl, setSelectedTraceUrl] = useState<string | null>(null);
     const [selectedTraceName, setSelectedTraceName] = useState<string>('');
 
@@ -51,10 +48,8 @@ export function UnifiedIDE() {
         }
     }, [viewHistory]);
 
-    const handleViewLive = useCallback((execId: string, mode: 'docker' | 'local', shards?: ShardInfo[]) => {
+    const handleViewLive = useCallback((execId: string) => {
         setActiveExecutionId(execId);
-        setExecutionMode(mode);
-        setActiveShards(shards || []);
         navigateTo('live-execution');
     }, [navigateTo]);
 
@@ -181,7 +176,7 @@ export function UnifiedIDE() {
                     {/* Execution Dashboard View */}
                     {canvasView === 'executions' && (
                         <ExecutionDashboard
-                            onViewLive={handleViewLive}
+                            onViewLive={(execId) => handleViewLive(execId)}
                             onViewTrace={handleViewTrace}
                             onBack={() => {
                                 setCanvasView('flow');
@@ -192,19 +187,10 @@ export function UnifiedIDE() {
 
                     {/* Live Execution View */}
                     {canvasView === 'live-execution' && activeExecutionId && (
-                        executionMode === 'docker' ? (
-                            <LiveExecutionGrid
-                                executionId={activeExecutionId}
-                                shards={activeShards}
-                                mode={executionMode}
-                                onBack={goBack}
-                            />
-                        ) : (
-                            <LocalExecutionViewer
-                                executionId={activeExecutionId}
-                                onBack={goBack}
-                            />
-                        )
+                        <LocalExecutionViewer
+                            executionId={activeExecutionId}
+                            onBack={goBack}
+                        />
                     )}
 
                     {/* Trace Viewer View */}

@@ -1,0 +1,25 @@
+# Simple Search Test - Opens Amazon and searches for "pen"
+
+feature SimpleSearch {
+    
+    before each {
+        open "https://www.amazon.com"
+    }
+    
+    scenario "Search for pen on Amazon" @smoke {
+        # Wait for page to load
+        wait 2 seconds
+        
+        # Type in the search box
+        Type "pen" in "#twotabsearchtextbox"
+        
+        # Click search button
+        click "#nav-search-submit-button"
+        
+        # Wait for results
+        wait 2 seconds
+        
+        # Verify results loaded
+        verify "pen" is visible
+    }
+}

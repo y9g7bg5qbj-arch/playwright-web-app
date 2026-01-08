@@ -4,7 +4,8 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { ExecutionService } from '../services/execution.service';
-import { PlaywrightService } from '../services/playwright.service';
+import { PlaywrightService, DebugEvent } from '../services/playwright.service';
+import { CopilotAgentService } from '../services/copilot/CopilotAgentService';
 import type { ClientToServerEvents, ServerToClientEvents } from '@playwright-web-app/shared';
 
 interface AuthSocket extends Socket {
@@ -558,6 +559,345 @@ export class WebSocketServer {
       // Gracefully handle missing execution record
       await this.executionService.updateStatus(data.executionId, 'cancelled');
       this.playwrightService.cancelExecution(data.executionId);
+    });
+
+    // ======== DEBUG EXECUTION ========
+    // Handle debug execution start
+    socket.on('debug:start', async (data: {
+      executionId: string;
+      testFlowId: string;
+      code: string;
+      breakpoints: number[];
+    }) => {
+      logger.info('Debug execution start requested:', { executionId: data.executionId, breakpoints: data.breakpoints });
+
+      // Create or update execution record
+      await this.executionService.updateStatus(data.executionId, 'running', undefined, data.testFlowId);
+
+      // Execute with debug mode
+      this.playwrightService.executeTestWithDebug(
+        data.code,
+        data.executionId,
+        data.breakpoints,
+        // Debug event callback
+        (event: DebugEvent) => {
+          switch (event.type) {
+            case 'step:before':
+              this.io.emit('debug:step:before', {
+                executionId: data.executionId,
+                line: event.line,
+                action: event.action,
+                target: event.target,
+              });
+              break;
+
+            case 'step:after':
+              this.io.emit('debug:step:after', {
+                executionId: data.executionId,
+                line: event.line,
+                action: event.action,
+                success: event.success ?? true,
+                duration: event.duration,
+              });
+              break;
+
+            case 'execution:paused':
+              this.io.emit('debug:paused', {
+                executionId: data.executionId,
+                line: event.line,
+              });
+              break;
+
+            case 'variable:set':
+              this.io.emit('debug:variable', {
+                executionId: data.executionId,
+                name: event.name,
+                value: event.value,
+                type: typeof event.value,
+              });
+              break;
+
+            case 'log':
+              this.io.emit('debug:log', {
+                executionId: data.executionId,
+                line: event.line ?? 0,
+                message: event.message,
+                level: event.level,
+              });
+              break;
+          }
+        },
+        // Log callback
+        async (message, level) => {
+          try {
+            await this.executionService.addLog(data.executionId, message, level);
+          } catch (error) {
+            logger.warn('Failed to add debug log:', error);
+          }
+          this.io.emit('execution:log', {
+            executionId: data.executionId,
+            message,
+            level,
+          });
+        },
+        // Complete callback
+        async (exitCode, duration) => {
+          const status = exitCode === 0 ? 'passed' : 'failed';
+          await this.executionService.updateStatus(data.executionId, status, exitCode);
+
+          this.io.emit('debug:complete', {
+            executionId: data.executionId,
+            exitCode,
+            duration,
+          });
+        }
+      );
+    });
+
+    // Handle breakpoint updates
+    socket.on('debug:set-breakpoints', (data: {
+      executionId: string;
+      breakpoints: number[];
+    }) => {
+      logger.info('Setting breakpoints:', data);
+      this.playwrightService.setBreakpoints(data.executionId, data.breakpoints);
+    });
+
+    // Handle debug resume
+    socket.on('debug:resume', (data: { executionId: string }) => {
+      logger.info('Debug resume requested:', data);
+      this.playwrightService.resumeDebug(data.executionId);
+      this.io.emit('debug:resumed', { executionId: data.executionId });
+    });
+
+    // Handle debug step over
+    socket.on('debug:step-over', (data: { executionId: string }) => {
+      logger.info('Debug step over requested:', data);
+      this.playwrightService.stepOverDebug(data.executionId);
+    });
+
+    // Handle debug step into
+    socket.on('debug:step-into', (data: { executionId: string }) => {
+      logger.info('Debug step into requested:', data);
+      this.playwrightService.stepIntoDebug(data.executionId);
+    });
+
+    // Handle debug stop
+    socket.on('debug:stop', (data: { executionId: string }) => {
+      logger.info('Debug stop requested:', data);
+      this.playwrightService.stopDebug(data.executionId);
+      this.io.emit('debug:stopped', { executionId: data.executionId });
+    });
+
+    // ======== COPILOT AGENT ========
+    // Note: Copilot events use 'any' cast since they're not in shared types yet
+    const copilotIo = this.io as any;
+    const copilotSocket = socket as any;
+
+    // Handle copilot session join (for real-time updates)
+    copilotSocket.on('copilot:join', async (data: { sessionId: string }) => {
+      logger.info('Copilot session join requested:', data);
+      socket.join(`copilot:${data.sessionId}`);
+      copilotSocket.emit('copilot:joined', { sessionId: data.sessionId });
+    });
+
+    // Handle copilot session leave
+    copilotSocket.on('copilot:leave', async (data: { sessionId: string }) => {
+      logger.info('Copilot session leave requested:', data);
+      socket.leave(`copilot:${data.sessionId}`);
+    });
+
+    // Handle copilot message (user sends a message)
+    copilotSocket.on('copilot:message', async (data: { sessionId: string; content: string }) => {
+      logger.info('Copilot message received:', { sessionId: data.sessionId, content: data.content.substring(0, 100) });
+
+      try {
+        const agent = new CopilotAgentService(data.sessionId);
+
+        // Set up event listeners for real-time updates
+        agent.on('stateChange', (event) => {
+          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:state', {
+            sessionId: data.sessionId,
+            state: event.state,
+            errorMessage: event.errorMessage,
+          });
+        });
+
+        agent.on('thinking', (event) => {
+          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:thinking', {
+            sessionId: data.sessionId,
+            message: event.message,
+          });
+        });
+
+        agent.on('message', (message) => {
+          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:message', {
+            sessionId: data.sessionId,
+            message,
+          });
+        });
+
+        agent.on('exploration', (exploration) => {
+          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:exploration', {
+            sessionId: data.sessionId,
+            ...exploration,
+          });
+        });
+
+        agent.on('filesCreated', (event) => {
+          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:filesCreated', {
+            sessionId: data.sessionId,
+            veroPath: event.veroPath,
+            createdFiles: event.createdFiles,
+            skippedFiles: event.skippedFiles,
+          });
+        });
+
+        agent.on('stagedChanges', (event) => {
+          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:staged', {
+            sessionId: data.sessionId,
+            changeIds: event.changeIds,
+          });
+        });
+
+        agent.on('mergeComplete', (event) => {
+          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:merged', {
+            sessionId: data.sessionId,
+            changes: event.changes,
+          });
+        });
+
+        // Process the message
+        await agent.processUserMessage(data.content);
+      } catch (error: any) {
+        logger.error('Copilot message processing failed:', error);
+        copilotSocket.emit('copilot:error', {
+          sessionId: data.sessionId,
+          error: error.message,
+        });
+      }
+    });
+
+    // Handle copilot clarification response
+    copilotSocket.on('copilot:clarify', async (data: { sessionId: string; clarificationId: string; response: string }) => {
+      logger.info('Copilot clarification response:', data);
+
+      try {
+        const agent = new CopilotAgentService(data.sessionId);
+
+        // Set up event listeners
+        agent.on('stateChange', (event) => {
+          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:state', {
+            sessionId: data.sessionId,
+            state: event.state,
+          });
+        });
+
+        agent.on('message', (message) => {
+          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:message', {
+            sessionId: data.sessionId,
+            message,
+          });
+        });
+
+        await agent.handleClarificationResponse(data.clarificationId, data.response);
+      } catch (error: any) {
+        logger.error('Copilot clarification failed:', error);
+        copilotSocket.emit('copilot:error', {
+          sessionId: data.sessionId,
+          error: error.message,
+        });
+      }
+    });
+
+    // Handle copilot change approval
+    copilotSocket.on('copilot:approve', async (data: { sessionId: string; changeId: string }) => {
+      logger.info('Copilot change approval:', data);
+
+      try {
+        const agent = new CopilotAgentService(data.sessionId);
+        await agent.load();
+        await agent.approveChange(data.changeId);
+
+        copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:change:approved', {
+          sessionId: data.sessionId,
+          changeId: data.changeId,
+        });
+      } catch (error: any) {
+        logger.error('Copilot approval failed:', error);
+        copilotSocket.emit('copilot:error', {
+          sessionId: data.sessionId,
+          error: error.message,
+        });
+      }
+    });
+
+    // Handle copilot change rejection
+    copilotSocket.on('copilot:reject', async (data: { sessionId: string; changeId: string; feedback?: string }) => {
+      logger.info('Copilot change rejection:', data);
+
+      try {
+        const agent = new CopilotAgentService(data.sessionId);
+        await agent.load();
+        await agent.rejectChange(data.changeId, data.feedback);
+
+        copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:change:rejected', {
+          sessionId: data.sessionId,
+          changeId: data.changeId,
+        });
+      } catch (error: any) {
+        logger.error('Copilot rejection failed:', error);
+        copilotSocket.emit('copilot:error', {
+          sessionId: data.sessionId,
+          error: error.message,
+        });
+      }
+    });
+
+    // Handle approve all changes
+    copilotSocket.on('copilot:approve-all', async (data: { sessionId: string }) => {
+      logger.info('Copilot approve all:', data);
+
+      try {
+        const agent = new CopilotAgentService(data.sessionId);
+
+        agent.on('mergeComplete', (event) => {
+          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:merged', {
+            sessionId: data.sessionId,
+            changes: event.changes,
+          });
+        });
+
+        await agent.load();
+        await agent.approveAllChanges();
+      } catch (error: any) {
+        logger.error('Copilot approve all failed:', error);
+        copilotSocket.emit('copilot:error', {
+          sessionId: data.sessionId,
+          error: error.message,
+        });
+      }
+    });
+
+    // Handle copilot session reset
+    copilotSocket.on('copilot:reset', async (data: { sessionId: string }) => {
+      logger.info('Copilot reset:', data);
+
+      try {
+        const agent = new CopilotAgentService(data.sessionId);
+        await agent.load();
+        await agent.reset();
+
+        copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:reset', {
+          sessionId: data.sessionId,
+        });
+      } catch (error: any) {
+        logger.error('Copilot reset failed:', error);
+        copilotSocket.emit('copilot:error', {
+          sessionId: data.sessionId,
+          error: error.message,
+        });
+      }
     });
   }
 

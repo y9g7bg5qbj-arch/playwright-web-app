@@ -5,7 +5,7 @@
  * environments, and global variables.
  */
 
-import { Router, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { prisma } from '../db/prisma';
 import { excelParserService } from '../services/excel-parser';
@@ -19,10 +19,10 @@ const router = Router();
 // Apply authentication to all routes
 router.use(authenticateToken);
 
-// Helper function to verify project access
-async function verifyProjectAccess(userId: string, projectId: string): Promise<{ hasAccess: boolean; isOwner: boolean }> {
-    const project = await prisma.project.findUnique({
-        where: { id: projectId },
+// Helper function to verify application access
+async function verifyApplicationAccess(userId: string, applicationId: string): Promise<{ hasAccess: boolean; isOwner: boolean }> {
+    const application = await prisma.application.findUnique({
+        where: { id: applicationId },
         include: {
             members: {
                 where: { userId }
@@ -30,12 +30,12 @@ async function verifyProjectAccess(userId: string, projectId: string): Promise<{
         }
     });
 
-    if (!project) {
+    if (!application) {
         return { hasAccess: false, isOwner: false };
     }
 
-    const isOwner = project.userId === userId;
-    const isMember = project.members.length > 0;
+    const isOwner = application.userId === userId;
+    const isMember = application.members.length > 0;
 
     return { hasAccess: isOwner || isMember, isOwner };
 }
@@ -71,31 +71,75 @@ const upload = multer({
 
 /**
  * GET /api/test-data/sheets
- * List all test data sheets for a project
+ * List all test data sheets for an application
  */
 router.get('/sheets', async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.userId!;
         const { projectId } = req.query;
 
-        if (!projectId) {
+        // projectId is actually applicationId for backwards compatibility
+        const applicationId = projectId as string;
+
+        if (!applicationId) {
             return res.status(400).json({
                 success: false,
                 error: 'projectId is required'
             });
         }
 
-        // Verify project access
-        const { hasAccess } = await verifyProjectAccess(userId, projectId as string);
-        if (!hasAccess) {
-            return res.status(403).json({
-                success: false,
-                error: 'Access denied to this project'
+        // Verify application access
+        const application = await prisma.application.findFirst({
+            where: {
+                id: applicationId,
+                OR: [
+                    { userId },
+                    { members: { some: { userId } } }
+                ]
+            }
+        });
+
+        if (!application) {
+            // Fallback: use user's first application
+            const firstApp = await prisma.application.findFirst({
+                where: { userId },
+                orderBy: { createdAt: 'asc' }
+            });
+
+            if (firstApp) {
+                const sheets = await prisma.testDataSheet.findMany({
+                    where: { applicationId: firstApp.id },
+                    include: {
+                        _count: {
+                            select: { rows: true }
+                        }
+                    },
+                    orderBy: { name: 'asc' }
+                });
+
+                return res.json({
+                    success: true,
+                    sheets: sheets.map(s => ({
+                        id: s.id,
+                        name: s.name,
+                        pageObject: s.pageObject,
+                        description: s.description,
+                        columns: JSON.parse(s.columns),
+                        rowCount: s._count.rows,
+                        createdAt: s.createdAt,
+                        updatedAt: s.updatedAt
+                    }))
+                });
+            }
+
+            return res.json({
+                success: true,
+                sheets: []
             });
         }
 
         const sheets = await prisma.testDataSheet.findMany({
-            where: { projectId: projectId as string },
+            where: { applicationId: application.id },
             include: {
                 _count: {
                     select: { rows: true }
@@ -130,21 +174,67 @@ router.get('/sheets', async (req: AuthRequest, res: Response) => {
  * POST /api/test-data/sheets
  * Create a new test data sheet
  */
-router.post('/sheets', async (req: Request, res: Response) => {
+router.post('/sheets', async (req: AuthRequest, res: Response) => {
     try {
-        const { projectId, userId, name, pageObject, description, columns } = req.body;
+        const userId = req.userId!;
+        const { projectId, name, pageObject, description, columns } = req.body;
 
-        const pid = projectId || userId;
-        if (!pid || !name) {
+        // projectId here is actually the applicationId (for backwards compatibility)
+        const applicationId = projectId;
+        if (!applicationId || !name) {
             return res.status(400).json({
                 success: false,
                 error: 'projectId and name are required'
             });
         }
 
+        // Verify the application exists and user has access
+        const application = await prisma.application.findFirst({
+            where: {
+                id: applicationId,
+                OR: [
+                    { userId }, // User owns the application
+                    { members: { some: { userId } } } // User is a member
+                ]
+            }
+        });
+
+        if (!application) {
+            // Fallback: use user's first application (don't auto-create new ones)
+            const firstApp = await prisma.application.findFirst({
+                where: { userId },
+                orderBy: { createdAt: 'asc' }
+            });
+
+            if (!firstApp) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'No application found. Please create an application first.'
+                });
+            }
+
+            const sheet = await prisma.testDataSheet.create({
+                data: {
+                    applicationId: firstApp.id,
+                    name,
+                    pageObject: pageObject || name,
+                    description,
+                    columns: JSON.stringify(columns || [])
+                }
+            });
+
+            return res.status(201).json({
+                success: true,
+                sheet: {
+                    ...sheet,
+                    columns: JSON.parse(sheet.columns)
+                }
+            });
+        }
+
         const sheet = await prisma.testDataSheet.create({
             data: {
-                projectId: pid,
+                applicationId: application.id,
                 name,
                 pageObject: pageObject || name,
                 description,
@@ -441,8 +531,7 @@ router.post('/sheets/:id/rows/bulk', async (req: Request, res: Response) => {
                 scenarioId: row.scenarioId || row.TestID,
                 data: JSON.stringify(row.data || row),
                 enabled: row.enabled ?? true
-            })),
-            skipDuplicates: true
+            }))
         });
 
         res.status(201).json({
@@ -451,6 +540,78 @@ router.post('/sheets/:id/rows/bulk', async (req: Request, res: Response) => {
         });
     } catch (error) {
         console.error('Error bulk creating rows:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * POST /api/test-data/sheets/:id/rows/bulk-update
+ * Bulk update multiple rows in a sheet
+ * Body: { updates: Array<{ rowId: string, data: Record<string, any> }> }
+ */
+router.post('/sheets/:id/rows/bulk-update', async (req: Request, res: Response) => {
+    try {
+        const { id: sheetId } = req.params;
+        const { updates } = req.body;
+
+        if (!Array.isArray(updates)) {
+            return res.status(400).json({
+                success: false,
+                error: 'updates must be an array'
+            });
+        }
+
+        if (updates.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'updates array cannot be empty'
+            });
+        }
+
+        // Verify all rows belong to this sheet
+        const rowIds = updates.map((u: { rowId: string }) => u.rowId);
+        const existingRows = await prisma.testDataRow.findMany({
+            where: {
+                id: { in: rowIds },
+                sheetId
+            },
+            select: { id: true, data: true }
+        });
+
+        if (existingRows.length !== rowIds.length) {
+            return res.status(400).json({
+                success: false,
+                error: 'Some row IDs do not belong to this sheet'
+            });
+        }
+
+        // Create a map of existing data for merging
+        const existingDataMap = new Map(
+            existingRows.map(row => [row.id, typeof row.data === 'string' ? JSON.parse(row.data) : row.data])
+        );
+
+        // Execute updates in a transaction
+        const results = await prisma.$transaction(
+            updates.map((update: { rowId: string; data: Record<string, any> }) => {
+                const existingData = existingDataMap.get(update.rowId) || {};
+                const mergedData = { ...existingData, ...update.data };
+
+                return prisma.testDataRow.update({
+                    where: { id: update.rowId },
+                    data: { data: JSON.stringify(mergedData) }
+                });
+            })
+        );
+
+        res.json({
+            success: true,
+            updated: results.length
+        });
+    } catch (error) {
+        console.error('Error bulk updating rows:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'
@@ -605,24 +766,27 @@ router.get('/schema', async (req: AuthRequest, res: Response) => {
         const userId = req.userId!;
         const { projectId } = req.query;
 
-        if (!projectId) {
+        // projectId is actually applicationId for backwards compatibility
+        const applicationId = projectId as string;
+
+        if (!applicationId) {
             return res.status(400).json({
                 success: false,
                 error: 'projectId is required'
             });
         }
 
-        // Verify project access
-        const { hasAccess } = await verifyProjectAccess(userId, projectId as string);
+        // Verify application access
+        const { hasAccess } = await verifyApplicationAccess(userId, applicationId);
         if (!hasAccess) {
             return res.status(403).json({
                 success: false,
-                error: 'Access denied to this project'
+                error: 'Access denied to this application'
             });
         }
 
         const sheets = await prisma.testDataSheet.findMany({
-            where: { projectId: projectId as string },
+            where: { applicationId },
             select: {
                 id: true,
                 name: true,
@@ -776,19 +940,19 @@ router.post('/validate/:sheetId', async (req: Request, res: Response) => {
 // ============================================
 
 /**
- * GET /api/test-data/by-scenario/:projectId/:scenarioId
+ * GET /api/test-data/by-scenario/:applicationId/:scenarioId
  * Get all data for a scenario across all sheets
  */
-router.get('/by-scenario/:projectId/:scenarioId', async (req: Request, res: Response) => {
+router.get('/by-scenario/:applicationId/:scenarioId', async (req: Request, res: Response) => {
     try {
-        const { projectId, scenarioId } = req.params;
+        const { applicationId, scenarioId } = req.params;
 
         const rows = await prisma.testDataRow.findMany({
             where: {
                 scenarioId,
                 enabled: true,
                 sheet: {
-                    projectId
+                    applicationId
                 }
             },
             include: {
@@ -825,17 +989,17 @@ router.get('/by-scenario/:projectId/:scenarioId', async (req: Request, res: Resp
 });
 
 /**
- * GET /api/test-data/by-sheet/:projectId/:sheetName/:scenarioId
+ * GET /api/test-data/by-sheet/:applicationId/:sheetName/:scenarioId
  * Get data for a specific sheet and scenario
  */
-router.get('/by-sheet/:projectId/:sheetName/:scenarioId', async (req: Request, res: Response) => {
+router.get('/by-sheet/:applicationId/:sheetName/:scenarioId', async (req: Request, res: Response) => {
     try {
-        const { projectId, sheetName, scenarioId } = req.params;
+        const { applicationId, sheetName, scenarioId } = req.params;
 
         const sheet = await prisma.testDataSheet.findUnique({
             where: {
-                projectId_name: {
-                    projectId,
+                applicationId_name: {
+                    applicationId,
                     name: sheetName
                 }
             }

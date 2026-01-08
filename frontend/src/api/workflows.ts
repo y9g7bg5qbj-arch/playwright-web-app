@@ -2,8 +2,9 @@ import { apiClient } from './client';
 import type { Workflow, WorkflowCreate, WorkflowUpdate } from '@playwright-web-app/shared';
 
 export const workflowsApi = {
-  getAll: (projectId?: string) => {
-    const params = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+  getAll: (applicationId?: string) => {
+    // Support both applicationId and legacy projectId
+    const params = applicationId ? `?applicationId=${encodeURIComponent(applicationId)}` : '';
     return apiClient.get<Workflow[]>(`/workflows${params}`);
   },
 

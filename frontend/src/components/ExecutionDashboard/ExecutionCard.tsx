@@ -196,21 +196,12 @@ export const ExecutionCard: React.FC<ExecutionCardProps> = ({
                 }}
                 className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
               >
-                {execution.target === 'docker' ? (
-                  <>
-                    <Monitor className="w-4 h-4" />
-                    View Live Execution (Netflix View)
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4" />
-                    View Live Execution
-                  </>
-                )}
+                <Play className="w-4 h-4" />
+                View Live Execution
               </button>
 
-              {/* Shards Info for Docker */}
-              {execution.target === 'docker' && execution.shards && execution.shards.length > 0 && (
+              {/* Shards Info */}
+              {execution.shards && execution.shards.length > 0 && (
                 <div className="flex items-center gap-2 text-xs text-slate-500">
                   <Monitor className="w-3.5 h-3.5" />
                   <span>

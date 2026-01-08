@@ -18,7 +18,8 @@ export type AuditAction =
   | 'failed'
   | 'cancelled'
   | 'sent'
-  | 'webhook_received';
+  | 'webhook_received'
+  | 'dispatched_to_github';
 
 export interface AuditLogEntry {
   id: string;

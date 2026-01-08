@@ -7,7 +7,7 @@ FEATURE Search {
         OPEN "https://www.google.com"
     }
     
-    SCENARIO "User can search for pen" @smoke {
+    SCENARIO "User can search for pen3" @smoke {
         FILL SearchHomePage.searchInput WITH "pen"
         PRESS "Enter"
         WAIT 2 SECONDS
@@ -19,6 +19,42 @@ FEATURE Search {
         WAIT 2 SECONDS
         VERIFY SearchHomePage.searchResults IS VISIBLE
     }
+    data  SCENARIO "User can search for pen2" @smoke {
+        FILL SearchHomePage.searchInput WITH "pen"
+        PRESS "Enter"
+        WAIT 2 SECONDS
+        VERIFY SearchHomePage.searchResults IS VISIBLE
+    }
+    
+    SCENARIO "Search using action2" @smoke {
+        DO SearchHomePage.searchFor WITH "pen"
+        WAIT 2 SECONDS
+        VERIFY SearchHomePage.searchResults IS VISIBLE
+    }  
+      SCENARIO "User can search for pen3" @smoke {
+        FILL SearchHomePage.searchInput WITH "pen"
+        PRESS "Enter"
+        WAIT 2 SECONDS
+        VERIFY SearchHomePage.searchResults IS VISIBLE
+    }
+    
+    SCENARIO "Search using action3" @smoke {
+        DO SearchHomePage.searchFor WITH "pen"
+        WAIT 2 SECONDS
+        VERIFY SearchHomePage.searchResults IS VISIBLE
+    }
+      SCENARIO "User can search for pen2" @smoke {
+        FILL SearchHomePage.searchInput WITH "pen"
+        PRESS "Enter"
+        WAIT 2 SECONDS
+        VERIFY SearchHomePage.searchResults IS VISIBLE
+    }
+    
+    SCENARIO "Search using action2" @smoke {
+        DO SearchHomePage.searchFor WITH "pen"
+        WAIT 2 SECONDS
+        VERIFY SearchHomePage.searchResults IS VISIBLE
+    } 
 
     
 }
