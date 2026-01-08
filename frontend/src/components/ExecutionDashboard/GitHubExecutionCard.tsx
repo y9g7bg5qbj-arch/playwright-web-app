@@ -263,24 +263,43 @@ export const GitHubExecutionCard: React.FC<GitHubExecutionCardProps> = ({
 
   // Check if traces should be available (completed runs have traces)
   const hasTraces = execution.status === 'completed' && execution.conclusion === 'success';
+  const [traceLoading, setTraceLoading] = useState(false);
 
-  // Open trace viewer - use trace.playwright.dev with the artifact URL
-  const handleOpenTraceViewer = () => {
-    // Check if we have a specific trace URL from scenarios
-    const traceScenario = execution.scenarios?.find(s => s.traceUrl);
-    if (traceScenario?.traceUrl) {
-      // If it's already a full URL, open directly
-      if (traceScenario.traceUrl.startsWith('http')) {
-        window.open(traceScenario.traceUrl, '_blank');
-      } else {
-        // Open in Playwright Trace Viewer
-        window.open(`https://trace.playwright.dev/?trace=${encodeURIComponent(traceScenario.traceUrl)}`, '_blank');
-      }
+  // Open trace viewer - calls backend to download and launch npx playwright show-trace
+  const handleOpenTraceViewer = async () => {
+    if (!execution.owner || !execution.repo || !execution.runId) {
+      console.error('[TraceViewer] Missing owner, repo, or runId');
       return;
     }
-    // For completed runs without specific trace URL, link to GitHub run artifacts
-    if (execution.htmlUrl) {
-      window.open(execution.htmlUrl + '#artifacts', '_blank');
+
+    setTraceLoading(true);
+    try {
+      const response = await fetch(`/api/github/runs/${execution.runId}/trace/open`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+        },
+        body: JSON.stringify({
+          owner: execution.owner,
+          repo: execution.repo,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        console.log('[TraceViewer] Launched successfully:', data.data);
+        // The trace viewer GUI will open in a separate window via npx playwright show-trace
+      } else {
+        console.error('[TraceViewer] Failed:', data.error);
+        alert(`Failed to open trace viewer: ${data.error}`);
+      }
+    } catch (error) {
+      console.error('[TraceViewer] Error:', error);
+      alert('Failed to open trace viewer. Check console for details.');
+    } finally {
+      setTraceLoading(false);
     }
   };
 
@@ -481,14 +500,18 @@ export const GitHubExecutionCard: React.FC<GitHubExecutionCardProps> = ({
                   e.stopPropagation();
                   handleOpenTraceViewer();
                 }}
-                disabled={!hasTraces}
+                disabled={!hasTraces || traceLoading}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <PlayCircle className="w-4 h-4" />
-                Open Trace Viewer
+                {traceLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <PlayCircle className="w-4 h-4" />
+                )}
+                {traceLoading ? 'Launching...' : 'Open Trace Viewer'}
               </button>
               <span className="text-xs text-slate-400">
-                {hasTraces ? 'View step-by-step execution with screenshots' : 'No traces available'}
+                {hasTraces ? 'Launch Playwright Trace Viewer GUI' : 'No traces available'}
               </span>
 
               {/* Additional actions */}

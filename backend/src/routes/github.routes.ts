@@ -643,6 +643,139 @@ router.get(
 );
 
 /**
+ * POST /api/github/runs/:runId/trace/open
+ * Download trace artifact and launch Playwright Trace Viewer
+ */
+router.post(
+  '/runs/:runId/trace/open',
+  authenticateToken,
+  validate([
+    param('runId').isInt().withMessage('Run ID must be an integer'),
+    body('owner').isString().notEmpty().withMessage('Owner is required'),
+    body('repo').isString().notEmpty().withMessage('Repo is required'),
+  ]),
+  async (req: AuthRequest, res: Response, next) => {
+    try {
+      const { runId } = req.params;
+      const { owner, repo } = req.body;
+      const AdmZip = require('adm-zip');
+      const { spawn } = require('child_process');
+      const path = require('path');
+      const fs = require('fs');
+      const os = require('os');
+
+      logger.info(`[TraceViewer] Opening trace for run ${runId}, owner=${owner}, repo=${repo}`);
+
+      // Get artifacts for this run
+      const artifacts = await githubService.listArtifacts(
+        req.userId!,
+        owner as string,
+        repo as string,
+        parseInt(runId, 10)
+      );
+
+      // Find trace artifact (usually named 'playwright-trace' or contains 'trace')
+      const traceArtifact = artifacts.find((a) =>
+        a.name.includes('trace') ||
+        a.name.includes('playwright-trace') ||
+        a.name.includes('test-results')
+      );
+
+      if (!traceArtifact) {
+        res.status(404).json({
+          success: false,
+          error: 'No trace artifact found for this run',
+        });
+        return;
+      }
+
+      logger.info(`[TraceViewer] Found trace artifact: ${traceArtifact.name} (${traceArtifact.id})`);
+
+      // Download the artifact
+      const buffer = await githubService.downloadArtifact(
+        req.userId!,
+        owner as string,
+        repo as string,
+        traceArtifact.id
+      );
+
+      // Create temp directory for traces
+      const tempDir = path.join(os.tmpdir(), 'vero-traces', `run-${runId}`);
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+
+      // Extract the artifact
+      const zip = new AdmZip(buffer);
+      zip.extractAllTo(tempDir, true);
+
+      logger.info(`[TraceViewer] Extracted traces to ${tempDir}`);
+
+      // Find .zip trace files (Playwright traces are .zip files within the artifact)
+      const findTraceFiles = (dir: string): string[] => {
+        const files: string[] = [];
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            files.push(...findTraceFiles(fullPath));
+          } else if (entry.name.endsWith('.zip') && entry.name.includes('trace')) {
+            files.push(fullPath);
+          }
+        }
+        return files;
+      };
+
+      const traceFiles = findTraceFiles(tempDir);
+
+      if (traceFiles.length === 0) {
+        // Try to find any .zip file as a fallback
+        const allZips = findTraceFiles(tempDir).length === 0
+          ? fs.readdirSync(tempDir, { recursive: true })
+            .filter((f: string) => f.endsWith('.zip'))
+            .map((f: string) => path.join(tempDir, f))
+          : [];
+
+        if (allZips.length === 0) {
+          res.status(404).json({
+            success: false,
+            error: 'No trace files found in artifact. The run may not have generated traces.',
+          });
+          return;
+        }
+      }
+
+      // Use the first trace file (or all of them)
+      const traceFile = traceFiles[0] || path.join(tempDir, 'trace.zip');
+
+      logger.info(`[TraceViewer] Launching trace viewer for: ${traceFile}`);
+
+      // Launch Playwright Trace Viewer
+      const child = spawn('npx', ['playwright', 'show-trace', traceFile], {
+        detached: true,
+        stdio: 'ignore',
+        cwd: process.cwd(),
+      });
+
+      // Detach the child process so it runs independently
+      child.unref();
+
+      res.json({
+        success: true,
+        message: 'Trace Viewer launched',
+        data: {
+          tracePath: traceFile,
+          traceFiles: traceFiles,
+        },
+      });
+    } catch (error) {
+      logger.error(`[TraceViewer] Error: ${error}`);
+      next(error);
+    }
+  }
+);
+
+/**
  * GET /api/github/runs/:runId/report
  * Get parsed test report from a workflow run's artifacts
  */
