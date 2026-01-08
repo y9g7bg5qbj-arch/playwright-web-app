@@ -116,9 +116,40 @@ export const useGitHubExecutionStore = create<GitHubExecutionStore>()(
       activePolling: new Set(),
 
       addExecution: (execution) => {
-        set((state) => ({
-          executions: [execution, ...state.executions].slice(0, 50), // Keep last 50
-        }));
+        set((state) => {
+          // Prevent duplicates:
+          // 1. If same runId/runNumber exists (already tracking this run)
+          // 2. If a queued execution was added in the last 30 seconds (debounce rapid clicks)
+          const now = Date.now();
+          const thirtySecondsAgo = now - 30000;
+
+          const isDuplicate = state.executions.some((existing) => {
+            // Same run already being tracked
+            if (execution.runId && existing.runId === execution.runId) return true;
+            if (execution.runNumber && existing.runNumber === execution.runNumber) return true;
+
+            // Debounce: queued execution for same repo within 30 seconds
+            if (
+              existing.status === 'queued' &&
+              existing.owner === execution.owner &&
+              existing.repo === execution.repo &&
+              new Date(existing.triggeredAt).getTime() > thirtySecondsAgo
+            ) {
+              return true;
+            }
+
+            return false;
+          });
+
+          if (isDuplicate) {
+            console.log('[GitHubExecutionStore] Skipping duplicate execution:', execution.id);
+            return state; // Don't add duplicate
+          }
+
+          return {
+            executions: [execution, ...state.executions].slice(0, 50), // Keep last 50
+          };
+        });
       },
 
       updateExecution: (id, updates) => {
