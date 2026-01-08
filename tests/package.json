@@ -1,15 +1,24 @@
 {
   "name": "tests",
   "version": "1.0.0",
-  "description": "",
+  "description": "Playwright tests with Allure reporting",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "playwright test",
+    "test:guaranteed": "playwright test guaranteed-pass.spec.ts",
+    "test:allure": "playwright test && npm run allure:generate && npm run allure:open",
+    "allure:generate": "allure generate allure-results --clean -o allure-report",
+    "allure:open": "allure open allure-report"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@playwright/test": "^1.57.0"
+    "@playwright/test": "^1.57.0",
+    "playwright": "^1.57.0"
+  },
+  "devDependencies": {
+    "allure-commandline": "^2.29.0",
+    "allure-playwright": "^3.4.4"
   }
 }
