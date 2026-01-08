@@ -186,6 +186,9 @@ const DEFAULT_ADVANCED_CONFIG: AdvancedConfig = {
   },
   notifications: {},
   debug: {},
+  fullyParallel: false,
+  forbidOnly: false,
+  maxFailures: 0,
 };
 
 export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
@@ -517,11 +520,10 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
-                  activeTab === tab.id
+                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${activeTab === tab.id
                     ? 'bg-blue-600/20 text-blue-400 border-r-2 border-blue-400'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-                }`}
+                  }`}
               >
                 {tab.icon}
                 <span className="text-sm font-medium">{tab.label}</span>
@@ -556,22 +558,20 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                           <button
                             type="button"
                             onClick={() => updateField('tagMode', 'any')}
-                            className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                              localConfig.tagMode === 'any'
+                            className={`px-4 py-2 text-sm rounded-lg transition-colors ${localConfig.tagMode === 'any'
                                 ? 'bg-blue-600 text-white'
                                 : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                            }`}
+                              }`}
                           >
                             Match ANY
                           </button>
                           <button
                             type="button"
                             onClick={() => updateField('tagMode', 'all')}
-                            className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                              localConfig.tagMode === 'all'
+                            className={`px-4 py-2 text-sm rounded-lg transition-colors ${localConfig.tagMode === 'all'
                                 ? 'bg-blue-600 text-white'
                                 : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                            }`}
+                              }`}
                           >
                             Match ALL
                           </button>
@@ -639,7 +639,7 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                             min={1}
                             max={100}
                             value={localConfig.advancedConfig?.debug?.preserveOutput ? 1 : 1}
-                            onChange={() => {/* TODO: Add repeatEach to config */}}
+                            onChange={() => {/* TODO: Add repeatEach to config */ }}
                             placeholder="1"
                             disabled={isLoading}
                             className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
@@ -738,11 +738,10 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                           type="button"
                           onClick={() => updateField('target', 'local')}
                           disabled={isLoading}
-                          className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${
-                            localConfig.target === 'local' || !localConfig.target
+                          className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${localConfig.target === 'local' || !localConfig.target
                               ? 'bg-blue-600/20 border-blue-500 text-blue-300'
                               : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'
-                          }`}
+                            }`}
                         >
                           <Monitor className="w-5 h-5" />
                           <div className="text-left">
@@ -754,11 +753,10 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                           type="button"
                           onClick={() => updateField('target', 'github-actions')}
                           disabled={isLoading}
-                          className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${
-                            localConfig.target === 'github-actions'
+                          className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${localConfig.target === 'github-actions'
                               ? 'bg-purple-600/20 border-purple-500 text-purple-300'
                               : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'
-                          }`}
+                            }`}
                         >
                           <Github className="w-5 h-5" />
                           <div className="text-left">
@@ -768,9 +766,8 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                         </button>
                       </div>
                       {localConfig.target === 'github-actions' && (
-                        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${
-                          isConnected() ? 'bg-green-900/20 border border-green-800' : 'bg-yellow-900/20 border border-yellow-800'
-                        }`}>
+                        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${isConnected() ? 'bg-green-900/20 border border-green-800' : 'bg-yellow-900/20 border border-yellow-800'
+                          }`}>
                           <div className={`w-2 h-2 rounded-full ${isConnected() ? 'bg-green-500' : 'bg-yellow-500'}`} />
                           <span className="text-xs">
                             {isConnected() ? `Connected as ${integration?.login}` : 'GitHub not connected - connect in Settings'}
@@ -797,11 +794,10 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                               });
                             }}
                             disabled={isLoading}
-                            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-lg border transition-all ${
-                              (localConfig.browser || 'chromium') === b.value
+                            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-lg border transition-all ${(localConfig.browser || 'chromium') === b.value
                                 ? 'bg-blue-600/20 border-blue-500 text-blue-300'
                                 : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'
-                            }`}
+                              }`}
                           >
                             <span className="text-lg">{b.icon}</span>
                             <span className="text-sm font-medium">{b.label}</span>
@@ -826,13 +822,11 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                           });
                         }}
                         disabled={isLoading}
-                        className={`relative w-12 h-6 rounded-full transition-colors ${
-                          localConfig.headless !== false ? 'bg-blue-600' : 'bg-slate-600'
-                        }`}
+                        className={`relative w-12 h-6 rounded-full transition-colors ${localConfig.headless !== false ? 'bg-blue-600' : 'bg-slate-600'
+                          }`}
                       >
-                        <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                          localConfig.headless !== false ? 'translate-x-6' : ''
-                        }`} />
+                        <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${localConfig.headless !== false ? 'translate-x-6' : ''
+                          }`} />
                       </button>
                     </div>
 
@@ -960,11 +954,10 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                               type="button"
                               onClick={() => updateField('retries', count)}
                               disabled={isLoading}
-                              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                (localConfig.retries || 0) === count
+                              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${(localConfig.retries || 0) === count
                                   ? 'bg-blue-600 text-white'
                                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700'
-                              } disabled:opacity-50`}
+                                } disabled:opacity-50`}
                             >
                               {count}
                             </button>
@@ -1075,13 +1068,11 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                           fullyParallel: !(localConfig.advancedConfig?.fullyParallel ?? false)
                         })}
                         disabled={isLoading}
-                        className={`relative w-12 h-6 rounded-full transition-colors ${
-                          localConfig.advancedConfig?.fullyParallel ? 'bg-blue-600' : 'bg-slate-600'
-                        }`}
+                        className={`relative w-12 h-6 rounded-full transition-colors ${localConfig.advancedConfig?.fullyParallel ? 'bg-blue-600' : 'bg-slate-600'
+                          }`}
                       >
-                        <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                          localConfig.advancedConfig?.fullyParallel ? 'translate-x-6' : ''
-                        }`} />
+                        <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${localConfig.advancedConfig?.fullyParallel ? 'translate-x-6' : ''
+                          }`} />
                       </button>
                     </div>
                   </div>
@@ -1106,11 +1097,10 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                             key={mode.value}
                             onClick={() => updateField('tracing', mode.value)}
                             disabled={isLoading}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                              localConfig.tracing === mode.value
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${localConfig.tracing === mode.value
                                 ? 'bg-blue-600 text-white'
                                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
-                            } disabled:opacity-50`}
+                              } disabled:opacity-50`}
                           >
                             {mode.label}
                           </button>
@@ -1132,11 +1122,10 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
                             key={mode.value}
                             onClick={() => updateField('screenshot', mode.value)}
                             disabled={isLoading}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                              localConfig.screenshot === mode.value
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${localConfig.screenshot === mode.value
                                 ? 'bg-blue-600 text-white'
                                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
-                            } disabled:opacity-50`}
+                              } disabled:opacity-50`}
                           >
                             {mode.label}
                           </button>
