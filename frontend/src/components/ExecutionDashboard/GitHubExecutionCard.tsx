@@ -59,6 +59,7 @@ export const GitHubExecutionCard: React.FC<GitHubExecutionCardProps> = ({
   const [reportError, setReportError] = useState<string | null>(null);
   const [embeddedReportUrl, setEmbeddedReportUrl] = useState<string | null>(null);
   const [isReportCollapsed, setIsReportCollapsed] = useState(true); // Collapsed by default
+  const [viewMode, setViewMode] = useState<'detailed' | 'allure'>('detailed'); // Toggle between views
 
   // Format duration from milliseconds
   const formatDuration = (ms?: number) => {
@@ -409,8 +410,40 @@ export const GitHubExecutionCard: React.FC<GitHubExecutionCardProps> = ({
             </div>
           )}
 
-          {/* Scenarios - using ScenarioRow for polished display */}
-          {execution.scenarios && execution.scenarios.length > 0 && (
+          {/* View Mode Toggle */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-medium text-slate-300">Report View</h4>
+              <div className="flex items-center gap-1 p-1 bg-slate-800 rounded-lg border border-slate-700">
+                <button
+                  onClick={() => setViewMode('detailed')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'detailed'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-300'
+                    }`}
+                >
+                  Detailed View
+                </button>
+                <button
+                  onClick={() => setViewMode('allure')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'allure'
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-300'
+                    }`}
+                >
+                  Allure Report
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              {viewMode === 'detailed'
+                ? 'Developer view with per-scenario Trace Viewer'
+                : 'Stakeholder view with charts and export options'}
+            </p>
+          </div>
+
+          {/* Scenarios - using ScenarioRow for polished display (Detailed View Only) */}
+          {viewMode === 'detailed' && execution.scenarios && execution.scenarios.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-sm font-medium text-slate-300">
@@ -449,6 +482,79 @@ export const GitHubExecutionCard: React.FC<GitHubExecutionCardProps> = ({
                     onViewTrace={() => onViewTrace?.(scenario.traceUrl || '', scenario.name)}
                   />
                 ))}
+            </div>
+          )}
+
+          {/* Allure Report View (Stakeholder Mode) */}
+          {viewMode === 'allure' && (
+            <div className="space-y-4">
+              {/* Allure Report Embed */}
+              {embeddedReportUrl ? (
+                <div className="rounded-lg border border-purple-500/30 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2 bg-purple-500/10 border-b border-purple-500/30">
+                    <div className="flex items-center gap-2">
+                      <BarChart2 className="w-4 h-4 text-purple-400" />
+                      <span className="text-sm font-medium text-purple-300">Allure Report</span>
+                    </div>
+                    <span className="text-xs text-purple-400">Shareable stakeholder view</span>
+                  </div>
+                  <iframe
+                    src={embeddedReportUrl}
+                    className="w-full"
+                    style={{ height: '500px' }}
+                    title="Allure Report"
+                  />
+                </div>
+              ) : reportLoading ? (
+                <div className="flex items-center justify-center p-12 bg-slate-700/30 rounded-lg">
+                  <Loader2 className="w-6 h-6 animate-spin text-purple-400 mr-3" />
+                  <span className="text-slate-300">Loading Allure Report...</span>
+                </div>
+              ) : (
+                <div className="p-8 text-center bg-slate-700/30 rounded-lg">
+                  <BarChart2 className="w-10 h-10 text-slate-500 mx-auto mb-3" />
+                  <p className="text-slate-400 mb-2">Allure Report not available</p>
+                  <p className="text-xs text-slate-500">Report will be generated after run completes</p>
+                </div>
+              )}
+
+              {/* Export Actions */}
+              <div className="flex items-center gap-3">
+                <a
+                  href={embeddedReportUrl || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${embeddedReportUrl
+                      ? 'bg-purple-600 hover:bg-purple-500 text-white'
+                      : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                    }`}
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Open Full Report
+                </a>
+                <a
+                  href={execution.htmlUrl + '#artifacts'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-sm font-medium transition-all"
+                >
+                  <Download className="w-4 h-4" />
+                  Download Artifacts
+                </a>
+                <button
+                  onClick={() => {
+                    if (embeddedReportUrl) {
+                      navigator.clipboard.writeText(embeddedReportUrl);
+                      alert('Report URL copied to clipboard!');
+                    }
+                  }}
+                  disabled={!embeddedReportUrl}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <FileText className="w-4 h-4" />
+                  Share Report
+                </button>
+              </div>
             </div>
           )}
 
