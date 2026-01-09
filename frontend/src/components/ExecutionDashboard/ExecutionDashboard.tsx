@@ -175,6 +175,16 @@ export const ExecutionDashboard: React.FC<ExecutionDashboardProps> = ({
             return 'completed';
           };
 
+          // Map jobs data
+          const jobs = run.jobs?.map((job: { id: number; name: string; status: string; conclusion: string | null; started_at: string; completed_at: string }) => ({
+            id: job.id,
+            name: job.name,
+            status: job.status,
+            conclusion: job.conclusion,
+            startedAt: job.started_at,
+            completedAt: job.completed_at,
+          }));
+
           const execution: Partial<GitHubExecution> = {
             id: newId,
             runId: run.id,
@@ -183,24 +193,57 @@ export const ExecutionDashboard: React.FC<ExecutionDashboardProps> = ({
             status: mapStatus(run.status),
             conclusion: run.conclusion,
             browsers: ['chromium'],
-            workers: 2,
-            shards: 1,
+            workers: run.jobs?.length || 2,
+            shards: run.jobs?.length || 1,
             triggeredAt: run.createdAt,
             startedAt: run.createdAt,
             completedAt: run.updatedAt,
-            totalTests: 0,  // Will be populated from GitHub run status updates
-            passedTests: 0,
-            failedTests: 0,
-            skippedTests: 0,
+            totalTests: existingRun?.totalTests || 0,
+            passedTests: existingRun?.passedTests || 0,
+            failedTests: existingRun?.failedTests || 0,
+            skippedTests: existingRun?.skippedTests || 0,
+            scenarios: existingRun?.scenarios,
             htmlUrl: run.htmlUrl,
             owner,
             repo,
+            jobs,
           };
 
           if (existingRun) {
             updateExecution(existingRun.id, execution);
           } else {
             addExecution(execution as any);
+          }
+
+          // For completed runs without scenarios, fetch report data
+          const isCompleted = run.status === 'completed' || run.conclusion;
+          const needsReport = isCompleted && (!existingRun?.scenarios || existingRun.scenarios.length === 0);
+
+          if (needsReport) {
+            // Fetch report data asynchronously
+            fetch(`/api/github/runs/${run.id}/report?owner=${owner}&repo=${repo}`, { headers })
+              .then(res => res.json())
+              .then(reportData => {
+                if (reportData.success && reportData.data) {
+                  const { summary, scenarios } = reportData.data;
+                  updateExecution(newId, {
+                    totalTests: summary.total,
+                    passedTests: summary.passed,
+                    failedTests: summary.failed,
+                    skippedTests: summary.skipped,
+                    scenarios: scenarios?.map((s: any) => ({
+                      id: s.id,
+                      name: s.name,
+                      status: s.status,
+                      duration: s.duration,
+                      error: s.error,
+                      traceUrl: s.traceUrl,
+                      steps: s.steps,
+                    })),
+                  });
+                }
+              })
+              .catch(err => console.warn(`[ExecutionDashboard] Failed to fetch report for run ${run.id}:`, err));
           }
         }
       }

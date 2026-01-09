@@ -28,6 +28,7 @@ import { ExecutionDashboard, LocalExecutionViewer } from '../ExecutionDashboard'
 import { SchedulerPanel } from '../Scheduler/SchedulerPanel';
 import { AIAgentPanel } from '../ide/AIAgentPanel';
 import { LiveExecutionPanel } from '../ide/LiveExecutionPanel';
+import { AITestRecorderPanel } from '../ide/AITestRecorderPanel';
 import { CopilotPanel } from '../copilot/CopilotPanel';
 import { useWorkflowStore } from '@/store/workflowStore';
 import { useProjectStore } from '@/store/projectStore';
@@ -44,7 +45,7 @@ import { githubRepoApi, githubRunsApi } from '@/api/github';
 type RightPanelTab = 'none' | 'console' | 'config' | 'workers' | 'sharding' | 'results' | 'trace' | 'testdata' | 'scheduler';
 
 // Settings view type - controls what shows in canvas area
-type SettingsView = 'explorer' | 'testdata' | 'workers' | 'sharding' | 'results' | 'trace' | 'scheduler' | 'config' | 'executions' | 'live-execution';
+type SettingsView = 'explorer' | 'testdata' | 'workers' | 'sharding' | 'results' | 'trace' | 'scheduler' | 'config' | 'executions' | 'live-execution' | 'ai-recorder';
 
 // Default parallel execution config
 const defaultParallelConfig: ParallelConfig = {
@@ -2781,6 +2782,18 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                                 Scheduler
                                 {activeSettingsView === 'scheduler' && <span className="ml-auto">✓</span>}
                             </button>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActiveSettingsView('ai-recorder');
+                                    setShowSettingsMenu(false);
+                                }}
+                                className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-700 ${activeSettingsView === 'ai-recorder' ? 'bg-gray-700 text-amber-400' : ''}`}
+                            >
+                                <Sparkles className="w-4 h-4" />
+                                AI Recorder
+                                {activeSettingsView === 'ai-recorder' && <span className="ml-auto">✓</span>}
+                            </button>
                             <div className="border-t border-gray-700" />
                             <button
                                 onClick={(e) => {
@@ -3284,6 +3297,17 @@ export function VeroIDE({ projectPath = '/vero-lang/test-project' }: VeroIDEProp
                             workflowId={currentWorkflow?.id}
                             onRunTriggered={(runId) => {
                                 addConsoleOutput(`Schedule triggered: Run ${runId}`);
+                            }}
+                        />
+                    )}
+
+                    {/* AI Test Recorder Panel in Canvas */}
+                    {activeSettingsView === 'ai-recorder' && (
+                        <AITestRecorderPanel
+                            onClose={() => setActiveSettingsView('explorer')}
+                            onTestApproved={(testId, veroCode) => {
+                                addConsoleOutput(`Test ${testId} approved and saved`);
+                                // Could also trigger file save here
                             }}
                         />
                     )}
