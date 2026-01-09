@@ -58,7 +58,6 @@ export const GitHubExecutionCard: React.FC<GitHubExecutionCardProps> = ({
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [embeddedReportUrl, setEmbeddedReportUrl] = useState<string | null>(null);
-  const [isReportCollapsed, setIsReportCollapsed] = useState(true); // Collapsed by default
   const [viewMode, setViewMode] = useState<'detailed' | 'allure'>('detailed'); // Toggle between views
 
   // Format duration from milliseconds
@@ -525,8 +524,8 @@ export const GitHubExecutionCard: React.FC<GitHubExecutionCardProps> = ({
                   target="_blank"
                   rel="noopener noreferrer"
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${embeddedReportUrl
-                      ? 'bg-purple-600 hover:bg-purple-500 text-white'
-                      : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                    ? 'bg-purple-600 hover:bg-purple-500 text-white'
+                    : 'bg-slate-700 text-slate-500 cursor-not-allowed'
                     }`}
                 >
                   <ExternalLink className="w-4 h-4" />
@@ -558,112 +557,6 @@ export const GitHubExecutionCard: React.FC<GitHubExecutionCardProps> = ({
             </div>
           )}
 
-          {/* Debugging Actions - Modern Grid Layout */}
-          <div className="mt-4 pt-4 border-t border-slate-700">
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-medium text-slate-300">Debug & Reports</h4>
-              <span className="text-xs text-slate-500">
-                {hasTraces ? 'Traces available' : execution.status === 'completed' ? 'Run completed' : 'In progress...'}
-              </span>
-            </div>
-
-            {/* Action Buttons Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {/* HTML Report - Primary debugging tool */}
-              <a
-                href={execution.htmlUrl + '#artifacts'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex flex-col items-center gap-1.5 p-3 bg-gradient-to-br from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white rounded-lg text-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
-              >
-                <FileText className="w-5 h-5" />
-                <span className="font-medium">HTML Report</span>
-                <span className="text-[10px] text-blue-200 opacity-80">Per-test traces</span>
-              </a>
-
-              {/* Allure Report */}
-              {embeddedReportUrl && (
-                <a
-                  href={embeddedReportUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex flex-col items-center gap-1.5 p-3 bg-gradient-to-br from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 text-white rounded-lg text-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
-                >
-                  <BarChart2 className="w-5 h-5" />
-                  <span className="font-medium">Allure Report</span>
-                  <span className="text-[10px] text-purple-200 opacity-80">Dashboard</span>
-                </a>
-              )}
-
-              {/* GitHub Run */}
-              <a
-                href={execution.htmlUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex flex-col items-center gap-1.5 p-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
-              >
-                <ExternalLink className="w-5 h-5" />
-                <span className="font-medium">GitHub Run</span>
-                <span className="text-[10px] text-slate-400">View logs</span>
-              </a>
-
-              {/* Download Artifacts */}
-              <a
-                href={execution.htmlUrl + '#artifacts'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex flex-col items-center gap-1.5 p-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
-              >
-                <Download className="w-5 h-5" />
-                <span className="font-medium">Artifacts</span>
-                <span className="text-[10px] text-slate-400">Download all</span>
-              </a>
-            </div>
-          </div>
-
-          {/* Embedded Report - Collapsible */}
-          {reportLoading ? (
-            <div className="flex items-center justify-center p-8 bg-slate-700/30 rounded-lg">
-              <Loader2 className="w-6 h-6 animate-spin text-blue-400 mr-3" />
-              <span className="text-slate-300">Loading report...</span>
-            </div>
-          ) : reportError ? (
-            <div className="p-4 text-sm text-red-400 bg-red-500/10 rounded-lg">
-              {reportError}
-            </div>
-          ) : embeddedReportUrl ? (
-            <div className="border border-slate-600 rounded-lg overflow-hidden bg-white">
-              <div
-                className="flex items-center justify-between px-3 py-2 bg-slate-700 border-b border-slate-600 cursor-pointer hover:bg-slate-600/50 transition-colors"
-                onClick={() => setIsReportCollapsed(!isReportCollapsed)}
-              >
-                <span className="text-xs text-slate-300 flex items-center gap-2">
-                  {isReportCollapsed ? (
-                    <ChevronRight className="w-3 h-3" />
-                  ) : (
-                    <ChevronDown className="w-3 h-3" />
-                  )}
-                  <BarChart2 className="w-3 h-3" />
-                  Playwright HTML Report
-                </span>
-                <span className="text-xs text-slate-400">
-                  {isReportCollapsed ? 'Click to expand' : 'Click to collapse'}
-                </span>
-              </div>
-              {!isReportCollapsed && (
-                <iframe
-                  src={embeddedReportUrl}
-                  className="w-full"
-                  style={{ height: '600px' }}
-                  title="Test Report"
-                />
-              )}
-            </div>
-          ) : execution.status !== 'completed' ? (
-            <div className="p-4 text-sm text-slate-400 bg-slate-700/30 rounded-lg text-center">
-              Report will be available after execution completes
-            </div>
-          ) : null}
         </div>
       )}
     </div>

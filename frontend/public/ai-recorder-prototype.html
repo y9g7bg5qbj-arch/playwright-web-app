@@ -4,8 +4,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Test Recorder - Interactive Prototype v2</title>
+    <title>AI Test Recorder - Vero IDE</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
     <style>
+        :root {
+            --bg-primary: #0d0d12;
+            --bg-secondary: #15151c;
+            --bg-tertiary: #1c1c26;
+            --bg-elevated: #232330;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-hover: rgba(255, 255, 255, 0.15);
+            --text-primary: #f4f4f5;
+            --text-secondary: #a1a1aa;
+            --text-muted: #71717a;
+            --accent-primary: #8b5cf6;
+            --accent-secondary: #a78bfa;
+            --accent-glow: rgba(139, 92, 246, 0.3);
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --info: #3b82f6;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -13,127 +36,171 @@
         }
 
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: #0a0a0f;
-            color: #e4e4e7;
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             height: 100vh;
             overflow: hidden;
         }
 
+        /* Glassmorphism card */
+        .glass {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+        }
+
         /* Toolbar */
         .toolbar {
-            height: 48px;
-            background: linear-gradient(180deg, #18181b 0%, #131316 100%);
-            border-bottom: 1px solid #27272a;
+            height: 56px;
+            background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+            border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
-            padding: 0 16px;
-            gap: 12px;
+            padding: 0 20px;
+            gap: 16px;
         }
 
-        .toolbar-title {
-            font-size: 14px;
+        .toolbar-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
             font-weight: 600;
-            color: #a78bfa;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            font-size: 15px;
+            background: linear-gradient(135deg, var(--accent-primary), #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
 
-        .toolbar-title svg {
-            width: 20px;
-            height: 20px;
+        .toolbar-logo .material-icons-round {
+            font-size: 24px;
+            background: linear-gradient(135deg, var(--accent-primary), #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
 
         .btn {
-            padding: 8px 16px;
-            border-radius: 6px;
+            padding: 10px 18px;
+            border-radius: 10px;
             border: none;
             font-size: 13px;
             font-weight: 500;
             cursor: pointer;
-            display: flex;
+            display: inline-flex;
             align-items: center;
-            gap: 6px;
-            transition: all 0.2s;
+            gap: 8px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            font-family: inherit;
+        }
+
+        .btn .material-icons-round {
+            font-size: 18px;
         }
 
         .btn-primary {
-            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+            background: linear-gradient(135deg, var(--accent-primary) 0%, #7c3aed 100%);
             color: white;
+            box-shadow: 0 4px 14px var(--accent-glow);
         }
 
         .btn-primary:hover {
-            background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
-            transform: translateY(-1px);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px var(--accent-glow);
         }
 
         .btn-secondary {
-            background: #27272a;
-            color: #a1a1aa;
-            border: 1px solid #3f3f46;
+            background: var(--bg-elevated);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
         }
 
         .btn-secondary:hover {
-            background: #3f3f46;
-            color: #e4e4e7;
+            background: var(--bg-tertiary);
+            border-color: var(--border-hover);
+            color: var(--text-primary);
         }
 
-        .btn-success {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            color: white;
-        }
-
-        .btn-warning {
-            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-            color: white;
-        }
-
-        .btn-danger {
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            color: white;
+        .btn-icon {
+            width: 40px;
+            height: 40px;
+            padding: 0;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .toolbar-spacer {
             flex: 1;
         }
 
+        /* Environment Selector */
+        .env-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .env-selector:hover {
+            border-color: var(--accent-primary);
+        }
+
+        .env-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+        }
+
+        .env-name {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        /* Status Badge */
         .status-badge {
-            padding: 4px 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
             border-radius: 20px;
             font-size: 12px;
             font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 6px;
         }
 
         .status-idle {
-            background: #27272a;
-            color: #71717a;
+            background: var(--bg-elevated);
+            color: var(--text-muted);
         }
 
         .status-running {
-            background: #1e3a5f;
-            color: #60a5fa;
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--info);
         }
 
         .status-success {
-            background: #14532d;
-            color: #4ade80;
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--success);
         }
 
         .status-replace {
-            background: #4c1d95;
-            color: #c4b5fd;
+            background: rgba(139, 92, 246, 0.15);
+            color: var(--accent-secondary);
         }
 
-        .pulse {
+        .pulse-dot {
             width: 8px;
             height: 8px;
             border-radius: 50%;
             background: currentColor;
-            animation: pulse 1.5s infinite;
+            animation: pulse 2s infinite;
         }
 
         @keyframes pulse {
@@ -146,71 +213,75 @@
 
             50% {
                 opacity: 0.5;
-                transform: scale(1.2);
+                transform: scale(1.3);
             }
         }
 
-        /* Main Content */
+        /* Main Layout */
         .main-content {
             display: flex;
-            height: calc(100vh - 48px);
+            height: calc(100vh - 56px);
         }
 
-        /* Left Panel - Browser */
+        /* Browser Panel */
         .browser-panel {
             flex: 1;
             display: flex;
             flex-direction: column;
-            border-right: 1px solid #27272a;
+            border-right: 1px solid var(--border);
         }
 
-        .browser-header {
-            height: 40px;
-            background: #18181b;
-            border-bottom: 1px solid #27272a;
+        .browser-chrome {
+            height: 44px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
-            padding: 0 12px;
-            gap: 8px;
+            padding: 0 16px;
+            gap: 12px;
         }
 
         .browser-dots {
             display: flex;
-            gap: 6px;
+            gap: 8px;
         }
 
-        .browser-dot {
+        .browser-dots span {
             width: 12px;
             height: 12px;
             border-radius: 50%;
+            transition: transform 0.2s;
         }
 
-        .dot-red {
-            background: #ef4444;
+        .browser-dots span:hover {
+            transform: scale(1.2);
         }
 
-        .dot-yellow {
-            background: #eab308;
+        .dot-close {
+            background: #ff5f57;
         }
 
-        .dot-green {
-            background: #22c55e;
+        .dot-min {
+            background: #febc2e;
+        }
+
+        .dot-max {
+            background: #28c840;
         }
 
         .url-bar {
             flex: 1;
-            background: #0a0a0f;
-            border: 1px solid #3f3f46;
-            border-radius: 6px;
-            padding: 6px 12px;
-            color: #a1a1aa;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 14px;
+            color: var(--text-secondary);
             font-size: 12px;
-            margin-left: 12px;
+            font-family: 'JetBrains Mono', monospace;
         }
 
         .browser-viewport {
             flex: 1;
-            background: #f8fafc;
             position: relative;
             overflow: hidden;
         }
@@ -219,411 +290,387 @@
             cursor: crosshair;
         }
 
-        .browser-viewport.replace-mode::after {
-            content: 'CLICK ON ELEMENT TO REPLACE STEP';
+        .browser-viewport.replace-mode::before {
+            content: '';
             position: absolute;
-            top: 10px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #8b5cf6;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
+            inset: 0;
+            border: 3px solid var(--accent-primary);
+            pointer-events: none;
             z-index: 100;
-            animation: bounce 1s infinite;
+            animation: borderPulse 1.5s infinite;
         }
 
-        @keyframes bounce {
+        @keyframes borderPulse {
 
             0%,
             100% {
-                transform: translateX(-50%) translateY(0);
+                opacity: 1;
             }
 
             50% {
-                transform: translateX(-50%) translateY(-5px);
+                opacity: 0.5;
             }
         }
 
-        /* Mock Website */
+        .replace-hint {
+            position: absolute;
+            top: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, var(--accent-primary), #ec4899);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 24px;
+            font-size: 13px;
+            font-weight: 600;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            z-index: 101;
+            box-shadow: 0 8px 24px var(--accent-glow);
+        }
+
+        .browser-viewport.replace-mode .replace-hint {
+            display: flex;
+        }
+
+        /* Mock Site */
         .mock-site {
             width: 100%;
             height: 100%;
-            background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
-            padding: 40px;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
             display: flex;
             flex-direction: column;
             align-items: center;
+            justify-content: center;
+            padding: 40px;
         }
 
         .mock-logo {
-            font-size: 28px;
+            font-size: 32px;
             font-weight: 700;
-            color: #8b5cf6;
             margin-bottom: 40px;
+            background: linear-gradient(135deg, var(--accent-primary), #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
 
-        .mock-form {
-            background: #1e293b;
-            border: 1px solid #334155;
-            border-radius: 12px;
-            padding: 32px;
-            width: 360px;
+        .mock-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 40px;
+            width: 380px;
+            backdrop-filter: blur(20px);
         }
 
-        .mock-form h2 {
-            color: #f1f5f9;
-            font-size: 20px;
-            margin-bottom: 24px;
+        .mock-card h2 {
             text-align: center;
-        }
-
-        .mock-input,
-        .mock-btn,
-        .mock-link {
-            transition: all 0.2s;
+            font-size: 22px;
+            margin-bottom: 28px;
+            color: var(--text-primary);
         }
 
         .mock-input {
             width: 100%;
-            padding: 12px 16px;
-            background: #0f172a;
-            border: 2px solid #334155;
-            border-radius: 8px;
-            color: #e2e8f0;
+            padding: 14px 18px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            color: var(--text-primary);
             font-size: 14px;
             margin-bottom: 16px;
+            font-family: inherit;
+            transition: all 0.2s;
         }
 
-        .mock-input:hover,
-        .mock-input.hoverable:hover {
-            border-color: #8b5cf6;
-            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
-        }
-
+        .mock-input:focus,
         .mock-input.highlight {
-            border-color: #22c55e;
-            box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.3);
-            animation: highlightPulse 0.5s;
-        }
-
-        @keyframes highlightPulse {
-            0% {
-                transform: scale(1);
-            }
-
-            50% {
-                transform: scale(1.02);
-            }
-
-            100% {
-                transform: scale(1);
-            }
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 4px var(--accent-glow);
         }
 
         .mock-btn {
             width: 100%;
-            padding: 12px;
-            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+            padding: 14px;
+            background: linear-gradient(135deg, var(--accent-primary) 0%, #7c3aed 100%);
             color: white;
-            border: 2px solid transparent;
-            border-radius: 8px;
-            font-size: 14px;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
             font-weight: 600;
             cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
         }
 
-        .mock-btn:hover,
-        .mock-btn.hoverable:hover {
+        .mock-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
-            border-color: #c4b5fd;
-        }
-
-        .mock-btn.highlight {
-            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            box-shadow: 0 8px 20px var(--accent-glow);
         }
 
         .mock-link {
             display: block;
             text-align: center;
-            color: #8b5cf6;
+            color: var(--accent-secondary);
             font-size: 13px;
-            margin-top: 16px;
+            margin-top: 20px;
             cursor: pointer;
-            border: 2px solid transparent;
-            padding: 4px;
-            border-radius: 4px;
+            transition: color 0.2s;
         }
 
-        .mock-link:hover,
-        .mock-link.hoverable:hover {
-            border-color: #8b5cf6;
-            background: rgba(139, 92, 246, 0.1);
+        .mock-link:hover {
+            color: var(--accent-primary);
         }
 
-        /* AI Cursor */
-        .ai-cursor {
+        /* Element Highlight */
+        .element-highlight {
             position: absolute;
-            width: 24px;
-            height: 24px;
+            border: 2px solid var(--warning);
+            background: rgba(245, 158, 11, 0.15);
             pointer-events: none;
-            z-index: 1000;
-            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-            opacity: 0;
+            z-index: 50;
+            border-radius: 8px;
+            display: none;
+            transition: all 0.15s;
         }
 
-        .ai-cursor.visible {
-            opacity: 1;
+        .element-highlight.visible {
+            display: block;
         }
 
-        .ai-cursor svg {
-            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
-        }
-
-        .ai-cursor-label {
-            position: absolute;
-            top: 28px;
-            left: 0;
-            background: #8b5cf6;
-            color: white;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            white-space: nowrap;
-            font-weight: 500;
-        }
-
-        /* Right Panel - Test Cases */
+        /* Tests Panel */
         .tests-panel {
             width: 420px;
-            background: #131316;
+            background: var(--bg-secondary);
             display: flex;
             flex-direction: column;
-            transition: width 0.3s;
-        }
-
-        .tests-panel.collapsed {
-            width: 0;
-            overflow: hidden;
         }
 
         .tests-header {
-            height: 48px;
-            background: #18181b;
-            border-bottom: 1px solid #27272a;
+            height: 56px;
+            padding: 0 20px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0 16px;
+            border-bottom: 1px solid var(--border);
         }
 
         .tests-header h3 {
             font-size: 14px;
             font-weight: 600;
-            color: #e4e4e7;
-        }
-
-        .close-btn {
-            width: 28px;
-            height: 28px;
-            border-radius: 6px;
-            border: none;
-            background: transparent;
-            color: #71717a;
-            cursor: pointer;
             display: flex;
             align-items: center;
-            justify-content: center;
-            transition: all 0.2s;
-        }
-
-        .close-btn:hover {
-            background: #27272a;
-            color: #e4e4e7;
+            gap: 8px;
         }
 
         .tests-list {
             flex: 1;
             overflow-y: auto;
-            padding: 12px;
+            padding: 16px;
         }
 
-        /* Test Case Card */
+        /* Test Card */
         .test-card {
-            background: #1c1c21;
-            border: 1px solid #27272a;
-            border-radius: 8px;
-            margin-bottom: 8px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            margin-bottom: 12px;
             overflow: hidden;
             transition: all 0.2s;
         }
 
         .test-card:hover {
-            border-color: #3f3f46;
+            border-color: var(--border-hover);
         }
 
         .test-card.active {
-            border-color: #8b5cf6;
+            border-color: var(--accent-primary);
         }
 
         .test-card-header {
-            padding: 12px;
+            padding: 16px;
             display: flex;
             align-items: center;
-            gap: 10px;
-            cursor: pointer;
+            gap: 12px;
         }
 
-        .test-status-icon {
-            width: 20px;
-            height: 20px;
+        /* PLAY BUTTON - Round FAB style */
+        .play-fab {
+            width: 44px;
+            height: 44px;
             border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent-primary) 0%, #7c3aed 100%);
+            border: none;
+            color: white;
+            cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 12px;
+            box-shadow: 0 4px 14px var(--accent-glow);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            flex-shrink: 0;
         }
 
-        .status-pending {
-            background: #27272a;
-            color: #71717a;
+        .play-fab:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px var(--accent-glow);
         }
 
-        .status-running-icon {
-            background: #1e3a5f;
-            color: #60a5fa;
+        .play-fab:active {
+            transform: scale(0.95);
         }
 
-        .status-complete {
-            background: #14532d;
-            color: #4ade80;
+        .play-fab .material-icons-round {
+            font-size: 22px;
         }
 
-        .status-failed {
-            background: #7f1d1d;
-            color: #f87171;
+        .test-card-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .test-card-id {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--accent-secondary);
+            margin-bottom: 4px;
         }
 
         .test-card-title {
-            flex: 1;
-            font-size: 13px;
+            font-size: 14px;
             font-weight: 500;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
-        .expand-icon {
-            color: #71717a;
-            transition: transform 0.2s;
+        .test-status-chip {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
         }
 
-        .test-card.expanded .expand-icon {
-            transform: rotate(90deg);
+        .chip-pending {
+            background: var(--bg-elevated);
+            color: var(--text-muted);
+        }
+
+        .chip-complete {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--success);
+        }
+
+        .chip-running {
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--info);
+        }
+
+        .expand-toggle {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .expand-toggle:hover {
+            background: var(--bg-elevated);
+            color: var(--text-primary);
+        }
+
+        .test-card.expanded .expand-toggle .material-icons-round {
+            transform: rotate(180deg);
         }
 
         /* Test Steps */
         .test-steps {
             display: none;
-            border-top: 1px solid #27272a;
-            padding: 8px;
+            padding: 0 16px 16px;
         }
 
         .test-card.expanded .test-steps {
             display: block;
         }
 
-        /* ADD STEP BUTTON (between steps) */
-        .add-step-row {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 4px 0;
-            opacity: 0;
-            transition: opacity 0.2s;
-        }
-
-        .test-steps:hover .add-step-row {
-            opacity: 1;
-        }
-
         .add-step-btn {
             width: 100%;
-            padding: 6px;
-            border: 1px dashed #3f3f46;
-            border-radius: 6px;
+            padding: 10px;
+            border: 1px dashed var(--border);
+            border-radius: 10px;
             background: transparent;
-            color: #71717a;
+            color: var(--text-muted);
             font-size: 12px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 6px;
+            margin: 8px 0;
+            opacity: 0;
             transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .test-steps:hover .add-step-btn {
+            opacity: 1;
         }
 
         .add-step-btn:hover {
-            border-color: #8b5cf6;
-            color: #a78bfa;
-            background: rgba(139, 92, 246, 0.1);
+            border-color: var(--accent-primary);
+            color: var(--accent-secondary);
+            background: rgba(139, 92, 246, 0.05);
         }
 
         .step-item {
-            padding: 10px 12px;
-            background: #0a0a0f;
-            border-radius: 6px;
-            margin-bottom: 4px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 8px;
             cursor: pointer;
             transition: all 0.2s;
-            border: 1px solid transparent;
         }
 
         .step-item:hover {
-            background: #18181b;
-            border-color: #3f3f46;
+            border-color: var(--border-hover);
         }
 
         .step-item.active {
-            background: #1e1b4b;
-            border-color: #8b5cf6;
-        }
-
-        .step-item.running {
-            border-color: #60a5fa;
-            animation: stepPulse 1s infinite;
+            border-color: var(--accent-primary);
+            background: rgba(139, 92, 246, 0.05);
         }
 
         .step-item.replace-target {
-            border-color: #f59e0b;
-            background: rgba(245, 158, 11, 0.1);
-        }
-
-        @keyframes stepPulse {
-
-            0%,
-            100% {
-                box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.4);
-            }
-
-            50% {
-                box-shadow: 0 0 0 4px rgba(96, 165, 250, 0);
-            }
+            border-color: var(--warning);
+            background: rgba(245, 158, 11, 0.05);
         }
 
         .step-header {
             display: flex;
             align-items: center;
-            gap: 8px;
-            margin-bottom: 6px;
+            gap: 10px;
+            margin-bottom: 10px;
         }
 
-        .step-number {
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
-            background: #27272a;
-            color: #a1a1aa;
+        .step-num {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            background: var(--bg-elevated);
+            color: var(--text-muted);
             font-size: 11px;
             font-weight: 600;
             display: flex;
@@ -632,113 +679,118 @@
         }
 
         .step-type {
+            padding: 4px 10px;
+            border-radius: 6px;
             font-size: 10px;
             font-weight: 600;
             text-transform: uppercase;
-            padding: 2px 6px;
-            border-radius: 4px;
+            letter-spacing: 0.3px;
         }
 
         .type-navigate {
-            background: #1e3a5f;
-            color: #60a5fa;
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--info);
         }
 
         .type-fill {
-            background: #365314;
-            color: #a3e635;
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--success);
         }
 
         .type-click {
-            background: #4c1d95;
-            color: #c4b5fd;
+            background: rgba(139, 92, 246, 0.15);
+            color: var(--accent-secondary);
         }
 
         .type-assert {
-            background: #713f12;
-            color: #fbbf24;
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--warning);
         }
 
         .type-loop {
-            background: #831843;
-            color: #f9a8d4;
+            background: rgba(236, 72, 153, 0.15);
+            color: #ec4899;
         }
 
-        .step-description {
+        .step-desc {
             font-size: 12px;
-            color: #a1a1aa;
-            margin-bottom: 8px;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
         }
 
         .step-code {
-            background: #0a0a0f;
-            border: 1px solid #27272a;
-            border-radius: 4px;
-            padding: 8px;
-            font-family: 'Fira Code', monospace;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-family: 'JetBrains Mono', monospace;
             font-size: 11px;
-            color: #a78bfa;
+            color: var(--accent-secondary);
             overflow-x: auto;
         }
 
         .step-actions {
             display: flex;
             gap: 6px;
-            margin-top: 8px;
-            flex-wrap: wrap;
+            margin-top: 10px;
         }
 
-        .step-action-btn {
-            padding: 4px 8px;
-            border-radius: 4px;
-            border: 1px solid #3f3f46;
-            background: #27272a;
-            color: #a1a1aa;
+        .step-action {
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg-elevated);
+            color: var(--text-secondary);
             font-size: 11px;
             cursor: pointer;
             display: flex;
             align-items: center;
             gap: 4px;
             transition: all 0.2s;
+            font-family: inherit;
         }
 
-        .step-action-btn:hover {
-            background: #3f3f46;
-            color: #e4e4e7;
+        .step-action:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
         }
 
-        .step-action-btn.btn-replace {
-            border-color: #f59e0b;
-            color: #fbbf24;
+        .step-action .material-icons-round {
+            font-size: 14px;
         }
 
-        .step-action-btn.btn-replace:hover {
-            background: rgba(245, 158, 11, 0.2);
+        .step-action.btn-replace {
+            border-color: var(--warning);
+            color: var(--warning);
         }
 
-        /* Test Card Actions */
+        .step-action.btn-replace:hover {
+            background: rgba(245, 158, 11, 0.1);
+        }
+
+        /* Card Actions */
         .test-card-actions {
-            padding: 12px;
-            border-top: 1px solid #27272a;
             display: none;
-            gap: 8px;
+            padding: 16px;
+            border-top: 1px solid var(--border);
+            gap: 10px;
         }
 
         .test-card.expanded .test-card-actions {
             display: flex;
         }
 
-        /* Prompt Input Panel */
+        /* Prompt Panel */
         .prompt-panel {
             position: fixed;
             bottom: 0;
             left: 0;
             right: 420px;
-            background: #18181b;
-            border-top: 1px solid #3f3f46;
-            padding: 16px;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border);
+            padding: 20px;
             transform: translateY(100%);
-            transition: transform 0.3s;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             z-index: 500;
         }
 
@@ -750,83 +802,81 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 12px;
+            margin-bottom: 16px;
         }
 
         .prompt-header h4 {
-            font-size: 13px;
+            font-size: 14px;
             font-weight: 600;
-            color: #a78bfa;
+            color: var(--accent-secondary);
             display: flex;
             align-items: center;
             gap: 8px;
         }
 
-        .prompt-input-wrapper {
+        .prompt-input-row {
             display: flex;
-            gap: 8px;
+            gap: 12px;
         }
 
         .prompt-input {
             flex: 1;
-            background: #0a0a0f;
-            border: 1px solid #3f3f46;
-            border-radius: 8px;
-            padding: 12px 16px;
-            color: #e4e4e7;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px 18px;
+            color: var(--text-primary);
             font-size: 14px;
             resize: none;
+            font-family: inherit;
         }
 
         .prompt-input:focus {
             outline: none;
-            border-color: #8b5cf6;
+            border-color: var(--accent-primary);
         }
 
-        .prompt-input::placeholder {
-            color: #71717a;
-        }
-
-        .prompt-examples {
+        .prompt-chips {
             display: flex;
             gap: 8px;
-            margin-top: 12px;
+            margin-top: 14px;
             flex-wrap: wrap;
         }
 
-        .prompt-example {
-            padding: 6px 12px;
-            background: #27272a;
-            border: 1px solid #3f3f46;
+        .chip {
+            padding: 8px 14px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
             border-radius: 20px;
-            font-size: 11px;
-            color: #a1a1aa;
+            font-size: 12px;
+            color: var(--text-secondary);
             cursor: pointer;
             transition: all 0.2s;
         }
 
-        .prompt-example:hover {
-            background: #3f3f46;
-            color: #e4e4e7;
-            border-color: #8b5cf6;
+        .chip:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--accent-primary);
+            color: var(--text-primary);
         }
 
         /* Toast */
         .toast {
             position: fixed;
-            bottom: 20px;
+            bottom: 24px;
             left: 50%;
-            transform: translateX(-50%) translateY(100px);
-            background: #1c1c21;
-            border: 1px solid #27272a;
-            border-radius: 8px;
-            padding: 12px 20px;
+            transform: translateX(-50%) translateY(120px);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 14px 24px;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
             opacity: 0;
-            transition: all 0.3s;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             z-index: 3000;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
         }
 
         .toast.visible {
@@ -835,26 +885,116 @@
         }
 
         .toast.success {
-            border-color: #22c55e;
-        }
-
-        .toast.success .toast-icon {
-            color: #22c55e;
+            border-color: var(--success);
         }
 
         .toast.info {
-            border-color: #8b5cf6;
+            border-color: var(--accent-primary);
         }
 
-        .toast.info .toast-icon {
-            color: #8b5cf6;
+        .toast .material-icons-round {
+            font-size: 20px;
         }
 
-        /* Upload Modal */
+        .toast.success .material-icons-round {
+            color: var(--success);
+        }
+
+        .toast.info .material-icons-round {
+            color: var(--accent-primary);
+        }
+
+        /* Environment Modal */
+        .env-modal {
+            position: fixed;
+            top: 70px;
+            right: 440px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 16px;
+            width: 280px;
+            display: none;
+            z-index: 1000;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        .env-modal.visible {
+            display: block;
+        }
+
+        .env-modal h4 {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 14px;
+            color: var(--text-secondary);
+        }
+
+        .env-option {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 6px;
+        }
+
+        .env-option:hover {
+            background: var(--bg-elevated);
+        }
+
+        .env-option.active {
+            background: rgba(139, 92, 246, 0.1);
+            border: 1px solid var(--accent-primary);
+        }
+
+        .env-option-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .env-option-info {
+            flex: 1;
+        }
+
+        .env-option-name {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .env-option-url {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--border-hover);
+        }
+
+        /* Quick Create Modal */
         .modal-overlay {
             position: fixed;
             inset: 0;
             background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
             display: none;
             align-items: center;
             justify-content: center;
@@ -865,18 +1005,21 @@
             display: flex;
         }
 
-        .modal {
-            background: #1c1c21;
-            border: 1px solid #27272a;
-            border-radius: 12px;
-            width: 500px;
+        .quick-create-modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            width: 600px;
             max-height: 80vh;
+            display: flex;
+            flex-direction: column;
             overflow: hidden;
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.5);
         }
 
         .modal-header {
-            padding: 16px 20px;
-            border-bottom: 1px solid #27272a;
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -885,64 +1028,139 @@
         .modal-header h2 {
             font-size: 16px;
             font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .modal-header h2 .material-icons-round {
+            font-size: 22px;
+            background: linear-gradient(135deg, var(--accent-primary), #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
 
         .modal-body {
-            padding: 20px;
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
         }
 
-        .upload-zone {
-            border: 2px dashed #3f3f46;
-            border-radius: 8px;
-            padding: 40px;
-            text-align: center;
-            cursor: pointer;
+        .qc-input-group {
+            margin-bottom: 20px;
+        }
+
+        .qc-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .qc-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: inherit;
             transition: all 0.2s;
         }
 
-        .upload-zone:hover {
-            border-color: #8b5cf6;
-            background: rgba(139, 92, 246, 0.05);
+        .qc-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px var(--accent-glow);
         }
 
-        .upload-zone svg {
-            width: 48px;
-            height: 48px;
-            color: #71717a;
-            margin-bottom: 12px;
+        .qc-steps-area {
+            width: 100%;
+            min-height: 200px;
+            padding: 16px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: 'JetBrains Mono', monospace;
+            line-height: 1.8;
+            resize: none;
+            transition: all 0.2s;
         }
 
-        .upload-zone p {
-            color: #a1a1aa;
+        .qc-steps-area:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .qc-steps-area::placeholder {
+            color: var(--text-muted);
+        }
+
+        .qc-templates {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 12px;
+        }
+
+        .qc-template {
+            padding: 8px 14px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .qc-template:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--accent-primary);
+            color: var(--text-primary);
+        }
+
+        .qc-template .material-icons-round {
             font-size: 14px;
         }
 
-        .upload-zone span {
-            color: #8b5cf6;
-            cursor: pointer;
-        }
-
         .modal-footer {
-            padding: 16px 20px;
-            border-top: 1px solid #27272a;
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
             display: flex;
-            justify-content: flex-end;
-            gap: 8px;
+            align-items: center;
+            gap: 12px;
         }
 
-        /* Element highlight for replace mode */
-        .element-highlight {
-            position: absolute;
-            border: 2px solid #f59e0b;
-            background: rgba(245, 158, 11, 0.2);
-            pointer-events: none;
-            z-index: 50;
-            border-radius: 4px;
-            display: none;
+        .modal-footer .btn {
+            flex: 1;
+            justify-content: center;
         }
 
-        .element-highlight.visible {
-            display: block;
+        .qc-hint {
+            background: rgba(139, 92, 246, 0.1);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            border-radius: 10px;
+            padding: 12px 16px;
+            margin-bottom: 20px;
+            font-size: 12px;
+            color: var(--accent-secondary);
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .qc-hint .material-icons-round {
+            font-size: 18px;
+            flex-shrink: 0;
         }
     </style>
 </head>
@@ -950,339 +1168,308 @@
 <body>
     <!-- Toolbar -->
     <div class="toolbar">
-        <div class="toolbar-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                <path d="M2 17l10 5 10-5" />
-                <path d="M2 12l10 5 10-5" />
-            </svg>
+        <div class="toolbar-logo">
+            <span class="material-icons-round">psychology</span>
             AI Test Recorder
         </div>
 
         <button class="btn btn-secondary" id="uploadBtn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="17 8 12 3 7 8" />
-                <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-            Upload Excel
+            <span class="material-icons-round">upload_file</span>
+            Import Excel
         </button>
 
-        <button class="btn btn-primary" id="generateBtn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polygon points="5 3 19 12 5 21 5 3" />
-            </svg>
+        <button class="btn btn-primary" id="quickCreateBtn">
+            <span class="material-icons-round">edit_note</span>
+            Quick Create
+        </button>
+
+        <button class="btn btn-secondary" id="generateBtn">
+            <span class="material-icons-round">auto_awesome</span>
             Generate Tests
         </button>
 
         <button class="btn btn-secondary" id="cancelReplaceBtn" style="display: none;">
-            Cancel Replace Mode
+            <span class="material-icons-round">close</span>
+            Cancel
         </button>
 
         <div class="toolbar-spacer"></div>
 
+        <div class="env-selector" id="envSelector">
+            <div class="env-dot" id="envDot"></div>
+            <span class="env-name" id="envName">Production</span>
+            <span class="material-icons-round" style="font-size: 18px; color: var(--text-muted);">expand_more</span>
+        </div>
+
         <div class="status-badge status-idle" id="statusBadge">
-            <span class="pulse"></span>
-            <span id="statusText">Idle</span>
+            <span class="pulse-dot"></span>
+            <span id="statusText">Ready</span>
         </div>
     </div>
 
-    <!-- Main Content -->
+    <!-- Env Modal -->
+    <div class="env-modal" id="envModal">
+        <h4>Select Environment</h4>
+        <div class="env-option active" data-env="production" data-color="#22c55e" data-url="https://app.example.com">
+            <div class="env-option-dot" style="background: #22c55e;"></div>
+            <div class="env-option-info">
+                <div class="env-option-name">Production</div>
+                <div class="env-option-url">https://app.example.com</div>
+            </div>
+        </div>
+        <div class="env-option" data-env="staging" data-color="#f59e0b" data-url="https://staging.example.com">
+            <div class="env-option-dot" style="background: #f59e0b;"></div>
+            <div class="env-option-info">
+                <div class="env-option-name">Staging</div>
+                <div class="env-option-url">https://staging.example.com</div>
+            </div>
+        </div>
+        <div class="env-option" data-env="local" data-color="#3b82f6" data-url="http://localhost:3000">
+            <div class="env-option-dot" style="background: #3b82f6;"></div>
+            <div class="env-option-info">
+                <div class="env-option-name">Local</div>
+                <div class="env-option-url">http://localhost:3000</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main -->
     <div class="main-content">
-        <!-- Browser Panel -->
         <div class="browser-panel">
-            <div class="browser-header">
+            <div class="browser-chrome">
                 <div class="browser-dots">
-                    <div class="browser-dot dot-red"></div>
-                    <div class="browser-dot dot-yellow"></div>
-                    <div class="browser-dot dot-green"></div>
+                    <span class="dot-close"></span>
+                    <span class="dot-min"></span>
+                    <span class="dot-max"></span>
                 </div>
-                <input type="text" class="url-bar" value="https://demo-app.example.com/login" readonly>
+                <input type="text" class="url-bar" id="urlBar" value="https://app.example.com/login" readonly>
             </div>
             <div class="browser-viewport" id="browserViewport">
-                <!-- Mock Website -->
+                <div class="replace-hint">
+                    <span class="material-icons-round">touch_app</span>
+                    Click element to replace step
+                </div>
                 <div class="mock-site">
-                    <div class="mock-logo" data-element="logo">🚀 DemoApp</div>
-                    <div class="mock-form">
-                        <h2 data-element="title">Sign In</h2>
-                        <input type="text" class="mock-input hoverable" id="emailInput" data-element="email"
-                            placeholder="Email address">
-                        <input type="password" class="mock-input hoverable" id="passwordInput" data-element="password"
+                    <div class="mock-logo">✨ DemoApp</div>
+                    <div class="mock-card">
+                        <h2>Welcome Back</h2>
+                        <input type="text" class="mock-input" id="emailInput" data-element="email" placeholder="Email">
+                        <input type="password" class="mock-input" id="passwordInput" data-element="password"
                             placeholder="Password">
-                        <button class="mock-btn hoverable" id="loginBtn" data-element="login">Sign In</button>
-                        <a class="mock-link hoverable" id="forgotLink" data-element="forgot">Forgot Password?</a>
+                        <button class="mock-btn" id="loginBtn" data-element="login">Sign In</button>
+                        <a class="mock-link" id="forgotLink" data-element="forgot">Forgot password?</a>
                     </div>
                 </div>
-
-                <!-- AI Cursor -->
-                <div class="ai-cursor" id="aiCursor">
-                    <svg viewBox="0 0 24 24" fill="#8b5cf6" stroke="#fff" stroke-width="1">
-                        <path d="M4 4l16 8-8 3-3 8z" />
-                    </svg>
-                    <div class="ai-cursor-label" id="cursorLabel">AI Agent</div>
-                </div>
-
-                <!-- Element highlight for replace mode -->
                 <div class="element-highlight" id="elementHighlight"></div>
             </div>
         </div>
 
-        <!-- Tests Panel -->
         <div class="tests-panel" id="testsPanel">
             <div class="tests-header">
-                <h3>Generated Tests</h3>
-                <button class="close-btn" id="closePanelBtn">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                </button>
+                <h3><span class="material-icons-round" style="font-size: 18px;">checklist</span> Generated Tests</h3>
             </div>
             <div class="tests-list" id="testsList"></div>
         </div>
     </div>
 
-    <!-- Prompt Panel for adding/editing steps -->
+    <!-- Prompt Panel -->
     <div class="prompt-panel" id="promptPanel">
         <div class="prompt-header">
-            <h4>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                </svg>
-                <span id="promptTitle">Add New Step</span>
-            </h4>
-            <button class="close-btn" id="closePromptBtn">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
+            <h4><span class="material-icons-round">chat</span> <span id="promptTitle">Add Step</span></h4>
+            <button class="btn btn-icon btn-secondary" id="closePromptBtn">
+                <span class="material-icons-round">close</span>
             </button>
         </div>
-        <div class="prompt-input-wrapper">
+        <div class="prompt-input-row">
             <textarea class="prompt-input" id="promptInput" rows="2"
-                placeholder="Describe the step you want to add... e.g., 'Click on forgot password link' or 'Create a loop that iterates through each user in the list'"></textarea>
+                placeholder="Describe the step... e.g. 'Click login' or 'Loop through users'"></textarea>
             <button class="btn btn-primary" id="submitPromptBtn">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M22 2L11 13" />
-                    <path d="M22 2l-7 20-4-9-9-4 20-7z" />
-                </svg>
-                Generate
+                <span class="material-icons-round">send</span>
             </button>
         </div>
-        <div class="prompt-examples">
-            <span class="prompt-example" data-prompt="Click on the login button">Click on element</span>
-            <span class="prompt-example" data-prompt="Fill the email field with 'test@example.com'">Fill input
-                field</span>
-            <span class="prompt-example"
-                data-prompt="Create a loop that iterates through users array and fills each user's data">Create a
-                loop</span>
-            <span class="prompt-example"
-                data-prompt="Assert that the error message 'Invalid credentials' is visible">Add assertion</span>
-            <span class="prompt-example" data-prompt="Wait for the dashboard to load">Wait for element</span>
+        <div class="prompt-chips">
+            <span class="chip" data-prompt="Click on the login button">Click element</span>
+            <span class="chip" data-prompt="Fill email with 'test@example.com'">Fill field</span>
+            <span class="chip" data-prompt="Create a loop for each user">Create loop</span>
+            <span class="chip" data-prompt="Assert dashboard is visible">Assert</span>
         </div>
     </div>
 
-    <!-- Upload Modal -->
-    <div class="modal-overlay" id="uploadModal">
-        <div class="modal">
+    <div class="toast" id="toast">
+        <span class="material-icons-round">check_circle</span>
+        <span id="toastMessage">Success!</span>
+    </div>
+
+    <!-- Quick Create Modal -->
+    <div class="modal-overlay" id="quickCreateModal">
+        <div class="quick-create-modal">
             <div class="modal-header">
-                <h2>Upload Test Cases</h2>
-                <button class="close-btn" id="closeModalBtn">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
+                <h2><span class="material-icons-round">bolt</span> Quick Create Test</h2>
+                <button class="btn btn-icon btn-secondary" id="closeQCModal">
+                    <span class="material-icons-round">close</span>
                 </button>
             </div>
             <div class="modal-body">
-                <div class="upload-zone" id="uploadZone">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="17 8 12 3 7 8" />
-                        <line x1="12" y1="3" x2="12" y2="15" />
-                    </svg>
-                    <p>Drag & drop your Excel file here, or <span>browse</span></p>
-                    <p style="font-size: 12px; color: #71717a; margin-top: 8px;">
-                        Format: Test Case Name | Step 1 | Step 2 | Step 3 | ...
-                    </p>
+                <div class="qc-hint">
+                    <span class="material-icons-round">lightbulb</span>
+                    <span>Write your test steps in plain English, one step per line. The AI will convert them into
+                        executable Playwright scripts.</span>
+                </div>
+                <div class="qc-input-group">
+                    <label class="qc-label">Test Case Name</label>
+                    <input type="text" class="qc-input" id="qcTestName" placeholder="e.g., User Login Flow">
+                </div>
+                <div class="qc-input-group">
+                    <label class="qc-label">Test Steps</label>
+                    <textarea class="qc-steps-area" id="qcSteps" rows="8" placeholder="Navigate to the login page
+Fill the email field with 'test@example.com'
+Fill the password field with 'password123'
+Click the Sign In button
+Verify the dashboard is visible"></textarea>
+                    <div class="qc-templates">
+                        <span class="qc-template" data-template="Navigate to the login page">
+                            <span class="material-icons-round">open_in_browser</span> Navigate
+                        </span>
+                        <span class="qc-template" data-template="Fill the email field with 'value'">
+                            <span class="material-icons-round">edit</span> Fill
+                        </span>
+                        <span class="qc-template" data-template="Click the Submit button">
+                            <span class="material-icons-round">touch_app</span> Click
+                        </span>
+                        <span class="qc-template" data-template="Verify the success message is visible">
+                            <span class="material-icons-round">check_circle</span> Assert
+                        </span>
+                        <span class="qc-template" data-template="Loop through each user in the list">
+                            <span class="material-icons-round">repeat</span> Loop
+                        </span>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" id="cancelUploadBtn">Cancel</button>
-                <button class="btn btn-primary" id="importBtn">Import & Generate</button>
+                <button class="btn btn-secondary" id="cancelQCBtn">
+                    <span class="material-icons-round">close</span> Cancel
+                </button>
+                <button class="btn btn-primary" id="generateQCBtn">
+                    <span class="material-icons-round">auto_awesome</span> Generate Test
+                </button>
             </div>
         </div>
     </div>
 
-    <!-- Toast -->
-    <div class="toast" id="toast">
-        <span class="toast-icon">✓</span>
-        <span class="toast-message" id="toastMessage">Success!</span>
-    </div>
-
     <script>
-        // Sample test data
         const sampleTests = [
             {
-                id: 'TC-001',
-                name: 'User Login Flow',
-                status: 'complete',
-                steps: [
-                    { type: 'navigate', desc: 'Navigate to login page', code: 'Navigate to "https://demo-app.example.com/login"' },
-                    { type: 'fill', desc: 'Enter email address', code: 'Fill "Email address" with "user@test.com"' },
-                    { type: 'fill', desc: 'Enter password', code: 'Fill "Password" with "secretpass"' },
-                    { type: 'click', desc: 'Click sign in button', code: 'Click on "Sign In"' },
-                    { type: 'assert', desc: 'Verify dashboard visible', code: 'Assert "Dashboard" is visible' }
+                id: 'TC-001', name: 'User Login Flow', status: 'complete', steps: [
+                    { type: 'navigate', desc: 'Navigate to login', code: 'Navigate to "${baseUrl}/login"' },
+                    { type: 'fill', desc: 'Enter email', code: 'Fill "Email" with "user@test.com"' },
+                    { type: 'fill', desc: 'Enter password', code: 'Fill "Password" with "secret"' },
+                    { type: 'click', desc: 'Click sign in', code: 'Click on "Sign In"' },
+                    { type: 'assert', desc: 'Verify dashboard', code: 'Assert "Dashboard" is visible' }
                 ]
             },
             {
-                id: 'TC-002',
-                name: 'Password Reset Request',
-                status: 'pending',
-                steps: [
-                    { type: 'navigate', desc: 'Navigate to login page', code: 'Navigate to "https://demo-app.example.com/login"' },
-                    { type: 'click', desc: 'Click forgot password', code: 'Click on "Forgot Password?"' },
-                    { type: 'fill', desc: 'Enter email for reset', code: 'Fill "Email" with "user@test.com"' },
-                    { type: 'click', desc: 'Submit reset request', code: 'Click on "Send Reset Link"' }
+                id: 'TC-002', name: 'Password Reset', status: 'pending', steps: [
+                    { type: 'navigate', desc: 'Go to login', code: 'Navigate to "${baseUrl}/login"' },
+                    { type: 'click', desc: 'Click forgot password', code: 'Click on "Forgot password?"' },
+                    { type: 'fill', desc: 'Enter email', code: 'Fill "Email" with "user@test.com"' }
                 ]
             }
         ];
 
-        // State
         let currentTests = [];
-        let isGenerating = false;
         let replaceMode = { active: false, testId: null, stepIndex: null };
         let addStepMode = { active: false, testId: null, afterIndex: null };
 
-        // DOM Elements
-        const browserViewport = document.getElementById('browserViewport');
-        const uploadBtn = document.getElementById('uploadBtn');
-        const generateBtn = document.getElementById('generateBtn');
-        const cancelReplaceBtn = document.getElementById('cancelReplaceBtn');
-        const uploadModal = document.getElementById('uploadModal');
-        const closeModalBtn = document.getElementById('closeModalBtn');
-        const cancelUploadBtn = document.getElementById('cancelUploadBtn');
-        const importBtn = document.getElementById('importBtn');
         const testsList = document.getElementById('testsList');
-        const testsPanel = document.getElementById('testsPanel');
-        const closePanelBtn = document.getElementById('closePanelBtn');
+        const browserViewport = document.getElementById('browserViewport');
+        const cancelReplaceBtn = document.getElementById('cancelReplaceBtn');
         const statusBadge = document.getElementById('statusBadge');
         const statusText = document.getElementById('statusText');
-        const aiCursor = document.getElementById('aiCursor');
-        const cursorLabel = document.getElementById('cursorLabel');
-        const toast = document.getElementById('toast');
-        const toastMessage = document.getElementById('toastMessage');
         const promptPanel = document.getElementById('promptPanel');
         const promptInput = document.getElementById('promptInput');
-        const promptTitle = document.getElementById('promptTitle');
-        const closePromptBtn = document.getElementById('closePromptBtn');
-        const submitPromptBtn = document.getElementById('submitPromptBtn');
+        const toast = document.getElementById('toast');
+        const toastMessage = document.getElementById('toastMessage');
         const elementHighlight = document.getElementById('elementHighlight');
+        const envSelector = document.getElementById('envSelector');
+        const envModal = document.getElementById('envModal');
+        const envDot = document.getElementById('envDot');
+        const envName = document.getElementById('envName');
+        const urlBar = document.getElementById('urlBar');
 
-        // Render test cards with ADD STEP buttons between steps
         function renderTests() {
             testsList.innerHTML = currentTests.map((test, idx) => `
                 <div class="test-card ${idx === 0 ? 'expanded active' : ''}" data-id="${test.id}">
-                    <div class="test-card-header" onclick="toggleTest('${test.id}')">
-                        <div class="test-status-icon ${getStatusClass(test.status)}">
-                            ${getStatusIcon(test.status)}
+                    <div class="test-card-header">
+                        <button class="play-fab" onclick="event.stopPropagation(); runGeneratedScript('${test.id}')" title="Run generated script">
+                            <span class="material-icons-round">play_arrow</span>
+                        </button>
+                        <div class="test-card-info" onclick="toggleTest('${test.id}')">
+                            <div class="test-card-id">${test.id}</div>
+                            <div class="test-card-title">${test.name}</div>
                         </div>
-                        <div class="test-card-title">${test.id}: ${test.name}</div>
-                        <svg class="expand-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="9 18 15 12 9 6"/>
-                        </svg>
+                        <span class="test-status-chip chip-${test.status}">${test.status}</span>
+                        <button class="expand-toggle" onclick="toggleTest('${test.id}')">
+                            <span class="material-icons-round">expand_more</span>
+                        </button>
                     </div>
                     <div class="test-steps">
-                        <!-- Add step at beginning -->
-                        <div class="add-step-row">
-                            <button class="add-step-btn" onclick="openAddStep('${test.id}', -1)">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <line x1="12" y1="5" x2="12" y2="19"/>
-                                    <line x1="5" y1="12" x2="19" y2="12"/>
-                                </svg>
-                                Add step here
-                            </button>
-                        </div>
-                        
+                        <button class="add-step-btn" onclick="openAddStep('${test.id}', -1)">
+                            <span class="material-icons-round" style="font-size: 16px;">add</span> Add step
+                        </button>
                         ${test.steps.map((step, i) => `
-                            <div class="step-item ${replaceMode.active && replaceMode.testId === test.id && replaceMode.stepIndex === i ? 'replace-target' : ''}" 
-                                 data-test="${test.id}" data-step="${i}"
-                                 onclick="selectStep('${test.id}', ${i})">
+                            <div class="step-item ${replaceMode.active && replaceMode.testId === test.id && replaceMode.stepIndex === i ? 'replace-target' : ''}" data-test="${test.id}" data-step="${i}">
                                 <div class="step-header">
-                                    <div class="step-number">${i + 1}</div>
-                                    <div class="step-type type-${step.type}">${step.type}</div>
+                                    <div class="step-num">${i + 1}</div>
+                                    <span class="step-type type-${step.type}">${step.type}</span>
                                 </div>
-                                <div class="step-description">${step.desc}</div>
+                                <div class="step-desc">${step.desc}</div>
                                 <div class="step-code">${step.code}</div>
                                 <div class="step-actions">
-                                    <button class="step-action-btn" onclick="event.stopPropagation(); playStep('${test.id}', ${i})">
-                                        ▶ Run
+                                    <button class="step-action" onclick="event.stopPropagation(); playStep('${test.id}', ${i})">
+                                        <span class="material-icons-round">play_arrow</span> Run
                                     </button>
-                                    <button class="step-action-btn btn-replace" onclick="event.stopPropagation(); startReplaceMode('${test.id}', ${i})">
-                                        🔄 Replace
+                                    <button class="step-action btn-replace" onclick="event.stopPropagation(); startReplaceMode('${test.id}', ${i})">
+                                        <span class="material-icons-round">swap_horiz</span> Replace
                                     </button>
-                                    <button class="step-action-btn" onclick="event.stopPropagation(); navigateToStep('${test.id}', ${i})">
-                                        ↗ Navigate
-                                    </button>
-                                    <button class="step-action-btn" onclick="event.stopPropagation(); deleteStep('${test.id}', ${i})">
-                                        🗑
+                                    <button class="step-action" onclick="event.stopPropagation(); deleteStep('${test.id}', ${i})">
+                                        <span class="material-icons-round">delete</span>
                                     </button>
                                 </div>
                             </div>
-                            
-                            <!-- Add step after this one -->
-                            <div class="add-step-row">
-                                <button class="add-step-btn" onclick="openAddStep('${test.id}', ${i})">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <line x1="12" y1="5" x2="12" y2="19"/>
-                                        <line x1="5" y1="12" x2="19" y2="12"/>
-                                    </svg>
-                                    Add step here
-                                </button>
-                            </div>
+                            <button class="add-step-btn" onclick="openAddStep('${test.id}', ${i})">
+                                <span class="material-icons-round" style="font-size: 16px;">add</span> Add step
+                            </button>
                         `).join('')}
                     </div>
                     <div class="test-card-actions">
-                        <button class="btn btn-secondary" style="flex:1" onclick="runTest('${test.id}')">
-                            ▶ Run Test
+                        <button class="btn btn-secondary" style="flex:1" onclick="runGeneratedScript('${test.id}')">
+                            <span class="material-icons-round">play_arrow</span> Run Script
                         </button>
-                        <button class="btn btn-success" style="flex:1" onclick="approveTest('${test.id}')">
-                            ✓ Approve
+                        <button class="btn btn-primary" style="flex:1" onclick="approveTest('${test.id}')">
+                            <span class="material-icons-round">check</span> Approve
                         </button>
                     </div>
                 </div>
             `).join('');
         }
 
-        function getStatusClass(status) {
-            return { 'pending': 'status-pending', 'running': 'status-running-icon', 'complete': 'status-complete', 'failed': 'status-failed' }[status] || 'status-pending';
-        }
-
-        function getStatusIcon(status) {
-            return { 'pending': '○', 'running': '◐', 'complete': '✓', 'failed': '✗' }[status] || '○';
-        }
-
         function toggleTest(id) {
-            const card = document.querySelector(`.test-card[data-id="${id}"]`);
-            card.classList.toggle('expanded');
+            document.querySelector(`.test-card[data-id="${id}"]`).classList.toggle('expanded');
         }
 
-        function selectStep(testId, stepIndex) {
-            document.querySelectorAll('.step-item').forEach(el => el.classList.remove('active'));
-            const stepEl = document.querySelector(`.step-item[data-test="${testId}"][data-step="${stepIndex}"]`);
-            if (stepEl) stepEl.classList.add('active');
+        function runGeneratedScript(testId) {
+            const test = currentTests.find(t => t.id === testId);
+            showToast(`Running generated Playwright script for ${test.name}...`, 'info');
+            // This runs the GENERATED script, not AI
         }
 
-        // ADD STEP functionality
         function openAddStep(testId, afterIndex) {
             addStepMode = { active: true, testId, afterIndex };
-            promptTitle.textContent = afterIndex === -1 ? 'Add Step at Beginning' : `Add Step After Step ${afterIndex + 1}`;
+            document.getElementById('promptTitle').textContent = `Add Step ${afterIndex === -1 ? 'at Start' : `After Step ${afterIndex + 1}`}`;
             promptPanel.classList.add('visible');
             promptInput.focus();
-            showToast('Enter your step description or use a template', 'info');
         }
 
-        // REPLACE step functionality
         function startReplaceMode(testId, stepIndex) {
             replaceMode = { active: true, testId, stepIndex };
             browserViewport.classList.add('replace-mode');
@@ -1290,7 +1477,6 @@
             statusBadge.className = 'status-badge status-replace';
             statusText.textContent = 'Replace Mode';
             renderTests();
-            showToast('Click on any element in the browser to replace this step', 'info');
         }
 
         function cancelReplaceModeAction() {
@@ -1298,144 +1484,77 @@
             browserViewport.classList.remove('replace-mode');
             cancelReplaceBtn.style.display = 'none';
             statusBadge.className = 'status-badge status-idle';
-            statusText.textContent = 'Idle';
+            statusText.textContent = 'Ready';
             elementHighlight.classList.remove('visible');
             renderTests();
         }
 
-        // Handle clicks on browser elements during replace mode
         browserViewport.addEventListener('click', (e) => {
             if (!replaceMode.active) return;
-
             const target = e.target.closest('[data-element]');
             if (!target) return;
 
-            const elementName = target.dataset.element;
             const elementType = target.tagName.toLowerCase();
-
-            // Determine action type based on element
             let newStep;
             if (elementType === 'input') {
-                const placeholder = target.placeholder || elementName;
-                newStep = {
-                    type: 'fill',
-                    desc: `Fill ${placeholder} field`,
-                    code: `Fill "${placeholder}" with "value"`
-                };
-            } else if (elementType === 'button' || elementType === 'a') {
-                const text = target.textContent.trim();
-                newStep = {
-                    type: 'click',
-                    desc: `Click on ${text}`,
-                    code: `Click on "${text}"`
-                };
+                newStep = { type: 'fill', desc: `Fill ${target.placeholder}`, code: `Fill "${target.placeholder}" with "value"` };
             } else {
-                newStep = {
-                    type: 'click',
-                    desc: `Click on ${elementName}`,
-                    code: `Click on "${elementName}"`
-                };
+                const text = target.textContent.trim();
+                newStep = { type: 'click', desc: `Click ${text}`, code: `Click on "${text}"` };
             }
 
-            // Replace the step
             const test = currentTests.find(t => t.id === replaceMode.testId);
             if (test) {
                 test.steps[replaceMode.stepIndex] = newStep;
-                showToast(`Step replaced with: ${newStep.desc}`, 'success');
+                showToast(`Replaced: ${newStep.desc}`, 'success');
             }
-
             cancelReplaceModeAction();
             renderTests();
         });
 
-        // Highlight elements on hover during replace mode
         browserViewport.addEventListener('mousemove', (e) => {
             if (!replaceMode.active) return;
-
             const target = e.target.closest('[data-element]');
             if (target) {
                 const rect = target.getBoundingClientRect();
-                const viewportRect = browserViewport.getBoundingClientRect();
-                elementHighlight.style.left = (rect.left - viewportRect.left) + 'px';
-                elementHighlight.style.top = (rect.top - viewportRect.top) + 'px';
-                elementHighlight.style.width = rect.width + 'px';
-                elementHighlight.style.height = rect.height + 'px';
+                const vpRect = browserViewport.getBoundingClientRect();
+                elementHighlight.style.cssText = `left:${rect.left - vpRect.left}px;top:${rect.top - vpRect.top}px;width:${rect.width}px;height:${rect.height}px`;
                 elementHighlight.classList.add('visible');
             } else {
                 elementHighlight.classList.remove('visible');
             }
         });
 
-        // Submit prompt for new step
-        submitPromptBtn.addEventListener('click', () => {
-            const promptText = promptInput.value.trim();
-            if (!promptText || !addStepMode.active) return;
+        document.getElementById('submitPromptBtn').addEventListener('click', () => {
+            const text = promptInput.value.trim();
+            if (!text || !addStepMode.active) return;
 
-            // Simulate AI generating a step from the prompt
             let newStep;
-            const lowerPrompt = promptText.toLowerCase();
-
-            if (lowerPrompt.includes('loop') || lowerPrompt.includes('iterate')) {
-                newStep = {
-                    type: 'loop',
-                    desc: 'Loop through items',
-                    code: `For each user in users {\n    Fill "email" with user.email\n    Click on "Submit"\n}`
-                };
-            } else if (lowerPrompt.includes('click')) {
-                const match = promptText.match(/click\s+(?:on\s+)?(?:the\s+)?["']?([^"']+)["']?/i);
-                const target = match ? match[1] : 'button';
-                newStep = {
-                    type: 'click',
-                    desc: `Click on ${target}`,
-                    code: `Click on "${target}"`
-                };
-            } else if (lowerPrompt.includes('fill') || lowerPrompt.includes('enter') || lowerPrompt.includes('type')) {
-                newStep = {
-                    type: 'fill',
-                    desc: 'Fill input field',
-                    code: `Fill "field" with "value"`
-                };
-            } else if (lowerPrompt.includes('assert') || lowerPrompt.includes('verify')) {
-                newStep = {
-                    type: 'assert',
-                    desc: 'Verify element is visible',
-                    code: `Assert "element" is visible`
-                };
-            } else if (lowerPrompt.includes('wait')) {
-                newStep = {
-                    type: 'navigate',
-                    desc: 'Wait for element',
-                    code: `Wait for "element" to be visible`
-                };
+            const lower = text.toLowerCase();
+            if (lower.includes('loop')) {
+                newStep = { type: 'loop', desc: 'Loop through items', code: 'For each item in list {\n    // steps\n}' };
+            } else if (lower.includes('click')) {
+                newStep = { type: 'click', desc: text, code: `Click on "element"` };
+            } else if (lower.includes('fill')) {
+                newStep = { type: 'fill', desc: text, code: `Fill "field" with "value"` };
             } else {
-                newStep = {
-                    type: 'click',
-                    desc: promptText,
-                    code: `// Generated from: ${promptText}`
-                };
+                newStep = { type: 'click', desc: text, code: `// ${text}` };
             }
 
-            // Insert the step
             const test = currentTests.find(t => t.id === addStepMode.testId);
             if (test) {
-                const insertIndex = addStepMode.afterIndex + 1;
-                test.steps.splice(insertIndex, 0, newStep);
-                showToast(`New step added: ${newStep.desc}`, 'success');
+                test.steps.splice(addStepMode.afterIndex + 1, 0, newStep);
+                showToast(`Added: ${newStep.desc}`, 'success');
             }
 
-            // Close prompt panel
             promptPanel.classList.remove('visible');
             promptInput.value = '';
             addStepMode = { active: false, testId: null, afterIndex: null };
             renderTests();
         });
 
-        // Prompt examples
-        document.querySelectorAll('.prompt-example').forEach(el => {
-            el.addEventListener('click', () => {
-                promptInput.value = el.dataset.prompt;
-                promptInput.focus();
-            });
+        document.querySelectorAll('.chip').forEach(el => {
+            el.addEventListener('click', () => { promptInput.value = el.dataset.prompt; promptInput.focus(); });
         });
 
         function deleteStep(testId, stepIndex) {
@@ -1447,115 +1566,120 @@
             }
         }
 
-        function playStep(testId, stepIndex) {
-            showToast(`Running step ${stepIndex + 1}...`, 'info');
-        }
-
-        function navigateToStep(testId, stepIndex) {
-            showToast('Navigating to step execution point...', 'info');
-        }
-
-        function runTest(testId) {
-            showToast(`Running full test: ${testId}`, 'info');
-        }
-
+        function playStep(testId, stepIndex) { showToast(`Running step ${stepIndex + 1}...`, 'info'); }
         function approveTest(testId) {
-            showToast(`Test ${testId} approved and saved to IDE!`, 'success');
+            showToast(`${testId} approved & saved to IDE!`, 'success');
             const test = currentTests.find(t => t.id === testId);
             if (test) test.status = 'complete';
             renderTests();
         }
 
-        function showToast(message, type = 'success') {
-            toastMessage.textContent = message;
+        function showToast(msg, type = 'success') {
+            toastMessage.textContent = msg;
             toast.className = `toast visible ${type}`;
             setTimeout(() => toast.classList.remove('visible'), 3000);
         }
 
-        function sleep(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
+        // Env selector
+        envSelector.addEventListener('click', () => envModal.classList.toggle('visible'));
+        document.querySelectorAll('.env-option').forEach(opt => {
+            opt.addEventListener('click', () => {
+                document.querySelectorAll('.env-option').forEach(o => o.classList.remove('active'));
+                opt.classList.add('active');
+                envDot.style.background = opt.dataset.color;
+                envName.textContent = opt.querySelector('.env-option-name').textContent;
+                urlBar.value = opt.dataset.url + '/login';
+                envModal.classList.remove('visible');
+                showToast(`Switched to ${envName.textContent}`, 'info');
+            });
+        });
 
-        // AI Animation
-        async function animateAI(steps) {
-            aiCursor.classList.add('visible');
+        document.getElementById('generateBtn').addEventListener('click', () => {
+            currentTests = JSON.parse(JSON.stringify(sampleTests));
+            renderTests();
+            showToast('Tests generated!', 'success');
+        });
 
-            for (const step of steps) {
-                cursorLabel.textContent = step.label;
-                aiCursor.style.left = step.x + 'px';
-                aiCursor.style.top = step.y + 'px';
+        cancelReplaceBtn.addEventListener('click', cancelReplaceModeAction);
+        document.getElementById('closePromptBtn').addEventListener('click', () => { promptPanel.classList.remove('visible'); });
 
-                await sleep(600);
+        // Quick Create Modal handlers
+        const quickCreateModal = document.getElementById('quickCreateModal');
+        const qcTestName = document.getElementById('qcTestName');
+        const qcSteps = document.getElementById('qcSteps');
 
-                if (step.action === 'fill' && step.element) {
-                    step.element.classList.add('highlight');
-                    step.element.value = step.value;
-                    await sleep(300);
-                    step.element.classList.remove('highlight');
-                } else if (step.action === 'click' && step.element) {
-                    step.element.classList.add('highlight');
-                    await sleep(300);
-                    step.element.classList.remove('highlight');
-                }
+        document.getElementById('quickCreateBtn').addEventListener('click', () => {
+            quickCreateModal.classList.add('visible');
+            qcTestName.focus();
+        });
 
-                await sleep(400);
+        document.getElementById('closeQCModal').addEventListener('click', () => {
+            quickCreateModal.classList.remove('visible');
+        });
+
+        document.getElementById('cancelQCBtn').addEventListener('click', () => {
+            quickCreateModal.classList.remove('visible');
+        });
+
+        // Template chips for quick create
+        document.querySelectorAll('.qc-template').forEach(el => {
+            el.addEventListener('click', () => {
+                const current = qcSteps.value;
+                const template = el.dataset.template;
+                qcSteps.value = current ? current + '\n' + template : template;
+                qcSteps.focus();
+            });
+        });
+
+        // Generate from quick create
+        document.getElementById('generateQCBtn').addEventListener('click', () => {
+            const name = qcTestName.value.trim() || 'New Test Case';
+            const stepsText = qcSteps.value.trim();
+
+            if (!stepsText) {
+                showToast('Please enter at least one step', 'info');
+                return;
             }
 
-            aiCursor.classList.remove('visible');
-        }
+            const lines = stepsText.split('\n').filter(l => l.trim());
+            const steps = lines.map(line => {
+                const lower = line.toLowerCase();
+                let type = 'click';
+                if (lower.includes('navigate') || lower.includes('go to') || lower.includes('open')) {
+                    type = 'navigate';
+                } else if (lower.includes('fill') || lower.includes('enter') || lower.includes('type')) {
+                    type = 'fill';
+                } else if (lower.includes('assert') || lower.includes('verify') || lower.includes('check')) {
+                    type = 'assert';
+                } else if (lower.includes('loop') || lower.includes('each') || lower.includes('iterate')) {
+                    type = 'loop';
+                } else if (lower.includes('wait')) {
+                    type = 'navigate';
+                }
+                return { type, desc: line, code: `// ${line}` };
+            });
 
-        async function runGeneration() {
-            if (isGenerating) return;
-            isGenerating = true;
+            const newTestId = `TC-${String(currentTests.length + 1).padStart(3, '0')}`;
+            currentTests.unshift({
+                id: newTestId,
+                name: name,
+                status: 'pending',
+                steps: steps
+            });
 
-            statusBadge.className = 'status-badge status-running';
-            statusText.textContent = 'Generating...';
-
-            const emailInput = document.getElementById('emailInput');
-            const passwordInput = document.getElementById('passwordInput');
-            const loginBtn = document.getElementById('loginBtn');
-            const viewportRect = browserViewport.getBoundingClientRect();
-
-            const emailRect = emailInput.getBoundingClientRect();
-            const passRect = passwordInput.getBoundingClientRect();
-            const btnRect = loginBtn.getBoundingClientRect();
-
-            const steps = [
-                { label: 'Analyzing...', x: viewportRect.left + 100, y: viewportRect.top + 100, action: 'look' },
-                { label: 'Filling email', x: emailRect.left - viewportRect.left + 50, y: emailRect.top - viewportRect.top + 10, action: 'fill', element: emailInput, value: 'user@test.com' },
-                { label: 'Filling password', x: passRect.left - viewportRect.left + 50, y: passRect.top - viewportRect.top + 10, action: 'fill', element: passwordInput, value: '••••••••' },
-                { label: 'Clicking button', x: btnRect.left - viewportRect.left + 50, y: btnRect.top - viewportRect.top + 10, action: 'click', element: loginBtn }
-            ];
-
-            await animateAI(steps);
-
-            currentTests = [...sampleTests];
-            currentTests[0].status = 'complete';
+            quickCreateModal.classList.remove('visible');
+            qcTestName.value = '';
+            qcSteps.value = '';
             renderTests();
-
-            statusBadge.className = 'status-badge status-success';
-            statusText.textContent = 'Complete';
-            showToast('Test cases generated successfully!', 'success');
-            isGenerating = false;
-        }
-
-        // Event Listeners
-        uploadBtn.addEventListener('click', () => uploadModal.classList.add('visible'));
-        closeModalBtn.addEventListener('click', () => uploadModal.classList.remove('visible'));
-        cancelUploadBtn.addEventListener('click', () => uploadModal.classList.remove('visible'));
-        closePanelBtn.addEventListener('click', () => testsPanel.classList.toggle('collapsed'));
-        closePromptBtn.addEventListener('click', () => {
-            promptPanel.classList.remove('visible');
-            addStepMode = { active: false, testId: null, afterIndex: null };
-        });
-        cancelReplaceBtn.addEventListener('click', cancelReplaceModeAction);
-
-        importBtn.addEventListener('click', () => {
-            uploadModal.classList.remove('visible');
-            runGeneration();
+            showToast(`Created: ${newTestId} - ${name}`, 'success');
         });
 
-        generateBtn.addEventListener('click', runGeneration);
+        // Close modal on overlay click
+        quickCreateModal.addEventListener('click', (e) => {
+            if (e.target === quickCreateModal) {
+                quickCreateModal.classList.remove('visible');
+            }
+        });
 
         renderTests();
     </script>
