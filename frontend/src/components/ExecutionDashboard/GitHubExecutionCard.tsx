@@ -18,7 +18,6 @@ import {
   Download,
   BarChart2,
   FileText,
-  PlayCircle,
 } from 'lucide-react';
 import type { GitHubExecution, GitHubExecutionScenario, GitHubExecutionStep } from '@/store/useGitHubExecutionStore';
 import { ScenarioRow } from './ScenarioRow';
@@ -264,47 +263,6 @@ export const GitHubExecutionCard: React.FC<GitHubExecutionCardProps> = ({
 
   // Check if traces should be available (completed runs have traces)
   const hasTraces = execution.status === 'completed' && execution.conclusion === 'success';
-  const [traceLoading, setTraceLoading] = useState(false);
-
-  // Launch Trace Viewer - calls backend to download trace and run npx playwright show-trace
-  const handleOpenTraceViewer = async () => {
-    if (!execution.owner || !execution.repo || !execution.runId) {
-      console.error('[TraceViewer] Missing owner, repo, or runId');
-      alert('Missing execution details. Please try again.');
-      return;
-    }
-
-    setTraceLoading(true);
-    try {
-      const response = await fetch(`/api/github/runs/${execution.runId}/trace/open`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
-        },
-        body: JSON.stringify({
-          owner: execution.owner,
-          repo: execution.repo,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        console.log('[TraceViewer] Launched:', data.data);
-        // Show success message briefly
-        alert('Trace Viewer launched! Check your desktop for the Playwright window.');
-      } else {
-        console.error('[TraceViewer] Failed:', data.error);
-        alert(`Failed: ${data.error}`);
-      }
-    } catch (error) {
-      console.error('[TraceViewer] Error:', error);
-      alert('Failed to launch Trace Viewer. Check console for details.');
-    } finally {
-      setTraceLoading(false);
-    }
-  };
 
   return (
     <div className="bg-slate-800/50 border border-slate-700 rounded-lg overflow-hidden">
@@ -504,28 +462,7 @@ export const GitHubExecutionCard: React.FC<GitHubExecutionCardProps> = ({
             </div>
 
             {/* Action Buttons Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-              {/* Trace Viewer - Launch npx playwright show-trace */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenTraceViewer();
-                }}
-                disabled={!hasTraces || traceLoading}
-                className={`flex flex-col items-center gap-1.5 p-3 rounded-lg text-sm transition-all hover:scale-[1.02] active:scale-[0.98] ${hasTraces && !traceLoading
-                    ? 'bg-gradient-to-br from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white'
-                    : 'bg-slate-700/50 text-slate-400 cursor-not-allowed'
-                  }`}
-              >
-                {traceLoading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <PlayCircle className="w-5 h-5" />
-                )}
-                <span className="font-medium">{traceLoading ? 'Launching...' : 'Trace Viewer'}</span>
-                <span className="text-[10px] opacity-80">GUI debugger</span>
-              </button>
-
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {/* HTML Report - Primary debugging tool */}
               <a
                 href={execution.htmlUrl + '#artifacts'}
