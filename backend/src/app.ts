@@ -28,7 +28,7 @@ import { runConfigurationRoutes } from './routes/runConfiguration.routes';
 import { githubRoutes } from './routes/github.routes';
 import copilotRoutes from './routes/copilot.routes';
 import aiSettingsRoutes from './routes/ai-settings.routes';
-
+import aiRecorderRoutes from './routes/ai-recorder.routes';
 
 export function createApp() {
   const app = express();
@@ -119,6 +119,7 @@ export function createApp() {
   app.use('/api/github', githubRoutes);
   app.use('/api/copilot', copilotRoutes);
   app.use('/api/ai-settings', aiSettingsRoutes);
+  app.use('/api/ai-recorder', aiRecorderRoutes);
 
   // Error handlers (must be last)
   app.use(notFoundHandler);
