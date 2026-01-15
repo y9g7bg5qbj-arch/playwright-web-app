@@ -1,9 +1,5 @@
-export { PlaywrightIDE } from './PlaywrightIDE';
-export { IDEToolbox } from './IDEToolbox';
-export { IDEFlowCanvas } from './IDEFlowCanvas';
-export { IDEPropertiesPanel } from './IDEPropertiesPanel';
 export { AIAgentPanel } from './AIAgentPanel';
-export { blockDefinitions, categoryStyles, getCategories, getBlocksByCategory } from './blockDefinitions';
-export { ConsolePanel } from './ConsolePanel';
+export { AITestRecorderPanel } from './AITestRecorderPanel';
+export { LiveExecutionPanel } from './LiveExecutionPanel';
 export { DebugToolbar, CompactDebugToolbar } from './DebugToolbar';
 export { DebugConsolePanel } from './DebugConsolePanel';

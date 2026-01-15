@@ -3,10 +3,9 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
-import { VeroIDE } from './components/vero';
+import { VeroWorkspace } from './components/workspace';
 import { ExecutionReportPage } from './pages/ExecutionReportPage';
 import { ExecutionHistoryPage } from './pages/ExecutionHistoryPage';
-import { ScenarioDashboard } from './components/ScenarioDashboard';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
@@ -19,10 +18,10 @@ export function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-dark-bg">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent-blue mx-auto"></div>
+          <p className="mt-4 text-text-muted">Loading...</p>
         </div>
       </div>
     );
@@ -31,51 +30,56 @@ export function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Auth routes */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
 
-        {/* Main IDE Route - VeroIDE is the primary IDE */}
+        {/* Main unified workspace - default route */}
         <Route
           path="/"
           element={
             <ProtectedRoute>
               <ErrorBoundary>
-                <VeroIDE />
+                <VeroWorkspace />
               </ErrorBoundary>
             </ProtectedRoute>
           }
         />
 
-        {/* Scenario Dashboard */}
-        <Route
-          path="/scenarios"
-          element={
-            <ProtectedRoute>
-              <ErrorBoundary>
-                <ScenarioDashboard />
-              </ErrorBoundary>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Execution pages */}
-        <Route
-          path="/test-flow/:testFlowId/executions"
-          element={
-            <ProtectedRoute>
-              <ExecutionHistoryPage />
-            </ProtectedRoute>
-          }
-        />
+        {/* Execution detail pages (need separate routes for deep linking) */}
         <Route
           path="/execution/:executionId"
           element={
             <ProtectedRoute>
-              <ExecutionReportPage />
+              <ErrorBoundary>
+                <ExecutionReportPage />
+              </ErrorBoundary>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/test-flow/:testFlowId/executions"
+          element={
+            <ProtectedRoute>
+              <ErrorBoundary>
+                <ExecutionHistoryPage />
+              </ErrorBoundary>
             </ProtectedRoute>
           }
         />
 
+        {/* Legacy route redirects - all go to unified workspace */}
+        <Route path="/workspace" element={<Navigate to="/" replace />} />
+        <Route path="/dashboard" element={<Navigate to="/" replace />} />
+        <Route path="/editor" element={<Navigate to="/" replace />} />
+        <Route path="/ide" element={<Navigate to="/" replace />} />
+        <Route path="/executions" element={<Navigate to="/" replace />} />
+        <Route path="/data" element={<Navigate to="/" replace />} />
+        <Route path="/schedules" element={<Navigate to="/" replace />} />
+        <Route path="/copilot" element={<Navigate to="/" replace />} />
+        <Route path="/scenarios" element={<Navigate to="/" replace />} />
+
+        {/* Catch-all redirect */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

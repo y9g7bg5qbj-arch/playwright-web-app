@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { body, param } from 'express-validator';
+import { spawn } from 'child_process';
 import { ExecutionService } from '../services/execution.service';
 import { PlaywrightService } from '../services/playwright.service';
 import { TestFlowService } from '../services/testFlow.service';
@@ -358,7 +359,559 @@ router.post('/docker/trace/:shard/:testDir/view', async (req, res, next) => {
   }
 });
 
+// ============================================
+// LOCAL VERO TRACE SERVING
+// ============================================
+
+const VERO_PROJECT_PATH = path.join(__dirname, '../../../vero-lang/test-project');
+const VERO_TEST_RESULTS_PATH = path.join(VERO_PROJECT_PATH, 'test-results');
+
+// CORS preflight for local traces
+router.options('/local/trace', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Origin, Accept');
+  res.setHeader('Access-Control-Max-Age', '86400');
+  res.status(204).end();
+});
+
+router.options('/local/trace/:scenarioName', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Origin, Accept');
+  res.setHeader('Access-Control-Max-Age', '86400');
+  res.status(204).end();
+});
+
+/**
+ * GET /api/executions/local/trace
+ * Get the most recent trace from local vero test executions
+ */
+router.get('/local/trace', async (req, res, next) => {
+  try {
+    console.log('[LOCAL-TRACE] Looking for traces in:', VERO_TEST_RESULTS_PATH);
+
+    // Find the most recent trace.zip in test-results directory
+    let latestTrace: { path: string; mtime: Date } | null = null;
+
+    const findTraces = async (dir: string): Promise<void> => {
+      try {
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            await findTraces(fullPath);
+          } else if (entry.name === 'trace.zip') {
+            const stats = await fs.stat(fullPath);
+            if (!latestTrace || stats.mtime > latestTrace.mtime) {
+              latestTrace = { path: fullPath, mtime: stats.mtime };
+            }
+          }
+        }
+      } catch {
+        // Directory might not exist
+      }
+    };
+
+    await findTraces(VERO_TEST_RESULTS_PATH);
+
+    if (!latestTrace) {
+      console.log('[LOCAL-TRACE] No trace files found');
+      return res.status(404).json({
+        success: false,
+        error: 'No trace files found. Run tests first.',
+      });
+    }
+
+    console.log('[LOCAL-TRACE] Serving trace:', latestTrace.path);
+
+    // Send with CORS headers for trace.playwright.dev
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'inline; filename="trace.zip"');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    res.sendFile(latestTrace.path, (err) => {
+      if (err) {
+        console.error('[LOCAL-TRACE] Error sending file:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to send trace file' });
+        }
+      }
+    });
+  } catch (error) {
+    console.error('[LOCAL-TRACE] Error:', error);
+    next(error);
+  }
+});
+
+/**
+ * GET /api/executions/local/trace/:scenarioName
+ * Get trace for a specific scenario by name (partial match)
+ */
+router.get('/local/trace/:scenarioName', async (req, res, next) => {
+  try {
+    const scenarioName = decodeURIComponent(req.params.scenarioName).toLowerCase();
+    console.log('[LOCAL-TRACE] Looking for scenario trace:', scenarioName);
+
+    // Find trace.zip in directory matching scenario name
+    let matchedTrace: string | null = null;
+
+    try {
+      const entries = await fs.readdir(VERO_TEST_RESULTS_PATH, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const dirNameLower = entry.name.toLowerCase();
+          // Match scenario name in directory name (e.g., ".vero-temp-test-Example-Parallel-Test-1")
+          if (dirNameLower.includes(scenarioName.replace(/\s+/g, '-'))) {
+            const tracePath = path.join(VERO_TEST_RESULTS_PATH, entry.name, 'trace.zip');
+            try {
+              await fs.access(tracePath);
+              matchedTrace = tracePath;
+              break;
+            } catch {
+              // No trace.zip in this directory
+            }
+          }
+        }
+      }
+    } catch {
+      // test-results directory might not exist
+    }
+
+    if (!matchedTrace) {
+      console.log('[LOCAL-TRACE] No trace found for scenario:', scenarioName);
+      return res.status(404).json({
+        success: false,
+        error: `No trace found for scenario: ${scenarioName}`,
+      });
+    }
+
+    console.log('[LOCAL-TRACE] Serving trace:', matchedTrace);
+
+    // Send with CORS headers
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `inline; filename="trace-${req.params.scenarioName}.zip"`);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    res.sendFile(matchedTrace, (err) => {
+      if (err) {
+        console.error('[LOCAL-TRACE] Error sending file:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to send trace file' });
+        }
+      }
+    });
+  } catch (error) {
+    console.error('[LOCAL-TRACE] Error:', error);
+    next(error);
+  }
+});
+
+/**
+ * GET /api/executions/local/traces
+ * List all available traces from local vero test executions
+ */
+router.get('/local/traces', async (req, res, next) => {
+  try {
+    const traces: Array<{ name: string; path: string; timestamp: string }> = [];
+
+    try {
+      const entries = await fs.readdir(VERO_TEST_RESULTS_PATH, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const tracePath = path.join(VERO_TEST_RESULTS_PATH, entry.name, 'trace.zip');
+          try {
+            const stats = await fs.stat(tracePath);
+            traces.push({
+              name: entry.name,
+              path: `/api/executions/local/trace/${encodeURIComponent(entry.name)}`,
+              timestamp: stats.mtime.toISOString(),
+            });
+          } catch {
+            // No trace.zip in this directory
+          }
+        }
+      }
+    } catch {
+      // test-results directory might not exist
+    }
+
+    // Sort by timestamp, newest first
+    traces.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    res.json({
+      success: true,
+      data: traces,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/executions/local/trace/:scenarioName/open
+ * Open trace viewer locally using Playwright's built-in viewer
+ * This avoids the HTTPS mixed content issue with trace.playwright.dev
+ */
+router.post('/local/trace/:scenarioName/open', async (req, res, next) => {
+  try {
+    const scenarioName = decodeURIComponent(req.params.scenarioName).toLowerCase();
+    console.log('[LOCAL-TRACE] Opening trace viewer for scenario:', scenarioName);
+
+    // Find trace.zip in directory matching scenario name
+    let tracePath: string | null = null;
+
+    try {
+      const entries = await fs.readdir(VERO_TEST_RESULTS_PATH, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          // Match directory name containing the scenario name
+          const dirNameLower = entry.name.toLowerCase();
+          if (dirNameLower.includes(scenarioName) || scenarioName.includes(dirNameLower.replace('.vero-temp-test-', '').replace(/-/g, ' '))) {
+            const possibleTrace = path.join(VERO_TEST_RESULTS_PATH, entry.name, 'trace.zip');
+            try {
+              await fs.access(possibleTrace);
+              tracePath = possibleTrace;
+              console.log('[LOCAL-TRACE] Found trace at:', tracePath);
+              break;
+            } catch {
+              // No trace.zip in this directory
+            }
+          }
+        }
+      }
+    } catch {
+      // test-results directory might not exist
+    }
+
+    if (!tracePath) {
+      return res.status(404).json({
+        success: false,
+        error: `No trace found for scenario: ${scenarioName}`,
+      });
+    }
+
+    // Open Playwright trace viewer
+    console.log('[LOCAL-TRACE] Spawning trace viewer for:', tracePath);
+
+    // Kill any existing trace viewer on our port first
+    const { exec, execSync } = require('child_process');
+    try {
+      execSync('lsof -ti :9323 | xargs kill -9 2>/dev/null || true', { stdio: 'ignore' });
+    } catch (e) {
+      // Ignore errors
+    }
+
+    const quotedPath = `"${tracePath}"`;
+    const tracePort = 9323;
+    const traceUrl = `http://localhost:${tracePort}`;
+
+    // Start trace viewer on a fixed port (-p flag opens browser automatically)
+    const command = `npx playwright show-trace -p ${tracePort} ${quotedPath}`;
+    console.log('[LOCAL-TRACE] Running command:', command);
+
+    const childProcess = exec(command, {
+      cwd: VERO_PROJECT_PATH,
+    });
+
+    childProcess.stdout?.on('data', (data: string) => {
+      console.log('[LOCAL-TRACE] stdout:', data);
+    });
+
+    childProcess.stderr?.on('data', (data: string) => {
+      console.log('[LOCAL-TRACE] stderr:', data);
+    });
+
+    childProcess.on('error', (error: any) => {
+      console.error('[LOCAL-TRACE] Process error:', error);
+    });
+
+    // Wait a moment for the server to start, then open browser
+    setTimeout(() => {
+      console.log('[LOCAL-TRACE] Opening browser at:', traceUrl);
+      exec(`open "${traceUrl}"`);
+    }, 1500);
+
+    res.json({
+      success: true,
+      message: 'Trace viewer opening at ' + traceUrl,
+      tracePath,
+      traceUrl,
+    });
+  } catch (error) {
+    console.error('[LOCAL-TRACE] Error opening trace viewer:', error);
+    next(error);
+  }
+});
+
+// ============================================
+// LOCAL SCREENSHOT SERVING
+// ============================================
+
+/**
+ * GET /api/executions/local/screenshot/:scenarioName
+ * Get screenshot for a specific scenario
+ */
+router.get('/local/screenshot/:scenarioName', async (req, res, next) => {
+  try {
+    const scenarioName = decodeURIComponent(req.params.scenarioName).toLowerCase();
+    console.log('[LOCAL-SCREENSHOT] Looking for screenshot for scenario:', scenarioName);
+
+    // Find screenshot in test-results directory matching scenario name
+    let screenshotPath: string | null = null;
+
+    try {
+      const entries = await fs.readdir(VERO_TEST_RESULTS_PATH, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const dirNameLower = entry.name.toLowerCase();
+          if (dirNameLower.includes(scenarioName) || scenarioName.includes(dirNameLower.replace('.vero-temp-test-', '').replace(/-/g, ' '))) {
+            const dirPath = path.join(VERO_TEST_RESULTS_PATH, entry.name);
+            // Look for any .png file in the directory
+            try {
+              const dirContents = await fs.readdir(dirPath);
+              const pngFile = dirContents.find(f => f.endsWith('.png'));
+              if (pngFile) {
+                screenshotPath = path.join(dirPath, pngFile);
+                console.log('[LOCAL-SCREENSHOT] Found screenshot at:', screenshotPath);
+                break;
+              }
+            } catch {
+              // Skip this directory
+            }
+          }
+        }
+      }
+    } catch {
+      // test-results directory might not exist
+    }
+
+    if (!screenshotPath) {
+      return res.status(404).json({
+        success: false,
+        error: `No screenshot found for scenario: ${scenarioName}`,
+      });
+    }
+
+    // Serve the screenshot file
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    const fileBuffer = await fs.readFile(screenshotPath);
+    res.send(fileBuffer);
+  } catch (error) {
+    console.error('[LOCAL-SCREENSHOT] Error serving screenshot:', error);
+    next(error);
+  }
+});
+
+/**
+ * GET /api/executions/local/screenshots
+ * List all available screenshots from local vero test executions
+ */
+router.get('/local/screenshots', async (req, res, next) => {
+  try {
+    const screenshots: Array<{ name: string; url: string; timestamp: string }> = [];
+
+    try {
+      const entries = await fs.readdir(VERO_TEST_RESULTS_PATH, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const dirPath = path.join(VERO_TEST_RESULTS_PATH, entry.name);
+          try {
+            const dirContents = await fs.readdir(dirPath);
+            const pngFile = dirContents.find(f => f.endsWith('.png'));
+            if (pngFile) {
+              const stats = await fs.stat(path.join(dirPath, pngFile));
+              screenshots.push({
+                name: entry.name,
+                url: `/api/executions/local/screenshot/${encodeURIComponent(entry.name)}`,
+                timestamp: stats.mtime.toISOString(),
+              });
+            }
+          } catch {
+            // Skip this directory
+          }
+        }
+      }
+    } catch {
+      // test-results directory might not exist
+    }
+
+    // Sort by timestamp, newest first
+    screenshots.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    res.json({
+      success: true,
+      data: screenshots,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// LOCAL ALLURE REPORT GENERATION
+// ============================================
+
+/**
+ * GET /api/executions/local/allure/status
+ * Check if local Allure report is ready
+ */
+router.get('/local/allure/status', async (req, res, next) => {
+  try {
+    const veroProjectPath = path.join(__dirname, '../../../vero-lang/test-project');
+    const allureReportPath = path.join(veroProjectPath, 'allure-report', 'index.html');
+
+    let ready = false;
+    try {
+      await fs.access(allureReportPath);
+      ready = true;
+    } catch {
+      ready = false;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ready,
+        reportUrl: ready ? '/allure-reports/local/index.html' : null,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/executions/local/allure/generate
+ * Generate Allure HTML report from local test results
+ */
+router.post('/local/allure/generate', async (req, res, next) => {
+  try {
+    const { spawn } = require('child_process');
+    const veroProjectPath = path.join(__dirname, '../../../vero-lang/test-project');
+    const allureResultsPath = path.join(veroProjectPath, 'allure-results');
+    const allureReportPath = path.join(veroProjectPath, 'allure-report');
+    const storageAllurePath = path.resolve(__dirname, '../../../backend/storage/allure-reports/local');
+
+    console.log('[Allure] Generating report from:', allureResultsPath);
+
+    // Check if allure-results exists
+    try {
+      await fs.access(allureResultsPath);
+    } catch {
+      return res.json({
+        success: false,
+        error: 'No allure-results found. Run tests first.',
+      });
+    }
+
+    // Clean up old report
+    try {
+      await fs.rm(allureReportPath, { recursive: true, force: true });
+    } catch {
+      // Ignore if doesn't exist
+    }
+
+    // Generate Allure report - quote paths to handle spaces
+    const quotedResultsPath = `"${allureResultsPath}"`;
+    const quotedReportPath = `"${allureReportPath}"`;
+    const allureProcess = spawn('npx', ['allure', 'generate', quotedResultsPath, '-o', quotedReportPath, '--clean'], {
+      cwd: veroProjectPath,
+      shell: true,
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    allureProcess.stdout?.on('data', (data: Buffer) => {
+      stdout += data.toString();
+      console.log('[Allure]', data.toString());
+    });
+
+    allureProcess.stderr?.on('data', (data: Buffer) => {
+      stderr += data.toString();
+      console.error('[Allure Error]', data.toString());
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      allureProcess.on('close', async (code: number) => {
+        if (code === 0) {
+          console.log('[Allure] Report generated successfully');
+
+          // Copy to storage location for static serving
+          try {
+            await fs.mkdir(storageAllurePath, { recursive: true });
+
+            // Copy allure-report contents to storage
+            const copyRecursive = async (src: string, dest: string) => {
+              const entries = await fs.readdir(src, { withFileTypes: true });
+              await fs.mkdir(dest, { recursive: true });
+
+              for (const entry of entries) {
+                const srcPath = path.join(src, entry.name);
+                const destPath = path.join(dest, entry.name);
+
+                if (entry.isDirectory()) {
+                  await copyRecursive(srcPath, destPath);
+                } else {
+                  await fs.copyFile(srcPath, destPath);
+                }
+              }
+            };
+
+            await copyRecursive(allureReportPath, storageAllurePath);
+            console.log('[Allure] Report copied to storage:', storageAllurePath);
+          } catch (copyErr) {
+            console.error('[Allure] Failed to copy report:', copyErr);
+          }
+
+          resolve();
+        } else {
+          reject(new Error(`Allure generate failed with code ${code}: ${stderr}`));
+        }
+      });
+
+      allureProcess.on('error', (err: Error) => {
+        reject(err);
+      });
+    });
+
+    res.json({
+      success: true,
+      data: {
+        reportUrl: '/allure-reports/local/index.html',
+        message: 'Allure report generated successfully',
+      },
+    });
+  } catch (error: any) {
+    console.error('[Allure] Error generating report:', error);
+    res.json({
+      success: false,
+      error: error.message || 'Failed to generate Allure report',
+    });
+  }
+});
+
 router.use(authenticateToken);
+
+// Get recent executions across all test flows for the authenticated user
+router.get('/recent', async (req: AuthRequest, res, next) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 200;
+    const executions = await executionService.findRecent(req.userId!, limit);
+    res.json({
+      success: true,
+      data: executions,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // Get all executions for a test flow
 router.get(

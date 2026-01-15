@@ -571,6 +571,13 @@ export class ExecutionEngine extends EventEmitter {
                 testCode = transpileVero(testCode);
             }
 
+            // Set environment variables for Vero script resolution
+            // Transpiled Vero code reads from process.env.VERO_ENV_VARS
+            const previousEnvVars = process.env.VERO_ENV_VARS;
+            if (options.envVars && Object.keys(options.envVars).length > 0) {
+                process.env.VERO_ENV_VARS = JSON.stringify(options.envVars);
+            }
+
             // Create a test runner function
             const testRunner = new Function(
                 'page',
@@ -587,7 +594,16 @@ export class ExecutionEngine extends EventEmitter {
             );
 
             // Execute the test
-            await testRunner(page, context, null, null);
+            try {
+                await testRunner(page, context, null, null);
+            } finally {
+                // Restore previous env var value
+                if (previousEnvVars !== undefined) {
+                    process.env.VERO_ENV_VARS = previousEnvVars;
+                } else {
+                    delete process.env.VERO_ENV_VARS;
+                }
+            }
 
             // Take final screenshot on success (if configured)
             if (options.screenshot === 'on') {
@@ -619,23 +635,53 @@ export class ExecutionEngine extends EventEmitter {
             };
 
         } catch (error: any) {
-            // Capture failure screenshot
+            // Capture failure screenshot with element highlighting if applicable
             let screenshotPath: string | undefined;
+            let highlightedSelector: string | undefined;
 
             if (options.screenshot !== 'off') {
                 try {
-                    screenshotPath = path.join(storageDir, 'failure.png');
-                    await page.screenshot({ path: screenshotPath, fullPage: true });
+                    // Extract selector from error message for highlighting
+                    highlightedSelector = this.extractSelectorFromError(error.message);
+
+                    if (highlightedSelector) {
+                        // Try to highlight the expected element area
+                        screenshotPath = path.join(storageDir, 'failure-highlighted.png');
+                        await this.captureHighlightedFailureScreenshot(
+                            page,
+                            highlightedSelector,
+                            screenshotPath,
+                            error.message
+                        );
+                    } else {
+                        // Regular failure screenshot
+                        screenshotPath = path.join(storageDir, 'failure.png');
+                        await page.screenshot({ path: screenshotPath, fullPage: true });
+                    }
 
                     const screenshotBuffer = await fs.readFile(screenshotPath);
                     const screenshotRef = await this.artifactManager.saveScreenshot(
                         testId,
-                        'failure',
+                        highlightedSelector ? 'failure-highlighted' : 'failure',
                         screenshotBuffer
                     );
                     artifacts.push(screenshotRef);
                 } catch (ssError) {
                     logger.warn('Failed to capture failure screenshot:', ssError);
+                    // Fallback to simple screenshot
+                    try {
+                        screenshotPath = path.join(storageDir, 'failure.png');
+                        await page.screenshot({ path: screenshotPath, fullPage: true });
+                        const screenshotBuffer = await fs.readFile(screenshotPath);
+                        const screenshotRef = await this.artifactManager.saveScreenshot(
+                            testId,
+                            'failure',
+                            screenshotBuffer
+                        );
+                        artifacts.push(screenshotRef);
+                    } catch (fallbackError) {
+                        logger.warn('Fallback screenshot also failed:', fallbackError);
+                    }
                 }
             }
 
@@ -652,12 +698,212 @@ export class ExecutionEngine extends EventEmitter {
                     message: error.message,
                     stack: error.stack,
                     screenshot: screenshotPath,
+                    selector: highlightedSelector,
                 },
                 artifacts,
                 retries: 0,
                 browser: options.browser,
                 steps,
             };
+        }
+    }
+
+    /**
+     * Extract selector from Playwright error messages
+     */
+    private extractSelectorFromError(errorMessage: string): string | undefined {
+        // Common Playwright error patterns
+        const patterns = [
+            // "locator.click: Timeout 30000ms exceeded"
+            // "Waiting for locator('.button') to be visible"
+            /locator\(['"]([^'"]+)['"]\)/i,
+            // "getByText('Submit') - not found"
+            /getByText\(['"]([^'"]+)['"]\)/i,
+            // "getByRole('button', { name: 'Submit' })"
+            /getByRole\([^)]+\)/i,
+            // "getByLabel('Email')"
+            /getByLabel\(['"]([^'"]+)['"]\)/i,
+            // "getByTestId('submit-btn')"
+            /getByTestId\(['"]([^'"]+)['"]\)/i,
+            // "getByPlaceholder('Enter email')"
+            /getByPlaceholder\(['"]([^'"]+)['"]\)/i,
+            // CSS selector in error
+            /selector "([^"]+)"/i,
+            // XPath selector
+            /xpath=([^\s]+)/i,
+        ];
+
+        for (const pattern of patterns) {
+            const match = errorMessage.match(pattern);
+            if (match) {
+                return match[1] || match[0];
+            }
+        }
+
+        return undefined;
+    }
+
+    /**
+     * Capture a failure screenshot with the expected element area highlighted
+     */
+    private async captureHighlightedFailureScreenshot(
+        page: Page,
+        selector: string,
+        outputPath: string,
+        errorMessage: string
+    ): Promise<void> {
+        try {
+            // Inject a highlight overlay for the expected element area
+            // This creates a visual indicator where the element was expected
+            await page.evaluate(({ selector, errorMessage }) => {
+                // Create overlay container
+                const overlay = document.createElement('div');
+                overlay.id = 'vero-failure-overlay';
+                overlay.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    pointer-events: none;
+                    z-index: 999999;
+                `;
+
+                // Create error banner at top
+                const banner = document.createElement('div');
+                banner.style.cssText = `
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    background: linear-gradient(135deg, #da3633 0%, #b02d2b 100%);
+                    color: white;
+                    padding: 12px 20px;
+                    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+                    font-size: 13px;
+                    font-weight: 600;
+                    box-shadow: 0 4px 12px rgba(218, 54, 51, 0.4);
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                `;
+                banner.innerHTML = `
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="15" y1="9" x2="9" y2="15"></line>
+                        <line x1="9" y1="9" x2="15" y2="15"></line>
+                    </svg>
+                    <span>TEST FAILED: Element not found - ${selector}</span>
+                `;
+                overlay.appendChild(banner);
+
+                // Try to find similar elements and highlight them as "expected area"
+                // This shows where the element might have been expected
+                const selectorClean = selector.replace(/['"]/g, '');
+
+                // Try different strategies to find a region to highlight
+                let targetElement: Element | null = null;
+
+                // Strategy 1: Try the exact selector
+                try {
+                    targetElement = document.querySelector(selectorClean);
+                } catch (e) {}
+
+                // Strategy 2: Try by text content
+                if (!targetElement && selectorClean.length < 50) {
+                    const allElements = document.querySelectorAll('button, a, input, [role="button"]');
+                    for (const el of allElements) {
+                        if (el.textContent?.toLowerCase().includes(selectorClean.toLowerCase())) {
+                            targetElement = el;
+                            break;
+                        }
+                    }
+                }
+
+                // Strategy 3: Highlight the center of the viewport with "expected area" marker
+                const expectedArea = document.createElement('div');
+                if (targetElement) {
+                    // Found a potential match - highlight it
+                    const rect = targetElement.getBoundingClientRect();
+                    expectedArea.style.cssText = `
+                        position: absolute;
+                        top: ${rect.top - 4}px;
+                        left: ${rect.left - 4}px;
+                        width: ${rect.width + 8}px;
+                        height: ${rect.height + 8}px;
+                        border: 3px dashed #da3633;
+                        border-radius: 4px;
+                        background: rgba(218, 54, 51, 0.1);
+                        animation: pulse 1.5s ease-in-out infinite;
+                    `;
+
+                    // Add label
+                    const label = document.createElement('div');
+                    label.style.cssText = `
+                        position: absolute;
+                        top: ${rect.top - 30}px;
+                        left: ${rect.left}px;
+                        background: #da3633;
+                        color: white;
+                        padding: 4px 8px;
+                        border-radius: 4px;
+                        font-size: 11px;
+                        font-weight: bold;
+                        font-family: 'Inter', system-ui, sans-serif;
+                    `;
+                    label.textContent = 'EXPECTED ELEMENT AREA';
+                    overlay.appendChild(label);
+                } else {
+                    // No match found - show a message in the center
+                    expectedArea.style.cssText = `
+                        position: absolute;
+                        top: 50%;
+                        left: 50%;
+                        transform: translate(-50%, -50%);
+                        background: rgba(218, 54, 51, 0.95);
+                        color: white;
+                        padding: 20px 30px;
+                        border-radius: 8px;
+                        font-family: 'Inter', system-ui, sans-serif;
+                        text-align: center;
+                        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+                    `;
+                    expectedArea.innerHTML = `
+                        <div style="font-size: 16px; font-weight: bold; margin-bottom: 8px;">Element Not Found</div>
+                        <div style="font-size: 12px; opacity: 0.9; word-break: break-all; max-width: 400px;">${selector}</div>
+                    `;
+                }
+                overlay.appendChild(expectedArea);
+
+                // Add CSS animation
+                const style = document.createElement('style');
+                style.textContent = `
+                    @keyframes pulse {
+                        0%, 100% { opacity: 1; }
+                        50% { opacity: 0.5; }
+                    }
+                `;
+                document.head.appendChild(style);
+
+                document.body.appendChild(overlay);
+            }, { selector, errorMessage });
+
+            // Wait for overlay to render
+            await page.waitForTimeout(100);
+
+            // Take the screenshot
+            await page.screenshot({ path: outputPath, fullPage: false });
+
+            // Clean up the overlay
+            await page.evaluate(() => {
+                const overlay = document.getElementById('vero-failure-overlay');
+                if (overlay) overlay.remove();
+            });
+
+        } catch (highlightError) {
+            // If highlighting fails, fall back to regular screenshot
+            logger.warn('Failed to create highlighted screenshot:', highlightError);
+            await page.screenshot({ path: outputPath, fullPage: true });
         }
     }
 

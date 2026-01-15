@@ -14,7 +14,6 @@ import {
     XCircle,
     Info,
     Lightbulb,
-    Filter,
     X
 } from 'lucide-react';
 import type { VeroError, ErrorStats } from './useEditorErrors';

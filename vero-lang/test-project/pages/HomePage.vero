@@ -10,4 +10,5 @@ page HomePage {
     field icann = link "ICANN"
     field ianaManagedReservedDomainsCertainDomainsAreSetAsideAndNominallytext = text "IANA-managed Reserved Domains Certain domains are set aside, and nominally"
     field contractualLimitationslink = link "contractual limitations"
+    field header = #header
 }

@@ -9,6 +9,7 @@ import {
   RotateCw,
   Circle,
 } from 'lucide-react';
+import { RunButtonWithDropdown } from './RunConfigDropdown';
 
 /**
  * Debug execution state
@@ -26,7 +27,7 @@ export interface DebugState {
 interface DebugToolbarProps {
   isRunning: boolean;
   debugState: DebugState;
-  onRun: () => void;
+  onRun: (configId?: string) => void;
   onDebug: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -73,14 +74,8 @@ export function DebugToolbar({
       <div className="flex items-center gap-1">
         {!isRunning && !isDebugging ? (
           <>
-            {/* Run button */}
-            <button
-              onClick={onRun}
-              className={buttonClass()}
-              title="Run (F5)"
-            >
-              <Play className="w-4 h-4" />
-            </button>
+            {/* Run button with dropdown */}
+            <RunButtonWithDropdown onRun={onRun} />
 
             {/* Debug button */}
             <button
@@ -220,7 +215,7 @@ export function CompactDebugToolbar({
 }: {
   isRunning: boolean;
   debugState: DebugState;
-  onRun: () => void;
+  onRun: (configId?: string) => void;
   onDebug: () => void;
   onStop: () => void;
   className?: string;
@@ -231,13 +226,7 @@ export function CompactDebugToolbar({
     <div className={`flex items-center gap-1 ${className}`}>
       {!isRunning && !isDebugging ? (
         <>
-          <button
-            onClick={onRun}
-            className="p-1 rounded text-green-400 hover:bg-gray-700"
-            title="Run (F5)"
-          >
-            <Play className="w-4 h-4" />
-          </button>
+          <RunButtonWithDropdown onRun={onRun} />
           <button
             onClick={onDebug}
             className="p-1 rounded text-orange-400 hover:bg-gray-700"

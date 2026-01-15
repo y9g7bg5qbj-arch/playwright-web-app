@@ -1,10 +1,13 @@
-import { ProgramNode, PageNode, FeatureNode } from '../parser/ast.js';
+import { ProgramNode, PageNode, FeatureNode, StatementNode, ExpressionNode } from '../parser/ast.js';
 
 export interface ValidationError {
     message: string;
     severity: 'error' | 'warning';
     line?: number;
+    column?: number;
+    endColumn?: number;
     suggestion?: string;
+    code?: string;  // Error code like VERO-201
 }
 
 export interface ValidationResult {
@@ -19,6 +22,8 @@ export class Validator {
     private definedPages: Set<string> = new Set();
     private definedFields: Map<string, Set<string>> = new Map();
     private definedActions: Map<string, Set<string>> = new Map();
+    private definedVariables: Map<string, Set<string>> = new Map();  // Page -> variable names
+    private scenarioVariables: Set<string> = new Set();  // Variables defined in current scenario
 
     validate(ast: ProgramNode): ValidationResult {
         this.errors = [];
@@ -26,6 +31,8 @@ export class Validator {
         this.definedPages = new Set();
         this.definedFields = new Map();
         this.definedActions = new Map();
+        this.definedVariables = new Map();
+        this.scenarioVariables = new Set();
 
         // First pass: collect definitions
         for (const page of ast.pages) {
@@ -50,19 +57,13 @@ export class Validator {
 
     private collectPageDefinitions(page: PageNode): void {
         if (this.definedPages.has(page.name)) {
-            this.addError(`Duplicate page definition: ${page.name}`, page.line);
+            this.addError(`Duplicate page definition: ${page.name}`, page.line, undefined, 'VERO-100');
         }
 
         this.definedPages.add(page.name);
-
-        const fields = new Set<string>();
-        for (const field of page.fields) fields.add(field.name);
-        for (const variable of page.variables) fields.add(variable.name);
-        this.definedFields.set(page.name, fields);
-
-        const actions = new Set<string>();
-        for (const action of page.actions) actions.add(action.name);
-        this.definedActions.set(page.name, actions);
+        this.definedFields.set(page.name, new Set(page.fields.map(f => f.name)));
+        this.definedVariables.set(page.name, new Set(page.variables.map(v => v.name)));
+        this.definedActions.set(page.name, new Set(page.actions.map(a => a.name)));
     }
 
     private validatePage(page: PageNode): void {
@@ -99,34 +100,143 @@ export class Validator {
                 this.addError(
                     `Page '${usedPage}' is used but not defined`,
                     feature.line,
-                    `Make sure ${usedPage}.vero exists`
+                    `Make sure ${usedPage}.vero exists`,
+                    'VERO-200'
                 );
             }
         }
 
         // Validate scenarios
         for (const scenario of feature.scenarios) {
+            // Reset scenario-level variables for each scenario
+            this.scenarioVariables = new Set();
+
             for (const stmt of scenario.statements) {
-                if (stmt.type === 'Do') {
-                    const action = stmt.action;
-                    if (action.page && !feature.uses.includes(action.page)) {
-                        this.addError(
-                            `Page '${action.page}' is referenced but not in USE list`,
-                            stmt.line,
-                            `Add 'USE ${action.page}' at the top of the feature`
-                        );
-                    }
+                this.validateStatement(stmt, feature);
+            }
+        }
+    }
+
+    private validateStatement(stmt: StatementNode, feature: FeatureNode): void {
+        // Check DO statements for undefined pages/actions
+        if (stmt.type === 'Do') {
+            const action = stmt.action;
+            if (action.page) {
+                if (!feature.uses.includes(action.page)) {
+                    this.addError(
+                        `Page '${action.page}' is referenced but not in USE list`,
+                        stmt.line,
+                        `Add 'USE ${action.page}' at the top of the feature`,
+                        'VERO-201'
+                    );
+                }
+                // Check if action exists on the page
+                const pageActions = this.definedActions.get(action.page);
+                if (pageActions && !pageActions.has(action.action)) {
+                    this.addError(
+                        `Action '${action.action}' is not defined in page '${action.page}'`,
+                        stmt.line,
+                        `Define the action in ${action.page} or check spelling`,
+                        'VERO-202'
+                    );
+                }
+            }
+            // Validate arguments are defined
+            for (const arg of action.arguments) {
+                this.validateExpression(arg, stmt.line, feature);
+            }
+        }
+
+        // Check FILL statements for undefined variables in value
+        if (stmt.type === 'Fill') {
+            this.validateExpression(stmt.value, stmt.line, feature);
+        }
+
+        // Check LOAD statements - they define new variables
+        if (stmt.type === 'Load') {
+            this.scenarioVariables.add(stmt.variable);
+        }
+
+        // Check FOR EACH statements
+        if (stmt.type === 'ForEach') {
+            // The collection variable should be defined
+            if (!this.scenarioVariables.has(stmt.collectionVariable)) {
+                this.addError(
+                    `Variable '${stmt.collectionVariable}' is not defined`,
+                    stmt.line,
+                    `Load the data first with 'LOAD ${stmt.collectionVariable} FROM "table"'`,
+                    'VERO-203'
+                );
+            }
+            // The item variable is defined within the loop
+            this.scenarioVariables.add(stmt.itemVariable);
+            for (const innerStmt of stmt.statements) {
+                this.validateStatement(innerStmt, feature);
+            }
+        }
+
+        // Check VERIFY/ASSERT statements
+        if (stmt.type === 'Verify' || stmt.type === 'VerifyHas') {
+            if ('target' in stmt && stmt.target && stmt.target.type === 'Target') {
+                const target = stmt.target;
+                if (target.page && !feature.uses.includes(target.page)) {
+                    this.addError(
+                        `Page '${target.page}' is referenced but not in USE list`,
+                        stmt.line,
+                        `Add 'USE ${target.page}' at the top of the feature`,
+                        'VERO-201'
+                    );
                 }
             }
         }
     }
 
-    private addError(message: string, line?: number, suggestion?: string): void {
-        this.errors.push({ message, severity: 'error', line, suggestion });
+    private validateExpression(expr: ExpressionNode, line: number, feature: FeatureNode): void {
+        if (expr.type === 'VariableReference') {
+            const varName = expr.name;
+            const pageName = expr.page;
+
+            if (pageName) {
+                // Check if page is in USE list
+                if (!feature.uses.includes(pageName)) {
+                    this.addError(
+                        `Page '${pageName}' is referenced but not in USE list`,
+                        line,
+                        `Add 'USE ${pageName}' at the top of the feature`,
+                        'VERO-201'
+                    );
+                }
+                // Check if variable exists on page
+                const pageVars = this.definedVariables.get(pageName);
+                const pageFields = this.definedFields.get(pageName);
+                if (pageVars && pageFields && !pageVars.has(varName) && !pageFields.has(varName)) {
+                    this.addWarning(
+                        `Variable or field '${varName}' may not be defined in page '${pageName}'`,
+                        line,
+                        undefined,
+                        'VERO-204'
+                    );
+                }
+            } else {
+                // Check if it's a scenario-level variable
+                if (!this.scenarioVariables.has(varName)) {
+                    this.addWarning(
+                        `Variable '${varName}' may not be defined`,
+                        line,
+                        `Define it with 'LOAD ${varName} FROM "table"' or ensure it's available`,
+                        'VERO-204'
+                    );
+                }
+            }
+        }
     }
 
-    private addWarning(message: string, line?: number, suggestion?: string): void {
-        this.warnings.push({ message, severity: 'warning', line, suggestion });
+    private addError(message: string, line?: number, suggestion?: string, code?: string): void {
+        this.errors.push({ message, severity: 'error', line, suggestion, code });
+    }
+
+    private addWarning(message: string, line?: number, suggestion?: string, code?: string): void {
+        this.warnings.push({ message, severity: 'warning', line, suggestion, code });
     }
 
     private isPascalCase(str: string): boolean {

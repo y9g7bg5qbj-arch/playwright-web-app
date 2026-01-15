@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Papa from 'papaparse';
 import {
-    Database, Plus, Upload, Download, RefreshCw, Settings,
+    Plus, Upload, Download, RefreshCw, Settings,
     Code, Check, AlertTriangle, FileText
 } from 'lucide-react';
 import { apiUrl } from '@/config';
@@ -20,18 +20,31 @@ import { ImportExcelModal } from './ImportExcelModal';
 import { ImportCSVModal } from './ImportCSVModal';
 import { ColumnEditorModal } from './ColumnEditorModal';
 import { EnvironmentManager } from './EnvironmentManager';
+import { SavedViewsDropdown } from './SavedViewsDropdown';
+import { testDataApi } from '@/api/testData';
+import type { SavedView } from '@/api/testData';
 
 // ============================================
 // TYPES
 // ============================================
 
+export interface ReferenceConfig {
+    targetSheet: string;
+    targetColumn: string;
+    displayColumn: string;
+    allowMultiple: boolean;
+    separator?: string;
+}
+
 export interface DataColumn {
     name: string;
-    type: 'string' | 'number' | 'boolean' | 'date';
+    type: 'string' | 'number' | 'boolean' | 'date' | 'formula' | 'reference';
     required: boolean;
     pattern?: string;
     minLength?: number;
     maxLength?: number;
+    formula?: string; // For computed columns
+    referenceConfig?: ReferenceConfig; // For reference columns
 }
 
 export interface DataSheet {
@@ -78,7 +91,13 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
     const [showImportModal, setShowImportModal] = useState(false);
     const [showCSVImportModal, setShowCSVImportModal] = useState(false);
     const [showColumnEditor, setShowColumnEditor] = useState(false);
+    const [editingColumn, setEditingColumn] = useState<AGDataColumn | null>(null);
     const [showEnvironments, setShowEnvironments] = useState(false);
+
+    // Saved views state
+    const [currentFilterState, setCurrentFilterState] = useState<Record<string, unknown>>({});
+    const [currentSortState, setCurrentSortState] = useState<unknown[]>([]);
+    const [currentColumnState, setCurrentColumnState] = useState<unknown[]>([]);
 
     // Messages
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -149,6 +168,13 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
 
     // Sheet handlers
     const handleCreateSheet = async (name: string, pageObject: string, description: string, columns: DataColumn[]) => {
+        // Validate projectId before making API call
+        if (!projectId) {
+            console.error('handleCreateSheet: projectId is missing or undefined');
+            showError('Cannot create sheet: No project selected. Please select a project first.');
+            return;
+        }
+
         try {
             const res = await fetch(apiUrl('/api/test-data/sheets'), {
                 method: 'POST',
@@ -390,21 +416,52 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
 
     // Column handlers for AG Grid
     const handleAddColumn = () => {
+        setEditingColumn(null);
         setShowColumnEditor(true);
     };
 
-    const handleSaveNewColumn = async (column: AGDataColumn) => {
+    // Edit existing column handler
+    const handleEditColumn = (columnName: string) => {
+        if (!selectedSheet) return;
+        const col = selectedSheet.columns.find(c => c.name === columnName);
+        if (!col) return;
+
+        // Convert to AGDataColumn format
+        const editColumn: AGDataColumn = {
+            name: col.name,
+            type: col.type === 'string' ? 'text' : col.type as AGDataColumn['type'],
+            required: col.required,
+            formula: (col as any).formula,
+            referenceConfig: (col as any).referenceConfig,
+        };
+        setEditingColumn(editColumn);
+        setShowColumnEditor(true);
+    };
+
+    const handleSaveColumn = async (column: AGDataColumn) => {
         if (!selectedSheet) return;
 
         const newColumn: DataColumn = {
             name: column.name,
             type: column.type === 'text' ? 'string' : column.type,
-            required: false
+            required: column.required || false,
+            ...(column.formula && { formula: column.formula }),
+            ...(column.referenceConfig && { referenceConfig: column.referenceConfig }),
         };
 
-        await handleUpdateSheet(selectedSheet.id, {
-            columns: [...selectedSheet.columns, newColumn]
-        });
+        if (editingColumn) {
+            // Update existing column
+            const updatedColumns = selectedSheet.columns.map(c =>
+                c.name === editingColumn.name ? newColumn : c
+            );
+            await handleUpdateSheet(selectedSheet.id, { columns: updatedColumns });
+        } else {
+            // Add new column
+            await handleUpdateSheet(selectedSheet.id, {
+                columns: [...selectedSheet.columns, newColumn]
+            });
+        }
+        setEditingColumn(null);
     };
 
     const handleRemoveColumn = async (columnName: string) => {
@@ -450,14 +507,53 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
 
     // Bulk operations for AG Grid
     const handleBulkDeleteRows = async (rowIds: string[]) => {
+        if (!selectedSheet) return;
         try {
-            await Promise.all(rowIds.map(id =>
-                fetch(apiUrl(`/api/test-data/rows/${id}`), { method: 'DELETE' })
-            ));
+            const deleted = await testDataApi.bulkDeleteRows(selectedSheet.id, rowIds);
             setRows(rows.filter(r => !rowIds.includes(r.id)));
-            showSuccess(`Deleted ${rowIds.length} rows`);
+            showSuccess(`Deleted ${deleted} rows`);
         } catch (err) {
             showError('Failed to delete rows');
+        }
+    };
+
+    // Duplicate selected rows
+    const handleDuplicateRows = async (rowIds: string[]) => {
+        if (!selectedSheet) return;
+        try {
+            const newRows = await testDataApi.duplicateRows(selectedSheet.id, rowIds);
+            // Add the new rows to state with proper DataRow structure
+            const formattedRows: DataRow[] = newRows.map(r => ({
+                id: r.id,
+                sheetId: r.sheetId,
+                scenarioId: r.scenarioId,
+                data: r.data,
+                enabled: r.enabled,
+                createdAt: r.createdAt || new Date().toISOString(),
+                updatedAt: r.updatedAt || new Date().toISOString(),
+            }));
+            setRows([...rows, ...formattedRows]);
+            showSuccess(`Duplicated ${newRows.length} rows`);
+        } catch (err) {
+            showError('Failed to duplicate rows');
+        }
+    };
+
+    // Fill series for selected rows and column
+    const handleFillSeries = async (
+        rowIds: string[],
+        columnId: string,
+        fillType: 'value' | 'sequence' | 'pattern',
+        options: { value?: string; startValue?: number; step?: number; pattern?: string }
+    ) => {
+        if (!selectedSheet) return;
+        try {
+            const updated = await testDataApi.fillSeries(selectedSheet.id, rowIds, columnId, fillType, options);
+            // Refresh rows to get updated data
+            fetchRows(selectedSheet.id);
+            showSuccess(`Filled ${updated} cells`);
+        } catch (err) {
+            showError('Failed to fill series');
         }
     };
 
@@ -587,46 +683,46 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
     };
 
     return (
-        <div className="flex h-full bg-slate-950">
+        <div className="flex h-full bg-[#0d1117]">
             {/* Left Sidebar - Sheet List */}
-            <div className="w-64 flex-shrink-0 border-r border-slate-800 flex flex-col">
+            <div className="w-64 flex-shrink-0 border-r border-[#30363d] flex flex-col bg-[#161b22]">
                 {/* Header */}
-                <div className="p-4 border-b border-slate-800">
+                <div className="p-4 border-b border-[#30363d]">
                     <div className="flex items-center gap-2 mb-3">
-                        <Database className="w-5 h-5 text-emerald-400" />
-                        <h1 className="text-lg font-semibold text-slate-200">Test Data</h1>
+                        <span className="material-symbols-outlined text-[20px] text-[#58a6ff]">database</span>
+                        <h1 className="text-base font-semibold text-white">Test Data</h1>
                     </div>
 
                     {/* Actions */}
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-1.5">
                         <button
                             onClick={() => setShowSheetForm(true)}
-                            className="flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-500 rounded text-xs text-white"
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#238636] hover:bg-[#2ea043] rounded-md text-xs font-medium text-white transition-colors"
                             title="New Data Table"
                         >
-                            <Plus className="w-3 h-3" />
-                            New
+                            <Plus className="w-3.5 h-3.5" />
+                            New Table
                         </button>
                         <button
                             onClick={() => setShowImportModal(true)}
-                            className="flex items-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs text-slate-200"
+                            className="flex items-center gap-1 px-2 py-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md text-xs text-[#c9d1d9] transition-colors"
                             title="Import Excel"
                         >
-                            <Upload className="w-3 h-3" />
+                            <Upload className="w-3.5 h-3.5" />
                         </button>
                         <button
                             onClick={handleExport}
-                            className="flex items-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs text-slate-200"
+                            className="flex items-center gap-1 px-2 py-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md text-xs text-[#c9d1d9] transition-colors"
                             title="Export Excel"
                         >
-                            <Download className="w-3 h-3" />
+                            <Download className="w-3.5 h-3.5" />
                         </button>
                         <button
                             onClick={() => setShowEnvironments(true)}
-                            className="flex items-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs text-slate-200"
+                            className="flex items-center gap-1 px-2 py-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md text-xs text-[#c9d1d9] transition-colors"
                             title="Environments"
                         >
-                            <Settings className="w-3 h-3" />
+                            <Settings className="w-3.5 h-3.5" />
                         </button>
                     </div>
                 </div>
@@ -650,60 +746,76 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
             <div className="flex-1 flex flex-col min-w-0">
                 {/* Toolbar */}
                 {selectedSheet && (
-                    <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900/50 flex-shrink-0">
+                    <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#30363d] bg-[#161b22] flex-shrink-0">
                         <div className="flex items-center gap-3">
-                            <Database className="w-4 h-4 text-emerald-400" />
+                            <span className="material-symbols-outlined text-[18px] text-[#58a6ff]">table_chart</span>
                             <div>
-                                <h2 className="text-sm font-medium text-slate-200">{selectedSheet.name}</h2>
+                                <h2 className="text-sm font-medium text-white">{selectedSheet.name}</h2>
                                 {selectedSheet.pageObject && selectedSheet.pageObject !== selectedSheet.name && (
-                                    <span className="text-xs text-slate-500">
+                                    <span className="text-xs text-[#8b949e]">
                                         Linked to: {selectedSheet.pageObject}
                                     </span>
                                 )}
                             </div>
-                            <span className="text-xs text-slate-500">
+                            <span className="px-2 py-0.5 rounded-full bg-[#21262d] text-xs text-[#8b949e]">
                                 {rows.length} {rows.length === 1 ? 'row' : 'rows'}
                             </span>
                         </div>
 
                         <div className="flex items-center gap-2">
+                            {/* Saved Views Dropdown */}
+                            <SavedViewsDropdown
+                                sheetId={selectedSheet.id}
+                                currentFilterState={currentFilterState}
+                                currentSortState={currentSortState}
+                                currentColumnState={currentColumnState}
+                                onViewSelect={(view: SavedView) => {
+                                    // Apply view settings to the grid
+                                    setCurrentFilterState(view.filterState);
+                                    setCurrentSortState(view.sortState);
+                                    setCurrentColumnState(view.columnState);
+                                    // Grid will pick up these changes
+                                }}
+                            />
                             <button
                                 onClick={() => setShowCSVImportModal(true)}
-                                className="flex items-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs text-slate-200"
+                                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md text-xs text-[#c9d1d9] transition-colors"
                                 title="Import CSV"
                             >
-                                <FileText className="w-3 h-3" />
+                                <FileText className="w-3.5 h-3.5" />
                                 CSV
                             </button>
                             <button
                                 onClick={handleGenerateCode}
-                                className="flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white"
+                                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#1f6feb] hover:bg-[#388bfd] rounded-md text-xs font-medium text-white transition-colors"
                                 title="Generate TypeScript DTO Classes"
                             >
-                                <Code className="w-3 h-3" />
+                                <Code className="w-3.5 h-3.5" />
                                 Generate Code
                             </button>
                             <button
                                 onClick={() => fetchRows(selectedSheetId!)}
-                                className="p-1 hover:bg-slate-700 rounded"
+                                className="p-1.5 hover:bg-[#21262d] rounded-md transition-colors"
                                 title="Refresh"
                             >
-                                <RefreshCw className={`w-4 h-4 text-slate-400 ${loadingRows ? 'animate-spin' : ''}`} />
+                                <RefreshCw className={`w-4 h-4 text-[#8b949e] ${loadingRows ? 'animate-spin' : ''}`} />
                             </button>
                         </div>
                     </div>
                 )}
 
                 {/* Data Table Container - AG Grid */}
-                <div className="flex-1 min-h-0 relative">
+                <div className="flex-1 min-h-0 relative bg-[#0d1117]">
                     {selectedSheet ? (
                         <div className="absolute inset-0">
                             <AGGridDataTable
                                 tableName={selectedSheet.name}
                                 columns={selectedSheet.columns.map(c => ({
                                     name: c.name,
-                                    type: c.type === 'string' ? 'text' : c.type,
-                                    required: c.required
+                                    type: c.type === 'string' ? 'text' : c.type as any,
+                                    required: c.required,
+                                    formula: (c as any).formula,
+                                    referenceConfig: (c as any).referenceConfig,
                                 }))}
                                 rows={rows.map((r, idx) => ({
                                     id: r.id,
@@ -716,6 +828,7 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
                                 onRowDelete={handleDeleteRow}
                                 onRowsDelete={handleBulkDeleteRows}
                                 onColumnAdd={handleAddColumn}
+                                onColumnEdit={handleEditColumn}
                                 onColumnRemove={handleRemoveColumn}
                                 onColumnRename={handleRenameColumn}
                                 onColumnTypeChange={handleColumnTypeChange}
@@ -724,13 +837,17 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
                                 onImportCSV={() => setShowCSVImportModal(true)}
                                 onGenerateColumnData={handleGenerateColumnData}
                                 onBulkUpdate={handleBulkUpdate}
+                                onRowsDuplicate={handleDuplicateRows}
+                                onFillSeries={handleFillSeries}
                             />
                         </div>
                     ) : (
-                        <div className="flex flex-col items-center justify-center h-full text-slate-500">
-                            <Database className="w-16 h-16 mb-4 opacity-20" />
-                            <p className="text-lg mb-2">No data table selected</p>
-                            <p className="text-sm">Select a table from the sidebar or create a new one</p>
+                        <div className="flex flex-col items-center justify-center h-full">
+                            <div className="w-20 h-20 rounded-2xl bg-[#21262d] flex items-center justify-center mb-4">
+                                <span className="material-symbols-outlined text-[40px] text-[#8b949e]">database</span>
+                            </div>
+                            <p className="text-lg font-medium text-[#c9d1d9] mb-1">No data table selected</p>
+                            <p className="text-sm text-[#8b949e]">Select a table from the sidebar or create a new one</p>
                         </div>
                     )}
                 </div>
@@ -738,15 +855,15 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
 
             {/* Messages */}
             {successMessage && (
-                <div className="fixed bottom-4 right-4 flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg shadow-lg z-50">
+                <div className="fixed bottom-4 right-4 flex items-center gap-2 px-4 py-3 bg-[#238636] text-white rounded-lg shadow-lg z-50">
                     <Check className="w-4 h-4" />
-                    {successMessage}
+                    <span className="text-sm font-medium">{successMessage}</span>
                 </div>
             )}
             {errorMessage && (
-                <div className="fixed bottom-4 right-4 flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg shadow-lg z-50">
+                <div className="fixed bottom-4 right-4 flex items-center gap-2 px-4 py-3 bg-[#da3633] text-white rounded-lg shadow-lg z-50">
                     <AlertTriangle className="w-4 h-4" />
-                    {errorMessage}
+                    <span className="text-sm font-medium">{errorMessage}</span>
                 </div>
             )}
 
@@ -795,10 +912,20 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
             {showColumnEditor && selectedSheet && (
                 <ColumnEditorModal
                     isOpen={showColumnEditor}
-                    onClose={() => setShowColumnEditor(false)}
-                    onSave={handleSaveNewColumn}
+                    onClose={() => {
+                        setShowColumnEditor(false);
+                        setEditingColumn(null);
+                    }}
+                    onSave={handleSaveColumn}
+                    existingColumn={editingColumn || undefined}
                     existingColumnNames={selectedSheet.columns.map(c => c.name)}
-                    mode="add"
+                    mode={editingColumn ? 'edit' : 'add'}
+                    availableSheets={sheets.map(s => ({
+                        id: s.id,
+                        name: s.name,
+                        columns: s.columns.map(c => ({ name: c.name, type: c.type })),
+                    }))}
+                    currentSheetId={selectedSheet.id}
                 />
             )}
         </div>

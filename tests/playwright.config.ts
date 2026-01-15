@@ -5,6 +5,7 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
     testDir: './',
+    testMatch: ['**/*.spec.ts'],
 
     // Run tests in parallel - this is key for sharding
     fullyParallel: true,
@@ -27,8 +28,8 @@ export default defineConfig({
     timeout: 30000,
 
     use: {
-        // Base URL for Playwright website tests
-        baseURL: 'https://playwright.dev',
+        // Base URL for local Vero IDE tests
+        baseURL: 'http://localhost:5173',
 
         // Collect trace for all tests (enables trace viewer in reports)
         trace: 'retain-on-failure',

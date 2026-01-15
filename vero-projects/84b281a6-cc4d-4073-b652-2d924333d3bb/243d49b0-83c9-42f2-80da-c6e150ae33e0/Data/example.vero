@@ -1,0 +1,16 @@
+# Example Test Data
+# Define test data for data-driven testing
+
+DATA LoginCredentials
+  ROW valid_user
+    username: "testuser"
+    password: "password123"
+    expected: "success"
+  END
+
+  ROW invalid_user
+    username: "invalid"
+    password: "wrong"
+    expected: "error"
+  END
+END

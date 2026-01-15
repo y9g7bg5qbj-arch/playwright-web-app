@@ -7,7 +7,10 @@ import {
     FixtureNode, FixtureUseNode, FixtureOptionNode, FixtureOptionValue,
     FeatureAnnotation, ScenarioAnnotation,
     VerifyUrlStatement, VerifyTitleStatement, VerifyHasStatement, UploadStatement,
-    HasCondition, HasCountCondition, HasValueCondition, HasAttributeCondition
+    HasCondition, HasCountCondition, HasValueCondition, HasAttributeCondition,
+    HasTextCondition, ContainsTextCondition, HasClassCondition,
+    RightClickStatement, DoubleClickStatement, ForceClickStatement, DragStatement, CoordinateTarget,
+    EnvVarReference
 } from './ast.js';
 
 export class Parser {
@@ -427,6 +430,43 @@ export class Parser {
             return { type: 'Click', target, line };
         }
 
+        // RIGHT CLICK "Element"
+        if (this.match(TokenType.RIGHT)) {
+            this.consume(TokenType.CLICK, "Expected 'CLICK' after 'RIGHT'");
+            const target = this.parseTarget();
+            return { type: 'RightClick', target, line } as RightClickStatement;
+        }
+
+        // DOUBLE CLICK "Element"
+        if (this.match(TokenType.DOUBLE)) {
+            this.consume(TokenType.CLICK, "Expected 'CLICK' after 'DOUBLE'");
+            const target = this.parseTarget();
+            return { type: 'DoubleClick', target, line } as DoubleClickStatement;
+        }
+
+        // FORCE CLICK "Element"
+        if (this.match(TokenType.FORCE)) {
+            this.consume(TokenType.CLICK, "Expected 'CLICK' after 'FORCE'");
+            const target = this.parseTarget();
+            return { type: 'ForceClick', target, line } as ForceClickStatement;
+        }
+
+        // DRAG "Source" TO "Target" or DRAG "Element" TO x=100 y=200
+        if (this.match(TokenType.DRAG)) {
+            const source = this.parseTarget();
+            this.consume(TokenType.TO, "Expected 'TO' after source element");
+
+            // Check if destination is coordinates (x=... y=...)
+            if (this.check(TokenType.IDENTIFIER) && this.peek().value.toLowerCase() === 'x') {
+                const destination = this.parseCoordinateTarget();
+                return { type: 'Drag', source, destination, line } as DragStatement;
+            }
+
+            // Otherwise it's a target element
+            const destination = this.parseTarget();
+            return { type: 'Drag', source, destination, line } as DragStatement;
+        }
+
         if (this.match(TokenType.FILL)) {
             const target = this.parseTarget();
             this.consume(TokenType.WITH, "Expected 'WITH'");
@@ -439,12 +479,21 @@ export class Parser {
             return { type: 'Open', url, line };
         }
 
+        // VERIFY keyword for assertions
         if (this.match(TokenType.VERIFY)) {
             // Check for URL assertion: verify url contains/equals/matches "value"
             if (this.match(TokenType.URL)) {
                 const condition = this.parseUrlCondition();
                 const value = this.parseExpression();
                 return { type: 'VerifyUrl', condition, value, line };
+            }
+
+            // Check for PAGE TITLE assertion: assert page title is "value"
+            if (this.match(TokenType.PAGE)) {
+                this.consume(TokenType.TITLE, "Expected 'TITLE' after 'PAGE'");
+                const condition = this.parseTitleCondition();
+                const value = this.parseExpression();
+                return { type: 'VerifyTitle', condition, value, line };
             }
 
             // Check for TITLE assertion: verify title contains/equals "value"
@@ -454,13 +503,30 @@ export class Parser {
                 return { type: 'VerifyTitle', condition, value, line };
             }
 
+            // Check for ELEMENT COUNT assertion: assert element count of "selector" is N
+            if (this.match(TokenType.ELEMENT)) {
+                this.consume(TokenType.COUNT, "Expected 'COUNT' after 'ELEMENT'");
+                this.consume(TokenType.OF, "Expected 'OF' after 'COUNT'");
+                const target = this.parseTarget();
+                this.consume(TokenType.IS, "Expected 'IS'");
+                const count = this.parseExpression();
+                return { type: 'VerifyHas', target, hasCondition: { type: 'HasCount', count }, line };
+            }
+
             // Parse target for element assertions
             const target = this.parseTarget();
 
-            // Check for HAS assertion: verify selector has count/value/attribute
+            // Check for HAS assertion: verify selector has count/value/attribute/text/class
             if (this.match(TokenType.HAS)) {
                 const hasCondition = this.parseHasCondition();
                 return { type: 'VerifyHas', target, hasCondition, line };
+            }
+
+            // Check for CONTAINS TEXT assertion: assert "element" contains text "value"
+            if (this.match(TokenType.CONTAINS)) {
+                this.consume(TokenType.TEXT, "Expected 'TEXT' after 'CONTAINS'");
+                const text = this.parseExpression();
+                return { type: 'VerifyHas', target, hasCondition: { type: 'ContainsText', text }, line };
             }
 
             // Standard element assertion: verify element is visible/etc.
@@ -511,13 +577,36 @@ export class Parser {
             return { type: 'Log', message, line };
         }
 
+        // take screenshot | take screenshot as "name" | take screenshot of Page.field | take screenshot of Page.field as "name"
         if (this.match(TokenType.TAKE)) {
             this.consume(TokenType.SCREENSHOT, "Expected 'SCREENSHOT'");
+            let target: TargetNode | undefined;
             let filename: string | undefined;
-            if (this.check(TokenType.STRING)) {
+
+            // Check for "of" - element screenshot (must use Page.field reference)
+            if (this.match(TokenType.OF)) {
+                // Direct string selectors are NOT allowed - must use Page.field
+                if (this.check(TokenType.STRING)) {
+                    this.error("Direct selectors not allowed in 'take screenshot of'. Use Page.field reference instead (e.g., LoginPage.submitButton)");
+                    this.advance(); // consume the string to continue parsing
+                } else {
+                    target = this.parsePageFieldTarget();
+                }
+            }
+
+            // Check for "as" or direct string for filename
+            if (this.match(TokenType.AS)) {
+                if (this.check(TokenType.STRING)) {
+                    filename = this.advance().value;
+                } else {
+                    this.error("Expected filename after 'as'");
+                }
+            } else if (this.check(TokenType.STRING)) {
+                // Allow direct string without 'as' for backwards compatibility
                 filename = this.advance().value;
             }
-            return { type: 'TakeScreenshot', filename, line };
+
+            return { type: 'TakeScreenshot', target, filename, line };
         }
 
         // upload "file.pdf" to "#fileInput" | upload "file1.jpg", "file2.jpg" to "#multiUpload"
@@ -660,28 +749,25 @@ export class Parser {
     }
 
     private parseVerifyCondition(): VerifyCondition {
-        let negated = false;
-
         this.consume(TokenType.IS, "Expected 'IS'");
-        if (this.match(TokenType.NOT)) {
-            negated = true;
-        }
+        const negated = this.match(TokenType.NOT);
 
-        const stateKeywords: Record<string, string> = {
-            [TokenType.VISIBLE]: 'VISIBLE',
-            [TokenType.HIDDEN]: 'HIDDEN',
-            [TokenType.ENABLED]: 'ENABLED',
-            [TokenType.DISABLED]: 'DISABLED',
-            [TokenType.CHECKED]: 'CHECKED',
-            [TokenType.EMPTY]: 'EMPTY',
-        };
+        const stateTokens: TokenType[] = [
+            TokenType.VISIBLE,
+            TokenType.HIDDEN,
+            TokenType.ENABLED,
+            TokenType.DISABLED,
+            TokenType.CHECKED,
+            TokenType.FOCUSED,
+            TokenType.EMPTY,
+        ];
 
-        for (const [tokenType, value] of Object.entries(stateKeywords)) {
-            if (this.match(tokenType as TokenType)) {
+        for (const tokenType of stateTokens) {
+            if (this.match(tokenType)) {
                 return {
                     type: 'Condition',
                     operator: negated ? 'IS_NOT' : 'IS',
-                    value: value as 'VISIBLE' | 'HIDDEN' | 'ENABLED' | 'DISABLED' | 'CHECKED' | 'EMPTY'
+                    value: tokenType as 'VISIBLE' | 'HIDDEN' | 'ENABLED' | 'DISABLED' | 'CHECKED' | 'FOCUSED' | 'EMPTY'
                 };
             }
         }
@@ -690,50 +776,43 @@ export class Parser {
         return { type: 'Condition', operator: 'IS', value: 'VISIBLE' };
     }
 
-    // Parse URL condition: contains | equals | matches
     private parseUrlCondition(): 'contains' | 'equals' | 'matches' {
-        if (this.match(TokenType.CONTAINS)) {
-            return 'contains';
-        }
-        if (this.match(TokenType.EQUAL)) {
-            return 'equals';
-        }
-        if (this.match(TokenType.MATCHES)) {
-            return 'matches';
-        }
+        if (this.match(TokenType.CONTAINS)) return 'contains';
+        if (this.match(TokenType.EQUAL)) return 'equals';
+        if (this.match(TokenType.MATCHES)) return 'matches';
+
         this.error("Expected 'CONTAINS', 'EQUALS', or 'MATCHES'");
         return 'contains';
     }
 
-    // Parse TITLE condition: contains | equals
     private parseTitleCondition(): 'contains' | 'equals' {
-        if (this.match(TokenType.CONTAINS)) {
-            return 'contains';
-        }
-        if (this.match(TokenType.EQUAL)) {
-            return 'equals';
-        }
-        this.error("Expected 'CONTAINS' or 'EQUALS'");
+        if (this.match(TokenType.CONTAINS)) return 'contains';
+        if (this.match(TokenType.EQUAL) || this.match(TokenType.IS)) return 'equals';
+
+        this.error("Expected 'CONTAINS', 'EQUALS', or 'IS'");
         return 'contains';
     }
 
-    // Parse HAS condition: count N | value "text" | attribute "name" equal "value"
     private parseHasCondition(): HasCondition {
         if (this.match(TokenType.COUNT)) {
-            const count = this.parseExpression();
-            return { type: 'HasCount', count };
+            return { type: 'HasCount', count: this.parseExpression() };
         }
         if (this.match(TokenType.VALUE)) {
-            const value = this.parseExpression();
-            return { type: 'HasValue', value };
+            return { type: 'HasValue', value: this.parseExpression() };
         }
         if (this.match(TokenType.ATTRIBUTE)) {
             const attribute = this.parseExpression();
             this.consume(TokenType.EQUAL, "Expected 'EQUAL'");
-            const value = this.parseExpression();
-            return { type: 'HasAttribute', attribute, value };
+            return { type: 'HasAttribute', attribute, value: this.parseExpression() };
         }
-        this.error("Expected 'COUNT', 'VALUE', or 'ATTRIBUTE'");
+        if (this.match(TokenType.TEXT)) {
+            return { type: 'HasText', text: this.parseExpression() };
+        }
+        if (this.match(TokenType.CLASS)) {
+            return { type: 'HasClass', className: this.parseExpression() };
+        }
+
+        this.error("Expected 'COUNT', 'VALUE', 'ATTRIBUTE', 'TEXT', or 'CLASS'");
         return { type: 'HasCount', count: { type: 'NumberLiteral', value: 0 } };
     }
 
@@ -783,6 +862,37 @@ export class Parser {
         return { type: 'Target', selector };
     }
 
+    // Parse Page.field target only (no direct strings allowed)
+    private parsePageFieldTarget(): TargetNode {
+        if (!this.check(TokenType.IDENTIFIER)) {
+            this.error("Expected Page.field reference (e.g., LoginPage.submitButton)");
+            return { type: 'Target', field: 'unknown' };
+        }
+
+        const first = this.advance().value;
+        if (this.match(TokenType.DOT)) {
+            const field = this.consume(TokenType.IDENTIFIER, "Expected field name after '.'").value;
+            return { type: 'Target', page: first, field };
+        }
+
+        // Just a field name without page prefix is allowed
+        return { type: 'Target', field: first };
+    }
+
+    // Parse coordinate target: x=100 y=200
+    private parseCoordinateTarget(): CoordinateTarget {
+        // Expect: x=NUMBER y=NUMBER
+        this.consume(TokenType.IDENTIFIER, "Expected 'x'"); // consume 'x'
+        this.consume(TokenType.EQUALS_SIGN, "Expected '='");
+        const x = parseFloat(this.consume(TokenType.NUMBER_LITERAL, "Expected x coordinate").value);
+
+        this.consume(TokenType.IDENTIFIER, "Expected 'y'"); // consume 'y'
+        this.consume(TokenType.EQUALS_SIGN, "Expected '='");
+        const y = parseFloat(this.consume(TokenType.NUMBER_LITERAL, "Expected y coordinate").value);
+
+        return { type: 'Coordinate', x, y };
+    }
+
     private parseExpression(): ExpressionNode {
         if (this.check(TokenType.STRING)) {
             return { type: 'StringLiteral', value: this.advance().value };
@@ -796,13 +906,17 @@ export class Parser {
         if (this.match(TokenType.FALSE)) {
             return { type: 'BooleanLiteral', value: false };
         }
-
-        // Variable reference
+        if (this.check(TokenType.ENV_VAR_REF)) {
+            return { type: 'EnvVarReference', name: this.advance().value };
+        }
         if (this.check(TokenType.IDENTIFIER)) {
             const first = this.advance().value;
             if (this.match(TokenType.DOT)) {
-                const name = this.consume(TokenType.IDENTIFIER, "Expected variable name").value;
-                return { type: 'VariableReference', page: first, name };
+                return {
+                    type: 'VariableReference',
+                    page: first,
+                    name: this.consume(TokenType.IDENTIFIER, "Expected variable name").value
+                };
             }
             return { type: 'VariableReference', name: first };
         }
@@ -857,7 +971,6 @@ export class Parser {
      * This is needed for things like DEPENDS ON page, context where page/context are keywords
      */
     private consumeIdentifierOrKeyword(message: string): string {
-        const token = this.peek();
         // Accept IDENTIFIER or common keywords that might be used as dependency/parameter names
         if (this.check(TokenType.IDENTIFIER) ||
             this.check(TokenType.PAGE) ||

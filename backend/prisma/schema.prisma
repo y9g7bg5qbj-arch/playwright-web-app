@@ -47,6 +47,7 @@ model Application {
   workflows      Workflow[]
   testDataSheets TestDataSheet[]
   scheduledTests ScheduledTest[]
+  appEnvironments AppEnvironment[]    // Postman-style environments for this application
 
   @@unique([userId, name]) // User can't have duplicate application names
   @@index([userId])
@@ -184,6 +185,7 @@ model ExecutionStep {
   duration    Int?      // milliseconds
   error       String?   // error message if failed
   screenshot  String?   // screenshot filename
+  stepsJson   String?   @map("steps_json") // JSON array of sub-steps within this scenario
   startedAt   DateTime? @map("started_at")
   finishedAt  DateTime? @map("finished_at")
 
@@ -349,6 +351,48 @@ model WorkflowVariable {
 }
 
 // ============================================
+// APPLICATION ENVIRONMENTS (Postman-style)
+// ============================================
+
+// AppEnvironment - Application-scoped environments (like Postman)
+// Each application can have multiple environments (dev, staging, prod)
+// Only one environment can be active at a time per application
+model AppEnvironment {
+  id            String   @id @default(uuid())
+  applicationId String   @map("application_id")
+  name          String   // "Development", "Staging", "Production"
+  isActive      Boolean  @default(false) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  application Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  variables   AppEnvVariable[]
+
+  @@unique([applicationId, name])
+  @@index([applicationId])
+  @@index([isActive])
+  @@map("app_environments")
+}
+
+// AppEnvVariable - Key-value pairs within an application environment
+// Use {{variableName}} syntax in Vero scripts to reference these
+model AppEnvVariable {
+  id            String         @id @default(uuid())
+  environmentId String         @map("environment_id")
+  key           String
+  value         String
+  isSecret      Boolean        @default(false) @map("is_secret")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  environment   AppEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  @@unique([environmentId, key])
+  @@index([environmentId])
+  @@map("app_env_variables")
+}
+
+// ============================================
 // OBJECT REPOSITORY / PAGE OBJECT MODEL
 // ============================================
 
@@ -437,12 +481,15 @@ model TestDataSheet {
   name          String         // "LoginPage", "CheckoutPage"
   pageObject    String?        @map("page_object") // Associated Vero page name
   description   String?
-  columns       String         @default("[]") // JSON: [{ name: "email", type: "string", required: true }]
+  columns       String         @default("[]") // JSON: [{ name: "email", type: "string", required: true, formula?: "price * quantity" }]
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
 
   application   Application    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   rows          TestDataRow[]
+  savedViews    TestDataSavedView[]
+  sourceRelationships TestDataRelationship[] @relation("SourceRelationships")
+  targetRelationships TestDataRelationship[] @relation("TargetRelationships")
 
   @@unique([applicationId, name])
   @@index([applicationId])
@@ -465,6 +512,51 @@ model TestDataRow {
   @@index([sheetId])
   @@index([scenarioId])
   @@map("test_data_rows")
+}
+
+// TestDataSavedView - Saved filter/sort/column configurations for sheets
+model TestDataSavedView {
+  id            String        @id @default(uuid())
+  sheetId       String        @map("sheet_id")
+  name          String
+  description   String?
+  isDefault     Boolean       @default(false) @map("is_default")
+  filterState   String        @default("{}") @map("filter_state") // JSON: AG Grid filter model
+  sortState     String        @default("[]") @map("sort_state") // JSON: AG Grid sort model
+  columnState   String        @default("[]") @map("column_state") // JSON: Column visibility/order/width
+  groupState    String        @default("[]") @map("group_state") // JSON: Row grouping config
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  sheet         TestDataSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+
+  @@unique([sheetId, name])
+  @@index([sheetId])
+  @@index([isDefault])
+  @@map("test_data_saved_views")
+}
+
+// TestDataRelationship - Foreign key relationships between sheets
+model TestDataRelationship {
+  id                  String        @id @default(uuid())
+  sourceSheetId       String        @map("source_sheet_id")
+  targetSheetId       String        @map("target_sheet_id")
+  name                String        // "user_orders", "product_category"
+  sourceColumn        String        @map("source_column") // Column in source sheet
+  targetColumn        String        @map("target_column") // Column in target sheet (usually ID)
+  displayColumns      String        @default("[]") @map("display_columns") // JSON: Columns to display from target
+  relationshipType    String        @default("many-to-one") @map("relationship_type") // many-to-one, one-to-many, many-to-many
+  cascadeDelete       Boolean       @default(false) @map("cascade_delete")
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+
+  sourceSheet         TestDataSheet @relation("SourceRelationships", fields: [sourceSheetId], references: [id], onDelete: Cascade)
+  targetSheet         TestDataSheet @relation("TargetRelationships", fields: [targetSheetId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceSheetId, name])
+  @@index([sourceSheetId])
+  @@index([targetSheetId])
+  @@map("test_data_relationships")
 }
 
 // ============================================
@@ -1110,4 +1202,89 @@ model AISettings {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("ai_settings")
+}
+
+// ============================================
+// AI TEST RECORDER
+// ============================================
+
+// AIRecorderSession - Batch processing session for test cases
+model AIRecorderSession {
+  id            String    @id @default(uuid())
+  userId        String    @map("user_id")
+  applicationId String?   @map("application_id")
+  status        String    @default("pending") // pending, processing, human_review, complete, failed, cancelled
+  environment   String    @default("staging")
+  baseUrl       String?   @map("base_url")
+  headless      Boolean   @default(true)
+  totalTests    Int       @default(0) @map("total_tests")
+  completedTests Int      @default(0) @map("completed_tests")
+  failedTests   Int       @default(0) @map("failed_tests")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  startedAt     DateTime? @map("started_at")
+  completedAt   DateTime? @map("completed_at")
+
+  testCases     AIRecorderTestCase[]
+
+  @@index([userId])
+  @@index([applicationId])
+  @@index([status])
+  @@map("ai_recorder_sessions")
+}
+
+// AIRecorderTestCase - Individual test case within a session
+model AIRecorderTestCase {
+  id            String    @id @default(uuid())
+  sessionId     String    @map("session_id")
+  name          String
+  description   String?
+  status        String    @default("pending") // pending, in_progress, complete, human_review, failed
+  order         Int       @default(0)
+  veroCode      String?   @map("vero_code") // Final generated Vero code
+  targetUrl     String?   @map("target_url") // Target URL for this test case
+  retryCount    Int       @default(0) @map("retry_count")
+  errorMessage  String?   @map("error_message")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  startedAt     DateTime? @map("started_at")
+  completedAt   DateTime? @map("completed_at")
+
+  session       AIRecorderSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  steps         AIRecorderStep[]
+
+  @@index([sessionId])
+  @@index([status])
+  @@index([order])
+  @@map("ai_recorder_test_cases")
+}
+
+// AIRecorderStep - Individual step within a test case
+model AIRecorderStep {
+  id              String    @id @default(uuid())
+  testCaseId      String    @map("test_case_id")
+  stepNumber      Int       @map("step_number")
+  description     String    // Plain English description
+  stepType        String    @default("click") @map("step_type") // navigate, fill, click, assert, loop, wait
+  veroCode        String?   @map("vero_code") // Generated Vero code
+  selector        String?   // Best selector found
+  selectorType    String?   @map("selector_type") // testid, role, label, text, css, xpath
+  value           String?   // Value for fill actions
+  status          String    @default("pending") // pending, running, success, failed, needs_review
+  retryCount      Int       @default(0) @map("retry_count")
+  maxRetries      Int       @default(10) @map("max_retries")
+  confidence      Float     @default(0.0) // AI confidence score 0-1
+  screenshotPath  String?   @map("screenshot_path")
+  errorMessage    String?   @map("error_message")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  startedAt       DateTime? @map("started_at")
+  completedAt     DateTime? @map("completed_at")
+
+  testCase        AIRecorderTestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+
+  @@index([testCaseId])
+  @@index([stepNumber])
+  @@index([status])
+  @@map("ai_recorder_steps")
 }

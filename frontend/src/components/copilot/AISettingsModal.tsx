@@ -262,21 +262,21 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
 
       {/* Modal */}
-      <div className="relative bg-gray-900 rounded-xl w-full max-w-2xl max-h-[90vh] overflow-hidden border border-gray-700 shadow-2xl">
+      <div className="relative bg-dark-bg rounded-xl w-full max-w-2xl max-h-[90vh] overflow-hidden border border-border-default shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border-default">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-accent-purple to-accent-pink flex items-center justify-center">
               <Settings className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-gray-100">AI Settings</h2>
-              <p className="text-sm text-gray-400">Configure AI providers for Copilot</p>
+              <h2 className="text-lg font-semibold text-text-primary">AI Settings</h2>
+              <p className="text-sm text-text-muted">Configure AI providers for Copilot</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-lg"
+            className="p-2 text-text-muted hover:text-text-primary hover:bg-dark-card rounded-lg"
           >
             <X className="w-5 h-5" />
           </button>
@@ -286,13 +286,13 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)]">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
+              <Loader2 className="w-8 h-8 animate-spin text-accent-purple" />
             </div>
           ) : (
             <div className="space-y-6">
               {/* Provider Selection */}
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-3">
+                <label className="block text-sm font-medium text-text-secondary mb-3">
                   AI Provider
                 </label>
                 <div className="grid grid-cols-3 gap-3">
@@ -302,8 +302,8 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                       onClick={() => setProvider(p)}
                       className={`flex items-center gap-2 px-4 py-3 rounded-lg border transition-all ${
                         provider === p
-                          ? 'border-purple-500 bg-purple-900/30 text-purple-300'
-                          : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600'
+                          ? 'border-accent-purple bg-accent-purple/20 text-accent-purple'
+                          : 'border-border-default bg-dark-card text-text-muted hover:border-border-muted'
                       }`}
                     >
                       {getProviderIcon(p)}
@@ -312,7 +312,7 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                         ((p === 'gemini' && settings.hasGeminiKey) ||
                           (p === 'openai' && settings.hasOpenaiKey) ||
                           (p === 'anthropic' && settings.hasAnthropicKey)) && (
-                          <Check className="w-4 h-4 text-green-400 ml-auto" />
+                          <Check className="w-4 h-4 text-accent-green ml-auto" />
                         )}
                     </button>
                   ))}
@@ -324,10 +324,10 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                 {provider === 'gemini' && (
                   <>
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                      <label className="block text-sm font-medium text-text-secondary mb-2">
                         Gemini API Key
                         {settings?.hasGeminiKey && (
-                          <span className="ml-2 text-xs text-green-400">(configured)</span>
+                          <span className="ml-2 text-xs text-accent-green">(configured)</span>
                         )}
                       </label>
                       <div className="flex gap-2">
@@ -341,12 +341,12 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                                 ? 'Enter new key to update...'
                                 : 'Enter your Gemini API key'
                             }
-                            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            className="w-full px-4 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent-purple"
                           />
                           <button
                             type="button"
                             onClick={() => setShowGeminiKey(!showGeminiKey)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
                           >
                             {showGeminiKey ? (
                               <EyeOff className="w-4 h-4" />
@@ -358,33 +358,33 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                         {settings?.hasGeminiKey && (
                           <button
                             onClick={() => deleteApiKey('gemini')}
-                            className="px-3 py-2 bg-red-900/30 text-red-400 rounded-lg hover:bg-red-900/50"
+                            className="px-3 py-2 bg-accent-red/20 text-accent-red rounded-lg hover:bg-accent-red/30"
                             title="Delete API key"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
                       </div>
-                      <p className="mt-1 text-xs text-gray-500">
+                      <p className="mt-1 text-xs text-text-muted">
                         Get your API key from{' '}
                         <a
                           href="https://aistudio.google.com/apikey"
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-purple-400 hover:underline"
+                          className="text-accent-purple hover:underline"
                         >
                           Google AI Studio
                         </a>
                       </p>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                      <label className="block text-sm font-medium text-text-secondary mb-2">
                         Model
                       </label>
                       <select
                         value={geminiModel}
                         onChange={(e) => setGeminiModel(e.target.value)}
-                        className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        className="w-full px-4 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-purple"
                       >
                         {GEMINI_MODELS.map((m) => (
                           <option key={m.value} value={m.value}>
@@ -399,10 +399,10 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                 {provider === 'openai' && (
                   <>
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                      <label className="block text-sm font-medium text-text-secondary mb-2">
                         OpenAI API Key
                         {settings?.hasOpenaiKey && (
-                          <span className="ml-2 text-xs text-green-400">(configured)</span>
+                          <span className="ml-2 text-xs text-accent-green">(configured)</span>
                         )}
                       </label>
                       <div className="flex gap-2">
@@ -416,12 +416,12 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                                 ? 'Enter new key to update...'
                                 : 'Enter your OpenAI API key'
                             }
-                            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            className="w-full px-4 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent-purple"
                           />
                           <button
                             type="button"
                             onClick={() => setShowOpenaiKey(!showOpenaiKey)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
                           >
                             {showOpenaiKey ? (
                               <EyeOff className="w-4 h-4" />
@@ -433,33 +433,33 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                         {settings?.hasOpenaiKey && (
                           <button
                             onClick={() => deleteApiKey('openai')}
-                            className="px-3 py-2 bg-red-900/30 text-red-400 rounded-lg hover:bg-red-900/50"
+                            className="px-3 py-2 bg-accent-red/20 text-accent-red rounded-lg hover:bg-accent-red/30"
                             title="Delete API key"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
                       </div>
-                      <p className="mt-1 text-xs text-gray-500">
+                      <p className="mt-1 text-xs text-text-muted">
                         Get your API key from{' '}
                         <a
                           href="https://platform.openai.com/api-keys"
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-purple-400 hover:underline"
+                          className="text-accent-purple hover:underline"
                         >
                           OpenAI Platform
                         </a>
                       </p>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                      <label className="block text-sm font-medium text-text-secondary mb-2">
                         Model
                       </label>
                       <select
                         value={openaiModel}
                         onChange={(e) => setOpenaiModel(e.target.value)}
-                        className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        className="w-full px-4 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-purple"
                       >
                         {OPENAI_MODELS.map((m) => (
                           <option key={m.value} value={m.value}>
@@ -474,10 +474,10 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                 {provider === 'anthropic' && (
                   <>
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                      <label className="block text-sm font-medium text-text-secondary mb-2">
                         Anthropic API Key
                         {settings?.hasAnthropicKey && (
-                          <span className="ml-2 text-xs text-green-400">(configured)</span>
+                          <span className="ml-2 text-xs text-accent-green">(configured)</span>
                         )}
                       </label>
                       <div className="flex gap-2">
@@ -491,12 +491,12 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                                 ? 'Enter new key to update...'
                                 : 'Enter your Anthropic API key'
                             }
-                            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            className="w-full px-4 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent-purple"
                           />
                           <button
                             type="button"
                             onClick={() => setShowAnthropicKey(!showAnthropicKey)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
                           >
                             {showAnthropicKey ? (
                               <EyeOff className="w-4 h-4" />
@@ -508,33 +508,33 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                         {settings?.hasAnthropicKey && (
                           <button
                             onClick={() => deleteApiKey('anthropic')}
-                            className="px-3 py-2 bg-red-900/30 text-red-400 rounded-lg hover:bg-red-900/50"
+                            className="px-3 py-2 bg-accent-red/20 text-accent-red rounded-lg hover:bg-accent-red/30"
                             title="Delete API key"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
                       </div>
-                      <p className="mt-1 text-xs text-gray-500">
+                      <p className="mt-1 text-xs text-text-muted">
                         Get your API key from{' '}
                         <a
                           href="https://console.anthropic.com/settings/keys"
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-purple-400 hover:underline"
+                          className="text-accent-purple hover:underline"
                         >
                           Anthropic Console
                         </a>
                       </p>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                      <label className="block text-sm font-medium text-text-secondary mb-2">
                         Model
                       </label>
                       <select
                         value={anthropicModel}
                         onChange={(e) => setAnthropicModel(e.target.value)}
-                        className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        className="w-full px-4 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-purple"
                       >
                         {ANTHROPIC_MODELS.map((m) => (
                           <option key={m.value} value={m.value}>
@@ -548,8 +548,8 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
               </div>
 
               {/* Browser Settings */}
-              <div className="pt-4 border-t border-gray-700">
-                <h3 className="text-sm font-medium text-gray-300 mb-4 flex items-center gap-2">
+              <div className="pt-4 border-t border-border-default">
+                <h3 className="text-sm font-medium text-text-secondary mb-4 flex items-center gap-2">
                   <Monitor className="w-4 h-4" />
                   Browser Settings
                 </h3>
@@ -560,11 +560,11 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                       type="checkbox"
                       checked={stagehandHeadless}
                       onChange={(e) => setStagehandHeadless(e.target.checked)}
-                      className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-purple-500 focus:ring-purple-500"
+                      className="w-4 h-4 rounded border-border-default bg-dark-card text-accent-purple focus:ring-accent-purple"
                     />
                     <div>
-                      <span className="text-sm text-gray-300">Headless Mode</span>
-                      <p className="text-xs text-gray-500">Run browser without visible window</p>
+                      <span className="text-sm text-text-secondary">Headless Mode</span>
+                      <p className="text-xs text-text-muted">Run browser without visible window</p>
                     </div>
                   </label>
 
@@ -573,19 +573,19 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                       type="checkbox"
                       checked={stagehandDebug}
                       onChange={(e) => setStagehandDebug(e.target.checked)}
-                      className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-purple-500 focus:ring-purple-500"
+                      className="w-4 h-4 rounded border-border-default bg-dark-card text-accent-purple focus:ring-accent-purple"
                     />
                     <div>
-                      <span className="text-sm text-gray-300">Debug Mode</span>
-                      <p className="text-xs text-gray-500">Show detailed AI reasoning in logs</p>
+                      <span className="text-sm text-text-secondary">Debug Mode</span>
+                      <p className="text-xs text-text-muted">Show detailed AI reasoning in logs</p>
                     </div>
                   </label>
                 </div>
               </div>
 
               {/* Browserbase (Cloud Browser) */}
-              <div className="pt-4 border-t border-gray-700">
-                <h3 className="text-sm font-medium text-gray-300 mb-4 flex items-center gap-2">
+              <div className="pt-4 border-t border-border-default">
+                <h3 className="text-sm font-medium text-text-secondary mb-4 flex items-center gap-2">
                   <Globe className="w-4 h-4" />
                   Cloud Browser (Optional)
                 </h3>
@@ -595,11 +595,11 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                     type="checkbox"
                     checked={useBrowserbase}
                     onChange={(e) => setUseBrowserbase(e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-purple-500 focus:ring-purple-500"
+                    className="w-4 h-4 rounded border-border-default bg-dark-card text-accent-purple focus:ring-accent-purple"
                   />
                   <div>
-                    <span className="text-sm text-gray-300">Use Browserbase</span>
-                    <p className="text-xs text-gray-500">
+                    <span className="text-sm text-text-secondary">Use Browserbase</span>
+                    <p className="text-xs text-text-muted">
                       Run browser in cloud instead of locally
                     </p>
                   </div>
@@ -607,10 +607,10 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
 
                 {useBrowserbase && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                    <label className="block text-sm font-medium text-text-secondary mb-2">
                       Browserbase API Key
                       {settings?.hasBrowserbaseKey && (
-                        <span className="ml-2 text-xs text-green-400">(configured)</span>
+                        <span className="ml-2 text-xs text-accent-green">(configured)</span>
                       )}
                     </label>
                     <div className="flex gap-2">
@@ -620,12 +620,12 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                           value={browserbaseApiKey}
                           onChange={(e) => setBrowserbaseApiKey(e.target.value)}
                           placeholder="Enter your Browserbase API key"
-                          className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          className="w-full px-4 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent-purple"
                         />
                         <button
                           type="button"
                           onClick={() => setShowBrowserbaseKey(!showBrowserbaseKey)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
                         >
                           {showBrowserbaseKey ? (
                             <EyeOff className="w-4 h-4" />
@@ -637,20 +637,20 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                       {settings?.hasBrowserbaseKey && (
                         <button
                           onClick={() => deleteApiKey('browserbase')}
-                          className="px-3 py-2 bg-red-900/30 text-red-400 rounded-lg hover:bg-red-900/50"
+                          className="px-3 py-2 bg-accent-red/20 text-accent-red rounded-lg hover:bg-accent-red/30"
                           title="Delete API key"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       )}
                     </div>
-                    <p className="mt-1 text-xs text-gray-500">
+                    <p className="mt-1 text-xs text-text-muted">
                       Get your API key from{' '}
                       <a
                         href="https://www.browserbase.com"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-purple-400 hover:underline"
+                        className="text-accent-purple hover:underline"
                       >
                         Browserbase
                       </a>
@@ -664,8 +664,8 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
                 <div
                   className={`flex items-center gap-2 px-4 py-3 rounded-lg ${
                     testResult.success
-                      ? 'bg-green-900/30 text-green-400'
-                      : 'bg-red-900/30 text-red-400'
+                      ? 'bg-accent-green/20 text-accent-green'
+                      : 'bg-accent-red/20 text-accent-red'
                   }`}
                 >
                   {testResult.success ? (
@@ -678,7 +678,7 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
               )}
 
               {error && (
-                <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-900/30 text-red-400">
+                <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-accent-red/20 text-accent-red">
                   <AlertCircle className="w-5 h-5" />
                   <span className="text-sm">{error}</span>
                 </div>
@@ -688,11 +688,11 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-700 bg-gray-800/50">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-border-default bg-dark-card/50">
           <button
             onClick={testConnection}
             disabled={testing || !hasCurrentProviderKey()}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-gray-300 rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-4 py-2 bg-dark-elevated text-text-secondary rounded-lg hover:bg-dark-card disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {testing ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -705,14 +705,14 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
           <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-gray-400 hover:text-gray-200"
+              className="px-4 py-2 text-text-muted hover:text-text-primary"
             >
               Cancel
             </button>
             <button
               onClick={saveSettings}
               disabled={saving}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-accent-purple text-white rounded-lg hover:bg-accent-purple/80 disabled:opacity-50"
             >
               {saving ? (
                 <Loader2 className="w-4 h-4 animate-spin" />

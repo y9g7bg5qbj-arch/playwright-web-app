@@ -4,7 +4,6 @@
 import React, { useState } from 'react';
 import {
   Layers,
-  ChevronDown,
   Plus,
   Trash2,
   GripVertical,
@@ -13,7 +12,6 @@ import {
   Hash,
   Filter,
   Info,
-  AlertCircle,
 } from 'lucide-react';
 import type { ShardingConfig as ShardingConfigType, ShardingStrategy, ShardingRule } from '@/types/execution';
 

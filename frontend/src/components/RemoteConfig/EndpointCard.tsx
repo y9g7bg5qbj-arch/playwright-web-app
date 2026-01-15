@@ -89,7 +89,9 @@ export const EndpointCard: React.FC<EndpointCardProps> = ({
             <div className="flex items-center gap-2">
               <span className="font-medium text-slate-200">{endpoint.name}</span>
               {endpoint.ssl?.enabled && (
-                <Lock className="w-3.5 h-3.5 text-green-400" title="SSL/TLS enabled" />
+                <span title="SSL/TLS enabled">
+                  <Lock className="w-3.5 h-3.5 text-green-400" />
+                </span>
               )}
             </div>
             <div className="text-xs text-slate-500 font-mono truncate max-w-[200px]" title={endpoint.url}>

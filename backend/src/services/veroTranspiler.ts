@@ -189,15 +189,15 @@ function parseVeroCode(code: string, pages: PageDefinition[], features: FeatureD
             continue;
         }
 
-        // Feature declaration
-        const featureMatch = line.match(/^feature\s+(\w+)\s*{/i);
-        if (featureMatch) {
+        // Feature declaration - with braces: feature Name {
+        const featureMatchBrace = line.match(/^feature\s+(\w+)\s*{/i);
+        if (featureMatchBrace) {
             if (currentPage) {
                 pages.push(currentPage);
                 currentPage = null;
             }
             currentFeature = {
-                name: featureMatch[1],
+                name: featureMatchBrace[1],
                 usedPages: [],
                 beforeEach: [],
                 afterEach: [],
@@ -207,10 +207,53 @@ function parseVeroCode(code: string, pages: PageDefinition[], features: FeatureD
             continue;
         }
 
+        // Feature declaration - without braces: feature Name (multi-word allowed)
+        const featureMatchNoBrace = line.match(/^feature\s+(.+)$/i);
+        if (featureMatchNoBrace && !line.includes('{')) {
+            if (currentPage) {
+                pages.push(currentPage);
+                currentPage = null;
+            }
+            // Convert multi-word name to camelCase for the feature name
+            const rawName = featureMatchNoBrace[1].trim();
+            const featureName = rawName.replace(/\s+/g, '');
+            currentFeature = {
+                name: featureName,
+                usedPages: [],
+                beforeEach: [],
+                afterEach: [],
+                scenarios: []
+            };
+            continue;
+        }
+
+        // "end feature" block terminator
+        if (line.match(/^end\s+feature$/i)) {
+            if (currentFeature) {
+                features.push(currentFeature);
+                currentFeature = null;
+            }
+            continue;
+        }
+
+        // "end scenario" block terminator
+        if (line.match(/^end\s+scenario$/i)) {
+            if (currentScenario && currentFeature) {
+                currentFeature.scenarios.push(currentScenario);
+                currentScenario = null;
+            }
+            continue;
+        }
+
         // Use statement
         const useMatch = line.match(/^use\s+(\w+)/i);
         if (useMatch && currentFeature) {
             currentFeature.usedPages.push(useMatch[1]);
+            continue;
+        }
+
+        // Skip metadata lines like Browser:, Viewport:, etc.
+        if (line.match(/^(Browser|Viewport|Timeout|RetryCount):/i)) {
             continue;
         }
 
@@ -230,12 +273,20 @@ function parseVeroCode(code: string, pages: PageDefinition[], features: FeatureD
             continue;
         }
 
-        // Scenario declaration
-        const scenarioMatch = line.match(/^scenario\s+"([^"]+)"([^{]*){/i);
-        if (scenarioMatch && currentFeature) {
-            const tags = (scenarioMatch[2].match(/@(\w+)/g) || []).map(t => t.slice(1));
-            currentScenario = { name: scenarioMatch[1], tags, statements: [] };
+        // Scenario declaration - with braces: scenario "Name" {
+        const scenarioMatchBrace = line.match(/^scenario\s+"([^"]+)"([^{]*){/i);
+        if (scenarioMatchBrace && currentFeature) {
+            const tags = (scenarioMatchBrace[2].match(/@(\w+)/g) || []).map(t => t.slice(1));
+            currentScenario = { name: scenarioMatchBrace[1], tags, statements: [] };
             braceDepth += openBraces - closeBraces;
+            continue;
+        }
+
+        // Scenario declaration - without braces: scenario "Name" as Alias or just scenario "Name"
+        const scenarioMatchNoBrace = line.match(/^scenario\s+"([^"]+)"(?:\s+as\s+(\w+))?$/i);
+        if (scenarioMatchNoBrace && currentFeature && !line.includes('{')) {
+            const tags: string[] = [];
+            currentScenario = { name: scenarioMatchNoBrace[1], tags, statements: [] };
             continue;
         }
 
@@ -320,7 +371,7 @@ function generatePageObject(page: PageDefinition): string {
     return output;
 }
 
-function generateTestSuite(feature: FeatureDefinition, pages: PageDefinition[], debugMode: boolean = false): string {
+function generateTestSuite(feature: FeatureDefinition, _pages: PageDefinition[], debugMode: boolean = false): string {
     let output = `test.describe('${feature.name}', () => {\n`;
 
     // Generate beforeEach
@@ -345,7 +396,7 @@ function generateTestSuite(feature: FeatureDefinition, pages: PageDefinition[], 
     let lineCounter = 1;
     for (const scenario of feature.scenarios) {
         const tagComment = scenario.tags.length > 0 ? ` // @${scenario.tags.join(' @')}` : '';
-        output += `    test('${scenario.name}', async ({ page }) => {${tagComment}\n`;
+        output += `    test('${scenario.name}', async ({ page }, testInfo) => {${tagComment}\n`;
         for (const stmt of scenario.statements) {
             const transpiled = transpileStatement(stmt);
             // Don't add semicolon to control flow statements
@@ -381,6 +432,9 @@ function generateTestSuite(feature: FeatureDefinition, pages: PageDefinition[], 
 function getActionFromStatement(stmt: string): string {
     const trimmed = stmt.trim().toLowerCase();
     if (trimmed.startsWith('open')) return 'navigate';
+    if (trimmed.startsWith('navigate')) return 'navigate';
+    if (trimmed.startsWith('page contains')) return 'verify';
+    if (trimmed.startsWith('take screenshot')) return 'screenshot';
     if (trimmed.startsWith('click')) return 'click';
     if (trimmed.startsWith('fill')) return 'fill';
     if (trimmed.startsWith('wait')) return 'wait';
@@ -393,6 +447,7 @@ function getActionFromStatement(stmt: string): string {
     if (trimmed.startsWith('scroll')) return 'scroll';
     if (trimmed.startsWith('clear')) return 'clear';
     if (trimmed.startsWith('upload')) return 'upload';
+    if (trimmed.startsWith('screenshot')) return 'screenshot';
     return 'action';
 }
 
@@ -405,6 +460,18 @@ function getTargetFromStatement(stmt: string): string | undefined {
     // open "url"
     const openMatch = trimmed.match(/^open\s+"([^"]+)"/i);
     if (openMatch) return openMatch[1];
+
+    // navigate to "url"
+    const navigateMatch = trimmed.match(/^navigate\s+to\s+"([^"]+)"/i);
+    if (navigateMatch) return navigateMatch[1];
+
+    // page contains "text"
+    const pageContainsMatch = trimmed.match(/^page\s+contains\s+"([^"]+)"/i);
+    if (pageContainsMatch) return pageContainsMatch[1];
+
+    // take screenshot "name"
+    const takeScreenshotMatch = trimmed.match(/^take\s+screenshot\s+"([^"]+)"/i);
+    if (takeScreenshotMatch) return takeScreenshotMatch[1];
 
     // click/fill/verify etc with selector
     const selectorMatch = trimmed.match(/^(?:click|fill|verify|select|check|uncheck|hover|wait\s+for|scroll\s+to|clear)\s+("(?:[^"\\]|\\.)*"|\S+)/i);
@@ -426,28 +493,49 @@ function escapeString(str: string): string {
 function transpileStatement(stmt: string, contextPage?: PageDefinition): string {
     const trimmed = stmt.trim();
 
-    // open "url"
+    // open "url" or navigate to "url"
     const openMatch = trimmed.match(/^open\s+"([^"]+)"/i);
     if (openMatch) {
-        return `await page.goto('${openMatch[1]}')`;
+        return `await test.step('Navigate to ${openMatch[1]}', async () => { await page.goto('${openMatch[1]}'); })`;
+    }
+
+    // navigate to "url"
+    const navigateMatch = trimmed.match(/^navigate\s+to\s+"([^"]+)"/i);
+    if (navigateMatch) {
+        return `await test.step('Navigate to ${navigateMatch[1]}', async () => { await page.goto('${navigateMatch[1]}'); })`;
+    }
+
+    // page contains "text" - assertion that page contains text
+    const pageContainsMatch = trimmed.match(/^page\s+contains\s+"([^"]+)"/i);
+    if (pageContainsMatch) {
+        return `await expect(page.getByText('${pageContainsMatch[1]}')).toBeVisible()`;
+    }
+
+    // take screenshot "name"
+    const takeScreenshotMatch = trimmed.match(/^take\s+screenshot\s+"([^"]+)"/i);
+    if (takeScreenshotMatch) {
+        const name = takeScreenshotMatch[1];
+        return `await test.step('Screenshot: ${name}', async () => { const screenshot = await page.screenshot(); await testInfo.attach('${name}', { body: screenshot, contentType: 'image/png' }); })`;
     }
 
     // click selector
     const clickMatch = trimmed.match(/^click\s+(.+)/i);
     if (clickMatch) {
         const selector = resolveSelector(clickMatch[1], contextPage);
-        return `await ${selector}.click()`;
+        const target = clickMatch[1].replace(/"/g, '');
+        return `await test.step('Click ${target}', async () => { await ${selector}.click(); })`;
     }
 
     // fill selector with "value" or with variable
     const fillMatch = trimmed.match(/^fill\s+(\S+)\s+with\s+(.+)/i);
     if (fillMatch) {
         const selector = resolveSelector(fillMatch[1], contextPage);
+        const target = fillMatch[1].replace(/"/g, '');
         const value = fillMatch[2].trim();
         if (value.startsWith('"')) {
-            return `await ${selector}.fill(${value.replace(/"/g, "'")})`;
+            return `await test.step('Fill ${target}', async () => { await ${selector}.fill(${value.replace(/"/g, "'")}); })`;
         } else {
-            return `await ${selector}.fill(${value})`;
+            return `await test.step('Fill ${target}', async () => { await ${selector}.fill(${value}); })`;
         }
     }
 
@@ -457,14 +545,15 @@ function transpileStatement(stmt: string, contextPage?: PageDefinition): string 
         const ms = waitTimeMatch[2].toLowerCase().startsWith('second')
             ? parseInt(waitTimeMatch[1]) * 1000
             : parseInt(waitTimeMatch[1]);
-        return `await page.waitForTimeout(${ms})`;
+        return `await test.step('Wait ${waitTimeMatch[1]} ${waitTimeMatch[2]}', async () => { await page.waitForTimeout(${ms}); })`;
     }
 
     // wait for selector
     const waitForMatch = trimmed.match(/^wait\s+for\s+(.+)/i);
     if (waitForMatch) {
         const selector = resolveSelector(waitForMatch[1], contextPage);
-        return `await ${selector}.waitFor()`;
+        const target = waitForMatch[1].replace(/"/g, '');
+        return `await test.step('Wait for ${target}', async () => { await ${selector}.waitFor(); })`;
     }
 
     // verify selector is visible/hidden

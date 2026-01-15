@@ -12,8 +12,84 @@
 - ✅ DISTINCT values
 - ✅ Row selection (first, last, random, index, range)
 - ✅ Column selection (single and multiple)
+- ✅ Reference column expansion (`expand` keyword)
 
 ---
+
+## Reference Column Access (v1.2)
+
+VDQL supports accessing data from referenced tables using the `expand` keyword and dot notation.
+
+### Expand References
+
+```vero
+# Load scenarios and expand specific reference columns
+data scenarios = TestData.Scenarios
+  where TestID == "TC001"
+  expand $drivers, $vehicles
+
+# Short form - expand all reference columns automatically
+data scenarios = TestData.Scenarios where TestID == "TC001" expand all
+
+# Expand within a loop
+for $scenario in TestData.Scenarios expand all
+    # Now you can access $scenario.$drivers and $scenario.$vehicles
+    fill "driver" with $scenario.$drivers[0].Name
+    fill "vehicle" with $scenario.$vehicles[0].Make
+next
+```
+
+### Access Nested Reference Fields
+
+Once a reference column is expanded, access its fields using dot notation:
+
+```vero
+# Access a specific field from a single reference
+text driverName = $scenario.$driver.Name
+text vehicleMake = $scenario.$vehicles[0].Make
+
+# Access in assertions
+verify that $scenario.$driver.LicenseNumber == "DL-12345"
+
+# Use in fill statements
+fill "Full Name" with $scenario.$driver.Name
+fill "Vehicle Detail" with $scenario.$vehicles[0].Make + " " + $scenario.$vehicles[0].Model
+
+# Iterate through multi-references
+for $vehicle in $scenario.$vehicles
+    fill "Make" with $vehicle.Make
+    fill "Model" with $vehicle.Model
+    click "Add Vehicle"
+next
+```
+
+### Reference Field Access Syntax
+
+| Syntax | Description |
+|--------|-------------|
+| `$row.$refColumn` | Access the expanded reference object |
+| `$row.$refColumn.Field` | Access a specific field from a single reference |
+| `$row.$refColumn[0].Field` | Access a field from first item in multi-reference |
+| `for $item in $row.$refColumn` | Iterate through multi-reference items |
+
+### Multi-Reference Handling
+
+When a column allows multiple references (e.g., a driver with multiple vehicles):
+
+```vero
+# Get count of references
+number vehicleCount = count $scenario.$vehicles
+
+# Access by index
+text firstVehicle = $scenario.$vehicles[0].Make
+text lastVehicle = $scenario.$vehicles[vehicleCount - 1].Make
+
+# Join all values
+text allMakes = join $scenario.$vehicles.Make with ", "
+```
+
+---
+
 
 ## Phase 2: Essential Additions
 

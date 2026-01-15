@@ -321,13 +321,14 @@ router.post(
         res.status(400).json({
           success: false,
           error: result.error,
+          data: { success: false, error: result.error },
         });
         return;
       }
 
       res.json({
         success: true,
-        message: 'Workflow triggered successfully',
+        data: { success: true },
       });
     } catch (error) {
       next(error);
@@ -912,6 +913,8 @@ function parsePlaywrightSuites(suites: any[], parentName = ''): any[] {
           duration: 0,
           steps: [],
           error: undefined,
+          screenshot: undefined,  // Evidence or failure screenshot
+          traceUrl: undefined,
         };
 
         // Get results from tests
@@ -934,26 +937,67 @@ function parsePlaywrightSuites(suites: any[], parentName = ''): any[] {
                 }
               }
 
-              // Parse steps
+              // Parse steps with screenshot extraction
               if (result.steps) {
-                scenario.steps = result.steps.map((step: any, index: number) => ({
-                  id: `step-${index}`,
-                  stepNumber: index + 1,
-                  action: step.category || 'action',
-                  description: step.title,
-                  status: step.error ? 'failed' : 'passed',
-                  duration: step.duration || 0,
-                  error: step.error?.message,
-                }));
+                scenario.steps = result.steps.map((step: any, index: number) => {
+                  const stepData: any = {
+                    id: `step-${index}`,
+                    stepNumber: index + 1,
+                    action: step.category || 'action',
+                    description: step.title,
+                    status: step.error ? 'failed' : 'passed',
+                    duration: step.duration || 0,
+                    error: step.error?.message,
+                  };
+
+                  // Check if this step has attachments (screenshots)
+                  if (step.attachments) {
+                    const screenshotAtt = step.attachments.find(
+                      (a: any) => a.contentType?.includes('image') || a.name?.includes('screenshot')
+                    );
+                    if (screenshotAtt) {
+                      // Convert path to base64 data URL if body is available
+                      if (screenshotAtt.body) {
+                        stepData.screenshot = `data:image/png;base64,${screenshotAtt.body}`;
+                      } else if (screenshotAtt.path) {
+                        stepData.screenshot = screenshotAtt.path;
+                      }
+                    }
+                  }
+
+                  return stepData;
+                });
               }
 
-              // Get attachments (screenshots, traces)
+              // Get attachments (screenshots, traces) at result level
               if (result.attachments) {
                 scenario.attachments = result.attachments.map((att: any) => ({
                   name: att.name,
                   path: att.path,
                   contentType: att.contentType,
+                  body: att.body, // Base64 encoded body if available
                 }));
+
+                // Extract screenshot - prioritize evidence-screenshot, then any screenshot
+                const evidenceScreenshot = result.attachments.find(
+                  (a: any) => a.name === 'evidence-screenshot' || a.name?.includes('evidence')
+                );
+                const failureScreenshot = result.attachments.find(
+                  (a: any) => a.name === 'screenshot' || a.name?.includes('failure') || a.name?.includes('screenshot')
+                );
+                const anyScreenshot = result.attachments.find(
+                  (a: any) => a.contentType?.includes('image')
+                );
+
+                const screenshotAtt = evidenceScreenshot || failureScreenshot || anyScreenshot;
+                if (screenshotAtt) {
+                  // Convert to base64 data URL if body is available
+                  if (screenshotAtt.body) {
+                    scenario.screenshot = `data:image/png;base64,${screenshotAtt.body}`;
+                  } else if (screenshotAtt.path) {
+                    scenario.screenshot = screenshotAtt.path;
+                  }
+                }
 
                 // Check for trace
                 const traceAtt = result.attachments.find(

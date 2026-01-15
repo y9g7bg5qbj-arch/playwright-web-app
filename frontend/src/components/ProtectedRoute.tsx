@@ -1,5 +1,6 @@
-import { Navigate } from 'react-router-dom';
-import { useAuthStore } from '@/store/authStore';
+// Auth imports - commented out while auth is bypassed for testing
+// import { Navigate } from 'react-router-dom';
+// import { useAuthStore } from '@/store/authStore';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;

@@ -619,6 +619,427 @@ router.post('/sheets/:id/rows/bulk-update', async (req: Request, res: Response) 
     }
 });
 
+/**
+ * POST /api/test-data/sheets/:id/rows/bulk-delete
+ * Bulk delete multiple rows
+ * Body: { rowIds: string[] }
+ */
+router.post('/sheets/:id/rows/bulk-delete', async (req: Request, res: Response) => {
+    try {
+        const { id: sheetId } = req.params;
+        const { rowIds } = req.body;
+
+        if (!Array.isArray(rowIds) || rowIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'rowIds must be a non-empty array'
+            });
+        }
+
+        // Verify all rows belong to this sheet
+        const existingRows = await prisma.testDataRow.findMany({
+            where: {
+                id: { in: rowIds },
+                sheetId
+            },
+            select: { id: true }
+        });
+
+        if (existingRows.length !== rowIds.length) {
+            return res.status(400).json({
+                success: false,
+                error: 'Some row IDs do not belong to this sheet'
+            });
+        }
+
+        // Delete all matching rows
+        const result = await prisma.testDataRow.deleteMany({
+            where: {
+                id: { in: rowIds },
+                sheetId
+            }
+        });
+
+        res.json({
+            success: true,
+            deleted: result.count
+        });
+    } catch (error) {
+        console.error('Error bulk deleting rows:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * POST /api/test-data/sheets/:id/rows/duplicate
+ * Duplicate selected rows
+ * Body: { rowIds: string[], insertPosition: 'after' | 'end' }
+ */
+router.post('/sheets/:id/rows/duplicate', async (req: Request, res: Response) => {
+    try {
+        const { id: sheetId } = req.params;
+        const { rowIds, insertPosition = 'end' } = req.body;
+
+        if (!Array.isArray(rowIds) || rowIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'rowIds must be a non-empty array'
+            });
+        }
+
+        // Fetch rows to duplicate
+        const rowsToDuplicate = await prisma.testDataRow.findMany({
+            where: {
+                id: { in: rowIds },
+                sheetId
+            }
+        });
+
+        if (rowsToDuplicate.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'No valid rows found to duplicate'
+            });
+        }
+
+        // Generate unique scenarioIds for duplicates
+        const existingScenarioIds = await prisma.testDataRow.findMany({
+            where: { sheetId },
+            select: { scenarioId: true }
+        });
+        const existingIds = new Set(existingScenarioIds.map(r => r.scenarioId));
+
+        const newRows = rowsToDuplicate.map(row => {
+            // Generate a unique scenarioId
+            let newScenarioId = `${row.scenarioId}_copy`;
+            let counter = 1;
+            while (existingIds.has(newScenarioId)) {
+                newScenarioId = `${row.scenarioId}_copy${counter}`;
+                counter++;
+            }
+            existingIds.add(newScenarioId);
+
+            return {
+                sheetId,
+                scenarioId: newScenarioId,
+                data: row.data,
+                enabled: row.enabled
+            };
+        });
+
+        // Create duplicated rows
+        const result = await prisma.testDataRow.createMany({
+            data: newRows
+        });
+
+        // Fetch the newly created rows to return
+        const createdRows = await prisma.testDataRow.findMany({
+            where: {
+                sheetId,
+                scenarioId: { in: newRows.map(r => r.scenarioId) }
+            }
+        });
+
+        res.status(201).json({
+            success: true,
+            duplicated: result.count,
+            rows: createdRows.map(r => ({
+                ...r,
+                data: JSON.parse(r.data)
+            }))
+        });
+    } catch (error) {
+        console.error('Error duplicating rows:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * POST /api/test-data/sheets/:id/search-replace
+ * Find and replace text across cells
+ * Body: { find: string, replace: string, scope: 'all' | 'selection' | 'column', columnId?: string, rowIds?: string[], options: { caseSensitive, wholeWord, useRegex } }
+ */
+router.post('/sheets/:id/search-replace', async (req: Request, res: Response) => {
+    try {
+        const { id: sheetId } = req.params;
+        const { find, replace, scope = 'all', columnId, rowIds, options = {} } = req.body;
+
+        if (!find) {
+            return res.status(400).json({
+                success: false,
+                error: 'find string is required'
+            });
+        }
+
+        const { caseSensitive = false, wholeWord = false, useRegex = false } = options;
+
+        // Fetch rows based on scope
+        let whereClause: any = { sheetId };
+        if (scope === 'selection' && rowIds && Array.isArray(rowIds)) {
+            whereClause.id = { in: rowIds };
+        }
+
+        const rows = await prisma.testDataRow.findMany({
+            where: whereClause
+        });
+
+        // Build regex pattern
+        let pattern: RegExp;
+        try {
+            let searchPattern = useRegex ? find : find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            if (wholeWord) {
+                searchPattern = `\\b${searchPattern}\\b`;
+            }
+            pattern = new RegExp(searchPattern, caseSensitive ? 'g' : 'gi');
+        } catch (e) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid regex pattern'
+            });
+        }
+
+        let totalMatches = 0;
+        let totalReplacements = 0;
+        const updatedRowIds: string[] = [];
+
+        // Process each row
+        const updates: Promise<any>[] = [];
+        for (const row of rows) {
+            const data = JSON.parse(row.data) as Record<string, any>;
+            let rowUpdated = false;
+
+            // Get columns to process
+            const columnsToProcess = scope === 'column' && columnId
+                ? [columnId]
+                : Object.keys(data);
+
+            for (const col of columnsToProcess) {
+                if (data[col] !== null && data[col] !== undefined) {
+                    const value = String(data[col]);
+                    const matches = value.match(pattern);
+                    if (matches) {
+                        totalMatches += matches.length;
+                        const newValue = value.replace(pattern, replace);
+                        if (newValue !== value) {
+                            data[col] = newValue;
+                            rowUpdated = true;
+                            totalReplacements += matches.length;
+                        }
+                    }
+                }
+            }
+
+            if (rowUpdated) {
+                updatedRowIds.push(row.id);
+                updates.push(
+                    prisma.testDataRow.update({
+                        where: { id: row.id },
+                        data: { data: JSON.stringify(data) }
+                    })
+                );
+            }
+        }
+
+        // Execute all updates
+        await Promise.all(updates);
+
+        res.json({
+            success: true,
+            matches: totalMatches,
+            replacements: totalReplacements,
+            updatedRows: updatedRowIds.length,
+            updatedRowIds
+        });
+    } catch (error) {
+        console.error('Error in search-replace:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * POST /api/test-data/sheets/:id/fill-series
+ * Fill cells with a value, sequence, or pattern
+ * Body: { rowIds: string[], columnId: string, fillType: 'value' | 'sequence' | 'pattern', value?: string, startValue?: number, step?: number, pattern?: string }
+ */
+router.post('/sheets/:id/fill-series', async (req: Request, res: Response) => {
+    try {
+        const { id: sheetId } = req.params;
+        const { rowIds, columnId, fillType = 'value', value, startValue = 1, step = 1, pattern } = req.body;
+
+        if (!Array.isArray(rowIds) || rowIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'rowIds must be a non-empty array'
+            });
+        }
+
+        if (!columnId) {
+            return res.status(400).json({
+                success: false,
+                error: 'columnId is required'
+            });
+        }
+
+        // Fetch rows in the order specified
+        const rows = await prisma.testDataRow.findMany({
+            where: {
+                id: { in: rowIds },
+                sheetId
+            }
+        });
+
+        // Sort rows by the order in rowIds
+        const rowMap = new Map(rows.map(r => [r.id, r]));
+        const orderedRows = rowIds.map(id => rowMap.get(id)).filter(Boolean) as typeof rows;
+
+        if (orderedRows.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'No valid rows found'
+            });
+        }
+
+        // Generate values based on fill type
+        const generateValue = (index: number): string | number => {
+            switch (fillType) {
+                case 'value':
+                    return value ?? '';
+                case 'sequence':
+                    return startValue + (index * step);
+                case 'pattern':
+                    // Pattern supports {n} placeholder for row number
+                    return (pattern || '{n}').replace(/\{n\}/g, String(startValue + (index * step)));
+                default:
+                    return '';
+            }
+        };
+
+        // Update each row
+        const updates = orderedRows.map((row, index) => {
+            const data = JSON.parse(row.data) as Record<string, any>;
+            data[columnId] = generateValue(index);
+            return prisma.testDataRow.update({
+                where: { id: row.id },
+                data: { data: JSON.stringify(data) }
+            });
+        });
+
+        await Promise.all(updates);
+
+        res.json({
+            success: true,
+            filled: orderedRows.length,
+            columnId,
+            fillType
+        });
+    } catch (error) {
+        console.error('Error in fill-series:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * GET /api/test-data/sheets/:id/export-data
+ * Export sheet data to JSON or CSV format
+ * Query: format='json' | 'csv', rowIds? (optional, comma-separated)
+ */
+router.get('/sheets/:id/export-data', async (req: Request, res: Response) => {
+    try {
+        const { id: sheetId } = req.params;
+        const { format = 'json', rowIds: rowIdsParam } = req.query;
+
+        // Fetch sheet with columns
+        const sheet = await prisma.testDataSheet.findUnique({
+            where: { id: sheetId }
+        });
+
+        if (!sheet) {
+            return res.status(404).json({
+                success: false,
+                error: 'Sheet not found'
+            });
+        }
+
+        // Fetch rows (optionally filtered)
+        let whereClause: any = { sheetId };
+        if (rowIdsParam) {
+            const rowIds = (rowIdsParam as string).split(',');
+            whereClause.id = { in: rowIds };
+        }
+
+        const rows = await prisma.testDataRow.findMany({
+            where: whereClause,
+            orderBy: { scenarioId: 'asc' }
+        });
+
+        const columns = JSON.parse(sheet.columns) as Array<{ name: string; type: string }>;
+        const columnNames = columns.map(c => c.name);
+
+        if (format === 'csv') {
+            // Generate CSV
+            const headers = ['TestID', ...columnNames, 'Enabled'].join(',');
+            const csvRows = rows.map(row => {
+                const data = JSON.parse(row.data) as Record<string, any>;
+                const values = columnNames.map(col => {
+                    const val = data[col];
+                    if (val === null || val === undefined) return '';
+                    const strVal = String(val);
+                    // Escape quotes and wrap in quotes if contains comma or quotes
+                    if (strVal.includes(',') || strVal.includes('"') || strVal.includes('\n')) {
+                        return `"${strVal.replace(/"/g, '""')}"`;
+                    }
+                    return strVal;
+                });
+                return [row.scenarioId, ...values, row.enabled].join(',');
+            });
+
+            const csv = [headers, ...csvRows].join('\n');
+
+            res.setHeader('Content-Type', 'text/csv');
+            res.setHeader('Content-Disposition', `attachment; filename="${sheet.name}.csv"`);
+            return res.send(csv);
+        }
+
+        // Default: JSON format
+        const jsonData = {
+            sheet: {
+                id: sheet.id,
+                name: sheet.name,
+                pageObject: sheet.pageObject,
+                description: sheet.description,
+                columns
+            },
+            rows: rows.map(row => ({
+                TestID: row.scenarioId,
+                enabled: row.enabled,
+                ...JSON.parse(row.data)
+            }))
+        };
+
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="${sheet.name}.json"`);
+        res.json(jsonData);
+    } catch (error) {
+        console.error('Error exporting sheet data:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
 // ============================================
 // EXCEL IMPORT/EXPORT
 // ============================================
@@ -1375,6 +1796,961 @@ router.get('/resolved-variables', async (req: Request, res: Response) => {
         });
     } catch (error) {
         console.error('Error fetching resolved variables:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+// ============================================
+// SAVED VIEWS
+// ============================================
+
+/**
+ * GET /api/test-data/sheets/:sheetId/views
+ * List all saved views for a sheet
+ */
+router.get('/sheets/:sheetId/views', async (req: AuthRequest, res: Response) => {
+    try {
+        const { sheetId } = req.params;
+
+        const views = await prisma.testDataSavedView.findMany({
+            where: { sheetId },
+            orderBy: [
+                { isDefault: 'desc' },
+                { name: 'asc' }
+            ]
+        });
+
+        res.json({
+            success: true,
+            views: views.map(v => ({
+                id: v.id,
+                name: v.name,
+                description: v.description,
+                isDefault: v.isDefault,
+                filterState: JSON.parse(v.filterState),
+                sortState: JSON.parse(v.sortState),
+                columnState: JSON.parse(v.columnState),
+                groupState: JSON.parse(v.groupState),
+                createdAt: v.createdAt,
+                updatedAt: v.updatedAt
+            }))
+        });
+    } catch (error) {
+        console.error('Error listing saved views:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * POST /api/test-data/sheets/:sheetId/views
+ * Create a new saved view
+ */
+router.post('/sheets/:sheetId/views', async (req: AuthRequest, res: Response) => {
+    try {
+        const { sheetId } = req.params;
+        const { name, description, isDefault, filterState, sortState, columnState, groupState } = req.body;
+
+        if (!name) {
+            return res.status(400).json({
+                success: false,
+                error: 'name is required'
+            });
+        }
+
+        // If this view is set as default, unset other defaults
+        if (isDefault) {
+            await prisma.testDataSavedView.updateMany({
+                where: { sheetId, isDefault: true },
+                data: { isDefault: false }
+            });
+        }
+
+        const view = await prisma.testDataSavedView.create({
+            data: {
+                sheetId,
+                name,
+                description: description || null,
+                isDefault: isDefault || false,
+                filterState: JSON.stringify(filterState || {}),
+                sortState: JSON.stringify(sortState || []),
+                columnState: JSON.stringify(columnState || []),
+                groupState: JSON.stringify(groupState || [])
+            }
+        });
+
+        res.status(201).json({
+            success: true,
+            view: {
+                id: view.id,
+                name: view.name,
+                description: view.description,
+                isDefault: view.isDefault,
+                filterState: JSON.parse(view.filterState),
+                sortState: JSON.parse(view.sortState),
+                columnState: JSON.parse(view.columnState),
+                groupState: JSON.parse(view.groupState),
+                createdAt: view.createdAt,
+                updatedAt: view.updatedAt
+            }
+        });
+    } catch (error) {
+        console.error('Error creating saved view:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * PUT /api/test-data/views/:viewId
+ * Update a saved view
+ */
+router.put('/views/:viewId', async (req: AuthRequest, res: Response) => {
+    try {
+        const { viewId } = req.params;
+        const { name, description, isDefault, filterState, sortState, columnState, groupState } = req.body;
+
+        const existingView = await prisma.testDataSavedView.findUnique({
+            where: { id: viewId }
+        });
+
+        if (!existingView) {
+            return res.status(404).json({
+                success: false,
+                error: 'View not found'
+            });
+        }
+
+        // If this view is set as default, unset other defaults
+        if (isDefault && !existingView.isDefault) {
+            await prisma.testDataSavedView.updateMany({
+                where: { sheetId: existingView.sheetId, isDefault: true },
+                data: { isDefault: false }
+            });
+        }
+
+        const view = await prisma.testDataSavedView.update({
+            where: { id: viewId },
+            data: {
+                name: name ?? existingView.name,
+                description: description !== undefined ? description : existingView.description,
+                isDefault: isDefault ?? existingView.isDefault,
+                filterState: filterState ? JSON.stringify(filterState) : existingView.filterState,
+                sortState: sortState ? JSON.stringify(sortState) : existingView.sortState,
+                columnState: columnState ? JSON.stringify(columnState) : existingView.columnState,
+                groupState: groupState ? JSON.stringify(groupState) : existingView.groupState
+            }
+        });
+
+        res.json({
+            success: true,
+            view: {
+                id: view.id,
+                name: view.name,
+                description: view.description,
+                isDefault: view.isDefault,
+                filterState: JSON.parse(view.filterState),
+                sortState: JSON.parse(view.sortState),
+                columnState: JSON.parse(view.columnState),
+                groupState: JSON.parse(view.groupState),
+                createdAt: view.createdAt,
+                updatedAt: view.updatedAt
+            }
+        });
+    } catch (error) {
+        console.error('Error updating saved view:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * DELETE /api/test-data/views/:viewId
+ * Delete a saved view
+ */
+router.delete('/views/:viewId', async (req: AuthRequest, res: Response) => {
+    try {
+        const { viewId } = req.params;
+
+        await prisma.testDataSavedView.delete({
+            where: { id: viewId }
+        });
+
+        res.json({
+            success: true,
+            message: 'View deleted successfully'
+        });
+    } catch (error) {
+        console.error('Error deleting saved view:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+// ============================================
+// TABLE RELATIONSHIPS
+// ============================================
+
+/**
+ * GET /api/test-data/sheets/:sheetId/relationships
+ * List all relationships for a sheet (both source and target)
+ */
+router.get('/sheets/:sheetId/relationships', async (req: AuthRequest, res: Response) => {
+    try {
+        const { sheetId } = req.params;
+
+        const [sourceRelationships, targetRelationships] = await Promise.all([
+            prisma.testDataRelationship.findMany({
+                where: { sourceSheetId: sheetId },
+                include: {
+                    targetSheet: {
+                        select: { id: true, name: true, columns: true }
+                    }
+                }
+            }),
+            prisma.testDataRelationship.findMany({
+                where: { targetSheetId: sheetId },
+                include: {
+                    sourceSheet: {
+                        select: { id: true, name: true, columns: true }
+                    }
+                }
+            })
+        ]);
+
+        res.json({
+            success: true,
+            outgoing: sourceRelationships.map(r => ({
+                id: r.id,
+                name: r.name,
+                sourceColumn: r.sourceColumn,
+                targetSheetId: r.targetSheetId,
+                targetSheetName: r.targetSheet.name,
+                targetColumn: r.targetColumn,
+                targetColumns: JSON.parse(r.targetSheet.columns),
+                displayColumns: JSON.parse(r.displayColumns),
+                relationshipType: r.relationshipType,
+                cascadeDelete: r.cascadeDelete,
+                createdAt: r.createdAt
+            })),
+            incoming: targetRelationships.map(r => ({
+                id: r.id,
+                name: r.name,
+                sourceSheetId: r.sourceSheetId,
+                sourceSheetName: r.sourceSheet.name,
+                sourceColumn: r.sourceColumn,
+                sourceColumns: JSON.parse(r.sourceSheet.columns),
+                targetColumn: r.targetColumn,
+                relationshipType: r.relationshipType,
+                createdAt: r.createdAt
+            }))
+        });
+    } catch (error) {
+        console.error('Error listing relationships:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * GET /api/test-data/relationships
+ * List all relationships for an application
+ */
+router.get('/relationships', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { projectId } = req.query;
+        const applicationId = projectId as string;
+
+        if (!applicationId) {
+            return res.status(400).json({
+                success: false,
+                error: 'projectId is required'
+            });
+        }
+
+        // Get all sheets for this application
+        const sheets = await prisma.testDataSheet.findMany({
+            where: { applicationId },
+            select: { id: true }
+        });
+        const sheetIds = sheets.map(s => s.id);
+
+        // Get all relationships where source sheet belongs to this application
+        const relationships = await prisma.testDataRelationship.findMany({
+            where: {
+                sourceSheetId: { in: sheetIds }
+            },
+            include: {
+                sourceSheet: { select: { id: true, name: true } },
+                targetSheet: { select: { id: true, name: true, columns: true } }
+            }
+        });
+
+        res.json({
+            success: true,
+            relationships: relationships.map(r => ({
+                id: r.id,
+                name: r.name,
+                sourceSheetId: r.sourceSheetId,
+                sourceSheetName: r.sourceSheet.name,
+                sourceColumn: r.sourceColumn,
+                targetSheetId: r.targetSheetId,
+                targetSheetName: r.targetSheet.name,
+                targetColumn: r.targetColumn,
+                displayColumns: JSON.parse(r.displayColumns),
+                relationshipType: r.relationshipType,
+                cascadeDelete: r.cascadeDelete,
+                createdAt: r.createdAt,
+                updatedAt: r.updatedAt
+            }))
+        });
+    } catch (error) {
+        console.error('Error listing all relationships:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * POST /api/test-data/relationships
+ * Create a new table relationship
+ */
+router.post('/relationships', async (req: AuthRequest, res: Response) => {
+    try {
+        const {
+            sourceSheetId,
+            targetSheetId,
+            name,
+            sourceColumn,
+            targetColumn,
+            displayColumns,
+            relationshipType,
+            cascadeDelete
+        } = req.body;
+
+        if (!sourceSheetId || !targetSheetId || !name || !sourceColumn || !targetColumn) {
+            return res.status(400).json({
+                success: false,
+                error: 'sourceSheetId, targetSheetId, name, sourceColumn, and targetColumn are required'
+            });
+        }
+
+        // Verify both sheets exist
+        const [sourceSheet, targetSheet] = await Promise.all([
+            prisma.testDataSheet.findUnique({ where: { id: sourceSheetId } }),
+            prisma.testDataSheet.findUnique({ where: { id: targetSheetId } })
+        ]);
+
+        if (!sourceSheet || !targetSheet) {
+            return res.status(404).json({
+                success: false,
+                error: 'Source or target sheet not found'
+            });
+        }
+
+        const relationship = await prisma.testDataRelationship.create({
+            data: {
+                sourceSheetId,
+                targetSheetId,
+                name,
+                sourceColumn,
+                targetColumn,
+                displayColumns: JSON.stringify(displayColumns || []),
+                relationshipType: relationshipType || 'many-to-one',
+                cascadeDelete: cascadeDelete || false
+            },
+            include: {
+                sourceSheet: { select: { name: true } },
+                targetSheet: { select: { name: true, columns: true } }
+            }
+        });
+
+        res.status(201).json({
+            success: true,
+            relationship: {
+                id: relationship.id,
+                name: relationship.name,
+                sourceSheetId: relationship.sourceSheetId,
+                sourceSheetName: relationship.sourceSheet.name,
+                sourceColumn: relationship.sourceColumn,
+                targetSheetId: relationship.targetSheetId,
+                targetSheetName: relationship.targetSheet.name,
+                targetColumn: relationship.targetColumn,
+                displayColumns: JSON.parse(relationship.displayColumns),
+                relationshipType: relationship.relationshipType,
+                cascadeDelete: relationship.cascadeDelete,
+                createdAt: relationship.createdAt
+            }
+        });
+    } catch (error) {
+        console.error('Error creating relationship:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * PUT /api/test-data/relationships/:relationshipId
+ * Update a table relationship
+ */
+router.put('/relationships/:relationshipId', async (req: AuthRequest, res: Response) => {
+    try {
+        const { relationshipId } = req.params;
+        const { name, displayColumns, cascadeDelete } = req.body;
+
+        const existing = await prisma.testDataRelationship.findUnique({
+            where: { id: relationshipId }
+        });
+
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: 'Relationship not found'
+            });
+        }
+
+        const relationship = await prisma.testDataRelationship.update({
+            where: { id: relationshipId },
+            data: {
+                name: name ?? existing.name,
+                displayColumns: displayColumns ? JSON.stringify(displayColumns) : existing.displayColumns,
+                cascadeDelete: cascadeDelete ?? existing.cascadeDelete
+            },
+            include: {
+                sourceSheet: { select: { name: true } },
+                targetSheet: { select: { name: true } }
+            }
+        });
+
+        res.json({
+            success: true,
+            relationship: {
+                id: relationship.id,
+                name: relationship.name,
+                sourceSheetId: relationship.sourceSheetId,
+                sourceSheetName: relationship.sourceSheet.name,
+                sourceColumn: relationship.sourceColumn,
+                targetSheetId: relationship.targetSheetId,
+                targetSheetName: relationship.targetSheet.name,
+                targetColumn: relationship.targetColumn,
+                displayColumns: JSON.parse(relationship.displayColumns),
+                relationshipType: relationship.relationshipType,
+                cascadeDelete: relationship.cascadeDelete
+            }
+        });
+    } catch (error) {
+        console.error('Error updating relationship:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * DELETE /api/test-data/relationships/:relationshipId
+ * Delete a table relationship
+ */
+router.delete('/relationships/:relationshipId', async (req: AuthRequest, res: Response) => {
+    try {
+        const { relationshipId } = req.params;
+
+        await prisma.testDataRelationship.delete({
+            where: { id: relationshipId }
+        });
+
+        res.json({
+            success: true,
+            message: 'Relationship deleted successfully'
+        });
+    } catch (error) {
+        console.error('Error deleting relationship:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * GET /api/test-data/relationships/:relationshipId/lookup
+ * Lookup related data for a specific value
+ */
+router.get('/relationships/:relationshipId/lookup', async (req: AuthRequest, res: Response) => {
+    try {
+        const { relationshipId } = req.params;
+        const { value } = req.query;
+
+        const relationship = await prisma.testDataRelationship.findUnique({
+            where: { id: relationshipId },
+            include: {
+                targetSheet: { select: { id: true, columns: true } }
+            }
+        });
+
+        if (!relationship) {
+            return res.status(404).json({
+                success: false,
+                error: 'Relationship not found'
+            });
+        }
+
+        // Find matching row in target sheet
+        const targetRows = await prisma.testDataRow.findMany({
+            where: { sheetId: relationship.targetSheetId }
+        });
+
+        const displayColumns = JSON.parse(relationship.displayColumns) as string[];
+        const matchingRow = targetRows.find(row => {
+            const data = JSON.parse(row.data);
+            return data[relationship.targetColumn] === value;
+        });
+
+        if (!matchingRow) {
+            return res.json({
+                success: true,
+                found: false,
+                data: null
+            });
+        }
+
+        const rowData = JSON.parse(matchingRow.data);
+        const displayData: Record<string, unknown> = {};
+        for (const col of displayColumns) {
+            displayData[col] = rowData[col];
+        }
+
+        res.json({
+            success: true,
+            found: true,
+            data: displayData,
+            rowId: matchingRow.id
+        });
+    } catch (error) {
+        console.error('Error looking up related data:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+// ============================================
+// REFERENCE RESOLUTION
+// ============================================
+
+/**
+ * POST /api/test-data/resolve-references
+ * Resolve reference column values to full row data from target sheets
+ * Used for VDQL expand clause and Vero script nested iterations
+ */
+router.post('/resolve-references', async (req: AuthRequest, res: Response) => {
+    try {
+        const { sheetId, rowId, columns } = req.body;
+
+        if (!sheetId || !columns || !Array.isArray(columns)) {
+            return res.status(400).json({
+                success: false,
+                error: 'sheetId and columns array are required'
+            });
+        }
+
+        // Get the source sheet and its column definitions
+        const sourceSheet = await prisma.testDataSheet.findUnique({
+            where: { id: sheetId }
+        });
+
+        if (!sourceSheet) {
+            return res.status(404).json({
+                success: false,
+                error: 'Sheet not found'
+            });
+        }
+
+        const sheetColumns = JSON.parse(sourceSheet.columns) as Array<{
+            name: string;
+            type: string;
+            referenceConfig?: {
+                targetSheet: string;
+                targetColumn: string;
+                displayColumn: string;
+                allowMultiple: boolean;
+                separator?: string;
+            };
+        }>;
+
+        // Get the row data if rowId is provided
+        let rowData: Record<string, unknown> = {};
+        if (rowId) {
+            const row = await prisma.testDataRow.findUnique({
+                where: { id: rowId }
+            });
+            if (row) {
+                rowData = JSON.parse(row.data);
+            }
+        }
+
+        // Resolve each reference column
+        const resolved: Record<string, unknown[]> = {};
+
+        for (const colName of columns) {
+            const column = sheetColumns.find(c => c.name === colName);
+
+            if (!column || column.type !== 'reference' || !column.referenceConfig) {
+                resolved[colName] = [];
+                continue;
+            }
+
+            const config = column.referenceConfig;
+            const separator = config.separator || ',';
+
+            // Get the IDs from the row data
+            const rawValue = rowData[colName];
+            const ids = rawValue
+                ? String(rawValue).split(separator).map(id => id.trim()).filter(Boolean)
+                : [];
+
+            if (ids.length === 0) {
+                resolved[colName] = [];
+                continue;
+            }
+
+            // Fetch all rows from the target sheet
+            const targetRows = await prisma.testDataRow.findMany({
+                where: { sheetId: config.targetSheet }
+            });
+
+            // Find matching rows by target column
+            const matchedRows: Record<string, unknown>[] = [];
+            for (const targetRow of targetRows) {
+                const targetData = JSON.parse(targetRow.data);
+                const targetId = String(targetData[config.targetColumn] || '');
+
+                if (ids.includes(targetId)) {
+                    matchedRows.push({
+                        _id: targetRow.id,
+                        _targetId: targetId,
+                        ...targetData
+                    });
+                }
+            }
+
+            // Preserve order based on original IDs
+            const orderedRows = ids
+                .map(id => matchedRows.find(r => r._targetId === id))
+                .filter(Boolean) as Record<string, unknown>[];
+
+            resolved[colName] = orderedRows;
+        }
+
+        res.json({
+            success: true,
+            resolved
+        });
+    } catch (error) {
+        console.error('Error resolving references:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * POST /api/test-data/sheets/:sheetId/expand
+ * Fetch sheet rows with reference columns expanded (VDQL expand support)
+ */
+router.post('/sheets/:sheetId/expand', async (req: AuthRequest, res: Response) => {
+    try {
+        const { sheetId } = req.params;
+        const { rowIds, expandColumns } = req.body;
+
+        // Get the sheet with all rows
+        const sheet = await prisma.testDataSheet.findUnique({
+            where: { id: sheetId },
+            include: { rows: true }
+        });
+
+        if (!sheet) {
+            return res.status(404).json({
+                success: false,
+                error: 'Sheet not found'
+            });
+        }
+
+        const sheetColumns = JSON.parse(sheet.columns) as Array<{
+            name: string;
+            type: string;
+            referenceConfig?: {
+                targetSheet: string;
+                targetColumn: string;
+                displayColumn: string;
+                allowMultiple: boolean;
+                separator?: string;
+            };
+        }>;
+
+        // Filter rows if rowIds provided
+        let rows = sheet.rows;
+        if (rowIds && Array.isArray(rowIds) && rowIds.length > 0) {
+            rows = rows.filter(r => rowIds.includes(r.id));
+        }
+
+        // Determine which columns to expand
+        const referenceColumns = sheetColumns.filter(c =>
+            c.type === 'reference' &&
+            c.referenceConfig &&
+            (!expandColumns || expandColumns.includes(c.name) || expandColumns.includes('all'))
+        );
+
+        // Pre-fetch all target sheet data for efficiency
+        const targetSheetIds = [...new Set(referenceColumns.map(c => c.referenceConfig!.targetSheet))];
+        const targetSheetData: Record<string, Array<{ id: string; data: Record<string, unknown> }>> = {};
+
+        for (const targetId of targetSheetIds) {
+            const targetRows = await prisma.testDataRow.findMany({
+                where: { sheetId: targetId }
+            });
+            targetSheetData[targetId] = targetRows.map(r => ({
+                id: r.id,
+                data: JSON.parse(r.data)
+            }));
+        }
+
+        // Expand each row
+        const expandedRows = rows.map(row => {
+            const rowData = JSON.parse(row.data);
+            const expanded: Record<string, unknown> = { ...rowData };
+
+            for (const col of referenceColumns) {
+                const config = col.referenceConfig!;
+                const separator = config.separator || ',';
+                const rawValue = rowData[col.name];
+                const ids = rawValue
+                    ? String(rawValue).split(separator).map((id: string) => id.trim()).filter(Boolean)
+                    : [];
+
+                const targetRows = targetSheetData[config.targetSheet] || [];
+                const matchedRows = ids
+                    .map((id: string) => {
+                        const match = targetRows.find(r =>
+                            String(r.data[config.targetColumn]) === id
+                        );
+                        return match ? match.data : null;
+                    })
+                    .filter(Boolean);
+
+                // Store expanded data with $ prefix
+                expanded[`$${col.name.replace(/^\$/, '')}`] = matchedRows;
+            }
+
+            return {
+                id: row.id,
+                scenarioId: row.scenarioId,
+                data: expanded,
+                enabled: row.enabled
+            };
+        });
+
+        res.json({
+            success: true,
+            sheet: {
+                id: sheet.id,
+                name: sheet.name,
+                columns: sheetColumns
+            },
+            rows: expandedRows
+        });
+    } catch (error) {
+        console.error('Error expanding sheet rows:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+// ============================================
+// COMPUTED COLUMNS - Formula Evaluation
+// ============================================
+
+/**
+ * POST /api/test-data/evaluate-formula
+ * Evaluate a formula for a given row
+ */
+router.post('/evaluate-formula', async (req: AuthRequest, res: Response) => {
+    try {
+        const { formula, rowData, columns } = req.body;
+
+        if (!formula || !rowData) {
+            return res.status(400).json({
+                success: false,
+                error: 'formula and rowData are required'
+            });
+        }
+
+        // Simple formula evaluator for basic arithmetic
+        // Supports: column references, +, -, *, /, parentheses, numbers
+        const evaluateFormula = (formula: string, data: Record<string, unknown>): number | string => {
+            try {
+                // Replace column references with values
+                let expression = formula;
+
+                // Match column names (alphanumeric and underscore)
+                const columnRefs = formula.match(/\b[a-zA-Z_][a-zA-Z0-9_]*\b/g) || [];
+
+                for (const ref of columnRefs) {
+                    if (data[ref] !== undefined) {
+                        const value = data[ref];
+                        const numValue = typeof value === 'number' ? value : parseFloat(String(value));
+                        if (!isNaN(numValue)) {
+                            expression = expression.replace(new RegExp(`\\b${ref}\\b`, 'g'), String(numValue));
+                        }
+                    }
+                }
+
+                // Security: Only allow safe characters
+                if (!/^[\d\s+\-*/().]+$/.test(expression)) {
+                    return '#ERROR: Invalid formula';
+                }
+
+                // Evaluate the expression
+                const result = Function('"use strict"; return (' + expression + ')')();
+
+                if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
+                    // Round to 2 decimal places for display
+                    return Math.round(result * 100) / 100;
+                }
+
+                return '#ERROR: Invalid result';
+            } catch {
+                return '#ERROR: Evaluation failed';
+            }
+        };
+
+        const result = evaluateFormula(formula, rowData);
+
+        res.json({
+            success: true,
+            result,
+            isError: typeof result === 'string' && result.startsWith('#ERROR')
+        });
+    } catch (error) {
+        console.error('Error evaluating formula:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * POST /api/test-data/sheets/:sheetId/compute-all
+ * Compute all formula columns for all rows in a sheet
+ */
+router.post('/sheets/:sheetId/compute-all', async (req: AuthRequest, res: Response) => {
+    try {
+        const { sheetId } = req.params;
+
+        const sheet = await prisma.testDataSheet.findUnique({
+            where: { id: sheetId },
+            include: { rows: true }
+        });
+
+        if (!sheet) {
+            return res.status(404).json({
+                success: false,
+                error: 'Sheet not found'
+            });
+        }
+
+        const columns = JSON.parse(sheet.columns) as Array<{ name: string; type: string; formula?: string }>;
+        const formulaColumns = columns.filter(c => c.formula);
+
+        if (formulaColumns.length === 0) {
+            return res.json({
+                success: true,
+                message: 'No formula columns to compute',
+                updatedRows: 0
+            });
+        }
+
+        // Evaluate formulas for each row
+        const evaluateFormula = (formula: string, data: Record<string, unknown>): number | string => {
+            try {
+                let expression = formula;
+                const columnRefs = formula.match(/\b[a-zA-Z_][a-zA-Z0-9_]*\b/g) || [];
+
+                for (const ref of columnRefs) {
+                    if (data[ref] !== undefined) {
+                        const value = data[ref];
+                        const numValue = typeof value === 'number' ? value : parseFloat(String(value));
+                        if (!isNaN(numValue)) {
+                            expression = expression.replace(new RegExp(`\\b${ref}\\b`, 'g'), String(numValue));
+                        }
+                    }
+                }
+
+                if (!/^[\d\s+\-*/().]+$/.test(expression)) {
+                    return '#ERROR';
+                }
+
+                const result = Function('"use strict"; return (' + expression + ')')();
+                return typeof result === 'number' && !isNaN(result) && isFinite(result)
+                    ? Math.round(result * 100) / 100
+                    : '#ERROR';
+            } catch {
+                return '#ERROR';
+            }
+        };
+
+        let updatedCount = 0;
+        for (const row of sheet.rows) {
+            const data = JSON.parse(row.data) as Record<string, unknown>;
+            let updated = false;
+
+            for (const col of formulaColumns) {
+                const result = evaluateFormula(col.formula!, data);
+                if (data[col.name] !== result) {
+                    data[col.name] = result;
+                    updated = true;
+                }
+            }
+
+            if (updated) {
+                await prisma.testDataRow.update({
+                    where: { id: row.id },
+                    data: { data: JSON.stringify(data) }
+                });
+                updatedCount++;
+            }
+        }
+
+        res.json({
+            success: true,
+            message: `Computed formulas for ${updatedCount} rows`,
+            updatedRows: updatedCount
+        });
+    } catch (error) {
+        console.error('Error computing formulas:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'

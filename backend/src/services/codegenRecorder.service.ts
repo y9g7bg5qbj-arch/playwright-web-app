@@ -1,18 +1,4 @@
-/**
- * Codegen Recorder Service
- *
- * Uses Playwright's codegen tool for recording with real-time Vero DSL conversion.
- *
- * Features:
- * - Launches Playwright codegen for perfect action recording
- * - Watches output file for real-time code changes
- * - Converts Playwright code to Vero DSL
- * - Integrates with page object registry for codebase awareness
- * - Auto-creates page object fields for new selectors
- */
-
 import { spawn, ChildProcess } from 'child_process';
-import { FSWatcher } from 'fs';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -20,29 +6,22 @@ import { EventEmitter } from 'events';
 import {
     PageObjectRegistry,
     initPageObjectRegistry,
-    ElementInfo,
-    DuplicateCheckResult
+    ElementInfo
 } from './pageObjectRegistry';
 import { recordingPersistenceService, CreateStepDTO } from './recordingPersistence.service';
-import {
-    generateResilientSelector,
-    playwrightToVeroSelector,
-    CapturedElement,
-    serializeFallbacks
-} from './selectorHealing';
+import { generateResilientSelector, CapturedElement } from './selectorHealing';
 
 interface CodegenSession {
     sessionId: string;
-    dbSessionId?: string; // Database session ID for persistence
+    dbSessionId?: string;
     codegenProcess: ChildProcess;
     outputFile: string;
-    fileWatcher?: FSWatcher;
     lastCode: string;
     lastLineCount: number;
     url: string;
     registry: PageObjectRegistry;
     scenarioName?: string;
-    stepCount: number; // Track step count for persistence
+    stepCount: number;
 }
 
 interface ParsedAction {
@@ -84,6 +63,7 @@ export class CodegenRecorderService extends EventEmitter {
             duplicateWarning?: DuplicateWarning
         ) => void,
         onError: (error: string) => void,
+        onComplete?: () => void,
         scenarioName?: string,
         userId?: string,
         testFlowId?: string
@@ -152,11 +132,35 @@ export class CodegenRecorderService extends EventEmitter {
                 onError(`Codegen error: ${error.message}`);
             });
 
-            codegenProcess.on('exit', (code) => {
+            codegenProcess.on('exit', async (code) => {
                 console.log(`[CodegenRecorder] Process exited with code ${code}`);
+
+                // Read the final output file before cleaning up
+                try {
+                    const finalCode = await readFile(outputFile, 'utf-8');
+                    console.log(`[CodegenRecorder] Final code length: ${finalCode.length}`);
+
+                    if (finalCode && finalCode.trim()) {
+                        // Process any remaining actions
+                        const currentSession = this.sessions.get(sessionId);
+                        if (currentSession) {
+                            console.log(`[CodegenRecorder] Processing final code on exit...`);
+                            await this.processCodeChanges(currentSession, finalCode, onAction);
+                        }
+                    }
+                } catch (e) {
+                    console.error(`[CodegenRecorder] Error reading final output:`, e);
+                }
+
                 this.sessions.delete(sessionId);
-                if (code !== 0 && code !== null) {
-                    onError('Recording ended');
+
+                // Emit completion event
+                this.emit('recording:complete', { sessionId });
+
+                // Call onComplete callback
+                if (onComplete) {
+                    console.log(`[CodegenRecorder] Calling onComplete callback`);
+                    onComplete();
                 }
             });
 
@@ -180,17 +184,22 @@ export class CodegenRecorderService extends EventEmitter {
 
             // Watch the output file for changes
             // Use polling because file watching can be unreliable
+            let pollCount = 0;
             const pollInterval = setInterval(async () => {
                 if (!this.sessions.has(sessionId)) {
+                    console.log(`[CodegenRecorder] Session ${sessionId} ended, stopping poll`);
                     clearInterval(pollInterval);
                     return;
                 }
 
+                pollCount++;
                 try {
                     const currentCode = await readFile(outputFile, 'utf-8');
                     const currentSession = this.sessions.get(sessionId);
 
                     if (currentSession && currentCode !== currentSession.lastCode) {
+                        console.log(`[CodegenRecorder] Code changed! Length: ${currentCode.length}, Poll #${pollCount}`);
+                        console.log(`[CodegenRecorder] New code preview: ${currentCode.substring(0, 200)}...`);
                         // Code changed - process new actions
                         await this.processCodeChanges(
                             currentSession,
@@ -199,8 +208,11 @@ export class CodegenRecorderService extends EventEmitter {
                         );
                         currentSession.lastCode = currentCode;
                     }
-                } catch (e) {
-                    // File might not exist yet, ignore
+                } catch (e: any) {
+                    // File might not exist yet - log occasionally
+                    if (pollCount % 20 === 1) {
+                        console.log(`[CodegenRecorder] Poll #${pollCount}: File not ready yet (${e.code || e.message})`);
+                    }
                 }
             }, 500); // Poll every 500ms
 
@@ -231,12 +243,13 @@ export class CodegenRecorderService extends EventEmitter {
     ): Promise<void> {
         // Parse all actions from new code
         const actions = this.parsePlaywrightCode(newCode);
+        console.log(`[CodegenRecorder] Parsed ${actions.length} total actions from code`);
 
         // Find new actions (compare line counts)
         const newActions = actions.slice(session.lastLineCount);
         session.lastLineCount = actions.length;
 
-        console.log(`[CodegenRecorder] Processing ${newActions.length} new actions`);
+        console.log(`[CodegenRecorder] Processing ${newActions.length} new actions (lastLineCount was ${session.lastLineCount - newActions.length})`);
 
         // Convert each new action to Vero DSL
         for (const action of newActions) {
@@ -396,33 +409,6 @@ export class CodegenRecorderService extends EventEmitter {
         }
 
         return element;
-    }
-
-    /**
-     * Detect selector type from selector string
-     */
-    private detectSelectorType(selector: string): string {
-        if (selector.startsWith('testId')) return 'testId';
-        if (selector.startsWith('role') || selector.match(/^\w+ "/)) return 'role';
-        if (selector.startsWith('label')) return 'label';
-        if (selector.startsWith('placeholder')) return 'placeholder';
-        if (selector.startsWith('text')) return 'text';
-        if (selector.startsWith('#') || selector.startsWith('.')) return 'css';
-        return 'unknown';
-    }
-
-    /**
-     * Check if selector is stable (won't change with i18n or dynamic content)
-     */
-    private isSelectorStable(selector: string): boolean {
-        // testId and CSS ID selectors are stable
-        if (selector.startsWith('testId')) return true;
-        if (selector.startsWith('#')) return true;
-        // Text-based selectors are not stable (can change with i18n)
-        if (selector.startsWith('text')) return false;
-        if (selector.match(/^\w+ "/)) return false; // role with text
-        // Default to moderately stable
-        return true;
     }
 
     /**
@@ -890,9 +876,6 @@ export class CodegenRecorderService extends EventEmitter {
         if (pollInterval) {
             clearInterval(pollInterval);
         }
-
-        // Stop file watcher
-        session.fileWatcher?.close();
 
         // Kill codegen process
         if (!session.codegenProcess.killed) {

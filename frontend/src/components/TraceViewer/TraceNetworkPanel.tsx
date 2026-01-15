@@ -8,7 +8,7 @@
  * - Search functionality
  */
 import React, { useState, useMemo } from 'react';
-import { Search, Filter, ChevronDown, ChevronRight, Copy, Check, ExternalLink } from 'lucide-react';
+import { Search, ChevronDown, ChevronRight, Copy, Check, ExternalLink } from 'lucide-react';
 
 export interface NetworkRequest {
   id: string;

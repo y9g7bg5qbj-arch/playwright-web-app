@@ -41,10 +41,16 @@ const KEYWORDS: Record<string, TokenType> = {
     'SELECT': TokenType.SELECT,
     'HOVER': TokenType.HOVER,
     'PRESS': TokenType.PRESS,
+    'SCROLL': TokenType.SCROLL,
     'WAIT': TokenType.WAIT,
     'VERIFY': TokenType.VERIFY,
     'UPLOAD': TokenType.UPLOAD,
     'DO': TokenType.DO,
+    // Extended Actions (Phase 1)
+    'RIGHT': TokenType.RIGHT,
+    'DOUBLE': TokenType.DOUBLE,
+    'FORCE': TokenType.FORCE,
+    'DRAG': TokenType.DRAG,
     // Assertion keywords
     'URL': TokenType.URL,
     'TITLE': TokenType.TITLE,
@@ -54,6 +60,9 @@ const KEYWORDS: Record<string, TokenType> = {
     'VALUE': TokenType.VALUE,
     'ATTRIBUTE': TokenType.ATTRIBUTE,
     'COUNT': TokenType.COUNT,
+    'ELEMENT': TokenType.ELEMENT,
+    'OF': TokenType.OF,
+    'CLASS': TokenType.CLASS,
     'MATCHES': TokenType.MATCHES,
     'IS': TokenType.IS,
     'NOT': TokenType.NOT,
@@ -62,6 +71,7 @@ const KEYWORDS: Record<string, TokenType> = {
     'ENABLED': TokenType.ENABLED,
     'DISABLED': TokenType.DISABLED,
     'CHECKED': TokenType.CHECKED,
+    'FOCUSED': TokenType.FOCUSED,
     'CONTAINS': TokenType.CONTAINS,
     'EMPTY': TokenType.EMPTY,
     'BUTTON': TokenType.BUTTON,
@@ -187,6 +197,12 @@ export class Lexer {
         const startLine = this.line;
         const startColumn = this.column;
 
+        // Check for environment variable reference {{varName}}
+        if (char === '{' && this.source[this.pos + 1] === '{') {
+            this.scanEnvVarReference();
+            return;
+        }
+
         // Single character tokens
         const singleCharTokens: Record<string, TokenType> = {
             '{': TokenType.LBRACE,
@@ -310,6 +326,60 @@ export class Lexer {
         const tokenType = KEYWORDS[upperValue] || TokenType.IDENTIFIER;
 
         this.addToken(tokenType, value, startLine, startColumn);
+    }
+
+    /**
+     * Scan environment variable reference: {{variableName}}
+     * Postman-style syntax for referencing environment variables
+     */
+    private scanEnvVarReference(): void {
+        const startLine = this.line;
+        const startColumn = this.column;
+
+        this.advance(); // skip first {
+        this.advance(); // skip second {
+
+        let varName = '';
+
+        // Scan until we find }} or reach end
+        while (!this.isAtEnd()) {
+            if (this.peek() === '}' && this.source[this.pos + 1] === '}') {
+                break;
+            }
+            if (this.peek() === '\n') {
+                this.errors.push({
+                    message: 'Unterminated environment variable reference',
+                    line: startLine,
+                    column: startColumn
+                });
+                return;
+            }
+            varName += this.advance();
+        }
+
+        if (this.isAtEnd()) {
+            this.errors.push({
+                message: 'Unterminated environment variable reference - expected }}',
+                line: startLine,
+                column: startColumn
+            });
+            return;
+        }
+
+        this.advance(); // skip first }
+        this.advance(); // skip second }
+
+        const trimmedName = varName.trim();
+        if (!trimmedName) {
+            this.errors.push({
+                message: 'Empty environment variable reference',
+                line: startLine,
+                column: startColumn
+            });
+            return;
+        }
+
+        this.addToken(TokenType.ENV_VAR_REF, trimmedName, startLine, startColumn);
     }
 
     private isDigit(char: string): boolean {

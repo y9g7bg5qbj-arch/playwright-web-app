@@ -8,12 +8,13 @@ export default defineConfig({
     retries: 0,
     reporter: [
         ['list'],
+        ['json', { outputFile: 'test-results/results.json' }],
         ['allure-playwright', { resultsDir: 'allure-results' }],
     ],
     use: {
         headless: true,
-        screenshot: 'only-on-failure',
-        trace: 'on-first-retry',
+        screenshot: 'on',  // Always capture screenshots for evidence
+        trace: 'on',  // Always capture trace for all tests
     },
 });
 

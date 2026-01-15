@@ -7,19 +7,16 @@ import {
   Plus,
   X,
   Check,
-  AlertCircle,
   Eye,
   EyeOff,
   ChevronDown,
   Info,
-  Loader2,
 } from 'lucide-react';
 import type {
   RemoteEndpoint,
   RemoteAuth,
   SSLConfig,
   BrowserType,
-  RemoteEndpointStatus,
 } from '@/types/execution';
 import { EndpointCard } from './EndpointCard';
 

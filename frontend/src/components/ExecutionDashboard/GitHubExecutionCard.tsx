@@ -258,9 +258,6 @@ export const GitHubExecutionCard: React.FC<GitHubExecutionCardProps> = ({
     }
   }, [isExpanded, execution.status]);
 
-  // Check if traces should be available (completed runs have traces)
-  const hasTraces = execution.status === 'completed' && execution.conclusion === 'success';
-
   return (
     <div className="bg-slate-800/50 border border-slate-700 rounded-lg overflow-hidden">
       {/* Header */}

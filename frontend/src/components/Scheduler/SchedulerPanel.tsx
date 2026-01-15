@@ -17,6 +17,9 @@ import {
   Settings,
   History,
   X,
+  Folder,
+  FileText,
+  CheckSquare,
 } from 'lucide-react';
 import { schedulesApi, type SchedulePreset } from '@/api/schedules';
 import type {
@@ -65,7 +68,7 @@ const CRON_PRESETS: SchedulePreset[] = [
 const StatusBadge: React.FC<{ status: string; isActive?: boolean }> = ({ status, isActive }) => {
   const getStatusConfig = () => {
     if (isActive === false) {
-      return { color: 'bg-gray-500', text: 'Paused' };
+      return { color: 'bg-text-muted', text: 'Paused' };
     }
     switch (status) {
       case 'passed':
@@ -79,9 +82,9 @@ const StatusBadge: React.FC<{ status: string; isActive?: boolean }> = ({ status,
       case 'queued':
         return { color: 'bg-yellow-500', text: 'Pending' };
       case 'cancelled':
-        return { color: 'bg-gray-500', text: 'Cancelled' };
+        return { color: 'bg-text-muted', text: 'Cancelled' };
       default:
-        return { color: 'bg-gray-500', text: status };
+        return { color: 'bg-text-muted', text: status };
     }
   };
 
@@ -145,14 +148,14 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
 
   return (
     <div className={`border rounded-lg overflow-hidden transition-all ${
-      schedule.isActive ? 'border-slate-700 bg-slate-800/50' : 'border-slate-800 bg-slate-900/50 opacity-60'
+      schedule.isActive ? 'border-border-default bg-dark-card/50' : 'border-border-default bg-dark-bg/50 opacity-60'
     }`}>
       {/* Header */}
       <div className="p-4">
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <h3 className="font-medium text-slate-200 truncate">{schedule.name}</h3>
+              <h3 className="font-medium text-text-primary truncate">{schedule.name}</h3>
               {schedule.executionTarget === 'github-actions' && (
                 <span className="flex items-center gap-1 text-xs text-green-400 bg-green-900/30 px-1.5 py-0.5 rounded">
                   <Github className="w-3 h-3" />
@@ -160,38 +163,38 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
                 </span>
               )}
               {!schedule.isActive && (
-                <span className="text-xs text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded">Paused</span>
+                <span className="text-xs text-text-muted bg-dark-card px-1.5 py-0.5 rounded">Paused</span>
               )}
             </div>
             {schedule.description && (
-              <p className="text-sm text-slate-400 mt-1 truncate">{schedule.description}</p>
+              <p className="text-sm text-text-muted mt-1 truncate">{schedule.description}</p>
             )}
           </div>
           <div className="flex items-center gap-1 ml-2">
             <button
               onClick={() => onTrigger(schedule)}
-              className="p-1.5 text-slate-400 hover:text-green-400 hover:bg-slate-700 rounded transition-colors"
+              className="p-1.5 text-text-muted hover:text-green-400 hover:bg-dark-elevated rounded transition-colors"
               title="Run now"
             >
               <Play className="w-4 h-4" />
             </button>
             <button
               onClick={() => onToggle(schedule.id)}
-              className="p-1.5 text-slate-400 hover:text-yellow-400 hover:bg-slate-700 rounded transition-colors"
+              className="p-1.5 text-text-muted hover:text-yellow-400 hover:bg-dark-elevated rounded transition-colors"
               title={schedule.isActive ? 'Pause' : 'Resume'}
             >
               {schedule.isActive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             </button>
             <button
               onClick={() => onEdit(schedule)}
-              className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-700 rounded transition-colors"
+              className="p-1.5 text-text-muted hover:text-blue-400 hover:bg-dark-elevated rounded transition-colors"
               title="Edit"
             >
               <Settings className="w-4 h-4" />
             </button>
             <button
               onClick={() => onDelete(schedule.id)}
-              className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded transition-colors"
+              className="p-1.5 text-text-muted hover:text-red-400 hover:bg-dark-elevated rounded transition-colors"
               title="Delete"
             >
               <Trash2 className="w-4 h-4" />
@@ -201,11 +204,11 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
 
         {/* Schedule Info */}
         <div className="flex flex-wrap items-center gap-4 mt-3 text-sm">
-          <div className="flex items-center gap-1.5 text-slate-400">
+          <div className="flex items-center gap-1.5 text-text-muted">
             <Clock className="w-4 h-4" />
-            <code className="text-xs bg-slate-700 px-1.5 py-0.5 rounded">{schedule.cronExpression}</code>
+            <code className="text-xs bg-dark-elevated px-1.5 py-0.5 rounded">{schedule.cronExpression}</code>
           </div>
-          <div className="flex items-center gap-1.5 text-slate-400">
+          <div className="flex items-center gap-1.5 text-text-muted">
             <Calendar className="w-4 h-4" />
             <span className="text-xs">Next: {formatRelativeTime(schedule.nextRunAt)}</span>
           </div>
@@ -219,7 +222,7 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
         {/* Expand/Collapse */}
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="flex items-center gap-1 mt-3 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          className="flex items-center gap-1 mt-3 text-xs text-text-muted hover:text-text-secondary transition-colors"
         >
           {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           {isExpanded ? 'Less details' : 'More details'}
@@ -228,30 +231,38 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
 
       {/* Expanded Details */}
       {isExpanded && (
-        <div className="px-4 pb-4 border-t border-slate-700 pt-3 space-y-3">
+        <div className="px-4 pb-4 border-t border-border-default pt-3 space-y-3">
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-slate-500">Timezone:</span>
-              <span className="text-slate-300 ml-2">{schedule.timezone}</span>
+              <span className="text-text-muted">Timezone:</span>
+              <span className="text-text-secondary ml-2">{schedule.timezone}</span>
             </div>
             <div>
-              <span className="text-slate-500">Last run:</span>
-              <span className="text-slate-300 ml-2">{formatRelativeTime(schedule.lastRunAt)}</span>
+              <span className="text-text-muted">Last run:</span>
+              <span className="text-text-secondary ml-2">{formatRelativeTime(schedule.lastRunAt)}</span>
             </div>
           </div>
 
           {schedule.testSelector && (
-            <div className="text-sm">
-              <span className="text-slate-500">Test selector:</span>
+            <div className="text-sm space-y-2">
+              <span className="text-text-muted">Test Selection:</span>
               <div className="mt-1 flex flex-wrap gap-1">
                 {schedule.testSelector.tags?.map((tag) => (
-                  <span key={tag} className="bg-blue-900/50 text-blue-300 px-2 py-0.5 rounded text-xs">
+                  <span key={tag} className="inline-flex items-center gap-1 bg-blue-900/50 text-blue-300 px-2 py-0.5 rounded text-xs">
+                    <span className="material-symbols-outlined text-[12px]">label</span>
                     {tag}
                   </span>
                 ))}
                 {schedule.testSelector.folders?.map((folder) => (
-                  <span key={folder} className="bg-purple-900/50 text-purple-300 px-2 py-0.5 rounded text-xs">
+                  <span key={folder} className="inline-flex items-center gap-1 bg-purple-900/50 text-purple-300 px-2 py-0.5 rounded text-xs">
+                    <Folder className="w-3 h-3" />
                     {folder}
+                  </span>
+                ))}
+                {schedule.testSelector.patterns?.map((pattern) => (
+                  <span key={pattern} className="inline-flex items-center gap-1 bg-green-900/50 text-green-300 px-2 py-0.5 rounded text-xs">
+                    <FileText className="w-3 h-3" />
+                    {pattern}
                   </span>
                 ))}
               </div>
@@ -297,6 +308,11 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [tags, setTags] = useState<string[]>(schedule?.testSelector?.tags || []);
   const [tagInput, setTagInput] = useState('');
+  const [folders, setFolders] = useState<string[]>(schedule?.testSelector?.folders || []);
+  const [folderInput, setFolderInput] = useState('');
+  const [patterns, setPatterns] = useState<string[]>(schedule?.testSelector?.patterns || []);
+  const [patternInput, setPatternInput] = useState('');
+  const [showTestSelector, setShowTestSelector] = useState(false);
   const [cronError, setCronError] = useState<string | null>(null);
   const [cronDescription, setCronDescription] = useState<string | null>(null);
   const [nextRuns, setNextRuns] = useState<string[]>([]);
@@ -369,6 +385,30 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
     setTags(tags.filter((t) => t !== tagToRemove));
   };
 
+  const handleAddFolder = () => {
+    const folder = folderInput.trim();
+    if (folder && !folders.includes(folder)) {
+      setFolders([...folders, folder]);
+      setFolderInput('');
+    }
+  };
+
+  const handleRemoveFolder = (folderToRemove: string) => {
+    setFolders(folders.filter((f) => f !== folderToRemove));
+  };
+
+  const handleAddPattern = () => {
+    const pattern = patternInput.trim();
+    if (pattern && !patterns.includes(pattern)) {
+      setPatterns([...patterns, pattern]);
+      setPatternInput('');
+    }
+  };
+
+  const handleRemovePattern = (patternToRemove: string) => {
+    setPatterns(patterns.filter((p) => p !== patternToRemove));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !cronExpression || cronError) return;
@@ -385,15 +425,19 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
       }
     }
 
+    // Build testSelector only with non-empty arrays
+    const testSelector: any = {};
+    if (tags.length > 0) testSelector.tags = tags;
+    if (folders.length > 0) testSelector.folders = folders;
+    if (patterns.length > 0) testSelector.patterns = patterns;
+
     onSave({
       name,
       description,
       cronExpression,
       timezone,
       workflowId,
-      testSelector: {
-        tags: tags.length > 0 ? tags : undefined,
-      },
+      testSelector: Object.keys(testSelector).length > 0 ? testSelector : undefined,
       isActive: true,
       // Parameter system
       parameters: parameters.length > 0 ? parameters : undefined,
@@ -412,7 +456,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Schedule Name */}
       <div>
-        <label className="block text-sm font-medium text-slate-300 mb-1">
+        <label className="block text-sm font-medium text-text-secondary mb-1">
           Schedule Name *
         </label>
         <input
@@ -420,14 +464,14 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g., Nightly Regression Suite"
-          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-blue-500"
           required
         />
       </div>
 
       {/* Description */}
       <div>
-        <label className="block text-sm font-medium text-slate-300 mb-1">
+        <label className="block text-sm font-medium text-text-secondary mb-1">
           Description
         </label>
         <input
@@ -435,13 +479,13 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="e.g., Runs all regression tests every night"
-          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
 
       {/* Execution Target */}
       <div>
-        <label className="block text-sm font-medium text-slate-300 mb-2">
+        <label className="block text-sm font-medium text-text-secondary mb-2">
           Run Tests On
         </label>
         <div className="grid grid-cols-2 gap-3">
@@ -451,12 +495,12 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
             className={`p-4 flex flex-col items-center gap-2 border rounded-lg transition-all ${
               executionTarget === 'local'
                 ? 'border-blue-500 bg-blue-900/30 text-blue-300'
-                : 'border-slate-700 hover:border-slate-600 text-slate-400'
+                : 'border-border-default hover:border-border-default text-text-muted'
             }`}
           >
             <Monitor className="w-6 h-6" />
             <div className="text-sm font-medium">Local Machine</div>
-            <div className="text-xs text-slate-500">Run tests on your machine</div>
+            <div className="text-xs text-text-muted">Run tests on your machine</div>
           </button>
           <button
             type="button"
@@ -464,19 +508,19 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
             className={`p-4 flex flex-col items-center gap-2 border rounded-lg transition-all ${
               executionTarget === 'github-actions'
                 ? 'border-green-500 bg-green-900/30 text-green-300'
-                : 'border-slate-700 hover:border-slate-600 text-slate-400'
+                : 'border-border-default hover:border-border-default text-text-muted'
             }`}
           >
             <Github className="w-6 h-6" />
             <div className="text-sm font-medium">GitHub Actions</div>
-            <div className="text-xs text-slate-500">Run tests in the cloud</div>
+            <div className="text-xs text-text-muted">Run tests in the cloud</div>
           </button>
         </div>
       </div>
 
       {/* GitHub Actions Configuration */}
       {executionTarget === 'github-actions' && (
-        <div className="space-y-4 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+        <div className="space-y-4 p-4 bg-dark-card/50 rounded-lg border border-border-default">
           <div className="flex items-center gap-2 text-green-400 text-sm font-medium">
             <Github className="w-4 h-4" />
             GitHub Actions Configuration
@@ -487,7 +531,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
               <p className="text-sm text-yellow-300">
                 Connect your GitHub account to use GitHub Actions.
               </p>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-text-muted mt-1">
                 Go to Settings → GitHub to connect.
               </p>
             </div>
@@ -495,13 +539,13 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
             <>
               {/* Repository Selection */}
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">
+                <label className="block text-sm font-medium text-text-secondary mb-1">
                   Repository *
                 </label>
                 <select
                   value={githubRepoFullName}
                   onChange={(e) => setGithubRepoFullName(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-green-500"
                 >
                   <option value="">Select a repository...</option>
                   {repositories.map((repo) => (
@@ -514,7 +558,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
 
               {/* Branch */}
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">
+                <label className="block text-sm font-medium text-text-secondary mb-1">
                   Branch
                 </label>
                 <input
@@ -522,13 +566,13 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                   value={githubBranch}
                   onChange={(e) => setGithubBranch(e.target.value)}
                   placeholder="main"
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
 
               {/* Workflow File */}
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">
+                <label className="block text-sm font-medium text-text-secondary mb-1">
                   Workflow File *
                 </label>
                 <input
@@ -536,9 +580,9 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                   value={githubWorkflowFile}
                   onChange={(e) => setGithubWorkflowFile(e.target.value)}
                   placeholder="vero-tests.yml"
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-text-muted mt-1">
                   The workflow file in .github/workflows/ directory
                 </p>
               </div>
@@ -549,7 +593,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
 
       {/* Cron Presets */}
       <div>
-        <label className="block text-sm font-medium text-slate-300 mb-2">
+        <label className="block text-sm font-medium text-text-secondary mb-2">
           Schedule Frequency
         </label>
         <div className="grid grid-cols-3 gap-2">
@@ -561,11 +605,11 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
               className={`p-2 text-left border rounded-lg transition-colors ${
                 selectedPreset === preset.label || cronExpression === preset.cronExpression
                   ? 'border-blue-500 bg-blue-900/30 text-blue-300'
-                  : 'border-slate-700 hover:border-slate-600 text-slate-400'
+                  : 'border-border-default hover:border-border-default text-text-muted'
               }`}
             >
               <div className="text-sm font-medium">{preset.label}</div>
-              <div className="text-xs text-slate-500 mt-0.5">{preset.description}</div>
+              <div className="text-xs text-text-muted mt-0.5">{preset.description}</div>
             </button>
           ))}
         </div>
@@ -573,7 +617,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
 
       {/* Custom Cron Expression */}
       <div>
-        <label className="block text-sm font-medium text-slate-300 mb-1">
+        <label className="block text-sm font-medium text-text-secondary mb-1">
           Cron Expression *
         </label>
         <input
@@ -581,8 +625,8 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
           value={cronExpression}
           onChange={(e) => setCronExpression(e.target.value)}
           placeholder="0 6 * * *"
-          className={`w-full px-3 py-2 bg-slate-800 border rounded-lg text-slate-200 font-mono text-sm focus:outline-none focus:ring-2 ${
-            cronError ? 'border-red-500 focus:ring-red-500' : 'border-slate-700 focus:ring-blue-500'
+          className={`w-full px-3 py-2 bg-dark-card border rounded-lg text-text-primary font-mono text-sm focus:outline-none focus:ring-2 ${
+            cronError ? 'border-red-500 focus:ring-red-500' : 'border-border-default focus:ring-blue-500'
           }`}
           required
         />
@@ -593,7 +637,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
           <p className="text-green-400 text-xs mt-1">{cronDescription}</p>
         )}
         {nextRuns.length > 0 && !cronError && (
-          <div className="mt-2 text-xs text-slate-500">
+          <div className="mt-2 text-xs text-text-muted">
             <span className="font-medium">Next runs:</span>
             <ul className="mt-1 space-y-0.5">
               {nextRuns.slice(0, 3).map((run, i) => (
@@ -606,13 +650,13 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
 
       {/* Timezone */}
       <div>
-        <label className="block text-sm font-medium text-slate-300 mb-1">
+        <label className="block text-sm font-medium text-text-secondary mb-1">
           Timezone
         </label>
         <select
           value={timezone}
           onChange={(e) => setTimezone(e.target.value)}
-          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="UTC">UTC</option>
           <option value="America/New_York">America/New_York (EST/EDT)</option>
@@ -625,59 +669,190 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
         </select>
       </div>
 
-      {/* Test Tags */}
-      <div>
-        <label className="block text-sm font-medium text-slate-300 mb-1">
-          Test Tags (optional)
-        </label>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={tagInput}
-            onChange={(e) => setTagInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
-            placeholder="@smoke, @regression, @critical"
-            className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <button
-            type="button"
-            onClick={handleAddTag}
-            className="px-3 py-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors"
-          >
-            Add
-          </button>
-        </div>
-        {tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-2">
-            {tags.map((tag) => (
-              <span
-                key={tag}
-                className="inline-flex items-center gap-1 bg-blue-900/50 text-blue-300 px-2 py-0.5 rounded text-sm"
-              >
-                {tag}
+      {/* Test Selection (Collapsible - Jenkins-style) */}
+      <div className="border border-border-default rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowTestSelector(!showTestSelector)}
+          className="w-full flex items-center justify-between p-3 bg-dark-card/50 hover:bg-dark-card transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <CheckSquare className="w-4 h-4 text-text-muted" />
+            <span className="text-sm font-medium text-text-secondary">
+              Test Selection
+              {(tags.length > 0 || folders.length > 0 || patterns.length > 0) && (
+                <span className="ml-2 text-xs text-blue-400">
+                  ({tags.length + folders.length + patterns.length} filters)
+                </span>
+              )}
+            </span>
+          </div>
+          {showTestSelector ? (
+            <ChevronUp className="w-4 h-4 text-text-muted" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-text-muted" />
+          )}
+        </button>
+
+        {showTestSelector && (
+          <div className="p-4 border-t border-border-default space-y-4">
+            <p className="text-xs text-text-muted">
+              Filter which tests to run. Leave empty to run all tests. Multiple filters are combined with AND logic.
+            </p>
+
+            {/* Tags */}
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium text-text-secondary mb-2">
+                <span className="material-symbols-outlined text-[16px] text-blue-400">label</span>
+                Tags
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
+                  placeholder="@smoke, @regression, @critical"
+                  className="flex-1 px-3 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
                 <button
                   type="button"
-                  onClick={() => handleRemoveTag(tag)}
-                  className="hover:text-red-400"
+                  onClick={handleAddTag}
+                  className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors text-sm"
                 >
-                  <X className="w-3 h-3" />
+                  Add
                 </button>
-              </span>
-            ))}
+              </div>
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center gap-1 bg-blue-900/50 text-blue-300 px-2 py-0.5 rounded text-xs"
+                    >
+                      {tag}
+                      <button type="button" onClick={() => handleRemoveTag(tag)} className="hover:text-red-400">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-text-muted mt-1">Filter tests by tags (e.g., @smoke, @regression)</p>
+            </div>
+
+            {/* Folders */}
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium text-text-secondary mb-2">
+                <Folder className="w-4 h-4 text-purple-400" />
+                Folders
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={folderInput}
+                  onChange={(e) => setFolderInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddFolder())}
+                  placeholder="features/auth/**, tests/checkout/*"
+                  className="flex-1 px-3 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddFolder}
+                  className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 transition-colors text-sm"
+                >
+                  Add
+                </button>
+              </div>
+              {folders.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {folders.map((folder) => (
+                    <span
+                      key={folder}
+                      className="inline-flex items-center gap-1 bg-purple-900/50 text-purple-300 px-2 py-0.5 rounded text-xs"
+                    >
+                      <Folder className="w-3 h-3" />
+                      {folder}
+                      <button type="button" onClick={() => handleRemoveFolder(folder)} className="hover:text-red-400">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-text-muted mt-1">Run tests from specific folders (supports glob patterns)</p>
+            </div>
+
+            {/* File Patterns */}
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium text-text-secondary mb-2">
+                <FileText className="w-4 h-4 text-green-400" />
+                File Patterns
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={patternInput}
+                  onChange={(e) => setPatternInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddPattern())}
+                  placeholder="*.login.*, checkout-*.vero"
+                  className="flex-1 px-3 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddPattern}
+                  className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors text-sm"
+                >
+                  Add
+                </button>
+              </div>
+              {patterns.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {patterns.map((pattern) => (
+                    <span
+                      key={pattern}
+                      className="inline-flex items-center gap-1 bg-green-900/50 text-green-300 px-2 py-0.5 rounded text-xs"
+                    >
+                      <FileText className="w-3 h-3" />
+                      {pattern}
+                      <button type="button" onClick={() => handleRemovePattern(pattern)} className="hover:text-red-400">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-text-muted mt-1">Match test files by name pattern (wildcards supported)</p>
+            </div>
+
+            {/* Summary */}
+            {(tags.length > 0 || folders.length > 0 || patterns.length > 0) && (
+              <div className="p-3 bg-dark-elevated rounded-lg border border-border-default">
+                <div className="text-xs font-medium text-text-secondary mb-1">Selection Summary</div>
+                <div className="text-xs text-text-muted">
+                  Will run tests that match:
+                  {tags.length > 0 && <span className="text-blue-300"> {tags.length} tag(s)</span>}
+                  {tags.length > 0 && (folders.length > 0 || patterns.length > 0) && <span> AND</span>}
+                  {folders.length > 0 && <span className="text-purple-300"> {folders.length} folder(s)</span>}
+                  {folders.length > 0 && patterns.length > 0 && <span> AND</span>}
+                  {patterns.length > 0 && <span className="text-green-300"> {patterns.length} pattern(s)</span>}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* Run Parameters (Collapsible) */}
-      <div className="border border-slate-700 rounded-lg overflow-hidden">
+      <div className="border border-border-default rounded-lg overflow-hidden">
         <button
           type="button"
           onClick={() => setShowParameterSection(!showParameterSection)}
-          className="w-full flex items-center justify-between p-3 bg-slate-800/50 hover:bg-slate-800 transition-colors"
+          className="w-full flex items-center justify-between p-3 bg-dark-card/50 hover:bg-dark-card transition-colors"
         >
           <div className="flex items-center gap-2">
-            <Settings className="w-4 h-4 text-slate-500" />
-            <span className="text-sm font-medium text-slate-300">
+            <Settings className="w-4 h-4 text-text-muted" />
+            <span className="text-sm font-medium text-text-secondary">
               Run Parameters
               {parameters.length > 0 && (
                 <span className="ml-2 text-xs text-blue-400">({parameters.length})</span>
@@ -685,15 +860,15 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
             </span>
           </div>
           {showParameterSection ? (
-            <ChevronUp className="w-4 h-4 text-slate-500" />
+            <ChevronUp className="w-4 h-4 text-text-muted" />
           ) : (
-            <ChevronDown className="w-4 h-4 text-slate-500" />
+            <ChevronDown className="w-4 h-4 text-text-muted" />
           )}
         </button>
 
         {showParameterSection && (
-          <div className="p-4 border-t border-slate-700">
-            <p className="text-xs text-slate-500 mb-4">
+          <div className="p-4 border-t border-border-default">
+            <p className="text-xs text-text-muted mb-4">
               Define parameters that can be customized when manually triggering this schedule (Jenkins-style)
             </p>
             <ParameterBuilder
@@ -706,12 +881,12 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
       </div>
 
       {/* Actions */}
-      <div className="flex justify-end gap-3 pt-4 border-t border-slate-700">
+      <div className="flex justify-end gap-3 pt-4 border-t border-border-default">
         <button
           type="button"
           onClick={onCancel}
           disabled={isLoading}
-          className="px-4 py-2 text-slate-400 hover:text-slate-200 transition-colors"
+          className="px-4 py-2 text-text-muted hover:text-text-primary transition-colors"
         >
           Cancel
         </button>
@@ -768,12 +943,12 @@ const RunHistory: React.FC<RunHistoryProps> = ({ schedule, onBack }) => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-medium text-slate-200">{schedule.name}</h3>
-          <p className="text-sm text-slate-400">Run History</p>
+          <h3 className="text-lg font-medium text-text-primary">{schedule.name}</h3>
+          <p className="text-sm text-text-muted">Run History</p>
         </div>
         <button
           onClick={onBack}
-          className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+          className="px-3 py-1.5 text-sm text-text-muted hover:text-text-primary transition-colors"
         >
           Back to schedules
         </button>
@@ -781,10 +956,10 @@ const RunHistory: React.FC<RunHistoryProps> = ({ schedule, onBack }) => {
 
       {isLoading ? (
         <div className="flex items-center justify-center py-8">
-          <RefreshCw className="w-6 h-6 text-slate-500 animate-spin" />
+          <RefreshCw className="w-6 h-6 text-text-muted animate-spin" />
         </div>
       ) : runs.length === 0 ? (
-        <div className="text-center py-8 text-slate-500">
+        <div className="text-center py-8 text-text-muted">
           <History className="w-8 h-8 mx-auto mb-2 opacity-50" />
           <p>No runs yet</p>
         </div>
@@ -793,15 +968,15 @@ const RunHistory: React.FC<RunHistoryProps> = ({ schedule, onBack }) => {
           {runs.map((run) => (
             <div
               key={run.id}
-              className="flex items-center justify-between p-3 bg-slate-800/50 border border-slate-700 rounded-lg"
+              className="flex items-center justify-between p-3 bg-dark-card/50 border border-border-default rounded-lg"
             >
               <div className="flex items-center gap-3">
                 <StatusBadge status={run.status} />
                 <div>
-                  <p className="text-sm text-slate-300">
+                  <p className="text-sm text-text-secondary">
                     {formatDate(run.createdAt)}
                   </p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-text-muted">
                     Triggered: {run.triggerType}
                     {run.durationMs && ` • Duration: ${(run.durationMs / 1000).toFixed(1)}s`}
                   </p>
@@ -943,12 +1118,12 @@ export const SchedulerPanel: React.FC<SchedulerPanelProps> = ({
 
   // Render
   return (
-    <div className="flex flex-col h-full bg-slate-900">
+    <div className="flex flex-col h-full bg-dark-bg">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border-default">
         <div className="flex items-center gap-2">
           <Calendar className="w-5 h-5 text-blue-400" />
-          <h2 className="font-semibold text-slate-200">Test Scheduler</h2>
+          <h2 className="font-semibold text-text-primary">Test Scheduler</h2>
         </div>
         {viewMode === 'list' && (
           <button
@@ -980,10 +1155,10 @@ export const SchedulerPanel: React.FC<SchedulerPanelProps> = ({
           <>
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
-                <RefreshCw className="w-6 h-6 text-slate-500 animate-spin" />
+                <RefreshCw className="w-6 h-6 text-text-muted animate-spin" />
               </div>
             ) : schedules.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-slate-500">
+              <div className="flex flex-col items-center justify-center py-12 text-text-muted">
                 <Calendar className="w-12 h-12 mb-3 opacity-50" />
                 <p className="text-sm">No schedules yet</p>
                 <p className="text-xs mt-1">Create a schedule to run tests automatically</p>

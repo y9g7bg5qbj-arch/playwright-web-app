@@ -54,6 +54,8 @@ export interface ExecutionOptions {
   traceEnabled?: boolean;
   screenshotOnFailure?: boolean;
   videoEnabled?: boolean;
+  // Environment variables for {{variableName}} resolution in Vero scripts
+  envVars?: Record<string, string>;
 }
 
 /**
@@ -297,13 +299,18 @@ export class TestWorker extends EventEmitter {
       // Set output directory
       args.push(`--output=${testDir}`);
 
-      const env = {
+      const env: Record<string, string | undefined> = {
         ...process.env,
         PLAYWRIGHT_JSON_OUTPUT_NAME: path.join(testDir, 'results.json'),
       };
 
       if (options.headless === false) {
         env.PWDEBUG = '1';
+      }
+
+      // Pass environment variables for {{variableName}} resolution in Vero scripts
+      if (options.envVars && Object.keys(options.envVars).length > 0) {
+        env.VERO_ENV_VARS = JSON.stringify(options.envVars);
       }
 
       const child = spawn('npx', args, {

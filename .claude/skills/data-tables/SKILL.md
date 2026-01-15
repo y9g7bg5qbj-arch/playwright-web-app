@@ -1,6 +1,6 @@
 # Data Tables - Test Data Expert Skill
 
-Auto-invoke when working with test data sheets, data import/export, AG Grid, or data-driven testing.
+Auto-invoke when working with test data sheets, data import/export, AG Grid, reference columns, or data-driven testing.
 
 ---
 
@@ -27,10 +27,245 @@ DataManager (runtime)
 | File | Purpose |
 |------|---------|
 | `/frontend/src/components/TestData/` | AG Grid components |
+| `/frontend/src/components/TestData/AGGridDataTable.tsx` | Main grid component |
+| `/frontend/src/components/TestData/ColumnEditorModal.tsx` | Column type configuration |
+| `/frontend/src/components/TestData/RelationshipsModal.tsx` | Table relationships |
+| `/frontend/src/components/TestData/ReferenceCellEditor.tsx` | Multi-select reference picker |
+| `/frontend/src/components/TestData/ReferenceCellRenderer.tsx` | Display resolved references |
 | `/backend/src/services/excel-parser.ts` | File parsing service |
-| `/vero-lang/src/api/testDataApi.ts` | Data API client |
+| `/backend/src/services/referenceResolver.ts` | Resolve reference IDs to objects |
+| `/backend/src/routes/test-data.routes.ts` | API endpoints |
 | `/vero-lang/src/runtime/DataManager.ts` | In-memory query engine |
-| `/vero-lang/docs/DATA_TABLE_UX_PROPOSAL.md` | UX design document |
+
+---
+
+## Data Structure Pattern: Normalized References + State Rows
+
+### Problem: Row Duplication in Excel
+
+Traditional Excel test data causes massive duplication:
+
+```
+TestID | Driver | License | Vehicle | Year | State | Discount | TaxRate
+-------|--------|---------|---------|------|-------|----------|--------
+TC001  | John   | DL123   | Toyota  | 2020 | CA    | true     | 0.0725
+TC001  | John   | DL123   | Toyota  | 2020 | PA    | false    | 0.06
+TC001  | John   | DL123   | Honda   | 2022 | CA    | true     | 0.0725
+TC001  | Jane   | DL456   | Toyota  | 2020 | CA    | true     | 0.0725
+... (8 rows for 2 drivers × 2 vehicles × 2 states)
+```
+
+### Solution: Normalized Tables with References
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ENTITY TABLES (Normalized)                   │
+├─────────────────────────────────────────────────────────────────┤
+│  Drivers Table              Vehicles Table                      │
+│  ┌────────┬────────────┐   ┌───────────┬────────────┐          │
+│  │ D001   │ John Smith │   │ V001      │ Toyota     │          │
+│  │ D002   │ Jane Doe   │   │ V002      │ Honda      │          │
+│  └────────┴────────────┘   └───────────┴────────────┘          │
+└─────────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────────┐
+│              SCENARIOS (One Row Per State)                      │
+├──────────┬───────┬─────────────┬──────────────┬─────────────────┤
+│ TestID   │ State │ $drivers    │ $vehicles    │ State-Specific  │
+├──────────┼───────┼─────────────┼──────────────┼─────────────────┤
+│ TC001    │ CA    │ D001, D002  │ V001, V002   │ discount=true   │
+│ TC001    │ PA    │ D001, D002  │ V001, V002   │ discount=false  │
+│ TC001    │ TX    │ D001, D002  │ V001, V002   │ discount=true   │
+└──────────┴───────┴─────────────┴──────────────┴─────────────────┘
+```
+
+**Result:** 12 Excel rows → 3 scenario rows + 4 entity rows = **7 rows total (42% reduction)**
+
+### Key Insight
+
+- **Drivers/Vehicles** = Pure reference data (no state-specific variations)
+- **States** = Need dedicated rows (each state has different field values)
+
+---
+
+## Column Types
+
+### Standard Types
+
+| Type | Editor | Description |
+|------|--------|-------------|
+| `text` | Text input | Free-form text |
+| `number` | Numeric input | Numbers with min/max |
+| `boolean` | Checkbox | True/false |
+| `date` | Date picker | Date values |
+| `select` | Dropdown | Enum values |
+| `formula` | Readonly | Computed columns |
+| `reference` | Multi-select picker | References to other tables |
+
+### Reference Column Type (NEW)
+
+```typescript
+interface Column {
+  name: string;
+  type: 'text' | 'number' | 'boolean' | 'date' | 'formula' | 'select' | 'reference';
+  referenceConfig?: {
+    targetSheet: string;       // "Drivers"
+    targetColumn: string;      // "DriverID" (the ID column)
+    displayColumn: string;     // "Name" (what to show in cell)
+    allowMultiple: boolean;    // true for iteration columns ($drivers)
+    separator?: string;        // "," for parsing (default)
+  };
+}
+```
+
+### Reference Cell Editor UI
+
+```
+┌─ Select Drivers ──────────────────────────────────────────┐
+│ ⌕ Search drivers...                                       │
+│                                                           │
+│ Selected (2):                                             │
+│ ┌───────────────────────────────────────────────────────┐ │
+│ │ [D001] John Smith - DL123                         ✕   │ │
+│ │ [D002] Jane Doe - DL456                           ✕   │ │
+│ └───────────────────────────────────────────────────────┘ │
+│                                                           │
+│ Available:                                                │
+│ ┌───────────────────────────────────────────────────────┐ │
+│ │ ☐ [D003] Bob Wilson - DL789                           │ │
+│ └───────────────────────────────────────────────────────┘ │
+│                                                           │
+│                              [Cancel]  [Apply]            │
+└───────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Reference Resolution
+
+### Backend API
+
+```
+POST /api/test-data/resolve-references
+Body: {
+  sheetId: string,
+  rowId: string,
+  columns: string[]  // ["$drivers", "$vehicles"]
+}
+
+Response: {
+  $drivers: [
+    { DriverID: "D001", Name: "John Smith", License: "DL123" },
+    { DriverID: "D002", Name: "Jane Doe", License: "DL456" }
+  ],
+  $vehicles: [
+    { VehicleID: "V001", Make: "Toyota", Model: "Camry", Year: 2020 }
+  ]
+}
+```
+
+### Reference Resolver Service
+
+```typescript
+// backend/src/services/referenceResolver.ts
+class ReferenceResolver {
+  async resolveReferences(
+    sheetId: string,
+    rowData: Record<string, any>,
+    referenceColumns: string[]
+  ): Promise<Record<string, any[]>> {
+    const results: Record<string, any[]> = {};
+
+    for (const colName of referenceColumns) {
+      const column = await this.getColumnConfig(sheetId, colName);
+      if (column.type !== 'reference') continue;
+
+      const ids = this.parseIds(rowData[colName], column.referenceConfig.separator);
+      const targetData = await this.fetchTargetRows(
+        column.referenceConfig.targetSheet,
+        column.referenceConfig.targetColumn,
+        ids
+      );
+
+      results[colName] = targetData;
+    }
+
+    return results;
+  }
+
+  private parseIds(value: string, separator = ','): string[] {
+    return value.split(separator).map(id => id.trim()).filter(Boolean);
+  }
+}
+```
+
+---
+
+## VDQL Integration
+
+### Loading Data with References
+
+```vdql
+# Load scenarios and expand references
+data scenarios = TestData.Scenarios
+  where TestID == "TC001"
+  expand $drivers, $vehicles
+
+# Short form - expand all reference columns
+data scenarios = TestData.Scenarios where TestID == "TC001" expand all
+```
+
+### Vero Script Iteration
+
+```vero
+# Load all scenario rows for this test (one per state)
+load $scenarios from "Scenarios" where TestID = $testId expand all
+
+# Outer loop: each state (dedicated row)
+for each $scenario in $scenarios
+
+  # Inner loops: drivers × vehicles (Cartesian product from references)
+  for each $driver in $scenario.$drivers
+    for each $vehicle in $scenario.$vehicles
+
+      # State-specific values (from the row)
+      fill "State" with $scenario.State
+      check "Discount" if $scenario.Discount
+      fill "Tax Rate" with $scenario.TaxRate
+
+      # Reference data (resolved from other tables)
+      fill "Driver Name" with $driver.Name
+      fill "License" with $driver.License
+      fill "Vehicle Make" with $vehicle.Make
+
+      click "Submit"
+    end
+  end
+end
+```
+
+### Transpiled Playwright
+
+```typescript
+const scenarios = await dataManager.load('Scenarios', { TestID: testId });
+
+for (const scenario of scenarios) {
+  const drivers = await dataManager.resolveReferences(scenario, '$drivers', 'Drivers');
+  const vehicles = await dataManager.resolveReferences(scenario, '$vehicles', 'Vehicles');
+
+  for (const driver of drivers) {
+    for (const vehicle of vehicles) {
+      await page.getByLabel('State').fill(scenario.State);
+      if (scenario.Discount) {
+        await page.getByLabel('Discount').check();
+      }
+      await page.getByLabel('Driver Name').fill(driver.Name);
+      await page.getByLabel('Vehicle Make').fill(vehicle.Make);
+      await page.getByRole('button', { name: 'Submit' }).click();
+    }
+  }
+}
+```
 
 ---
 
@@ -52,17 +287,27 @@ interface TestDataSheet {
 interface ColumnDefinition {
     id: string;
     name: string;
-    type: 'string' | 'number' | 'boolean' | 'date' | 'email' | 'url';
+    type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'formula' | 'reference';
     required: boolean;
     defaultValue?: any;
     validation?: {
-        pattern?: string;      // Regex for string
-        min?: number;          // For number
+        pattern?: string;
+        min?: number;
         max?: number;
-        minLength?: number;    // For string
+        minLength?: number;
         maxLength?: number;
-        enum?: string[];       // Allowed values
+        enum?: string[];
     };
+    // For reference type
+    referenceConfig?: {
+        targetSheet: string;
+        targetColumn: string;
+        displayColumn: string;
+        allowMultiple: boolean;
+        separator?: string;
+    };
+    // For formula type
+    formula?: string;
 }
 ```
 
@@ -78,8 +323,9 @@ interface ColumnDefinition {
 - Row grouping & aggregation
 - Export to CSV/Excel
 - Undo/redo
-- Column pinning
+- Column pinning/freezing
 - Row selection
+- Custom cell renderers/editors
 
 ### Grid Configuration
 
@@ -90,199 +336,24 @@ const gridOptions: GridOptions = {
         headerName: col.name,
         editable: true,
         cellEditor: getCellEditor(col.type),
+        cellRenderer: col.type === 'reference' ? 'referenceCellRenderer' : undefined,
+        cellEditorPopup: col.type === 'reference',
         valueParser: getValueParser(col.type),
         valueFormatter: getValueFormatter(col.type),
         filter: getFilter(col.type),
+        pinned: frozenColumns.includes(col.name) ? 'left' : undefined,
+        hide: hiddenColumns.includes(col.name),
     })),
     defaultColDef: {
         sortable: true,
         filter: true,
         resizable: true,
     },
-    rowSelection: 'multiple',
-    enableRangeSelection: true,
-    undoRedoCellEditing: true,
-    clipboardDelimiter: '\t',
+    components: {
+        referenceCellRenderer: ReferenceCellRenderer,
+        referenceCellEditor: ReferenceCellEditor,
+    },
 };
-```
-
-### Cell Editors by Type
-
-| Type | Editor | Validation |
-|------|--------|------------|
-| string | Text input | minLength, maxLength, pattern |
-| number | Numeric input | min, max |
-| boolean | Checkbox | - |
-| date | Date picker | - |
-| email | Text input | Email regex |
-| url | Text input | URL regex |
-| enum | Dropdown | Allowed values |
-
----
-
-## Excel/CSV Parsing
-
-### Supported Formats
-
-- `.xlsx` - Excel 2007+
-- `.xls` - Legacy Excel
-- `.csv` - Comma-separated values
-
-### Parsing Flow
-
-```typescript
-async function parseExcel(file: Buffer): Promise<ParsedSheet> {
-    const workbook = xlsx.read(file);
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-
-    // 1. Extract headers (first row)
-    const headers = extractHeaders(sheet);
-
-    // 2. Infer column types from data
-    const columns = headers.map(header => ({
-        name: header,
-        type: inferType(getColumnData(sheet, header))
-    }));
-
-    // 3. Parse rows
-    const rows = xlsx.utils.sheet_to_json(sheet);
-
-    return { columns, rows };
-}
-
-function inferType(values: any[]): ColumnType {
-    // Check sample values to determine type
-    if (values.every(v => typeof v === 'number')) return 'number';
-    if (values.every(v => typeof v === 'boolean')) return 'boolean';
-    if (values.every(v => isValidDate(v))) return 'date';
-    if (values.every(v => isValidEmail(v))) return 'email';
-    if (values.every(v => isValidUrl(v))) return 'url';
-    return 'string';
-}
-```
-
----
-
-## VDQL Integration
-
-### Loading Data in Tests
-
-```vero
-# Reference table directly
-DATA users = TestData.Users
-
-# With filtering
-DATA admins = TestData.Users WHERE role == "admin"
-
-# With sorting and limiting
-DATA topCustomers = TestData.Customers
-    ORDER BY totalSpent DESC
-    LIMIT 10
-```
-
-### DataManager Runtime
-
-```typescript
-class DataManager {
-    private tables: Map<string, any[]>;
-
-    // Pre-load all tables at test start
-    async preloadTables(tableNames: string[]): Promise<void> {
-        for (const name of tableNames) {
-            const data = await testDataApi.getTableData(name);
-            this.tables.set(name, data);
-        }
-    }
-
-    // Query interface
-    query(tableName: string): QueryBuilder {
-        const data = this.tables.get(tableName);
-        return new QueryBuilder(data);
-    }
-}
-
-class QueryBuilder<T> {
-    select(columns: string[]): QueryBuilder<T>;
-    where(predicate: Predicate): QueryBuilder<T>;
-    orderBy(specs: SortSpec[]): QueryBuilder<T>;
-    limit(count: number): QueryBuilder<T>;
-    offset(count: number): QueryBuilder<T>;
-    first(): T | null;
-    last(): T | null;
-    random(): T | null;
-    toArray(): T[];
-}
-```
-
-### Predicate Functions
-
-```typescript
-// Comparison
-eq(column, value)      // column == value
-neq(column, value)     // column != value
-gt(column, value)      // column > value
-lt(column, value)      // column < value
-gte(column, value)     // column >= value
-lte(column, value)     // column <= value
-
-// Text
-contains(column, substr)
-startsWith(column, prefix)
-endsWith(column, suffix)
-matches(column, regex)
-
-// Collection
-isIn(column, values[])
-notIn(column, values[])
-
-// Null/Empty
-isEmpty(column)
-isNotEmpty(column)
-isNull(column)
-
-// Logic
-and(cond1, cond2)
-or(cond1, cond2)
-not(condition)
-```
-
----
-
-## Data Table UX (Non-Technical Users)
-
-### Visual Query Builder
-
-Instead of writing VDQL manually, users can:
-
-1. **Link to Table** - Define relationships
-2. **Group By** - Create pivot table views
-3. **Sort Builder** - Multi-field sorting
-4. **Formula Builder** - Computed columns
-
-### Generated VDQL
-
-```
-User Action: "Show me all pending orders over $100"
-    ↓
-Visual Query Builder UI
-    ↓
-Generated VDQL:
-DATA result = TestData.Orders
-    WHERE status == "pending" AND amount > 100
-    ORDER BY createdAt DESC
-```
-
-### Reusable Views
-
-Users can save queries as named views:
-
-```typescript
-interface SavedView {
-    id: string;
-    name: string;
-    tableId: string;
-    query: VDQLQuery;  // Stored query definition
-}
 ```
 
 ---
@@ -303,100 +374,83 @@ interface SavedView {
 | PUT | `/api/test-data/sheets/:id/rows/:rowId` | Update row |
 | DELETE | `/api/test-data/sheets/:id/rows/:rowId` | Delete row |
 | POST | `/api/test-data/query` | Execute VDQL query |
-
----
-
-## Data Validation
-
-### Column-Level Validation
-
-```typescript
-function validateCell(value: any, column: ColumnDefinition): ValidationResult {
-    // Required check
-    if (column.required && (value === null || value === undefined || value === '')) {
-        return { valid: false, error: `${column.name} is required` };
-    }
-
-    // Type check
-    if (!isValidType(value, column.type)) {
-        return { valid: false, error: `${column.name} must be ${column.type}` };
-    }
-
-    // Validation rules
-    if (column.validation) {
-        const { pattern, min, max, minLength, maxLength, enum: allowed } = column.validation;
-
-        if (pattern && !new RegExp(pattern).test(value)) {
-            return { valid: false, error: `${column.name} format invalid` };
-        }
-
-        if (min !== undefined && value < min) {
-            return { valid: false, error: `${column.name} must be >= ${min}` };
-        }
-
-        // ... more validations
-    }
-
-    return { valid: true };
-}
-```
-
-### Row-Level Validation
-
-```typescript
-function validateRow(row: Record<string, any>, columns: ColumnDefinition[]): ValidationResult[] {
-    return columns.map(col => validateCell(row[col.name], col));
-}
-```
+| POST | `/api/test-data/resolve-references` | Resolve reference IDs |
+| GET | `/api/test-data/sheets/:id/relationships` | Get table relationships |
+| POST | `/api/test-data/relationships` | Create relationship |
 
 ---
 
 ## Common Tasks
 
-### Adding New Column Type
+### Adding Reference Column Type (IMPLEMENTED)
 
-1. Add to `ColumnType` enum
-2. Update type inference in `excel-parser.ts`
-3. Add cell editor in AG Grid config
-4. Add validation logic
-5. Update VDQL type handling
+1. **ColumnEditorModal.tsx** - Reference type configuration UI:
+   - Target sheet dropdown (filters out current sheet)
+   - Target column (ID) dropdown
+   - Display column dropdown
+   - Allow multiple checkbox
+   - Props: `availableSheets`, `currentSheetId`
 
-### Implementing Table Relationships
+2. **ReferenceCellEditor.tsx** - Multi-select picker modal:
+   - Fetches rows from target sheet via `testDataApi.getSheet()`
+   - Search/filter functionality
+   - Multi-select with chips display (when allowMultiple)
+   - Single-select mode (when !allowMultiple)
+   - Returns comma-separated IDs
 
-1. Add `relationships` field to `TestDataSheet`:
+3. **ReferenceCellRenderer.tsx** - Display resolved names:
+   - Resolves IDs to display names
+   - In-memory cache for performance
+   - Shows single value or chips for multiple
+   - Loading and error states
 
-```typescript
-interface TableRelationship {
-    sourceColumn: string;
-    targetTable: string;
-    targetColumn: string;
-    type: 'one-to-one' | 'one-to-many' | 'many-to-many';
-}
-```
+4. **Backend endpoints** (`/api/test-data/`):
+   - `POST /resolve-references` - Resolve IDs to full row data
+   - `POST /sheets/:sheetId/expand` - VDQL expand support
 
-2. Update DataManager for JOIN queries
-3. Add UI for relationship management
+5. **Frontend API** (`testData.ts`):
+   - `resolveReferences(sheetId, rowId, columns)`
+   - `expandSheetRows(sheetId, { rowIds?, expandColumns? })`
 
-### Adding Computed Columns
+### Setting Up Normalized Data Structure
 
-1. Add `computed` field to `ColumnDefinition`:
+1. Create entity tables (Drivers, Vehicles, etc.):
+   - Each with unique ID column (DriverID, VehicleID)
+   - All entity-specific fields
 
-```typescript
-interface ComputedColumn extends ColumnDefinition {
-    formula: string;  // e.g., "price * quantity"
-}
-```
+2. Create scenario table:
+   - TestID column
+   - State column (one row per state)
+   - Reference columns ($drivers, $vehicles) with `allowMultiple: true`
+   - State-specific field columns (Discount, TaxRate, etc.)
 
-2. Evaluate formula on data load
-3. Update AG Grid to show computed values
+3. Configure relationships:
+   - $drivers → Drivers.DriverID
+   - $vehicles → Vehicles.VehicleID
+
+4. Write Vero script with nested iteration
 
 ---
 
 ## Gotchas
 
-1. **Pre-Loading**: Data loaded ONCE at test start - no DB calls during test.
-2. **Large Files**: Consider chunked upload for large Excel files.
-3. **Type Inference**: May guess wrong - allow user override.
-4. **Version Conflicts**: Handle concurrent edits with versioning.
-5. **Formula Security**: Sanitize/sandbox computed column formulas.
-6. **AG Grid License**: Enterprise features require license key.
+1. **Reference Resolution**: Always resolve references at runtime, not stored denormalized
+2. **Pre-Loading**: Data loaded ONCE at test start - no DB calls during test
+3. **Separator**: Default comma separator, but allow custom (e.g., semicolon)
+4. **Display vs ID**: Store IDs in cell, display resolved names
+5. **Circular References**: Prevent circular relationships between tables
+6. **Large Files**: Consider chunked upload for large Excel files
+7. **Type Inference**: May guess wrong on import - allow user override
+8. **AG Grid License**: Enterprise features require license key
+
+---
+
+## Verification Checklist
+
+- [ ] Reference cell editor shows multi-select picker
+- [ ] Cell displays resolved names, not IDs
+- [ ] VDQL `expand` resolves references correctly
+- [ ] Vero script nested iteration works
+- [ ] 3 states × 2 drivers × 2 vehicles = 12 iterations
+- [ ] Each iteration has correct state-specific values
+- [ ] Playwright trace shows all form submissions

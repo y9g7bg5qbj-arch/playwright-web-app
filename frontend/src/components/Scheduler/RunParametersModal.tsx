@@ -128,13 +128,13 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
                 checked={Boolean(value)}
                 onChange={(e) => updateParameter(param.name, e.target.checked)}
                 disabled={isLoading}
-                className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-900"
+                className="w-4 h-4 rounded border-border-default bg-dark-card text-blue-600 focus:ring-blue-500 focus:ring-offset-dark-bg"
               />
-              <span className="text-sm text-slate-300">{param.label}</span>
+              <span className="text-sm text-text-secondary">{param.label}</span>
               {param.required && <span className="text-red-400">*</span>}
             </label>
             {param.description && (
-              <p className="text-xs text-slate-500 ml-6">{param.description}</p>
+              <p className="text-xs text-text-muted ml-6">{param.description}</p>
             )}
           </div>
         );
@@ -142,7 +142,7 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
       case 'choice':
         return (
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-slate-300">
+            <label className="block text-sm font-medium text-text-secondary">
               {param.label}
               {param.required && <span className="text-red-400 ml-1">*</span>}
             </label>
@@ -151,9 +151,9 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
               onChange={(e) => updateParameter(param.name, e.target.value)}
               disabled={isLoading}
               className={`
-                w-full px-3 py-2 bg-slate-800 border rounded-lg text-sm text-slate-200
+                w-full px-3 py-2 bg-dark-card border rounded-lg text-sm text-text-primary
                 focus:outline-none focus:ring-2 focus:ring-blue-500
-                ${error ? 'border-red-500' : 'border-slate-700'}
+                ${error ? 'border-red-500' : 'border-border-default'}
               `}
             >
               {param.choices?.map(choice => (
@@ -161,7 +161,7 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
               ))}
             </select>
             {param.description && (
-              <p className="text-xs text-slate-500">{param.description}</p>
+              <p className="text-xs text-text-muted">{param.description}</p>
             )}
           </div>
         );
@@ -169,7 +169,7 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
       case 'number':
         return (
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-slate-300">
+            <label className="block text-sm font-medium text-text-secondary">
               {param.label}
               {param.required && <span className="text-red-400 ml-1">*</span>}
             </label>
@@ -182,13 +182,13 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
               step={param.step}
               disabled={isLoading}
               className={`
-                w-full px-3 py-2 bg-slate-800 border rounded-lg text-sm text-slate-200
+                w-full px-3 py-2 bg-dark-card border rounded-lg text-sm text-text-primary
                 focus:outline-none focus:ring-2 focus:ring-blue-500
-                ${error ? 'border-red-500' : 'border-slate-700'}
+                ${error ? 'border-red-500' : 'border-border-default'}
               `}
             />
             {param.description && (
-              <p className="text-xs text-slate-500">{param.description}</p>
+              <p className="text-xs text-text-muted">{param.description}</p>
             )}
           </div>
         );
@@ -197,7 +197,7 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
       default:
         return (
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-slate-300">
+            <label className="block text-sm font-medium text-text-secondary">
               {param.label}
               {param.required && <span className="text-red-400 ml-1">*</span>}
             </label>
@@ -208,13 +208,13 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
               placeholder={param.placeholder}
               disabled={isLoading}
               className={`
-                w-full px-3 py-2 bg-slate-800 border rounded-lg text-sm text-slate-200
-                placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500
-                ${error ? 'border-red-500' : 'border-slate-700'}
+                w-full px-3 py-2 bg-dark-card border rounded-lg text-sm text-text-primary
+                placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-blue-500
+                ${error ? 'border-red-500' : 'border-border-default'}
               `}
             />
             {param.description && (
-              <p className="text-xs text-slate-500">{param.description}</p>
+              <p className="text-xs text-text-muted">{param.description}</p>
             )}
           </div>
         );
@@ -223,16 +223,16 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden">
+      <div className="bg-dark-bg border border-border-default rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border-default">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-green-600/20 rounded-lg">
               <Play className="w-5 h-5 text-green-400" />
             </div>
             <div>
               <h2 className="text-lg font-semibold text-white">Run: {schedule.name}</h2>
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-text-muted">
                 {hasParameters ? 'Configure parameters and run' : 'Configure and run'}
               </p>
             </div>
@@ -240,7 +240,7 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
           <button
             onClick={onClose}
             disabled={isLoading}
-            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+            className="p-2 text-text-muted hover:text-white hover:bg-dark-card rounded-lg transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -251,7 +251,7 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
           {/* Parameters Section */}
           {hasParameters && (
             <div className="space-y-4">
-              <div className="flex items-center gap-2 text-sm font-medium text-slate-300">
+              <div className="flex items-center gap-2 text-sm font-medium text-text-secondary">
                 <Sliders className="w-4 h-4" />
                 Parameters
               </div>
@@ -275,40 +275,40 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
           {/* No Parameters Message */}
           {!hasParameters && (
             <div className="text-center py-4">
-              <Settings className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-              <p className="text-sm text-slate-400">
+              <Settings className="w-8 h-8 text-text-muted mx-auto mb-2" />
+              <p className="text-sm text-text-muted">
                 This schedule has no custom parameters
               </p>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-text-muted mt-1">
                 You can still configure execution settings below
               </p>
             </div>
           )}
 
           {/* Advanced Execution Settings (Collapsible) */}
-          <div className="border border-slate-700 rounded-lg overflow-hidden">
+          <div className="border border-border-default rounded-lg overflow-hidden">
             <button
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className="w-full flex items-center justify-between p-3 bg-slate-800/50 hover:bg-slate-800 transition-colors"
+              className="w-full flex items-center justify-between p-3 bg-dark-card/50 hover:bg-dark-card transition-colors"
             >
               <div className="flex items-center gap-2">
-                <Monitor className="w-4 h-4 text-slate-500" />
-                <span className="text-sm font-medium text-slate-300">
+                <Monitor className="w-4 h-4 text-text-muted" />
+                <span className="text-sm font-medium text-text-secondary">
                   Execution Settings
                 </span>
               </div>
               {showAdvanced ? (
-                <ChevronUp className="w-4 h-4 text-slate-500" />
+                <ChevronUp className="w-4 h-4 text-text-muted" />
               ) : (
-                <ChevronDown className="w-4 h-4 text-slate-500" />
+                <ChevronDown className="w-4 h-4 text-text-muted" />
               )}
             </button>
 
             {showAdvanced && (
-              <div className="p-4 space-y-4 border-t border-slate-700">
+              <div className="p-4 space-y-4 border-t border-border-default">
                 {/* Browser */}
                 <div className="space-y-1.5">
-                  <label className="block text-sm font-medium text-slate-300">Browser</label>
+                  <label className="block text-sm font-medium text-text-secondary">Browser</label>
                   <div className="flex gap-2">
                     {(['chromium', 'firefox', 'webkit'] as const).map(browser => (
                       <button
@@ -320,7 +320,7 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
                           flex-1 px-3 py-2 text-sm rounded-lg border transition-colors
                           ${executionConfig.browser === browser
                             ? 'bg-blue-600/20 border-blue-500 text-blue-400'
-                            : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'
+                            : 'bg-dark-card border-border-default text-text-muted hover:border-border-default'
                           }
                         `}
                       >
@@ -337,15 +337,15 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
                     checked={executionConfig.headless ?? true}
                     onChange={(e) => updateExecutionConfig('headless', e.target.checked)}
                     disabled={isLoading}
-                    className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500"
+                    className="w-4 h-4 rounded border-border-default bg-dark-card text-blue-600 focus:ring-blue-500"
                   />
-                  <span className="text-sm text-slate-300">Headless mode</span>
+                  <span className="text-sm text-text-secondary">Headless mode</span>
                 </label>
 
                 {/* Workers & Retries */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="block text-sm font-medium text-slate-300">Workers</label>
+                    <label className="block text-sm font-medium text-text-secondary">Workers</label>
                     <input
                       type="number"
                       value={executionConfig.workers ?? 4}
@@ -353,11 +353,11 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
                       min={1}
                       max={16}
                       disabled={isLoading}
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="block text-sm font-medium text-slate-300">Retries</label>
+                    <label className="block text-sm font-medium text-text-secondary">Retries</label>
                     <input
                       type="number"
                       value={executionConfig.retries ?? 2}
@@ -365,14 +365,14 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
                       min={0}
                       max={5}
                       disabled={isLoading}
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                 </div>
 
                 {/* Timeout */}
                 <div className="space-y-1.5">
-                  <label className="block text-sm font-medium text-slate-300">Timeout (seconds)</label>
+                  <label className="block text-sm font-medium text-text-secondary">Timeout (seconds)</label>
                   <input
                     type="number"
                     value={(executionConfig.timeout ?? 30000) / 1000}
@@ -380,22 +380,22 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
                     min={1}
                     max={600}
                     disabled={isLoading}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
                 {/* Artifacts */}
                 <div className="space-y-3">
-                  <label className="block text-sm font-medium text-slate-300">Artifacts</label>
+                  <label className="block text-sm font-medium text-text-secondary">Artifacts</label>
                   <div className="grid grid-cols-3 gap-3">
                     {(['tracing', 'screenshot', 'video'] as const).map(artifact => (
                       <div key={artifact} className="space-y-1">
-                        <label className="block text-xs text-slate-400 capitalize">{artifact}</label>
+                        <label className="block text-xs text-text-muted capitalize">{artifact}</label>
                         <select
                           value={executionConfig[artifact] || 'on-failure'}
                           onChange={(e) => updateExecutionConfig(artifact, e.target.value as any)}
                           disabled={isLoading}
-                          className="w-full px-2 py-1.5 bg-slate-800 border border-slate-700 rounded text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          className="w-full px-2 py-1.5 bg-dark-card border border-border-default rounded text-xs text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
                         >
                           <option value="always">Always</option>
                           <option value="on-failure">On Failure</option>
@@ -411,15 +411,15 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-800 bg-slate-800/30">
-          <div className="text-sm text-slate-500">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-border-default bg-dark-card/30">
+          <div className="text-sm text-text-muted">
             Trigger type: manual
           </div>
           <div className="flex items-center gap-3">
             <button
               onClick={onClose}
               disabled={isLoading}
-              className="px-4 py-2 text-slate-400 hover:text-white transition-colors"
+              className="px-4 py-2 text-text-muted hover:text-white transition-colors"
             >
               Cancel
             </button>

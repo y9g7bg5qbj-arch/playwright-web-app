@@ -262,9 +262,10 @@ export class PlaywrightService extends EventEmitter {
       const testFile = path.join(storageDir, 'test.spec.ts');
       await fs.writeFile(testFile, modifiedCode);
 
-      // Create a minimal playwright.config.ts with tracing based on settings
+      // Create a minimal playwright.config.ts with tracing and JSON reporter
       const configFile = path.join(storageDir, 'playwright.config.ts');
       const traceOutputPath = path.join(storageDir, 'trace').replace(/\\/g, '/');
+      const resultsJsonPath = path.join(storageDir, 'results.json').replace(/\\/g, '/');
       // Map frontend traceMode to Playwright trace config
       const playwrightTraceMode = {
         'always': 'on',
@@ -276,6 +277,10 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: '.',
   testMatch: 'test.spec.ts',
+  reporter: [
+    ['list'],
+    ['json', { outputFile: '${resultsJsonPath}' }],
+  ],
   use: {
     headless: false,
     trace: '${playwrightTraceMode}',
@@ -435,6 +440,139 @@ export default defineConfig({
    */
   getStoragePath(): string {
     return STORAGE_PATH;
+  }
+
+  /**
+   * Get the results JSON path for an execution
+   */
+  getResultsJsonPath(executionId: string): string {
+    return path.join(STORAGE_PATH, executionId, 'results.json');
+  }
+
+  /**
+   * Parse Playwright JSON results for an execution
+   * Returns an array of scenario data with steps
+   */
+  async parseTestResults(executionId: string): Promise<{
+    scenarios: Array<{
+      id: string;
+      name: string;
+      status: 'passed' | 'failed' | 'skipped';
+      duration: number;
+      error?: string;
+      steps: Array<{
+        id: string;
+        stepNumber: number;
+        action: string;
+        description: string;
+        status: 'passed' | 'failed' | 'skipped';
+        duration: number;
+        error?: string;
+      }>;
+    }>;
+    summary: {
+      total: number;
+      passed: number;
+      failed: number;
+      skipped: number;
+    };
+  } | null> {
+    const resultsPath = this.getResultsJsonPath(executionId);
+
+    try {
+      const content = await fs.readFile(resultsPath, 'utf-8');
+      const results = JSON.parse(content);
+
+      const scenarios: Array<{
+        id: string;
+        name: string;
+        status: 'passed' | 'failed' | 'skipped';
+        duration: number;
+        error?: string;
+        steps: Array<{
+          id: string;
+          stepNumber: number;
+          action: string;
+          description: string;
+          status: 'passed' | 'failed' | 'skipped';
+          duration: number;
+          error?: string;
+        }>;
+      }> = [];
+
+      let passedCount = 0;
+      let failedCount = 0;
+      let skippedCount = 0;
+      let scenarioIndex = 0;
+
+      // Process suites recursively
+      const processSuite = (suite: any, parentName?: string) => {
+        const suiteName = parentName ? `${parentName} > ${suite.title}` : suite.title;
+
+        // Process specs/tests in this suite
+        for (const spec of suite.specs || []) {
+          for (const test of spec.tests || []) {
+            scenarioIndex++;
+            const resultStatus = test.results?.[0]?.status || 'failed';
+            const testStatus = resultStatus === 'passed' ? 'passed' :
+                               resultStatus === 'skipped' ? 'skipped' : 'failed';
+
+            if (testStatus === 'passed') passedCount++;
+            else if (testStatus === 'failed') failedCount++;
+            else if (testStatus === 'skipped') skippedCount++;
+
+            const testResult = test.results?.[0];
+            const duration = testResult?.duration || 0;
+            const error = testResult?.error?.message;
+
+            // Extract sub-steps from the test result
+            const steps = (testResult?.steps || []).map((step: any, idx: number) => ({
+              id: `step-${scenarioIndex}-${idx}`,
+              stepNumber: idx + 1,
+              action: step.title || `Step ${idx + 1}`,
+              description: step.title,
+              status: step.error ? 'failed' : 'passed' as 'passed' | 'failed' | 'skipped',
+              duration: step.duration || 0,
+              error: step.error?.message || undefined,
+            }));
+
+            scenarios.push({
+              id: `scenario-${scenarioIndex}`,
+              name: spec.title || `Test ${scenarioIndex}`,
+              status: testStatus,
+              duration,
+              error,
+              steps,
+            });
+          }
+        }
+
+        // Process nested suites
+        for (const nestedSuite of suite.suites || []) {
+          processSuite(nestedSuite, suiteName);
+        }
+      };
+
+      // Process all top-level suites
+      for (const suite of results.suites || []) {
+        processSuite(suite);
+      }
+
+      logger.info(`[PlaywrightService] Parsed results for ${executionId}: ${passedCount} passed, ${failedCount} failed, ${skippedCount} skipped`);
+
+      return {
+        scenarios,
+        summary: {
+          total: scenarios.length,
+          passed: passedCount,
+          failed: failedCount,
+          skipped: skippedCount,
+        },
+      };
+    } catch (error) {
+      logger.warn(`[PlaywrightService] Failed to parse results for ${executionId}:`, error);
+      return null;
+    }
   }
 
   // ============== DEBUG EXECUTION METHODS ==============

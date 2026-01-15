@@ -54,6 +54,12 @@ export enum TokenType {
     CLEAR = 'CLEAR',
     UPLOAD = 'UPLOAD',
 
+    // Extended Actions (Phase 1)
+    RIGHT = 'RIGHT',
+    DOUBLE = 'DOUBLE',
+    FORCE = 'FORCE',
+    DRAG = 'DRAG',
+
     // Assertions
     VERIFY = 'VERIFY',
     URL = 'URL',
@@ -63,6 +69,9 @@ export enum TokenType {
     VALUE = 'VALUE',
     ATTRIBUTE = 'ATTRIBUTE',
     COUNT = 'COUNT',
+    ELEMENT = 'ELEMENT',
+    OF = 'OF',
+    CLASS = 'CLASS',
 
     // Conditions
     IS = 'IS',
@@ -72,6 +81,7 @@ export enum TokenType {
     ENABLED = 'ENABLED',
     DISABLED = 'DISABLED',
     CHECKED = 'CHECKED',
+    FOCUSED = 'FOCUSED',
     CONTAINS = 'CONTAINS',
     MATCHES = 'MATCHES',
     EMPTY = 'EMPTY',
@@ -103,7 +113,6 @@ export enum TokenType {
     LOG = 'LOG',
     RETURN = 'RETURN',
     RETURNS = 'RETURNS',
-    STORE = 'STORE',
 
     // Connectors
     WITH = 'WITH',
@@ -123,6 +132,7 @@ export enum TokenType {
     STRING = 'STRING',
     NUMBER_LITERAL = 'NUMBER_LITERAL',
     IDENTIFIER = 'IDENTIFIER',
+    ENV_VAR_REF = 'ENV_VAR_REF',  // {{variableName}} - Postman-style env var reference
 
     // Punctuation
     LBRACE = 'LBRACE',         // {

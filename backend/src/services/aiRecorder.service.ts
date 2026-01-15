@@ -1,311 +1,1048 @@
+/**
+ * AIRecorderService - Convert plain English test scenarios to Vero scripts
+ *
+ * Features:
+ * - Pool-based parallel execution (5 concurrent browsers)
+ * - Retry logic (10 attempts, exponential backoff)
+ * - Fail-fast (30s timeout per attempt)
+ * - Real Stagehand browser automation
+ * - WebSocket event emission for real-time updates
+ */
+
 import * as XLSX from 'xlsx';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { spawn, ChildProcess } from 'child_process';
+import { EventEmitter } from 'events';
+import { prisma } from '../db/prisma';
+import { StagehandService, StagehandConfig, ActResult } from './copilot/StagehandService';
+import { logger } from '../utils/logger';
 
-interface TestStep {
-    id: string;
-    type: 'navigate' | 'fill' | 'click' | 'assert' | 'loop' | 'wait';
-    description: string;
-    code: string;
-    status: 'pending' | 'running' | 'success' | 'failed';
+// ============================================
+// Configuration Constants
+// ============================================
+
+const EXECUTION_CONFIG = {
+  maxConcurrent: 5, // Hardcoded for now, configurable later
+  maxRetries: 10,
+  initialDelayMs: 500,
+  maxDelayMs: 5000,
+  backoffMultiplier: 1.5,
+  stepTimeoutMs: 30000, // Fail fast - 30 second timeout per attempt
+};
+
+// ============================================
+// Types
+// ============================================
+
+export interface TestStepInput {
+  description: string;
+  type?: 'navigate' | 'fill' | 'click' | 'assert' | 'loop' | 'wait';
 }
 
-interface TestCase {
+export interface TestCaseInput {
+  name: string;
+  description?: string;
+  steps: string[]; // Plain English steps
+  targetUrl?: string;
+}
+
+export interface CreateSessionParams {
+  userId: string;
+  applicationId?: string;
+  testCases: TestCaseInput[];
+  environment?: string;
+  baseUrl?: string;
+  headless?: boolean;
+}
+
+export interface StepExecutionResult {
+  success: boolean;
+  veroCode: string | null;
+  selector: string | null;
+  selectorType: string | null;
+  confidence: number;
+  screenshotPath: string | null;
+  error: string | null;
+  retryCount: number;
+}
+
+export interface SessionProgress {
+  sessionId: string;
+  status: string;
+  totalTests: number;
+  completedTests: number;
+  failedTests: number;
+  testCases: {
     id: string;
     name: string;
-    steps: TestStep[];
-    status: 'pending' | 'running' | 'complete' | 'failed';
+    status: string;
+    steps: {
+      id: string;
+      stepNumber: number;
+      description: string;
+      status: string;
+      veroCode: string | null;
+      retryCount: number;
+    }[];
+  }[];
 }
 
-interface ExecutionSession {
-    id: string;
-    testCases: TestCase[];
-    environment: string;
-    headless: boolean;
-    status: 'running' | 'complete' | 'failed' | 'cancelled';
-    process?: ChildProcess;
-    currentTestIndex: number;
-    currentStepIndex: number;
-    startedAt: Date;
-    completedAt?: Date;
-}
+// ============================================
+// AIRecorderService
+// ============================================
 
-interface StartExecutionParams {
-    testCases: Array<{ name: string; steps: string[] }>;
-    environment: string;
-    headless: boolean;
-}
+export class AIRecorderService extends EventEmitter {
+  private runningPools: Map<string, AbortController> = new Map();
 
-interface RunScriptParams {
-    testId: string;
-    steps: TestStep[];
-    environment: string;
-}
+  constructor() {
+    super();
+  }
 
-interface SaveAsVeroParams {
-    testId: string;
-    name: string;
-    steps: TestStep[];
-    targetPath: string;
-}
+  // ----------------------------------------
+  // Session Management
+  // ----------------------------------------
 
-export class AIRecorderService {
-    private sessions: Map<string, ExecutionSession> = new Map();
+  /**
+   * Create a new AI Recorder session with test cases
+   */
+  async createSession(params: CreateSessionParams): Promise<string> {
+    const sessionId = uuidv4();
 
-    // Parse Excel file to extract test cases
-    async parseExcelTestCases(buffer: Buffer): Promise<TestCase[]> {
-        const workbook = XLSX.read(buffer, { type: 'buffer' });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
+    // Create session in database
+    const session = await prisma.aIRecorderSession.create({
+      data: {
+        id: sessionId,
+        userId: params.userId,
+        applicationId: params.applicationId,
+        environment: params.environment || 'staging',
+        baseUrl: params.baseUrl,
+        headless: params.headless ?? true,
+        status: 'pending',
+        totalTests: params.testCases.length,
+        completedTests: 0,
+        failedTests: 0,
+      },
+    });
 
-        // Convert to JSON - returns array of arrays
-        const rows = XLSX.utils.sheet_to_json<string[]>(worksheet, { header: 1, defval: '' });
+    // Create test cases with steps
+    for (let i = 0; i < params.testCases.length; i++) {
+      const tc = params.testCases[i];
+      const testCase = await prisma.aIRecorderTestCase.create({
+        data: {
+          sessionId: session.id,
+          name: tc.name,
+          description: tc.description,
+          targetUrl: tc.targetUrl,
+          order: i,
+          status: 'pending',
+        },
+      });
 
-        if (rows.length < 2) {
-            throw new Error('Excel file must have at least a header row and one data row');
+      // Create steps for this test case
+      for (let j = 0; j < tc.steps.length; j++) {
+        await prisma.aIRecorderStep.create({
+          data: {
+            testCaseId: testCase.id,
+            stepNumber: j + 1,
+            description: tc.steps[j],
+            stepType: this.parseStepType(tc.steps[j]),
+            status: 'pending',
+            maxRetries: EXECUTION_CONFIG.maxRetries,
+          },
+        });
+      }
+    }
+
+    logger.info(`AI Recorder session created: ${sessionId} with ${params.testCases.length} test cases`);
+    this.emit('session:created', { sessionId });
+
+    return sessionId;
+  }
+
+  /**
+   * Start processing a session
+   */
+  async startSession(sessionId: string, aiSettings: {
+    provider: string;
+    apiKey: string;
+    modelName: string;
+    useBrowserbase?: boolean;
+    browserbaseApiKey?: string;
+  }): Promise<void> {
+    // Update session status
+    await prisma.aIRecorderSession.update({
+      where: { id: sessionId },
+      data: {
+        status: 'processing',
+        startedAt: new Date(),
+      },
+    });
+
+    // Get test cases
+    const testCases = await prisma.aIRecorderTestCase.findMany({
+      where: { sessionId },
+      include: { steps: true },
+      orderBy: { order: 'asc' },
+    });
+
+    // Create abort controller for this session
+    const abortController = new AbortController();
+    this.runningPools.set(sessionId, abortController);
+
+    // Start parallel execution in background
+    this.executeTestCasesInPool(sessionId, testCases, aiSettings, abortController.signal)
+      .catch((error) => {
+        logger.error(`Session ${sessionId} failed:`, error);
+        this.markSessionFailed(sessionId, error.message);
+      });
+
+    this.emit('session:started', { sessionId });
+  }
+
+  /**
+   * Get session progress
+   */
+  async getSessionProgress(sessionId: string): Promise<SessionProgress | null> {
+    const session = await prisma.aIRecorderSession.findUnique({
+      where: { id: sessionId },
+      include: {
+        testCases: {
+          include: { steps: true },
+          orderBy: { order: 'asc' },
+        },
+      },
+    });
+
+    if (!session) return null;
+
+    return {
+      sessionId: session.id,
+      status: session.status,
+      totalTests: session.totalTests,
+      completedTests: session.completedTests,
+      failedTests: session.failedTests,
+      testCases: session.testCases.map((tc) => ({
+        id: tc.id,
+        name: tc.name,
+        status: tc.status,
+        steps: tc.steps.map((s) => ({
+          id: s.id,
+          stepNumber: s.stepNumber,
+          description: s.description,
+          status: s.status,
+          veroCode: s.veroCode,
+          retryCount: s.retryCount,
+        })),
+      })),
+    };
+  }
+
+  /**
+   * Cancel a running session
+   */
+  async cancelSession(sessionId: string): Promise<void> {
+    const abortController = this.runningPools.get(sessionId);
+    if (abortController) {
+      abortController.abort();
+      this.runningPools.delete(sessionId);
+    }
+
+    await prisma.aIRecorderSession.update({
+      where: { id: sessionId },
+      data: { status: 'cancelled' },
+    });
+
+    this.emit('session:cancelled', { sessionId });
+  }
+
+  // ----------------------------------------
+  // Parallel Execution Pool
+  // ----------------------------------------
+
+  /**
+   * Execute test cases using a pool of concurrent browsers
+   */
+  private async executeTestCasesInPool(
+    sessionId: string,
+    testCases: any[],
+    aiSettings: any,
+    signal: AbortSignal
+  ): Promise<void> {
+    const queue = [...testCases];
+    const running: Promise<void>[] = [];
+
+    logger.info(`Starting pool execution for session ${sessionId} with ${queue.length} test cases`);
+
+    while (queue.length > 0 || running.length > 0) {
+      if (signal.aborted) {
+        logger.info(`Session ${sessionId} aborted`);
+        break;
+      }
+
+      // Fill pool up to max concurrent
+      while (running.length < EXECUTION_CONFIG.maxConcurrent && queue.length > 0) {
+        const testCase = queue.shift()!;
+        const promise = this.executeTestCase(sessionId, testCase, aiSettings, signal)
+          .finally(() => {
+            // Remove from running when done
+            const index = running.indexOf(promise);
+            if (index > -1) running.splice(index, 1);
+          });
+        running.push(promise);
+      }
+
+      // Wait for at least one to complete before checking again
+      if (running.length > 0) {
+        await Promise.race(running);
+      }
+    }
+
+    // Mark session complete if not aborted
+    if (!signal.aborted) {
+      await this.markSessionComplete(sessionId);
+    }
+  }
+
+  /**
+   * Execute a single test case with its steps
+   */
+  private async executeTestCase(
+    sessionId: string,
+    testCase: any,
+    aiSettings: any,
+    signal: AbortSignal
+  ): Promise<void> {
+    let stagehand: StagehandService | null = null;
+
+    try {
+      // Mark test case as in progress
+      await prisma.aIRecorderTestCase.update({
+        where: { id: testCase.id },
+        data: {
+          status: 'in_progress',
+          startedAt: new Date(),
+        },
+      });
+
+      this.emit('testCase:started', { sessionId, testCaseId: testCase.id, name: testCase.name });
+
+      // Initialize Stagehand for this test case
+      const stagehandConfig: StagehandConfig = {
+        modelName: aiSettings.modelName,
+        apiKey: aiSettings.apiKey,
+        headless: true, // Always headless during authoring
+        useBrowserbase: aiSettings.useBrowserbase,
+        browserbaseApiKey: aiSettings.browserbaseApiKey,
+      };
+
+      stagehand = new StagehandService(stagehandConfig);
+      await stagehand.initialize();
+
+      // Navigate to target URL if specified
+      if (testCase.targetUrl) {
+        await stagehand.navigateTo(testCase.targetUrl);
+      }
+
+      // Get session to check for base URL
+      const session = await prisma.aIRecorderSession.findUnique({
+        where: { id: sessionId },
+      });
+
+      if (session?.baseUrl && !testCase.targetUrl) {
+        await stagehand.navigateTo(session.baseUrl);
+      }
+
+      // Execute each step
+      let allStepsSuccessful = true;
+      for (const step of testCase.steps) {
+        if (signal.aborted) break;
+
+        const result = await this.executeStepWithRetry(
+          sessionId,
+          testCase.id,
+          step,
+          stagehand,
+          signal
+        );
+
+        if (!result.success) {
+          allStepsSuccessful = false;
         }
+      }
 
-        // Assume format: Test Case Name | Step 1 | Step 2 | ...
-        const testCases: TestCase[] = [];
+      // Mark test case complete or needs review
+      const finalStatus = allStepsSuccessful ? 'human_review' : 'failed';
+      await prisma.aIRecorderTestCase.update({
+        where: { id: testCase.id },
+        data: {
+          status: finalStatus,
+          completedAt: new Date(),
+        },
+      });
 
-        for (let i = 1; i < rows.length; i++) {
-            const row = rows[i];
-            if (!row || !row[0]) continue;
+      // Update session counters
+      await prisma.aIRecorderSession.update({
+        where: { id: sessionId },
+        data: {
+          completedTests: { increment: 1 },
+          failedTests: allStepsSuccessful ? undefined : { increment: 1 },
+        },
+      });
 
-            const name = row[0];
-            const steps: TestStep[] = [];
+      this.emit('testCase:completed', {
+        sessionId,
+        testCaseId: testCase.id,
+        status: finalStatus,
+      });
+    } catch (error: any) {
+      logger.error(`Test case ${testCase.id} failed:`, error);
 
-            for (let j = 1; j < row.length; j++) {
-                if (row[j] && row[j].trim()) {
-                    steps.push({
-                        id: uuidv4(),
-                        type: this.parseStepType(row[j]),
-                        description: row[j].trim(),
-                        code: `// ${row[j].trim()}`,
-                        status: 'pending',
-                    });
-                }
-            }
+      await prisma.aIRecorderTestCase.update({
+        where: { id: testCase.id },
+        data: {
+          status: 'failed',
+          errorMessage: error.message,
+          completedAt: new Date(),
+        },
+      });
 
-            if (steps.length > 0) {
-                testCases.push({
-                    id: `TC-${String(testCases.length + 1).padStart(3, '0')}`,
-                    name,
-                    steps,
-                    status: 'pending',
-                });
-            }
-        }
+      await prisma.aIRecorderSession.update({
+        where: { id: sessionId },
+        data: {
+          completedTests: { increment: 1 },
+          failedTests: { increment: 1 },
+        },
+      });
 
-        return testCases;
-    }
-
-    // Parse step type from description
-    private parseStepType(text: string): TestStep['type'] {
-        const lower = text.toLowerCase();
-        if (lower.includes('navigate') || lower.includes('go to') || lower.includes('open')) return 'navigate';
-        if (lower.includes('fill') || lower.includes('enter') || lower.includes('type')) return 'fill';
-        if (lower.includes('click') || lower.includes('press') || lower.includes('tap')) return 'click';
-        if (lower.includes('assert') || lower.includes('verify') || lower.includes('check')) return 'assert';
-        if (lower.includes('loop') || lower.includes('each') || lower.includes('iterate')) return 'loop';
-        if (lower.includes('wait')) return 'wait';
-        return 'click';
-    }
-
-    // Start AI execution session
-    async startAIExecution(params: StartExecutionParams): Promise<string> {
-        const sessionId = uuidv4();
-
-        const testCases: TestCase[] = params.testCases.map((tc, i) => ({
-            id: `TC-${String(i + 1).padStart(3, '0')}`,
-            name: tc.name,
-            status: 'pending' as const,
-            steps: tc.steps.map((step, j) => ({
-                id: uuidv4(),
-                type: this.parseStepType(step),
-                description: step,
-                code: `// ${step}`,
-                status: 'pending' as const,
-            })),
-        }));
-
-        const session: ExecutionSession = {
-            id: sessionId,
-            testCases,
-            environment: params.environment,
-            headless: params.headless,
-            status: 'running',
-            currentTestIndex: 0,
-            currentStepIndex: 0,
-            startedAt: new Date(),
-        };
-
-        this.sessions.set(sessionId, session);
-
-        // Start async execution
-        this.executeTestsAsync(sessionId);
-
-        return sessionId;
-    }
-
-    // Execute tests asynchronously (simulated for now)
-    private async executeTestsAsync(sessionId: string): Promise<void> {
-        const session = this.sessions.get(sessionId);
-        if (!session) return;
-
+      this.emit('testCase:failed', {
+        sessionId,
+        testCaseId: testCase.id,
+        error: error.message,
+      });
+    } finally {
+      // Clean up Stagehand
+      if (stagehand) {
         try {
-            for (let t = 0; t < session.testCases.length; t++) {
-                if (session.status === 'cancelled') break;
-
-                session.currentTestIndex = t;
-                session.testCases[t].status = 'running';
-
-                for (let s = 0; s < session.testCases[t].steps.length; s++) {
-                    if (session.status === 'cancelled') break;
-
-                    session.currentStepIndex = s;
-                    session.testCases[t].steps[s].status = 'running';
-
-                    // Simulate AI execution (would call LiveExecutionAgent here)
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-
-                    // Generate Playwright code
-                    session.testCases[t].steps[s].code = this.generatePlaywrightCode(
-                        session.testCases[t].steps[s]
-                    );
-
-                    session.testCases[t].steps[s].status = 'success';
-                }
-
-                session.testCases[t].status = 'complete';
-            }
-
-            session.status = 'complete';
-            session.completedAt = new Date();
-        } catch (error) {
-            session.status = 'failed';
-            console.error('Execution failed:', error);
+          await stagehand.close();
+        } catch (e) {
+          logger.warn('Error closing Stagehand:', e);
         }
+      }
     }
+  }
 
-    // Generate Playwright code for a step
-    private generatePlaywrightCode(step: TestStep): string {
-        const desc = step.description.toLowerCase();
+  // ----------------------------------------
+  // Step Execution with Retry
+  // ----------------------------------------
 
-        if (step.type === 'navigate') {
-            const urlMatch = desc.match(/(?:to|url)\s+['"]?([^'"]+)['"]?/i) ||
-                desc.match(/(?:open|go to)\s+(.+)/i);
-            const url = urlMatch ? urlMatch[1].trim() : '${baseUrl}';
-            return `Navigate to "${url}"`;
-        }
+  /**
+   * Execute a step with retry logic (10 attempts, exponential backoff)
+   */
+  private async executeStepWithRetry(
+    sessionId: string,
+    testCaseId: string,
+    step: any,
+    stagehand: StagehandService,
+    signal: AbortSignal
+  ): Promise<StepExecutionResult> {
+    // Mark step as running
+    await prisma.aIRecorderStep.update({
+      where: { id: step.id },
+      data: {
+        status: 'running',
+        startedAt: new Date(),
+      },
+    });
 
-        if (step.type === 'fill') {
-            const fieldMatch = desc.match(/(?:fill|enter|type)\s+(?:the\s+)?(\w+)\s+(?:field\s+)?(?:with\s+)?['"]?([^'"]+)['"]?/i);
-            if (fieldMatch) {
-                return `Fill "${fieldMatch[1]}" with "${fieldMatch[2]}"`;
-            }
-            return `Fill "field" with "value"`;
-        }
+    this.emit('step:started', {
+      sessionId,
+      testCaseId,
+      stepId: step.id,
+      stepNumber: step.stepNumber,
+      description: step.description,
+    });
 
-        if (step.type === 'click') {
-            const buttonMatch = desc.match(/click\s+(?:on\s+)?(?:the\s+)?(.+?)(?:\s+button)?$/i);
-            const target = buttonMatch ? buttonMatch[1].trim() : 'element';
-            return `Click on "${target}"`;
-        }
+    let lastError: string | null = null;
 
-        if (step.type === 'assert') {
-            const assertMatch = desc.match(/(?:verify|assert|check)\s+(?:that\s+)?(?:the\s+)?(.+)/i);
-            const condition = assertMatch ? assertMatch[1].trim() : 'element is visible';
-            return `Assert "${condition}"`;
-        }
-
-        if (step.type === 'wait') {
-            return `Wait for navigation`;
-        }
-
-        if (step.type === 'loop') {
-            return `For each item in data {\n    // loop body\n}`;
-        }
-
-        return `// ${step.description}`;
-    }
-
-    // Get execution status
-    async getExecutionStatus(sessionId: string): Promise<{
-        status: string;
-        testCases: TestCase[];
-        currentTestIndex: number;
-        currentStepIndex: number;
-    }> {
-        const session = this.sessions.get(sessionId);
-        if (!session) {
-            throw new Error('Session not found');
-        }
-
+    for (let attempt = 1; attempt <= EXECUTION_CONFIG.maxRetries; attempt++) {
+      if (signal.aborted) {
         return {
-            status: session.status,
-            testCases: session.testCases,
-            currentTestIndex: session.currentTestIndex,
-            currentStepIndex: session.currentStepIndex,
+          success: false,
+          veroCode: null,
+          selector: null,
+          selectorType: null,
+          confidence: 0,
+          screenshotPath: null,
+          error: 'Cancelled',
+          retryCount: attempt - 1,
         };
-    }
+      }
 
-    // Run generated Playwright script
-    async runGeneratedScript(params: RunScriptParams): Promise<{ success: boolean; output: string }> {
-        // Generate temporary Playwright test file
-        const code = this.generatePlaywrightTestFile(params);
+      try {
+        // Update retry count
+        await prisma.aIRecorderStep.update({
+          where: { id: step.id },
+          data: { retryCount: attempt },
+        });
 
-        // For now, just return simulated success
-        // In production, would execute via Playwright CLI
-        return {
+        this.emit('step:retry', {
+          sessionId,
+          testCaseId,
+          stepId: step.id,
+          attempt,
+          maxAttempts: EXECUTION_CONFIG.maxRetries,
+        });
+
+        // Execute step with timeout (fail fast - 30s)
+        const result = await Promise.race([
+          this.executeStep(step, stagehand),
+          this.timeout(EXECUTION_CONFIG.stepTimeoutMs),
+        ]) as StepExecutionResult;
+
+        if (result.success) {
+          // Update step with success
+          await prisma.aIRecorderStep.update({
+            where: { id: step.id },
+            data: {
+              status: 'success',
+              veroCode: result.veroCode,
+              selector: result.selector,
+              selectorType: result.selectorType,
+              confidence: result.confidence,
+              screenshotPath: result.screenshotPath,
+              retryCount: attempt,
+              completedAt: new Date(),
+            },
+          });
+
+          this.emit('step:completed', {
+            sessionId,
+            testCaseId,
+            stepId: step.id,
             success: true,
-            output: 'Test executed successfully',
-        };
-    }
+            veroCode: result.veroCode,
+            retryCount: attempt,
+          });
 
-    // Generate Playwright test file content
-    private generatePlaywrightTestFile(params: RunScriptParams): string {
-        const steps = params.steps.map(s => `    ${s.code}`).join('\n');
-
-        return `import { test, expect } from '@playwright/test';
-
-test('${params.testId}', async ({ page }) => {
-${steps}
-});
-`;
-    }
-
-    // Save test as .vero file
-    async saveAsVero(params: SaveAsVeroParams): Promise<string> {
-        const steps = params.steps.map(s => `    ${s.code}`).join('\n');
-
-        const veroContent = `Feature: ${params.name}
-
-Scenario: ${params.name}
-${steps}
-`;
-
-        const fileName = params.name.toLowerCase().replace(/\s+/g, '_') + '.vero';
-        const filePath = path.join(params.targetPath, fileName);
-
-        await fs.writeFile(filePath, veroContent, 'utf-8');
-
-        return filePath;
-    }
-
-    // Cancel execution
-    async cancelExecution(sessionId: string): Promise<void> {
-        const session = this.sessions.get(sessionId);
-        if (!session) {
-            throw new Error('Session not found');
+          return result;
         }
 
-        session.status = 'cancelled';
+        lastError = result.error || 'Unknown error';
+      } catch (error: any) {
+        lastError = error.message;
+        logger.warn(`Step ${step.id} attempt ${attempt} failed:`, error.message);
+      }
 
-        if (session.process) {
-            session.process.kill();
+      // Exponential backoff before retry
+      if (attempt < EXECUTION_CONFIG.maxRetries) {
+        const delay = Math.min(
+          EXECUTION_CONFIG.initialDelayMs * Math.pow(EXECUTION_CONFIG.backoffMultiplier, attempt - 1),
+          EXECUTION_CONFIG.maxDelayMs
+        );
+        await this.sleep(delay);
+
+        // Re-observe page state before retry
+        try {
+          await stagehand.observe();
+        } catch (e) {
+          logger.warn('Failed to re-observe page state:', e);
         }
+      }
     }
+
+    // All retries exhausted - mark as needs review
+    await prisma.aIRecorderStep.update({
+      where: { id: step.id },
+      data: {
+        status: 'needs_review',
+        errorMessage: lastError,
+        retryCount: EXECUTION_CONFIG.maxRetries,
+        completedAt: new Date(),
+      },
+    });
+
+    this.emit('step:completed', {
+      sessionId,
+      testCaseId,
+      stepId: step.id,
+      success: false,
+      error: lastError,
+      retryCount: EXECUTION_CONFIG.maxRetries,
+    });
+
+    return {
+      success: false,
+      veroCode: null,
+      selector: null,
+      selectorType: null,
+      confidence: 0,
+      screenshotPath: null,
+      error: lastError,
+      retryCount: EXECUTION_CONFIG.maxRetries,
+    };
+  }
+
+  /**
+   * Execute a single step using Stagehand
+   */
+  private async executeStep(step: any, stagehand: StagehandService): Promise<StepExecutionResult> {
+    const description = step.description;
+
+    logger.info(`Executing step: ${description}`);
+
+    // Use Stagehand to perform the action
+    const actResult = await stagehand.act(description);
+
+    if (!actResult.success) {
+      return {
+        success: false,
+        veroCode: null,
+        selector: null,
+        selectorType: null,
+        confidence: 0,
+        screenshotPath: null,
+        error: actResult.error || 'Action failed',
+        retryCount: 0,
+      };
+    }
+
+    // Find the best selector for this action
+    const selector = await stagehand.findBestSelector(description);
+
+    // Take screenshot
+    const screenshot = await stagehand.takeScreenshot();
+    const screenshotPath = await this.saveScreenshot(step.id, screenshot);
+
+    // Generate Vero code from the step
+    const veroCode = this.generateVeroCode(step.stepType, description, selector);
+
+    return {
+      success: true,
+      veroCode,
+      selector,
+      selectorType: this.getSelectorType(selector),
+      confidence: 0.85, // Default confidence from Stagehand
+      screenshotPath,
+      error: null,
+      retryCount: 0,
+    };
+  }
+
+  // ----------------------------------------
+  // Vero Code Generation
+  // ----------------------------------------
+
+  /**
+   * Generate Vero code from step information
+   */
+  private generateVeroCode(
+    stepType: string,
+    description: string,
+    selector: string | null
+  ): string {
+    const desc = description.toLowerCase();
+    const sel = selector || '"element"';
+
+    switch (stepType) {
+      case 'navigate': {
+        const urlMatch = desc.match(/(?:to|url)[\s:]+['\"]?([^'\"]+)['\"]?/i) ||
+          desc.match(/(?:open|go to|navigate to)[\s:]+(.+)/i);
+        const url = urlMatch ? urlMatch[1].trim() : 'https://example.com';
+        return `open "${url}"`;
+      }
+
+      case 'fill': {
+        const fillMatch = desc.match(
+          /(?:fill|enter|type|input)[\s:]+(?:the\s+)?(?:['\"])?(.+?)['\"]?\s+(?:field\s+)?(?:with|as|=|:)\s*['\"]?([^'\"]+)['\"]?/i
+        );
+        if (fillMatch) {
+          return `fill ${sel} with "${fillMatch[2].trim()}"`;
+        }
+        // Try to extract just the value
+        const valueMatch = desc.match(/['\"]([^'\"]+)['\"]/) ||
+          desc.match(/(?:with|as|=|:)\s*(.+)/i);
+        const value = valueMatch ? valueMatch[1].trim() : 'value';
+        return `fill ${sel} with "${value}"`;
+      }
+
+      case 'click': {
+        return `click ${sel}`;
+      }
+
+      case 'assert': {
+        const assertMatch = desc.match(
+          /(?:verify|assert|check|expect|confirm)[\s:]+(?:that\s+)?(.+)/i
+        );
+        const condition = assertMatch ? assertMatch[1].trim() : 'element is visible';
+
+        if (condition.includes('visible') || condition.includes('displayed')) {
+          return `expect ${sel} is visible`;
+        }
+        if (condition.includes('text') || condition.includes('contains')) {
+          const textMatch = condition.match(/['\"]([^'\"]+)['\"]/);
+          const text = textMatch ? textMatch[1] : 'text';
+          return `expect ${sel} contains "${text}"`;
+        }
+        return `expect ${sel} is visible`;
+      }
+
+      case 'wait': {
+        const timeMatch = desc.match(/(\d+)\s*(?:second|sec|s)/i);
+        if (timeMatch) {
+          return `wait ${timeMatch[1]} seconds`;
+        }
+        return `wait for page load`;
+      }
+
+      case 'loop': {
+        return `for each item in data {\n  // loop body\n}`;
+      }
+
+      default:
+        return `// ${description}`;
+    }
+  }
+
+  // ----------------------------------------
+  // Human Review Features
+  // ----------------------------------------
+
+  /**
+   * Replay a single step for human review
+   */
+  async replayStep(
+    sessionId: string,
+    testCaseId: string,
+    stepId: string,
+    aiSettings: any
+  ): Promise<{ success: boolean; screenshot?: string; error?: string }> {
+    const step = await prisma.aIRecorderStep.findUnique({
+      where: { id: stepId },
+      include: { testCase: true },
+    });
+
+    if (!step) {
+      return { success: false, error: 'Step not found' };
+    }
+
+    let stagehand: StagehandService | null = null;
+
+    try {
+      // Initialize headed Stagehand for replay
+      const stagehandConfig: StagehandConfig = {
+        modelName: aiSettings.modelName,
+        apiKey: aiSettings.apiKey,
+        headless: false, // Headed for human review
+        useBrowserbase: aiSettings.useBrowserbase,
+        browserbaseApiKey: aiSettings.browserbaseApiKey,
+      };
+
+      stagehand = new StagehandService(stagehandConfig);
+      await stagehand.initialize();
+
+      // Navigate to target URL
+      if (step.testCase.targetUrl) {
+        await stagehand.navigateTo(step.testCase.targetUrl);
+      }
+
+      // Execute the step
+      const actResult = await stagehand.act(step.description);
+      const screenshot = await stagehand.takeScreenshot();
+
+      this.emit('step:replayed', {
+        sessionId,
+        testCaseId,
+        stepId,
+        success: actResult.success,
+        screenshot,
+      });
+
+      return {
+        success: actResult.success,
+        screenshot,
+        error: actResult.error,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message,
+      };
+    } finally {
+      if (stagehand) {
+        await stagehand.close();
+      }
+    }
+  }
+
+  /**
+   * Update a step's Vero code (after manual edit)
+   */
+  async updateStepCode(stepId: string, veroCode: string): Promise<void> {
+    await prisma.aIRecorderStep.update({
+      where: { id: stepId },
+      data: { veroCode },
+    });
+  }
+
+  /**
+   * Add a new step to a test case
+   */
+  async addStep(
+    testCaseId: string,
+    afterStepNumber: number,
+    description: string
+  ): Promise<string> {
+    // Shift existing steps after the insertion point
+    await prisma.aIRecorderStep.updateMany({
+      where: {
+        testCaseId,
+        stepNumber: { gt: afterStepNumber },
+      },
+      data: {
+        stepNumber: { increment: 1 },
+      },
+    });
+
+    // Create new step
+    const step = await prisma.aIRecorderStep.create({
+      data: {
+        testCaseId,
+        stepNumber: afterStepNumber + 1,
+        description,
+        stepType: this.parseStepType(description),
+        status: 'pending',
+        maxRetries: EXECUTION_CONFIG.maxRetries,
+      },
+    });
+
+    return step.id;
+  }
+
+  /**
+   * Delete a step
+   */
+  async deleteStep(stepId: string): Promise<void> {
+    const step = await prisma.aIRecorderStep.findUnique({
+      where: { id: stepId },
+    });
+
+    if (!step) return;
+
+    // Delete the step
+    await prisma.aIRecorderStep.delete({
+      where: { id: stepId },
+    });
+
+    // Reorder remaining steps
+    await prisma.aIRecorderStep.updateMany({
+      where: {
+        testCaseId: step.testCaseId,
+        stepNumber: { gt: step.stepNumber },
+      },
+      data: {
+        stepNumber: { decrement: 1 },
+      },
+    });
+  }
+
+  // ----------------------------------------
+  // Approval & Export
+  // ----------------------------------------
+
+  /**
+   * Approve a test case and save as .vero file
+   */
+  async approveTestCase(
+    testCaseId: string,
+    targetPath: string
+  ): Promise<string> {
+    const testCase = await prisma.aIRecorderTestCase.findUnique({
+      where: { id: testCaseId },
+      include: { steps: { orderBy: { stepNumber: 'asc' } } },
+    });
+
+    if (!testCase) {
+      throw new Error('Test case not found');
+    }
+
+    // Generate Vero file content
+    const stepsCode = testCase.steps
+      .filter((s) => s.veroCode)
+      .map((s) => `  ${s.veroCode}`)
+      .join('\n');
+
+    const veroContent = `# ${testCase.name}
+${testCase.description ? `# ${testCase.description}\n` : ''}
+scenario "${testCase.name}" {
+${stepsCode}
 }
+`;
+
+    // Write to file
+    const fileName = testCase.name.toLowerCase().replace(/\s+/g, '_') + '.vero';
+    const filePath = path.join(targetPath, fileName);
+
+    await fs.mkdir(targetPath, { recursive: true });
+    await fs.writeFile(filePath, veroContent, 'utf-8');
+
+    // Update test case status
+    await prisma.aIRecorderTestCase.update({
+      where: { id: testCaseId },
+      data: {
+        status: 'complete',
+        veroCode: veroContent,
+      },
+    });
+
+    logger.info(`Saved Vero file: ${filePath}`);
+    return filePath;
+  }
+
+  /**
+   * Get generated Vero code for a test case
+   */
+  async getTestCaseVeroCode(testCaseId: string): Promise<string | null> {
+    const testCase = await prisma.aIRecorderTestCase.findUnique({
+      where: { id: testCaseId },
+      include: { steps: { orderBy: { stepNumber: 'asc' } } },
+    });
+
+    if (!testCase) return null;
+
+    const stepsCode = testCase.steps
+      .filter((s) => s.veroCode)
+      .map((s) => `  ${s.veroCode}`)
+      .join('\n');
+
+    return `scenario "${testCase.name}" {\n${stepsCode}\n}`;
+  }
+
+  // ----------------------------------------
+  // Excel Import
+  // ----------------------------------------
+
+  /**
+   * Parse Excel file to extract test cases
+   */
+  async parseExcelTestCases(buffer: Buffer): Promise<TestCaseInput[]> {
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    const firstSheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[firstSheetName];
+
+    // Convert to JSON - returns array of arrays
+    const rows = XLSX.utils.sheet_to_json<string[]>(worksheet, { header: 1, defval: '' });
+
+    if (rows.length < 2) {
+      throw new Error('Excel file must have at least a header row and one data row');
+    }
+
+    // Assume format: Test Case Name | Step 1 | Step 2 | ...
+    const testCases: TestCaseInput[] = [];
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || !row[0]) continue;
+
+      const name = String(row[0]);
+      const steps: string[] = [];
+
+      for (let j = 1; j < row.length; j++) {
+        const stepText = row[j];
+        if (stepText && String(stepText).trim()) {
+          steps.push(String(stepText).trim());
+        }
+      }
+
+      if (steps.length > 0) {
+        testCases.push({ name, steps });
+      }
+    }
+
+    return testCases;
+  }
+
+  // ----------------------------------------
+  // Helpers
+  // ----------------------------------------
+
+  private parseStepType(text: string): string {
+    const lower = text.toLowerCase();
+    if (lower.includes('navigate') || lower.includes('go to') || lower.includes('open')) return 'navigate';
+    if (lower.includes('fill') || lower.includes('enter') || lower.includes('type')) return 'fill';
+    if (lower.includes('click') || lower.includes('press') || lower.includes('tap')) return 'click';
+    if (lower.includes('assert') || lower.includes('verify') || lower.includes('check') || lower.includes('expect')) return 'assert';
+    if (lower.includes('loop') || lower.includes('each') || lower.includes('iterate')) return 'loop';
+    if (lower.includes('wait')) return 'wait';
+    return 'click';
+  }
+
+  private getSelectorType(selector: string | null): string | null {
+    if (!selector) return null;
+    if (selector.startsWith('[data-testid=')) return 'testid';
+    if (selector.startsWith('[role=')) return 'role';
+    if (selector.startsWith('[aria-label=')) return 'label';
+    if (selector.startsWith('text=') || selector.startsWith('"')) return 'text';
+    if (selector.startsWith('//') || selector.startsWith('xpath=')) return 'xpath';
+    return 'css';
+  }
+
+  private async saveScreenshot(stepId: string, base64: string): Promise<string | null> {
+    try {
+      const screenshotsDir = path.join(process.cwd(), 'screenshots', 'ai-recorder');
+      await fs.mkdir(screenshotsDir, { recursive: true });
+
+      const fileName = `${stepId}.png`;
+      const filePath = path.join(screenshotsDir, fileName);
+
+      const buffer = Buffer.from(base64, 'base64');
+      await fs.writeFile(filePath, buffer);
+
+      return filePath;
+    } catch (error) {
+      logger.warn('Failed to save screenshot:', error);
+      return null;
+    }
+  }
+
+  private async markSessionComplete(sessionId: string): Promise<void> {
+    await prisma.aIRecorderSession.update({
+      where: { id: sessionId },
+      data: {
+        status: 'human_review',
+        completedAt: new Date(),
+      },
+    });
+
+    this.runningPools.delete(sessionId);
+
+    this.emit('session:completed', { sessionId });
+  }
+
+  private async markSessionFailed(sessionId: string, error: string): Promise<void> {
+    await prisma.aIRecorderSession.update({
+      where: { id: sessionId },
+      data: {
+        status: 'failed',
+        completedAt: new Date(),
+      },
+    });
+
+    this.runningPools.delete(sessionId);
+
+    this.emit('session:failed', { sessionId, error });
+  }
+
+  private timeout(ms: number): Promise<never> {
+    return new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Step timeout exceeded')), ms);
+    });
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+}
+
+// Export singleton instance
+export const aiRecorderService = new AIRecorderService();

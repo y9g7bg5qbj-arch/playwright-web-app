@@ -1,6 +1,0 @@
-"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
-"","12","array operations work","chromium","2026-01-08","passed","2026-01-08","Super Simple Pass Tests","guaranteed-pass.spec.ts","",""
-"","16","string operations work","chromium","2026-01-08","passed","2026-01-08","Super Simple Pass Tests","guaranteed-pass.spec.ts","",""
-"","12","async operations work","chromium","2026-01-08","passed","2026-01-08","Super Simple Pass Tests","guaranteed-pass.spec.ts","",""
-"","16","basic math works correctly","chromium","2026-01-08","passed","2026-01-08","Super Simple Pass Tests","guaranteed-pass.spec.ts","",""
-"","17","object assertions work","chromium","2026-01-08","passed","2026-01-08","Super Simple Pass Tests","guaranteed-pass.spec.ts","",""

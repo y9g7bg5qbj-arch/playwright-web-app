@@ -83,9 +83,11 @@ feature Example {
 `;
 
 // Helper function to create example files for a new project
+// Uses capitalized folder names: Pages, Features, Data (3 folders)
 async function createExampleFiles(projectPath: string): Promise<void> {
-    const pagesDir = join(projectPath, 'pages');
-    const featuresDir = join(projectPath, 'features');
+    const pagesDir = join(projectPath, 'Pages');
+    const featuresDir = join(projectPath, 'Features');
+    const dataDir = join(projectPath, 'Data');
 
     // Create directories if they don't exist
     if (!existsSync(pagesDir)) {
@@ -93,6 +95,9 @@ async function createExampleFiles(projectPath: string): Promise<void> {
     }
     if (!existsSync(featuresDir)) {
         await mkdir(featuresDir, { recursive: true });
+    }
+    if (!existsSync(dataDir)) {
+        await mkdir(dataDir, { recursive: true });
     }
 
     // Create example files if directories are empty
@@ -160,7 +165,15 @@ router.get('/files/:path(*)', authenticateToken, async (req: AuthRequest, res: R
     try {
         const filePath = req.params.path;
         const projectId = req.query.projectId as string | undefined;
-        const projectPath = await getProjectPath(projectId);
+        const veroPathParam = req.query.veroPath as string | undefined;
+
+        // If veroPath is provided directly, use it; otherwise look up by projectId
+        let projectPath: string;
+        if (veroPathParam) {
+            projectPath = veroPathParam;
+        } else {
+            projectPath = await getProjectPath(projectId);
+        }
         const fullPath = join(projectPath, filePath);
 
         // Security check: ensure path is within project
@@ -653,13 +666,28 @@ router.post('/run', authenticateToken, async (req: AuthRequest, res: Response, n
         const headedFlag = isHeadless ? '' : '--headed';
         // Filter to specific scenario if scenarioName is provided
         const grepFlag = scenarioName ? `--grep "${scenarioName}"` : '';
-        const command = `npx playwright test .vero-temp-test.spec.ts ${headedFlag} ${grepFlag} --timeout=60000`.trim().replace(/\s+/g, ' ');
-        console.log(`[Vero Run] Executing (${isHeadless ? 'headless' : 'headed'}${scenarioName ? `, scenario: ${scenarioName}` : ''}):`, command);
+        // Workers for parallel execution (local machine)
+        const workers = config?.workers || 1;
+        const workersFlag = workers > 1 ? `--workers=${workers}` : '';
+        // Retries for failed tests
+        const retries = config?.retries || 0;
+        const retriesFlag = retries > 0 ? `--retries=${retries}` : '';
+
+        const command = `npx playwright test .vero-temp-test.spec.ts ${headedFlag} ${workersFlag} ${retriesFlag} ${grepFlag} --timeout=60000`.trim().replace(/\s+/g, ' ');
+        console.log(`[Vero Run] Executing (${isHeadless ? 'headless' : 'headed'}, workers: ${workers}, retries: ${retries}${scenarioName ? `, scenario: ${scenarioName}` : ''}):`, command);
+
+        // Prepare environment with VERO_ENV_VARS for {{variableName}} resolution
+        const processEnv: Record<string, string> = { ...process.env } as Record<string, string>;
+        if (config?.envVars && Object.keys(config.envVars).length > 0) {
+            processEnv.VERO_ENV_VARS = JSON.stringify(config.envVars);
+            console.log('[Vero Run] Passing environment variables:', Object.keys(config.envVars));
+        }
 
         const testProcess = spawn(command, [], {
             cwd: VERO_PROJECT_PATH,
             shell: true,
             stdio: 'pipe',
+            env: processEnv,
         });
 
         let stdout = '';
@@ -702,6 +730,85 @@ router.post('/run', authenticateToken, async (req: AuthRequest, res: Response, n
 
         // Update execution record with final status
         const finishTime = new Date();
+
+        // Parse JSON test results to get scenario/step data
+        let passedCount = 0;
+        let failedCount = 0;
+        let skippedCount = 0;
+        const resultsJsonPath = join(VERO_PROJECT_PATH, 'test-results', 'results.json');
+
+        try {
+            if (existsSync(resultsJsonPath)) {
+                const resultsJson = await readFile(resultsJsonPath, 'utf-8');
+                const results = JSON.parse(resultsJson);
+
+                // Recursively process suites to handle nested describe blocks
+                let stepNumber = 0;
+                const processSuite = async (suite: any, parentTitle = '') => {
+                    const suiteName = parentTitle ? `${parentTitle} > ${suite.title}` : suite.title;
+
+                    // Process specs in this suite
+                    for (const spec of suite.specs || []) {
+                        for (const test of spec.tests || []) {
+                            stepNumber++;
+                            // Playwright JSON: results[0].status is 'passed', 'failed', 'skipped', etc.
+                            const resultStatus = test.results?.[0]?.status || 'failed';
+                            const testStatus = resultStatus === 'passed' ? 'passed' :
+                                               resultStatus === 'skipped' ? 'skipped' : 'failed';
+
+                            if (testStatus === 'passed') passedCount++;
+                            else if (testStatus === 'failed') failedCount++;
+                            else if (testStatus === 'skipped') skippedCount++;
+
+                            // Get duration, error, and steps from results
+                            const testResult = test.results?.[0];
+                            const duration = testResult?.duration || 0;
+                            const error = testResult?.error?.message;
+
+                            // Extract sub-steps from the test result
+                            const subSteps = (testResult?.steps || []).map((step: any, idx: number) => ({
+                                id: `step-${stepNumber}-${idx}`,
+                                stepNumber: idx + 1,
+                                action: step.title || `Step ${idx + 1}`,
+                                description: step.title,
+                                status: step.error ? 'failed' : 'passed',
+                                duration: step.duration || 0,
+                                error: step.error?.message || null,
+                            }));
+
+                            // Create ExecutionStep for each test/scenario with sub-steps
+                            await prisma.executionStep.create({
+                                data: {
+                                    executionId,
+                                    stepNumber,
+                                    action: 'scenario',
+                                    description: spec.title || `Test ${stepNumber}`,
+                                    status: testStatus,
+                                    duration,
+                                    error: error || null,
+                                    stepsJson: JSON.stringify(subSteps),
+                                },
+                            });
+                        }
+                    }
+
+                    // Recursively process nested suites (describe blocks)
+                    for (const nestedSuite of suite.suites || []) {
+                        await processSuite(nestedSuite, suiteName);
+                    }
+                };
+
+                // Process all top-level suites
+                for (const suite of results.suites || []) {
+                    await processSuite(suite);
+                }
+
+                console.log(`[Vero Run] Parsed results: ${passedCount} passed, ${failedCount} failed, ${skippedCount} skipped`);
+            }
+        } catch (parseError) {
+            console.warn('[Vero Run] Failed to parse test results JSON:', parseError);
+        }
+
         await prisma.execution.update({
             where: { id: executionId },
             data: {
@@ -1781,8 +1888,9 @@ async function scanDirectory(dirPath: string, relativePath = ''): Promise<FileNo
         const stats = await stat(fullPath);
 
         if (stats.isDirectory()) {
-            // Only scan pages and features directories
-            if (entry === 'pages' || entry === 'features' || relativePath) {
+            // Scan Pages, Features, Data folders (case-insensitive)
+            const lowerEntry = entry.toLowerCase();
+            if (lowerEntry === 'pages' || lowerEntry === 'features' || lowerEntry === 'data' || relativePath) {
                 const children = await scanDirectory(fullPath, relPath);
                 result.push({
                     name: entry,

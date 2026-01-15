@@ -149,6 +149,82 @@ export class ExecutionService {
     };
   }
 
+  /**
+   * Find recent executions across all test flows for a user
+   */
+  async findRecent(userId: string, limit: number = 200): Promise<any[]> {
+    const executions = await prisma.execution.findMany({
+      where: {
+        testFlow: {
+          workflow: {
+            userId,
+          },
+        },
+      },
+      include: {
+        testFlow: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        steps: {
+          orderBy: { stepNumber: 'asc' },
+        },
+        logs: {
+          orderBy: { timestamp: 'asc' },
+          take: 50,
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    return executions.map((exec) => ({
+      id: exec.id,
+      testFlowId: exec.testFlowId,
+      testFlowName: exec.testFlow.name,
+      status: exec.status,
+      target: exec.target,
+      triggeredBy: {
+        type: exec.triggeredBy || 'manual',
+        name: exec.triggeredBy === 'schedule' ? 'Scheduled' : undefined,
+      },
+      startedAt: exec.startedAt?.toISOString(),
+      finishedAt: exec.finishedAt?.toISOString(),
+      stepCount: exec.steps.length,
+      passedCount: exec.steps.filter((s) => s.status === 'passed').length,
+      failedCount: exec.steps.filter((s) => s.status === 'failed').length,
+      skippedCount: exec.steps.filter((s) => s.status === 'skipped').length,
+      duration: exec.startedAt && exec.finishedAt
+        ? new Date(exec.finishedAt).getTime() - new Date(exec.startedAt).getTime()
+        : undefined,
+      configSnapshot: exec.configSnapshot ? JSON.parse(exec.configSnapshot) : undefined,
+      // Map steps to scenarios for frontend display
+      scenarios: exec.steps.map((step) => {
+        const scenarioName = step.description || `Test ${step.stepNumber}`;
+        // Generate screenshot URL based on scenario name (for local executions)
+        const scenarioSlug = scenarioName.toLowerCase().replace(/\s+/g, '-');
+        return {
+          id: step.id,
+          name: scenarioName,
+          status: step.status,
+          duration: step.duration,
+          error: step.error,
+          traceUrl: `/api/executions/${exec.id}/trace`,
+          screenshot: step.screenshot || `/api/executions/local/screenshot/${encodeURIComponent(scenarioSlug)}`,
+          steps: step.stepsJson ? JSON.parse(step.stepsJson) : [],
+        };
+      }),
+      logs: exec.logs.map((log) => ({
+        id: log.id,
+        message: log.message,
+        level: log.level,
+        timestamp: log.timestamp.toISOString(),
+      })),
+    }));
+  }
+
   async delete(userId: string, executionId: string): Promise<void> {
     const existing = await prisma.execution.findUnique({
       where: { id: executionId },

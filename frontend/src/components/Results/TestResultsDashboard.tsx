@@ -133,8 +133,6 @@ export const TestResultsDashboard: React.FC<TestResultsDashboardProps> = ({
     });
   }, [runs, timeFilter, statusFilter, searchQuery]);
 
-  const latestRun = runs[0];
-
   return (
     <div className="flex flex-col h-full bg-slate-950">
       {/* Header */}

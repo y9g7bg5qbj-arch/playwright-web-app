@@ -126,6 +126,10 @@ export interface HookNode {
 // All possible statement types
 export type StatementNode =
     | ClickStatement
+    | RightClickStatement
+    | DoubleClickStatement
+    | ForceClickStatement
+    | DragStatement
     | FillStatement
     | OpenStatement
     | VerifyStatement
@@ -148,6 +152,42 @@ export type StatementNode =
 export interface ClickStatement {
     type: 'Click';
     target: TargetNode;
+    line: number;
+}
+
+// RIGHT CLICK "Element"
+export interface RightClickStatement {
+    type: 'RightClick';
+    target: TargetNode;
+    line: number;
+}
+
+// DOUBLE CLICK "Element"
+export interface DoubleClickStatement {
+    type: 'DoubleClick';
+    target: TargetNode;
+    line: number;
+}
+
+// FORCE CLICK "Element"
+export interface ForceClickStatement {
+    type: 'ForceClick';
+    target: TargetNode;
+    line: number;
+}
+
+// Coordinate target for DRAG operations
+export interface CoordinateTarget {
+    type: 'Coordinate';
+    x: number;
+    y: number;
+}
+
+// DRAG "Source" TO "Target" or DRAG "Element" TO x=100 y=200
+export interface DragStatement {
+    type: 'Drag';
+    source: TargetNode;
+    destination: TargetNode | CoordinateTarget;
     line: number;
 }
 
@@ -174,7 +214,7 @@ export interface VerifyStatement {
 export interface VerifyCondition {
     type: 'Condition';
     operator: 'IS' | 'IS_NOT' | 'CONTAINS' | 'NOT_CONTAINS';
-    value?: 'VISIBLE' | 'HIDDEN' | 'ENABLED' | 'DISABLED' | 'CHECKED' | 'EMPTY' | ExpressionNode;
+    value?: 'VISIBLE' | 'HIDDEN' | 'ENABLED' | 'DISABLED' | 'CHECKED' | 'FOCUSED' | 'EMPTY' | ExpressionNode;
 }
 
 export interface DoStatement {
@@ -228,6 +268,7 @@ export interface LogStatement {
 
 export interface TakeScreenshotStatement {
     type: 'TakeScreenshot';
+    target?: TargetNode;    // If specified, screenshot of element; otherwise full page
     filename?: string;
     line: number;
 }
@@ -267,7 +308,10 @@ export interface VerifyHasStatement {
 export type HasCondition =
     | HasCountCondition
     | HasValueCondition
-    | HasAttributeCondition;
+    | HasAttributeCondition
+    | HasTextCondition
+    | ContainsTextCondition
+    | HasClassCondition;
 
 export interface HasCountCondition {
     type: 'HasCount';
@@ -283,6 +327,24 @@ export interface HasAttributeCondition {
     type: 'HasAttribute';
     attribute: ExpressionNode;
     value: ExpressionNode;
+}
+
+// assert "element" has text "expected"
+export interface HasTextCondition {
+    type: 'HasText';
+    text: ExpressionNode;
+}
+
+// assert "element" contains text "expected"
+export interface ContainsTextCondition {
+    type: 'ContainsText';
+    text: ExpressionNode;
+}
+
+// assert "element" has class "active"
+export interface HasClassCondition {
+    type: 'HasClass';
+    className: ExpressionNode;
 }
 
 // LOAD $users FROM "users" WHERE enabled = true
@@ -419,7 +481,8 @@ export type ExpressionNode =
     | StringLiteral
     | NumberLiteral
     | BooleanLiteral
-    | VariableReference;
+    | VariableReference
+    | EnvVarReference;
 
 export interface StringLiteral {
     type: 'StringLiteral';
@@ -440,6 +503,15 @@ export interface VariableReference {
     type: 'VariableReference';
     page?: string;
     name: string;
+}
+
+/**
+ * Environment variable reference: {{variableName}}
+ * Postman-style syntax for referencing environment variables
+ */
+export interface EnvVarReference {
+    type: 'EnvVarReference';
+    name: string;  // The variable name (without {{ }})
 }
 
 export interface ParseError {

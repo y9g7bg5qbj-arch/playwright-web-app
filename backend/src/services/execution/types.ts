@@ -46,6 +46,12 @@ export interface ExecutionOptions {
     baseUrl?: string;
     extraHTTPHeaders?: Record<string, string>;
 
+    // Environment Variables (Postman-style)
+    // environmentId: Select a pre-defined environment from Environment Manager
+    // envVars: Resolved environment variables (passed as VERO_ENV_VARS to tests)
+    environmentId?: string;
+    envVars?: Record<string, string>;
+
     // Storage state
     storageState?: string;  // Path to storage state JSON
 
@@ -122,6 +128,7 @@ export interface TestResult {
         stack?: string;
         screenshot?: string;
         diff?: string;  // For visual comparison failures
+        selector?: string;  // The selector that failed (for element not found errors)
     };
     artifacts: ArtifactRef[];
     retries: number;

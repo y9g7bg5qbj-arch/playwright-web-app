@@ -32,7 +32,6 @@ import type {
   ShardingConfig,
   AdvancedConfig,
   ArtifactMode,
-  DockerExecutionConfig,
   Viewport,
   TimeoutConfig,
 } from '@playwright-web-app/shared';
@@ -110,9 +109,7 @@ const RUN_CONFIGURATION_PRESETS: RunConfigurationPreset[] = [
 ];
 import { TagSelector } from './TagSelector';
 import { EnvironmentSelector } from './EnvironmentSelector';
-import { ExecutionTargetSelector } from './ExecutionTargetSelector';
 import { ExecutionSettingsModal } from './ExecutionSettingsModal';
-import { BrowserConfigPanel } from './BrowserConfigPanel';
 import { AdvancedOptionsPanel } from './AdvancedOptionsPanel';
 import { useGitHubStore } from '@/store/useGitHubStore';
 
@@ -214,7 +211,6 @@ export const RunConfigurationModal: React.FC<RunConfigurationModalProps> = ({
   const [newConfigName, setNewConfigName] = useState('');
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showAdvancedTimeouts, setShowAdvancedTimeouts] = useState(false);
-  const [selectedBrowsers, setSelectedBrowsers] = useState<string[]>(['chromium']);
 
   // GitHub integration
   const { integration, isConnected } = useGitHubStore();

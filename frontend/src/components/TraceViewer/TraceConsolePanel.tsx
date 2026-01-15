@@ -7,7 +7,7 @@
  * - Search console output
  */
 import React, { useState, useMemo } from 'react';
-import { Search, AlertCircle, AlertTriangle, Info, Terminal, XCircle, Filter } from 'lucide-react';
+import { Search, AlertCircle, AlertTriangle, Info, Terminal, XCircle } from 'lucide-react';
 
 export interface ConsoleEntry {
   id: string;
@@ -66,7 +66,7 @@ const formatTimestamp = (timestamp: number): string => {
     minute: '2-digit',
     second: '2-digit',
     fractionalSecondDigits: 3,
-  });
+  } as Intl.DateTimeFormatOptions);
 };
 
 export const TraceConsolePanel: React.FC<TraceConsolePanelProps> = ({ entries }) => {

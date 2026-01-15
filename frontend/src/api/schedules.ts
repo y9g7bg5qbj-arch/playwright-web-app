@@ -10,8 +10,6 @@ import type {
   ScheduleUpdate,
   ScheduleRun,
   ScheduleTriggerRequest,
-  ScheduleParameterDefinition,
-  ScheduleExecutionConfig,
 } from '@playwright-web-app/shared';
 
 export interface CronValidationResult {

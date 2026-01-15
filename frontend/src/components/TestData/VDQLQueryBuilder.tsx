@@ -289,7 +289,7 @@ export function VDQLQueryBuilder({
     };
 
     return (
-        <div className="bg-gray-900 rounded-lg border border-gray-700 p-4">
+        <div className="bg-dark-bg rounded-lg border border-border-default p-4">
             {/* Header */}
             <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
@@ -307,7 +307,7 @@ export function VDQLQueryBuilder({
 
             {/* Result Type Selection */}
             <div className="mb-4">
-                <label className="block text-xs text-gray-400 mb-2">Result Type</label>
+                <label className="block text-xs text-text-muted mb-2">Result Type</label>
                 <div className="flex gap-2 flex-wrap">
                     {(['data', 'list', 'number', 'text'] as const).map(type => (
                         <button
@@ -316,7 +316,7 @@ export function VDQLQueryBuilder({
                             className={`px-3 py-1.5 text-xs rounded transition-colors ${
                                 resultType === type
                                     ? 'bg-purple-600 text-white'
-                                    : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                                    : 'bg-dark-card text-text-secondary hover:bg-dark-elevated'
                             }`}
                         >
                             {type}
@@ -327,12 +327,12 @@ export function VDQLQueryBuilder({
 
             {/* Variable Name */}
             <div className="mb-4">
-                <label className="block text-xs text-gray-400 mb-2">Variable Name</label>
+                <label className="block text-xs text-text-muted mb-2">Variable Name</label>
                 <input
                     type="text"
                     value={variableName}
                     onChange={e => setVariableName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white text-sm focus:border-purple-500 focus:outline-none"
+                    className="w-full px-3 py-2 bg-dark-card border border-border-default rounded text-white text-sm focus:border-purple-500 focus:outline-none"
                     placeholder="variableName"
                 />
             </div>
@@ -340,7 +340,7 @@ export function VDQLQueryBuilder({
             {/* Position Selector (for data/text) */}
             {(resultType === 'data' || resultType === 'text') && (
                 <div className="mb-4">
-                    <label className="block text-xs text-gray-400 mb-2">Row Selection</label>
+                    <label className="block text-xs text-text-muted mb-2">Row Selection</label>
                     <div className="flex gap-2">
                         {(['all', 'first', 'last'] as const).map(pos => (
                             <button
@@ -349,7 +349,7 @@ export function VDQLQueryBuilder({
                                 className={`px-3 py-1.5 text-xs rounded transition-colors ${
                                     position === pos
                                         ? 'bg-teal-600 text-white'
-                                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                                        : 'bg-dark-card text-text-secondary hover:bg-dark-elevated'
                                 }`}
                             >
                                 {pos === 'all' ? 'All rows' : `${pos.charAt(0).toUpperCase() + pos.slice(1)} row`}
@@ -362,11 +362,11 @@ export function VDQLQueryBuilder({
             {/* Column Selection (for list/text) */}
             {(resultType === 'list' || resultType === 'text') && (
                 <div className="mb-4">
-                    <label className="block text-xs text-gray-400 mb-2">Select Column</label>
+                    <label className="block text-xs text-text-muted mb-2">Select Column</label>
                     <select
                         value={selectedColumn}
                         onChange={e => setSelectedColumn(e.target.value)}
-                        className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white text-sm focus:border-purple-500 focus:outline-none"
+                        className="w-full px-3 py-2 bg-dark-card border border-border-default rounded text-white text-sm focus:border-purple-500 focus:outline-none"
                     >
                         <option value="">All columns</option>
                         {columns.map(col => (
@@ -382,11 +382,11 @@ export function VDQLQueryBuilder({
             {resultType === 'number' && (
                 <div className="mb-4 space-y-3">
                     <div>
-                        <label className="block text-xs text-gray-400 mb-2">Aggregation Function</label>
+                        <label className="block text-xs text-text-muted mb-2">Aggregation Function</label>
                         <select
                             value={aggregation}
                             onChange={e => setAggregation(e.target.value)}
-                            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white text-sm focus:border-purple-500 focus:outline-none"
+                            className="w-full px-3 py-2 bg-dark-card border border-border-default rounded text-white text-sm focus:border-purple-500 focus:outline-none"
                         >
                             <option value="">Select function...</option>
                             {AGGREGATION_FUNCTIONS.map(fn => (
@@ -399,11 +399,11 @@ export function VDQLQueryBuilder({
 
                     {aggregation && aggregation !== 'count' && (
                         <div>
-                            <label className="block text-xs text-gray-400 mb-2">Column</label>
+                            <label className="block text-xs text-text-muted mb-2">Column</label>
                             <select
                                 value={aggregationColumn}
                                 onChange={e => setAggregationColumn(e.target.value)}
-                                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white text-sm focus:border-purple-500 focus:outline-none"
+                                className="w-full px-3 py-2 bg-dark-card border border-border-default rounded text-white text-sm focus:border-purple-500 focus:outline-none"
                             >
                                 <option value="">Select column...</option>
                                 {columns.filter(c => c.type === 'number' || aggregation === 'distinct').map(col => (
@@ -420,13 +420,13 @@ export function VDQLQueryBuilder({
             {/* Filters */}
             <div className="mb-4">
                 <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs text-gray-400 flex items-center gap-1">
+                    <label className="text-xs text-text-muted flex items-center gap-1">
                         <Filter size={12} />
                         Filters
                     </label>
                     <button
                         onClick={addFilter}
-                        className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded transition-colors"
+                        className="flex items-center gap-1 px-2 py-1 text-xs bg-dark-card hover:bg-dark-elevated text-text-secondary rounded transition-colors"
                     >
                         <Plus size={12} />
                         Add Filter
@@ -434,17 +434,17 @@ export function VDQLQueryBuilder({
                 </div>
 
                 {filters.length === 0 ? (
-                    <p className="text-xs text-gray-500 italic">No filters applied</p>
+                    <p className="text-xs text-text-muted italic">No filters applied</p>
                 ) : (
                     <div className="space-y-2">
                         {filters.map((filter, index) => (
-                            <div key={filter.id} className="flex items-center gap-2 bg-gray-800 p-2 rounded">
+                            <div key={filter.id} className="flex items-center gap-2 bg-dark-card p-2 rounded">
                                 {/* Logical operator */}
                                 {index > 0 && (
                                     <select
                                         value={filter.logicalOperator}
                                         onChange={e => updateFilter(filter.id, 'logicalOperator', e.target.value)}
-                                        className="w-16 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs text-white"
+                                        className="w-16 px-2 py-1 bg-dark-elevated border border-border-default rounded text-xs text-white"
                                     >
                                         <option value="and">AND</option>
                                         <option value="or">OR</option>
@@ -455,7 +455,7 @@ export function VDQLQueryBuilder({
                                 <select
                                     value={filter.column}
                                     onChange={e => updateFilter(filter.id, 'column', e.target.value)}
-                                    className="flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs text-white"
+                                    className="flex-1 px-2 py-1 bg-dark-elevated border border-border-default rounded text-xs text-white"
                                 >
                                     {columns.map(col => (
                                         <option key={col.name} value={col.name}>
@@ -468,7 +468,7 @@ export function VDQLQueryBuilder({
                                 <select
                                     value={filter.operator}
                                     onChange={e => updateFilter(filter.id, 'operator', e.target.value)}
-                                    className="w-32 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs text-white"
+                                    className="w-32 px-2 py-1 bg-dark-elevated border border-border-default rounded text-xs text-white"
                                 >
                                     {getOperatorsForColumn(filter.column).map(op => (
                                         <option key={op.value} value={op.value}>
@@ -484,14 +484,14 @@ export function VDQLQueryBuilder({
                                         value={filter.value}
                                         onChange={e => updateFilter(filter.id, 'value', e.target.value)}
                                         placeholder="Value"
-                                        className="flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs text-white"
+                                        className="flex-1 px-2 py-1 bg-dark-elevated border border-border-default rounded text-xs text-white"
                                     />
                                 )}
 
                                 {/* Remove button */}
                                 <button
                                     onClick={() => removeFilter(filter.id)}
-                                    className="p-1 text-gray-400 hover:text-red-400 transition-colors"
+                                    className="p-1 text-text-muted hover:text-red-400 transition-colors"
                                 >
                                     <Trash2 size={14} />
                                 </button>
@@ -504,7 +504,7 @@ export function VDQLQueryBuilder({
             {/* Advanced Options Toggle */}
             <button
                 onClick={() => setShowAdvanced(!showAdvanced)}
-                className="flex items-center gap-1 text-xs text-gray-400 hover:text-white mb-3 transition-colors"
+                className="flex items-center gap-1 text-xs text-text-muted hover:text-white mb-3 transition-colors"
             >
                 <ChevronDown
                     size={14}
@@ -515,10 +515,10 @@ export function VDQLQueryBuilder({
 
             {/* Advanced Options */}
             {showAdvanced && (
-                <div className="space-y-3 mb-4 pl-4 border-l-2 border-gray-700">
+                <div className="space-y-3 mb-4 pl-4 border-l-2 border-border-default">
                     {/* Sorting */}
                     <div>
-                        <label className="block text-xs text-gray-400 mb-2 flex items-center gap-1">
+                        <label className="block text-xs text-text-muted mb-2 flex items-center gap-1">
                             <ArrowUpDown size={12} />
                             Sort By
                         </label>
@@ -526,7 +526,7 @@ export function VDQLQueryBuilder({
                             <select
                                 value={sorting?.column || ''}
                                 onChange={e => setSorting(e.target.value ? { column: e.target.value, direction: sorting?.direction || 'asc' } : null)}
-                                className="flex-1 px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-white"
+                                className="flex-1 px-2 py-1 bg-dark-card border border-border-default rounded text-xs text-white"
                             >
                                 <option value="">No sorting</option>
                                 {columns.map(col => (
@@ -539,7 +539,7 @@ export function VDQLQueryBuilder({
                                 <select
                                     value={sorting.direction}
                                     onChange={e => setSorting({ ...sorting, direction: e.target.value as 'asc' | 'desc' })}
-                                    className="w-24 px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-white"
+                                    className="w-24 px-2 py-1 bg-dark-card border border-border-default rounded text-xs text-white"
                                 >
                                     <option value="asc">Ascending</option>
                                     <option value="desc">Descending</option>
@@ -551,25 +551,25 @@ export function VDQLQueryBuilder({
                     {/* Limit & Offset */}
                     <div className="flex gap-3">
                         <div className="flex-1">
-                            <label className="block text-xs text-gray-400 mb-2">Limit</label>
+                            <label className="block text-xs text-text-muted mb-2">Limit</label>
                             <input
                                 type="number"
                                 value={limitValue}
                                 onChange={e => setLimitValue(e.target.value)}
                                 placeholder="No limit"
                                 min="1"
-                                className="w-full px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-white"
+                                className="w-full px-2 py-1 bg-dark-card border border-border-default rounded text-xs text-white"
                             />
                         </div>
                         <div className="flex-1">
-                            <label className="block text-xs text-gray-400 mb-2">Offset</label>
+                            <label className="block text-xs text-text-muted mb-2">Offset</label>
                             <input
                                 type="number"
                                 value={offsetValue}
                                 onChange={e => setOffsetValue(e.target.value)}
                                 placeholder="0"
                                 min="0"
-                                className="w-full px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-white"
+                                className="w-full px-2 py-1 bg-dark-card border border-border-default rounded text-xs text-white"
                             />
                         </div>
                     </div>
@@ -578,8 +578,8 @@ export function VDQLQueryBuilder({
 
             {/* Generated Code Preview */}
             <div className="mt-4">
-                <label className="block text-xs text-gray-400 mb-2">Generated VDQL Code</label>
-                <pre className="bg-gray-950 border border-gray-700 rounded p-3 text-sm font-mono overflow-x-auto">
+                <label className="block text-xs text-text-muted mb-2">Generated VDQL Code</label>
+                <pre className="bg-dark-canvas border border-border-default rounded p-3 text-sm font-mono overflow-x-auto">
                     <code className="text-teal-400">{generatedQuery}</code>
                 </pre>
             </div>

@@ -300,7 +300,7 @@ const globalPageRegistry: Map<string, VeroPageDefinition> = new Map();
  * Update the global page registry with pages from a file.
  * Call this whenever a file is loaded or changed.
  */
-export function updatePageRegistry(fileContent: string, filePath?: string) {
+export function updatePageRegistry(fileContent: string, _filePath?: string) {
     const pages = parseVeroPages(fileContent);
 
     // Add or update pages in the registry

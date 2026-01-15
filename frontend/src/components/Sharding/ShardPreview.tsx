@@ -11,7 +11,7 @@ import {
   BarChart3,
   PieChart,
 } from 'lucide-react';
-import type { ShardDistribution, ShardTest } from '@/types/execution';
+import type { ShardDistribution } from '@/types/execution';
 
 interface ShardPreviewProps {
   distributions: ShardDistribution[];

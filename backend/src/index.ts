@@ -20,6 +20,9 @@ async function start() {
     const wsServer = new WebSocketServer(httpServer);
     logger.info('WebSocket server initialized');
 
+    // Make io available to routes via app.get('io')
+    app.set('io', wsServer.getIO());
+
     // Start server
     httpServer.listen(config.port, () => {
       logger.info(`Server started on port ${config.port}`);

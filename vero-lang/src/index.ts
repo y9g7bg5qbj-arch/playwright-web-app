@@ -2,6 +2,9 @@ export * from './lexer/index.js';
 export * from './parser/index.js';
 export * from './transpiler/index.js';
 export * from './validator/index.js';
+export * from './completion/index.js';
+export * from './fixes/index.js';
+// Note: errors module has conflicting exports, import directly from './errors/index.js' if needed
 
 import { tokenize } from './lexer/index.js';
 import { parse } from './parser/index.js';

@@ -92,34 +92,34 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
   };
 
   return (
-    <div className="p-4 bg-slate-800/50 border border-slate-600 rounded-lg space-y-4">
+    <div className="p-4 bg-dark-card/50 border border-border-default rounded-lg space-y-4">
       {/* Name and Label */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
-          <label className="block text-xs text-slate-400">Label (display name)</label>
+          <label className="block text-xs text-text-muted">Label (display name)</label>
           <input
             type="text"
             value={param.label}
             onChange={(e) => updateParam('label', e.target.value)}
             placeholder="e.g., Browser"
-            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <div className="space-y-1">
-          <label className="block text-xs text-slate-400">Key (variable name)</label>
+          <label className="block text-xs text-text-muted">Key (variable name)</label>
           <input
             type="text"
             value={param.name}
             onChange={(e) => updateParam('name', e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
             placeholder="e.g., browser"
-            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-sm text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
       </div>
 
       {/* Type Selection */}
       <div className="space-y-1">
-        <label className="block text-xs text-slate-400">Type</label>
+        <label className="block text-xs text-text-muted">Type</label>
         <div className="flex gap-2">
           {PARAMETER_TYPES.map(t => (
             <button
@@ -130,7 +130,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
                 flex items-center gap-1.5 px-3 py-1.5 rounded text-sm border transition-colors
                 ${param.type === t.value
                   ? 'bg-blue-600/20 border-blue-500 text-blue-400'
-                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'
+                  : 'bg-dark-card border-border-default text-text-muted hover:border-border-default'
                 }
               `}
             >
@@ -144,13 +144,13 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
       {/* Type-specific options */}
       {param.type === 'choice' && (
         <div className="space-y-1">
-          <label className="block text-xs text-slate-400">Choices (one per line)</label>
+          <label className="block text-xs text-text-muted">Choices (one per line)</label>
           <textarea
             value={choicesText}
             onChange={(e) => setChoicesText(e.target.value)}
             rows={3}
             placeholder="Option 1&#10;Option 2&#10;Option 3"
-            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
       )}
@@ -158,30 +158,30 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
       {param.type === 'number' && (
         <div className="grid grid-cols-3 gap-3">
           <div className="space-y-1">
-            <label className="block text-xs text-slate-400">Min</label>
+            <label className="block text-xs text-text-muted">Min</label>
             <input
               type="number"
               value={param.min ?? ''}
               onChange={(e) => updateParam('min', e.target.value ? Number(e.target.value) : undefined)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
           <div className="space-y-1">
-            <label className="block text-xs text-slate-400">Max</label>
+            <label className="block text-xs text-text-muted">Max</label>
             <input
               type="number"
               value={param.max ?? ''}
               onChange={(e) => updateParam('max', e.target.value ? Number(e.target.value) : undefined)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
           <div className="space-y-1">
-            <label className="block text-xs text-slate-400">Step</label>
+            <label className="block text-xs text-text-muted">Step</label>
             <input
               type="number"
               value={param.step ?? ''}
               onChange={(e) => updateParam('step', e.target.value ? Number(e.target.value) : undefined)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
         </div>
@@ -189,35 +189,35 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
 
       {param.type === 'string' && (
         <div className="space-y-1">
-          <label className="block text-xs text-slate-400">Placeholder</label>
+          <label className="block text-xs text-text-muted">Placeholder</label>
           <input
             type="text"
             value={param.placeholder ?? ''}
             onChange={(e) => updateParam('placeholder', e.target.value || undefined)}
             placeholder="e.g., Enter URL..."
-            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
       )}
 
       {/* Default Value */}
       <div className="space-y-1">
-        <label className="block text-xs text-slate-400">Default Value</label>
+        <label className="block text-xs text-text-muted">Default Value</label>
         {param.type === 'boolean' ? (
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
               checked={Boolean(param.defaultValue)}
               onChange={(e) => updateParam('defaultValue', e.target.checked)}
-              className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600"
+              className="w-4 h-4 rounded border-border-default bg-dark-card text-blue-600"
             />
-            <span className="text-sm text-slate-300">Checked by default</span>
+            <span className="text-sm text-text-secondary">Checked by default</span>
           </label>
         ) : param.type === 'choice' ? (
           <select
             value={String(param.defaultValue)}
             onChange={(e) => updateParam('defaultValue', e.target.value)}
-            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             {choicesText.split('\n').map(s => s.trim()).filter(Boolean).map(choice => (
               <option key={choice} value={choice}>{choice}</option>
@@ -231,7 +231,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
             min={param.min}
             max={param.max}
             step={param.step}
-            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         ) : (
           <input
@@ -239,20 +239,20 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
             value={String(param.defaultValue)}
             onChange={(e) => updateParam('defaultValue', e.target.value)}
             placeholder={param.placeholder}
-            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         )}
       </div>
 
       {/* Description */}
       <div className="space-y-1">
-        <label className="block text-xs text-slate-400">Description (optional)</label>
+        <label className="block text-xs text-text-muted">Description (optional)</label>
         <input
           type="text"
           value={param.description ?? ''}
           onChange={(e) => updateParam('description', e.target.value || undefined)}
           placeholder="Help text for this parameter"
-          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
 
@@ -262,17 +262,17 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
           type="checkbox"
           checked={param.required ?? false}
           onChange={(e) => updateParam('required', e.target.checked || undefined)}
-          className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600"
+          className="w-4 h-4 rounded border-border-default bg-dark-card text-blue-600"
         />
-        <span className="text-sm text-slate-300">Required</span>
+        <span className="text-sm text-text-secondary">Required</span>
       </label>
 
       {/* Actions */}
-      <div className="flex justify-end gap-2 pt-2 border-t border-slate-700">
+      <div className="flex justify-end gap-2 pt-2 border-t border-border-default">
         <button
           type="button"
           onClick={onCancel}
-          className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+          className="px-3 py-1.5 text-sm text-text-muted hover:text-text-primary transition-colors"
         >
           Cancel
         </button>
@@ -325,7 +325,7 @@ export const ParameterBuilder: React.FC<ParameterBuilderProps> = ({
   if (isAddingNew) {
     return (
       <div className="space-y-3">
-        <div className="text-sm font-medium text-slate-300">Add New Parameter</div>
+        <div className="text-sm font-medium text-text-secondary">Add New Parameter</div>
         <ParameterEditor
           parameter={{
             name: '',
@@ -344,16 +344,16 @@ export const ParameterBuilder: React.FC<ParameterBuilderProps> = ({
   return (
     <div className="space-y-3">
       {parameters.length === 0 ? (
-        <div className="text-center py-6 border-2 border-dashed border-slate-700 rounded-lg">
-          <p className="text-sm text-slate-400 mb-2">No parameters defined</p>
-          <p className="text-xs text-slate-500 mb-4">
+        <div className="text-center py-6 border-2 border-dashed border-border-default rounded-lg">
+          <p className="text-sm text-text-muted mb-2">No parameters defined</p>
+          <p className="text-xs text-text-muted mb-4">
             Add parameters to allow customization when running this schedule
           </p>
           <button
             type="button"
             onClick={() => setIsAddingNew(true)}
             disabled={disabled}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded text-sm text-slate-300 hover:border-slate-600 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-dark-card border border-border-default rounded text-sm text-text-secondary hover:border-border-default disabled:opacity-50"
           >
             <Plus className="w-4 h-4" />
             Add Parameter
@@ -373,25 +373,25 @@ export const ParameterBuilder: React.FC<ParameterBuilderProps> = ({
                 ) : (
                   <div
                     className={`
-                      flex items-center gap-2 p-3 bg-slate-800/50 border border-slate-700 rounded-lg
+                      flex items-center gap-2 p-3 bg-dark-card/50 border border-border-default rounded-lg
                       ${expandedIndex === index ? 'rounded-b-none' : ''}
                     `}
                   >
-                    <GripVertical className="w-4 h-4 text-slate-600 cursor-grab" />
+                    <GripVertical className="w-4 h-4 text-text-muted cursor-grab" />
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-slate-200">{param.label}</span>
-                        <code className="text-xs text-slate-500 bg-slate-900 px-1.5 py-0.5 rounded">
+                        <span className="text-sm font-medium text-text-primary">{param.label}</span>
+                        <code className="text-xs text-text-muted bg-dark-bg px-1.5 py-0.5 rounded">
                           ${param.name}
                         </code>
                       </div>
                       {param.description && (
-                        <p className="text-xs text-slate-500 mt-0.5 truncate">{param.description}</p>
+                        <p className="text-xs text-text-muted mt-0.5 truncate">{param.description}</p>
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2 text-slate-500">
+                    <div className="flex items-center gap-2 text-text-muted">
                       {getTypeIcon(param.type)}
                       <span className="text-xs">{param.type}</span>
                     </div>
@@ -400,7 +400,7 @@ export const ParameterBuilder: React.FC<ParameterBuilderProps> = ({
                       type="button"
                       onClick={() => setExpandedIndex(expandedIndex === index ? null : index)}
                       disabled={disabled}
-                      className="p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded transition-colors"
+                      className="p-1 text-text-muted hover:text-text-primary hover:bg-dark-elevated rounded transition-colors"
                     >
                       {expandedIndex === index ? (
                         <ChevronUp className="w-4 h-4" />
@@ -413,7 +413,7 @@ export const ParameterBuilder: React.FC<ParameterBuilderProps> = ({
                       type="button"
                       onClick={() => setEditingIndex(index)}
                       disabled={disabled}
-                      className="p-1 text-slate-400 hover:text-blue-400 hover:bg-slate-700 rounded transition-colors"
+                      className="p-1 text-text-muted hover:text-blue-400 hover:bg-dark-elevated rounded transition-colors"
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
@@ -422,7 +422,7 @@ export const ParameterBuilder: React.FC<ParameterBuilderProps> = ({
                       type="button"
                       onClick={() => removeParameter(index)}
                       disabled={disabled}
-                      className="p-1 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded transition-colors"
+                      className="p-1 text-text-muted hover:text-red-400 hover:bg-dark-elevated rounded transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -431,30 +431,30 @@ export const ParameterBuilder: React.FC<ParameterBuilderProps> = ({
 
                 {/* Expanded details */}
                 {expandedIndex === index && editingIndex !== index && (
-                  <div className="p-3 bg-slate-800/30 border border-t-0 border-slate-700 rounded-b-lg text-sm">
+                  <div className="p-3 bg-dark-card/30 border border-t-0 border-border-default rounded-b-lg text-sm">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <span className="text-slate-500">Default:</span>
-                        <span className="ml-2 text-slate-300">
+                        <span className="text-text-muted">Default:</span>
+                        <span className="ml-2 text-text-secondary">
                           {param.type === 'boolean'
                             ? (param.defaultValue ? 'true' : 'false')
                             : String(param.defaultValue) || '(empty)'}
                         </span>
                       </div>
                       <div>
-                        <span className="text-slate-500">Required:</span>
-                        <span className="ml-2 text-slate-300">{param.required ? 'Yes' : 'No'}</span>
+                        <span className="text-text-muted">Required:</span>
+                        <span className="ml-2 text-text-secondary">{param.required ? 'Yes' : 'No'}</span>
                       </div>
                       {param.type === 'choice' && param.choices && (
                         <div className="col-span-2">
-                          <span className="text-slate-500">Choices:</span>
-                          <span className="ml-2 text-slate-300">{param.choices.join(', ')}</span>
+                          <span className="text-text-muted">Choices:</span>
+                          <span className="ml-2 text-text-secondary">{param.choices.join(', ')}</span>
                         </div>
                       )}
                       {param.type === 'number' && (
                         <div className="col-span-2">
-                          <span className="text-slate-500">Range:</span>
-                          <span className="ml-2 text-slate-300">
+                          <span className="text-text-muted">Range:</span>
+                          <span className="ml-2 text-text-secondary">
                             {param.min ?? '∞'} to {param.max ?? '∞'}
                             {param.step && ` (step: ${param.step})`}
                           </span>
@@ -471,7 +471,7 @@ export const ParameterBuilder: React.FC<ParameterBuilderProps> = ({
             type="button"
             onClick={() => setIsAddingNew(true)}
             disabled={disabled}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-text-muted hover:text-text-primary hover:bg-dark-card rounded transition-colors disabled:opacity-50"
           >
             <Plus className="w-4 h-4" />
             Add Parameter

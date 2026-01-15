@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHand
 import Editor, { OnMount, Monaco } from '@monaco-editor/react';
 import * as monacoEditor from 'monaco-editor';
 import { registerVeroLanguage, registerVeroCompletionProvider, parseVeroCode, VeroCodeItem } from './veroLanguage';
-import { Circle, Plus } from 'lucide-react';
+import { Circle } from 'lucide-react';
 import { useEditorErrors } from '../../errors/useEditorErrors';
 import { ErrorPanel } from '../../errors/ErrorPanel';
 
@@ -41,7 +41,7 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
     onAddScenario,
     onStartRecording,
     isRecording = false,
-    activeRecordingScenario = null,
+    activeRecordingScenario: _activeRecordingScenario = null,
     readOnly = false,
     theme = 'vero-camel',
     // Debug props
@@ -60,6 +60,15 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
     const monacoRef = useRef<Monaco | null>(null);
     const decorationsRef = useRef<string[]>([]);
     const debugDecorationsRef = useRef<string[]>([]);
+
+    // Sync code state when initialValue prop changes (e.g., switching tabs)
+    useEffect(() => {
+        setCode(initialValue);
+        // Also update the Monaco editor directly if it's already mounted
+        if (editorRef.current && editorRef.current.getValue() !== initialValue) {
+            editorRef.current.setValue(initialValue);
+        }
+    }, [initialValue]);
 
     // State for Monaco model (needed for error validation hook)
     const [editorModel, setEditorModel] = useState<monacoEditor.editor.ITextModel | null>(null);
@@ -320,74 +329,6 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
             (editorRef.current as any).appendAtCursor = appendAtCursor;
         }
     }, [appendAtCursor]);
-
-    // Track which line is hovered for showing add/record buttons
-    const [hoveredLine, setHoveredLine] = useState<number | null>(null);
-
-    // Add mouse move handler to track hovered line
-    useEffect(() => {
-        const editor = editorRef.current;
-        if (!editor) return;
-
-        const disposable = editor.onMouseMove((e) => {
-            if (e.target.position?.lineNumber) {
-                setHoveredLine(e.target.position.lineNumber);
-            }
-        });
-
-        const leaveDisposable = editor.onMouseLeave(() => {
-            // Small delay before hiding to allow clicking the button
-            setTimeout(() => setHoveredLine(null), 200);
-        });
-
-        return () => {
-            disposable.dispose();
-            leaveDisposable.dispose();
-        };
-    }, []);
-
-    // Find the feature line and last scenario line for + button placement
-    const featureItem = codeItems.find(item => item.type === 'feature');
-    const lastScenarioItem = codeItems.filter(item => item.type === 'scenario').pop();
-    const addButtonLine = lastScenarioItem?.line || featureItem?.line;
-
-    // Find empty scenarios (for showing record button)
-    const emptyScenarios = codeItems.filter(item => {
-        if (item.type !== 'scenario') return false;
-        const scenarioStart = code.indexOf(`scenario "${item.name}"`);
-        if (scenarioStart === -1) return false;
-        const scenarioContent = code.slice(scenarioStart);
-        const braceStart = scenarioContent.indexOf('{');
-        const braceEnd = scenarioContent.indexOf('}');
-        if (braceStart === -1 || braceEnd === -1) return false;
-        const body = scenarioContent.slice(braceStart + 1, braceEnd).trim();
-        return body === '' || body.startsWith('#') || body.includes('Click Record to start');
-    });
-
-    // Determine what action to show based on hovered line
-    const getHoverAction = () => {
-        if (!hoveredLine) return null;
-
-        // Check if hovering near feature line - show + Add Scenario
-        if (featureItem && Math.abs(hoveredLine - featureItem.line) <= 1) {
-            return { type: 'add', line: featureItem.line };
-        }
-
-        // Check if hovering on an empty scenario - show Record
-        const emptyScenario = emptyScenarios.find(s => Math.abs(hoveredLine - s.line) <= 1);
-        if (emptyScenario) {
-            return { type: 'record', line: emptyScenario.line, name: emptyScenario.name };
-        }
-
-        // Check if hovering near end of scenarios - show + Add Scenario
-        if (addButtonLine && hoveredLine >= addButtonLine) {
-            return { type: 'add', line: addButtonLine };
-        }
-
-        return null;
-    };
-
-    const hoverAction = getHoverAction();
 
     return (
         <div className="vero-editor-container h-full flex flex-col">

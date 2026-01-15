@@ -227,14 +227,14 @@ class WorkflowGeneratorService {
       lines.push(`${indent}        PLAYWRIGHT_RETRIES: ${config.retries}`);
     }
 
-    // Upload test results
+    // Upload test results (including screenshots)
     lines.push(`${indent}    - name: Upload test results`);
     lines.push(`${indent}      uses: actions/upload-artifact@v4`);
     lines.push(`${indent}      if: always()`);
     lines.push(`${indent}      with:`);
 
     if (githubConfig.shardCount > 1) {
-      lines.push(`${indent}        name: test-results-\${{ matrix.shard }}`);
+      lines.push(`${indent}        name: test-results-shard-\${{ matrix.shard }}`);
     } else {
       lines.push(`${indent}        name: test-results`);
     }
@@ -242,6 +242,7 @@ class WorkflowGeneratorService {
     lines.push(`${indent}          test-results/`);
     lines.push(`${indent}          playwright-report/`);
     lines.push(`${indent}        retention-days: 30`);
+    lines.push(`${indent}        include-hidden-files: true`);
 
     // Upload blob report for sharding
     if (githubConfig.shardCount > 1) {
@@ -350,9 +351,15 @@ class WorkflowGeneratorService {
       parts.push(`--grep="${config.grep}"`);
     }
 
-    // Reporter for sharding (use blob reporter)
+    // Reporter configuration
+    // Always include JSON reporter for API consumption with attachments
+    // HTML reporter for visual browsing
     if (githubConfig.shardCount > 1) {
-      parts.push('--reporter=blob');
+      // Sharding: use blob reporter + JSON
+      parts.push('--reporter=blob,json');
+    } else {
+      // Single run: use HTML + JSON + list
+      parts.push('--reporter=html,json,list');
     }
 
     return parts.join(' ');

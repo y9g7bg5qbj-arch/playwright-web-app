@@ -3,9 +3,11 @@ import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { prisma } from '../db/prisma';
 import { ExecutionService } from '../services/execution.service';
 import { PlaywrightService, DebugEvent } from '../services/playwright.service';
 import { CopilotAgentService } from '../services/copilot/CopilotAgentService';
+import { setupAIRecorderHandlers, setupAIRecorderEventForwarding } from './aiRecorder.handler';
 import type { ClientToServerEvents, ServerToClientEvents } from '@playwright-web-app/shared';
 
 interface AuthSocket extends Socket {
@@ -30,6 +32,9 @@ export class WebSocketServer {
 
     this.setupMiddleware();
     this.setupHandlers();
+
+    // Set up AI Recorder event forwarding from service to WebSocket
+    setupAIRecorderEventForwarding(this.io);
 
     logger.info('WebSocket server initialized with built-in Playwright support (no agent required)');
   }
@@ -80,6 +85,9 @@ export class WebSocketServer {
   }
 
   private handleClientConnection(socket: AuthSocket) {
+    // Set up AI Recorder handlers for this socket
+    setupAIRecorderHandlers(socket, this.io);
+
     // Handle recording start - runs Playwright codegen directly
     socket.on('recording:start', async (data) => {
       logger.info('Recording start requested:', data);
@@ -128,6 +136,21 @@ export class WebSocketServer {
 
     // ======== CODEGEN RECORDING (Vero IDE - Recommended) ========
     // Uses Playwright's codegen for perfect recording, converts to Vero DSL
+
+    // Subscribe to a codegen recording session (join room for updates)
+    socket.on('codegen:subscribe', (data: { sessionId: string }) => {
+      const roomName = `codegen:${data.sessionId}`;
+      socket.join(roomName);
+      logger.info(`[WebSocket] Client ${socket.id} subscribed to codegen session ${data.sessionId}`);
+    });
+
+    // Unsubscribe from a codegen recording session
+    socket.on('codegen:unsubscribe', (data: { sessionId: string }) => {
+      const roomName = `codegen:${data.sessionId}`;
+      socket.leave(roomName);
+      logger.info(`[WebSocket] Client ${socket.id} unsubscribed from codegen session ${data.sessionId}`);
+    });
+
     socket.on('recording:codegen:start', async (data: { url: string; sessionId: string; scenarioName: string }) => {
       console.log('[WebSocket] *** recording:codegen:start received ***', data);
       logger.info('Codegen recording start requested:', data);
@@ -537,15 +560,56 @@ export class WebSocketServer {
           const status = exitCode === 0 ? 'passed' : 'failed';
           await this.executionService.updateStatus(data.executionId, status, exitCode);
 
+          // Parse test results and create ExecutionStep records
+          let scenarios: any[] = [];
+          try {
+            const results = await this.playwrightService.parseTestResults(data.executionId);
+            if (results) {
+              scenarios = results.scenarios;
+              logger.info(`[WebSocket] Parsed ${scenarios.length} scenarios for execution ${data.executionId}`);
+
+              // Create ExecutionStep records for each scenario
+              for (let i = 0; i < scenarios.length; i++) {
+                const scenario = scenarios[i];
+                try {
+                  await prisma.executionStep.create({
+                    data: {
+                      executionId: data.executionId,
+                      stepNumber: i + 1,
+                      action: 'scenario',
+                      description: scenario.name,
+                      status: scenario.status,
+                      duration: scenario.duration,
+                      error: scenario.error || null,
+                      stepsJson: JSON.stringify(scenario.steps),
+                    },
+                  });
+                } catch (stepErr) {
+                  logger.warn(`[WebSocket] Failed to create ExecutionStep for scenario ${scenario.name}:`, stepErr);
+                }
+              }
+            }
+          } catch (parseErr) {
+            logger.warn('[WebSocket] Failed to parse test results:', parseErr);
+          }
+
           // Get trace URL (we'll serve it from the backend)
           const traceUrl = `/api/executions/${data.executionId}/trace`;
 
-          // Broadcast completion to all clients with trace URL
+          // Broadcast completion to all clients with scenario data
           this.io.emit('execution:complete', {
             executionId: data.executionId,
             exitCode,
             duration,
             traceUrl,
+            scenarios: scenarios.map(s => ({
+              id: s.id,
+              name: s.name,
+              status: s.status,
+              duration: s.duration,
+              error: s.error,
+              steps: s.steps,
+            })),
           });
         },
         data.traceMode || 'on-failure'  // Pass traceMode from frontend

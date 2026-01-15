@@ -1,6 +1,26 @@
 import { apiClient } from './client';
 import type { Execution, ExecutionCreate } from '@playwright-web-app/shared';
 
+export interface ExecutionScenario {
+  id: string;
+  name: string;
+  status: 'pending' | 'running' | 'passed' | 'failed' | 'skipped';
+  duration?: number;
+  error?: string;
+  traceUrl?: string;
+  screenshot?: string;
+  steps?: Array<{
+    id: string;
+    stepNumber: number;
+    action: string;
+    description?: string;
+    status: 'pending' | 'running' | 'passed' | 'failed' | 'skipped';
+    duration?: number;
+    error?: string;
+    screenshot?: string;
+  }>;
+}
+
 export interface ExecutionWithDetails {
   id: string;
   testFlowId: string;
@@ -18,6 +38,7 @@ export interface ExecutionWithDetails {
   failedCount: number;
   skippedCount: number;
   duration?: number;
+  scenarios?: ExecutionScenario[];
 }
 
 export interface ExecutionStep {

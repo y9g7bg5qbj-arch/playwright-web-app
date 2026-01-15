@@ -270,6 +270,141 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 });
 
 /**
+ * POST /api/applications/:id/duplicate
+ * Duplicate an application with all its projects and files
+ */
+router.post('/:id/duplicate', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { id } = req.params;
+        const { name } = req.body;
+
+        if (!name || !name.trim()) {
+            return res.status(400).json({
+                success: false,
+                error: 'New application name is required'
+            });
+        }
+
+        // Check access to source application
+        const sourceApp = await prisma.application.findUnique({
+            where: { id },
+            include: {
+                members: { where: { userId } },
+                projects: true
+            }
+        });
+
+        if (!sourceApp) {
+            return res.status(404).json({
+                success: false,
+                error: 'Application not found'
+            });
+        }
+
+        const isMember = sourceApp.members.length > 0;
+        if (sourceApp.userId !== userId && !isMember) {
+            return res.status(403).json({
+                success: false,
+                error: 'Access denied'
+            });
+        }
+
+        // Import file system utilities
+        const { join } = await import('path');
+        const { mkdir, readdir, copyFile, stat } = await import('fs/promises');
+        const VERO_PROJECTS_BASE = process.env.VERO_PROJECTS_BASE || join(process.cwd(), '..', 'vero-projects');
+
+        // Helper to recursively copy directory contents
+        const copyDirectory = async (srcDir: string, destDir: string) => {
+            try {
+                await mkdir(destDir, { recursive: true });
+                const entries = await readdir(srcDir, { withFileTypes: true });
+
+                for (const entry of entries) {
+                    const srcPath = join(srcDir, entry.name);
+                    const destPath = join(destDir, entry.name);
+
+                    if (entry.isDirectory()) {
+                        await copyDirectory(srcPath, destPath);
+                    } else if (entry.isFile()) {
+                        await copyFile(srcPath, destPath);
+                    }
+                }
+            } catch (err) {
+                console.warn(`Could not copy from ${srcDir}:`, err);
+            }
+        };
+
+        // Create new application
+        const newApp = await prisma.application.create({
+            data: {
+                userId,
+                name: name.trim(),
+                description: sourceApp.description ? `Duplicated from ${sourceApp.name}` : null
+            }
+        });
+
+        // Duplicate each project
+        const newProjects = [];
+        for (const sourceProject of sourceApp.projects) {
+            // Create new project
+            const newProject = await prisma.project.create({
+                data: {
+                    applicationId: newApp.id,
+                    name: sourceProject.name,
+                    description: sourceProject.description,
+                    veroPath: '' // Temporary
+                }
+            });
+
+            // Set up file path
+            const newVeroPath = join(VERO_PROJECTS_BASE, newApp.id, newProject.id);
+
+            // Update project with correct veroPath
+            await prisma.project.update({
+                where: { id: newProject.id },
+                data: { veroPath: newVeroPath }
+            });
+
+            // Copy files from source project
+            if (sourceProject.veroPath) {
+                try {
+                    await copyDirectory(sourceProject.veroPath, newVeroPath);
+                } catch (err) {
+                    console.warn(`Could not copy project files from ${sourceProject.veroPath}:`, err);
+                }
+            }
+
+            newProjects.push({ ...newProject, veroPath: newVeroPath });
+        }
+
+        res.status(201).json({
+            success: true,
+            data: {
+                id: newApp.id,
+                name: newApp.name,
+                description: newApp.description,
+                projects: newProjects,
+                createdAt: newApp.createdAt
+            }
+        });
+    } catch (error: any) {
+        if (error.code === 'P2002') {
+            return res.status(409).json({
+                success: false,
+                error: 'An application with this name already exists'
+            });
+        }
+        console.error('Error duplicating application:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
  * DELETE /api/applications/:id
  * Delete an application
  */
@@ -619,49 +754,89 @@ router.post('/:id/projects', async (req: AuthRequest, res: Response) => {
                 await copyDirectory(sourceProject.veroPath, veroPath);
             } else {
                 // Create empty folder structure with example files
-                await mkdir(join(veroPath, 'pages'), { recursive: true });
-                await mkdir(join(veroPath, 'features'), { recursive: true });
+                // EXACTLY 3 folders: Pages, Features, Data
+                await mkdir(join(veroPath, 'Pages'), { recursive: true });
+                await mkdir(join(veroPath, 'Features'), { recursive: true });
+                await mkdir(join(veroPath, 'Data'), { recursive: true });
 
                 // Create example page file
                 const { writeFile } = await import('fs/promises');
                 const examplePageContent = `# Example Page Object
-# Define page elements and actions here
+# Define page elements with FIELD definitions
 
-page LoginPage
-  url "/login"
+PAGE LoginPage
+  URL "/login"
 
-  elements:
-    usernameInput: input[name="username"]
-    passwordInput: input[name="password"]
-    submitButton: button[type="submit"]
+  FIELD usernameInput
+    SELECTOR input[name="username"]
+    TYPE text
+  END
 
-  actions:
-    login(username, password):
-      fill usernameInput with username
-      fill passwordInput with password
-      click submitButton
-end
+  FIELD passwordInput
+    SELECTOR input[name="password"]
+    TYPE password
+  END
+
+  FIELD submitButton
+    SELECTOR button[type="submit"]
+    TYPE button
+  END
+
+  ACTION login(username, password)
+    fill usernameInput with username
+    fill passwordInput with password
+    click submitButton
+  END
+END
 `;
-                await writeFile(join(veroPath, 'pages', 'example.vero'), examplePageContent);
+                await writeFile(join(veroPath, 'Pages', 'example.vero'), examplePageContent);
 
                 // Create example feature file
                 const exampleFeatureContent = `# Example Feature Test
-# Write your test scenarios here
+# Write your test scenarios using FEATURE/SCENARIO syntax
 
 @testId("TC001")
-feature "Example Login Test"
+FEATURE "User Authentication"
 
-  scenario "User can login with valid credentials"
+  SCENARIO "User can login with valid credentials"
     navigate to "https://example.com/login"
     fill "Username" with "testuser"
     fill "Password" with "password123"
     click "Login" button
     assert "Dashboard" is visible
-  end
+  END
 
-end
+  SCENARIO "User sees error with invalid credentials"
+    navigate to "https://example.com/login"
+    fill "Username" with "invalid"
+    fill "Password" with "wrong"
+    click "Login" button
+    assert "Invalid credentials" is visible
+  END
+
+END
 `;
-                await writeFile(join(veroPath, 'features', 'example.vero'), exampleFeatureContent);
+                await writeFile(join(veroPath, 'Features', 'example.vero'), exampleFeatureContent);
+
+                // Create example data file
+                const exampleDataContent = `# Example Test Data
+# Define test data for data-driven testing
+
+DATA LoginCredentials
+  ROW valid_user
+    username: "testuser"
+    password: "password123"
+    expected: "success"
+  END
+
+  ROW invalid_user
+    username: "invalid"
+    password: "wrong"
+    expected: "error"
+  END
+END
+`;
+                await writeFile(join(veroPath, 'Data', 'example.vero'), exampleDataContent);
             }
         } catch (fsError) {
             console.warn('Could not create/copy project folders:', fsError);
@@ -806,6 +981,505 @@ router.delete('/:appId/projects/:projectId', async (req: AuthRequest, res: Respo
         });
     } catch (error) {
         console.error('Error deleting project:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+// ============================================
+// APPLICATION ENVIRONMENTS (Postman-style)
+// ============================================
+
+/**
+ * GET /api/applications/:appId/environments
+ * List all environments for an application
+ */
+router.get('/:appId/environments', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId } = req.params;
+
+        // Check access
+        const application = await prisma.application.findUnique({
+            where: { id: appId },
+            include: { members: { where: { userId } } }
+        });
+
+        if (!application) {
+            return res.status(404).json({ success: false, error: 'Application not found' });
+        }
+
+        const hasAccess = application.userId === userId || application.members.length > 0;
+        if (!hasAccess) {
+            return res.status(403).json({ success: false, error: 'Access denied' });
+        }
+
+        const environments = await prisma.appEnvironment.findMany({
+            where: { applicationId: appId },
+            include: {
+                variables: {
+                    orderBy: { key: 'asc' }
+                }
+            },
+            orderBy: { name: 'asc' }
+        });
+
+        res.json({
+            success: true,
+            data: environments.map(env => ({
+                ...env,
+                variables: env.variables.map(v => ({
+                    ...v,
+                    value: v.isSecret ? '••••••••' : v.value // Mask secrets
+                }))
+            }))
+        });
+    } catch (error) {
+        console.error('Error listing environments:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * GET /api/applications/:appId/environments/active
+ * Get the active environment with all variables (unmasked for execution)
+ */
+router.get('/:appId/environments/active', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId } = req.params;
+
+        // Check access
+        const application = await prisma.application.findUnique({
+            where: { id: appId },
+            include: { members: { where: { userId } } }
+        });
+
+        if (!application) {
+            return res.status(404).json({ success: false, error: 'Application not found' });
+        }
+
+        const hasAccess = application.userId === userId || application.members.length > 0;
+        if (!hasAccess) {
+            return res.status(403).json({ success: false, error: 'Access denied' });
+        }
+
+        const activeEnv = await prisma.appEnvironment.findFirst({
+            where: { applicationId: appId, isActive: true },
+            include: {
+                variables: { orderBy: { key: 'asc' } }
+            }
+        });
+
+        if (!activeEnv) {
+            return res.json({ success: true, data: null });
+        }
+
+        // Return unmasked values for execution
+        res.json({
+            success: true,
+            data: {
+                ...activeEnv,
+                // Convert to key-value object for easy consumption
+                variablesMap: activeEnv.variables.reduce((acc, v) => {
+                    acc[v.key] = v.value;
+                    return acc;
+                }, {} as Record<string, string>)
+            }
+        });
+    } catch (error) {
+        console.error('Error getting active environment:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * POST /api/applications/:appId/environments
+ * Create a new environment
+ */
+router.post('/:appId/environments', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId } = req.params;
+        const { name, variables = [] } = req.body;
+
+        if (!name || !name.trim()) {
+            return res.status(400).json({ success: false, error: 'Environment name is required' });
+        }
+
+        // Check access
+        const application = await prisma.application.findUnique({
+            where: { id: appId },
+            include: { members: { where: { userId, role: { in: ['owner', 'editor'] } } } }
+        });
+
+        if (!application) {
+            return res.status(404).json({ success: false, error: 'Application not found' });
+        }
+
+        const canEdit = application.userId === userId || application.members.length > 0;
+        if (!canEdit) {
+            return res.status(403).json({ success: false, error: 'Access denied' });
+        }
+
+        // Check if this will be the first environment (make it active by default)
+        const existingCount = await prisma.appEnvironment.count({
+            where: { applicationId: appId }
+        });
+
+        const environment = await prisma.appEnvironment.create({
+            data: {
+                applicationId: appId,
+                name: name.trim(),
+                isActive: existingCount === 0, // First environment is active by default
+                variables: {
+                    create: variables.map((v: { key: string; value: string; isSecret?: boolean }) => ({
+                        key: v.key,
+                        value: v.value,
+                        isSecret: v.isSecret || false
+                    }))
+                }
+            },
+            include: {
+                variables: { orderBy: { key: 'asc' } }
+            }
+        });
+
+        res.status(201).json({ success: true, data: environment });
+    } catch (error: any) {
+        if (error.code === 'P2002') {
+            return res.status(409).json({
+                success: false,
+                error: 'An environment with this name already exists'
+            });
+        }
+        console.error('Error creating environment:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * PUT /api/applications/:appId/environments/:envId
+ * Update an environment (name only, use activate endpoint for isActive)
+ */
+router.put('/:appId/environments/:envId', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId, envId } = req.params;
+        const { name } = req.body;
+
+        // Check access
+        const application = await prisma.application.findUnique({
+            where: { id: appId },
+            include: { members: { where: { userId, role: { in: ['owner', 'editor'] } } } }
+        });
+
+        if (!application) {
+            return res.status(404).json({ success: false, error: 'Application not found' });
+        }
+
+        const canEdit = application.userId === userId || application.members.length > 0;
+        if (!canEdit) {
+            return res.status(403).json({ success: false, error: 'Access denied' });
+        }
+
+        const existing = await prisma.appEnvironment.findUnique({ where: { id: envId } });
+        if (!existing || existing.applicationId !== appId) {
+            return res.status(404).json({ success: false, error: 'Environment not found' });
+        }
+
+        const environment = await prisma.appEnvironment.update({
+            where: { id: envId },
+            data: { name: name?.trim() || existing.name },
+            include: { variables: { orderBy: { key: 'asc' } } }
+        });
+
+        res.json({ success: true, data: environment });
+    } catch (error: any) {
+        if (error.code === 'P2002') {
+            return res.status(409).json({
+                success: false,
+                error: 'An environment with this name already exists'
+            });
+        }
+        console.error('Error updating environment:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * DELETE /api/applications/:appId/environments/:envId
+ * Delete an environment
+ */
+router.delete('/:appId/environments/:envId', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId, envId } = req.params;
+
+        // Check access
+        const application = await prisma.application.findUnique({
+            where: { id: appId },
+            include: { members: { where: { userId, role: { in: ['owner', 'editor'] } } } }
+        });
+
+        if (!application) {
+            return res.status(404).json({ success: false, error: 'Application not found' });
+        }
+
+        const canEdit = application.userId === userId || application.members.length > 0;
+        if (!canEdit) {
+            return res.status(403).json({ success: false, error: 'Access denied' });
+        }
+
+        const existing = await prisma.appEnvironment.findUnique({ where: { id: envId } });
+        if (!existing || existing.applicationId !== appId) {
+            return res.status(404).json({ success: false, error: 'Environment not found' });
+        }
+
+        await prisma.appEnvironment.delete({ where: { id: envId } });
+
+        // If deleted env was active, make another one active
+        if (existing.isActive) {
+            const firstEnv = await prisma.appEnvironment.findFirst({
+                where: { applicationId: appId },
+                orderBy: { name: 'asc' }
+            });
+            if (firstEnv) {
+                await prisma.appEnvironment.update({
+                    where: { id: firstEnv.id },
+                    data: { isActive: true }
+                });
+            }
+        }
+
+        res.json({ success: true, message: 'Environment deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting environment:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * POST /api/applications/:appId/environments/:envId/activate
+ * Set an environment as active (deactivates others)
+ */
+router.post('/:appId/environments/:envId/activate', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId, envId } = req.params;
+
+        // Check access
+        const application = await prisma.application.findUnique({
+            where: { id: appId },
+            include: { members: { where: { userId } } }
+        });
+
+        if (!application) {
+            return res.status(404).json({ success: false, error: 'Application not found' });
+        }
+
+        const hasAccess = application.userId === userId || application.members.length > 0;
+        if (!hasAccess) {
+            return res.status(403).json({ success: false, error: 'Access denied' });
+        }
+
+        const existing = await prisma.appEnvironment.findUnique({ where: { id: envId } });
+        if (!existing || existing.applicationId !== appId) {
+            return res.status(404).json({ success: false, error: 'Environment not found' });
+        }
+
+        // Deactivate all environments for this app, then activate the selected one
+        await prisma.$transaction([
+            prisma.appEnvironment.updateMany({
+                where: { applicationId: appId },
+                data: { isActive: false }
+            }),
+            prisma.appEnvironment.update({
+                where: { id: envId },
+                data: { isActive: true }
+            })
+        ]);
+
+        const environment = await prisma.appEnvironment.findUnique({
+            where: { id: envId },
+            include: { variables: { orderBy: { key: 'asc' } } }
+        });
+
+        res.json({ success: true, data: environment });
+    } catch (error) {
+        console.error('Error activating environment:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * POST /api/applications/:appId/environments/:envId/variables
+ * Add a variable to an environment
+ */
+router.post('/:appId/environments/:envId/variables', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId, envId } = req.params;
+        const { key, value, isSecret = false } = req.body;
+
+        if (!key || !key.trim()) {
+            return res.status(400).json({ success: false, error: 'Variable key is required' });
+        }
+
+        // Check access
+        const application = await prisma.application.findUnique({
+            where: { id: appId },
+            include: { members: { where: { userId, role: { in: ['owner', 'editor'] } } } }
+        });
+
+        if (!application) {
+            return res.status(404).json({ success: false, error: 'Application not found' });
+        }
+
+        const canEdit = application.userId === userId || application.members.length > 0;
+        if (!canEdit) {
+            return res.status(403).json({ success: false, error: 'Access denied' });
+        }
+
+        const existing = await prisma.appEnvironment.findUnique({ where: { id: envId } });
+        if (!existing || existing.applicationId !== appId) {
+            return res.status(404).json({ success: false, error: 'Environment not found' });
+        }
+
+        const variable = await prisma.appEnvVariable.create({
+            data: {
+                environmentId: envId,
+                key: key.trim(),
+                value: value || '',
+                isSecret
+            }
+        });
+
+        res.status(201).json({ success: true, data: variable });
+    } catch (error: any) {
+        if (error.code === 'P2002') {
+            return res.status(409).json({
+                success: false,
+                error: 'A variable with this key already exists in this environment'
+            });
+        }
+        console.error('Error adding variable:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * PUT /api/applications/:appId/environments/:envId/variables/:varId
+ * Update a variable
+ */
+router.put('/:appId/environments/:envId/variables/:varId', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId, envId, varId } = req.params;
+        const { key, value, isSecret } = req.body;
+
+        // Check access
+        const application = await prisma.application.findUnique({
+            where: { id: appId },
+            include: { members: { where: { userId, role: { in: ['owner', 'editor'] } } } }
+        });
+
+        if (!application) {
+            return res.status(404).json({ success: false, error: 'Application not found' });
+        }
+
+        const canEdit = application.userId === userId || application.members.length > 0;
+        if (!canEdit) {
+            return res.status(403).json({ success: false, error: 'Access denied' });
+        }
+
+        const existing = await prisma.appEnvVariable.findUnique({ where: { id: varId } });
+        if (!existing || existing.environmentId !== envId) {
+            return res.status(404).json({ success: false, error: 'Variable not found' });
+        }
+
+        const variable = await prisma.appEnvVariable.update({
+            where: { id: varId },
+            data: {
+                key: key?.trim() || existing.key,
+                value: value !== undefined ? value : existing.value,
+                isSecret: isSecret !== undefined ? isSecret : existing.isSecret
+            }
+        });
+
+        res.json({ success: true, data: variable });
+    } catch (error: any) {
+        if (error.code === 'P2002') {
+            return res.status(409).json({
+                success: false,
+                error: 'A variable with this key already exists in this environment'
+            });
+        }
+        console.error('Error updating variable:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * DELETE /api/applications/:appId/environments/:envId/variables/:varId
+ * Delete a variable
+ */
+router.delete('/:appId/environments/:envId/variables/:varId', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId, envId, varId } = req.params;
+
+        // Check access
+        const application = await prisma.application.findUnique({
+            where: { id: appId },
+            include: { members: { where: { userId, role: { in: ['owner', 'editor'] } } } }
+        });
+
+        if (!application) {
+            return res.status(404).json({ success: false, error: 'Application not found' });
+        }
+
+        const canEdit = application.userId === userId || application.members.length > 0;
+        if (!canEdit) {
+            return res.status(403).json({ success: false, error: 'Access denied' });
+        }
+
+        const existing = await prisma.appEnvVariable.findUnique({ where: { id: varId } });
+        if (!existing || existing.environmentId !== envId) {
+            return res.status(404).json({ success: false, error: 'Variable not found' });
+        }
+
+        await prisma.appEnvVariable.delete({ where: { id: varId } });
+
+        res.json({ success: true, message: 'Variable deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting variable:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'

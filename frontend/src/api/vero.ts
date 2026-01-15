@@ -1,0 +1,364 @@
+/**
+ * Vero File System API Client
+ * Handles file operations for Vero scripts
+ */
+
+const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '/api';
+
+function getToken(): string | null {
+  return localStorage.getItem('auth_token');
+}
+
+async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  const token = getToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers,
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || 'Request failed');
+  }
+
+  return data;
+}
+
+// Types
+export interface VeroFileNode {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  children?: VeroFileNode[];
+}
+
+export interface VeroFilesResponse {
+  success: boolean;
+  files: VeroFileNode[];
+}
+
+export interface VeroFileContentResponse {
+  success: boolean;
+  content: string;
+}
+
+export interface VeroSaveResponse {
+  success: boolean;
+  message: string;
+}
+
+export interface VeroRenameResponse {
+  success: boolean;
+  message: string;
+  newPath: string;
+}
+
+export interface VeroRunConfig {
+  browserMode?: 'headless' | 'headed';
+  workers?: number;
+}
+
+export interface VeroRunResponse {
+  success: boolean;
+  status: string;
+  output: string;
+  error?: string;
+  generatedCode?: string;
+  executionId?: string;
+}
+
+export interface VeroValidationError {
+  code: string;
+  category: string;
+  severity: 'error' | 'warning' | 'info' | 'hint';
+  location?: {
+    line: number;
+    column?: number;
+  };
+  title: string;
+  whatWentWrong: string;
+  howToFix: string;
+  suggestions: Array<{ text: string }>;
+}
+
+export interface VeroValidationResponse {
+  success: boolean;
+  errors: VeroValidationError[];
+  warnings: VeroValidationError[];
+}
+
+export interface ScenarioMeta {
+  name: string;
+  tags: string[];
+  line: number;
+  featureName: string;
+  filePath: string;
+}
+
+export interface FeatureWithScenarios {
+  name: string;
+  filePath: string;
+  scenarios: ScenarioMeta[];
+}
+
+export interface ScenarioIndex {
+  totalScenarios: number;
+  totalFeatures: number;
+  tags: { name: string; count: number }[];
+  features: FeatureWithScenarios[];
+}
+
+export const veroApi = {
+  // ============================================
+  // FILE OPERATIONS
+  // ============================================
+
+  /**
+   * List all .vero files in the project
+   */
+  async listFiles(projectId?: string, veroPath?: string): Promise<VeroFileNode[]> {
+    let url = '/vero/files';
+    const params: string[] = [];
+    if (projectId) params.push(`projectId=${encodeURIComponent(projectId)}`);
+    if (veroPath) params.push(`veroPath=${encodeURIComponent(veroPath)}`);
+    if (params.length > 0) url += '?' + params.join('&');
+
+    const response = await request<VeroFilesResponse>(url);
+    return response.files || [];
+  },
+
+  /**
+   * Get file content
+   */
+  async getFileContent(filePath: string, projectId?: string): Promise<string> {
+    let url = `/vero/files/${encodeURIComponent(filePath)}`;
+    if (projectId) url += `?projectId=${encodeURIComponent(projectId)}`;
+
+    const response = await request<VeroFileContentResponse>(url);
+    return response.content;
+  },
+
+  /**
+   * Save file content
+   */
+  async saveFile(filePath: string, content: string, projectId?: string): Promise<void> {
+    let url = `/vero/files/${encodeURIComponent(filePath)}`;
+    if (projectId) url += `?projectId=${encodeURIComponent(projectId)}`;
+
+    await request<VeroSaveResponse>(url, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    });
+  },
+
+  /**
+   * Rename file
+   */
+  async renameFile(oldPath: string, newPath: string): Promise<string> {
+    const response = await request<VeroRenameResponse>('/vero/files/rename', {
+      method: 'POST',
+      body: JSON.stringify({ oldPath, newPath }),
+    });
+    return response.newPath;
+  },
+
+  // ============================================
+  // EXECUTION
+  // ============================================
+
+  /**
+   * Run Vero file
+   */
+  async runTest(
+    options: {
+      filePath?: string;
+      content?: string;
+      config?: VeroRunConfig;
+      scenarioName?: string;
+    }
+  ): Promise<VeroRunResponse> {
+    return request<VeroRunResponse>('/vero/run', {
+      method: 'POST',
+      body: JSON.stringify(options),
+    });
+  },
+
+  /**
+   * Run Vero file in debug mode
+   */
+  async debugTest(
+    options: {
+      filePath?: string;
+      content?: string;
+      breakpoints?: number[];
+    }
+  ): Promise<{ executionId: string; testFlowId: string; generatedCode: string }> {
+    return request('/vero/debug', {
+      method: 'POST',
+      body: JSON.stringify(options),
+    });
+  },
+
+  // ============================================
+  // VALIDATION
+  // ============================================
+
+  /**
+   * Validate Vero code
+   */
+  async validate(code: string): Promise<VeroValidationResponse> {
+    return request<VeroValidationResponse>('/vero/validate', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+  },
+
+  // ============================================
+  // SCENARIOS
+  // ============================================
+
+  /**
+   * Get all scenarios with tags for dashboard
+   */
+  async getScenarios(projectId?: string, veroPath?: string): Promise<ScenarioIndex> {
+    let url = '/vero/scenarios';
+    const params: string[] = [];
+    if (projectId) params.push(`projectId=${encodeURIComponent(projectId)}`);
+    if (veroPath) params.push(`veroPath=${encodeURIComponent(veroPath)}`);
+    if (params.length > 0) url += '?' + params.join('&');
+
+    const response = await request<{ success: boolean; data: ScenarioIndex }>(url);
+    return response.data;
+  },
+
+  // ============================================
+  // RECORDING
+  // ============================================
+
+  /**
+   * Start a recording session
+   */
+  async startRecording(url: string = 'https://example.com'): Promise<{ sessionId: string }> {
+    return request('/vero/recording/start', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    });
+  },
+
+  /**
+   * Get recording code
+   */
+  async getRecordingCode(sessionId: string): Promise<{
+    code: string;
+    isRecording: boolean;
+    isComplete: boolean;
+    error?: string;
+  }> {
+    return request(`/vero/recording/code/${sessionId}`);
+  },
+
+  /**
+   * Pause/resume recording
+   */
+  async pauseRecording(sessionId: string): Promise<{ isPaused: boolean }> {
+    return request('/vero/recording/pause', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId }),
+    });
+  },
+
+  /**
+   * Stop recording and get the generated code
+   */
+  async stopRecording(sessionId: string): Promise<{
+    code: string;
+    rawPlaywrightCode: string;
+    message: string;
+  }> {
+    return request('/vero/recording/stop', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId }),
+    });
+  },
+
+  // ============================================
+  // DOCKER EXECUTION
+  // ============================================
+
+  /**
+   * Run test in Docker with VNC
+   */
+  async runDocker(
+    options: {
+      filePath?: string;
+      content?: string;
+      config?: { dockerShards?: number };
+      executionId: string;
+    }
+  ): Promise<{
+    executionId: string;
+    shardCount: number;
+    vncPorts: number[];
+    generatedCode: string;
+  }> {
+    return request('/vero/run-docker', {
+      method: 'POST',
+      body: JSON.stringify(options),
+    });
+  },
+
+  /**
+   * Stop Docker execution
+   */
+  async stopDocker(executionId: string): Promise<void> {
+    await request('/vero/stop-docker', {
+      method: 'POST',
+      body: JSON.stringify({ executionId }),
+    });
+  },
+
+  // ============================================
+  // AI AGENT
+  // ============================================
+
+  /**
+   * Check agent health
+   */
+  async getAgentHealth(): Promise<{
+    agentStatus: string;
+    llmProvider?: string;
+    existingPages?: number;
+  }> {
+    return request('/vero/agent/health');
+  },
+
+  /**
+   * Generate Vero code from English steps
+   */
+  async generateFromEnglish(
+    steps: string,
+    options?: {
+      url?: string;
+      featureName?: string;
+      scenarioName?: string;
+      useAi?: boolean;
+    }
+  ): Promise<{
+    veroCode: string;
+    newPages: Record<string, string>;
+  }> {
+    return request('/vero/agent/generate', {
+      method: 'POST',
+      body: JSON.stringify({ steps, ...options }),
+    });
+  },
+};
