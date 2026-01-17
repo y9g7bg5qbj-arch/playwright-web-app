@@ -117,6 +117,41 @@ export function setupAIRecorderEventForwarding(io: Server) {
     io.to(`aiRecorder:${data.sessionId}`).emit('aiRecorder:step:replayed', data);
   });
 
+  // Forward stuck events (for recovery flow)
+  aiRecorderService.on('step:stuck', (data) => {
+    io.to(`aiRecorder:${data.sessionId}`).emit('aiRecorder:step:stuck', data);
+  });
+
+  aiRecorderService.on('testCase:stuck', (data) => {
+    io.to(`aiRecorder:${data.sessionId}`).emit('aiRecorder:testCase:stuck', data);
+  });
+
+  // Forward recovery events
+  aiRecorderService.on('step:resolved', (data) => {
+    io.to(`aiRecorder:${data.sessionId}`).emit('aiRecorder:step:resolved', data);
+  });
+
+  aiRecorderService.on('step:skipped', (data) => {
+    io.to(`aiRecorder:${data.sessionId}`).emit('aiRecorder:step:skipped', data);
+  });
+
+  aiRecorderService.on('step:captured', (data) => {
+    io.to(`aiRecorder:${data.sessionId}`).emit('aiRecorder:step:captured', data);
+  });
+
+  // Forward browser capture events
+  aiRecorderService.on('capture:started', (data) => {
+    io.to(`aiRecorder:${data.sessionId}`).emit('aiRecorder:capture:started', data);
+  });
+
+  aiRecorderService.on('capture:action', (data) => {
+    io.to(`aiRecorder:${data.sessionId}`).emit('aiRecorder:capture:action', data);
+  });
+
+  aiRecorderService.on('capture:stopped', (data) => {
+    io.to(`aiRecorder:${data.sessionId}`).emit('aiRecorder:capture:stopped', data);
+  });
+
   logger.info('AI Recorder WebSocket event forwarding configured');
 }
 
@@ -313,16 +348,224 @@ export function setupAIRecorderHandlers(socket: AuthSocket, io: Server) {
     }
   });
 
+  // ======== RECOVERY (STUCK STATE) ========
+
+  // Resume execution with user hint
+  socket.on('aiRecorder:resumeWithHint', async (data: {
+    sessionId: string;
+    testCaseId: string;
+    stepId: string;
+    hint: string;
+  }) => {
+    if (!userId) {
+      socket.emit('aiRecorder:error', { error: 'Not authenticated' });
+      return;
+    }
+
+    try {
+      logger.info('AI Recorder: Resuming with hint', data);
+
+      // Get AI settings
+      const aiSettings = await getAISettings(userId);
+
+      // Resume with user's hint
+      const result = await aiRecorderService.resumeWithHint(
+        data.sessionId,
+        data.testCaseId,
+        data.stepId,
+        data.hint,
+        aiSettings
+      );
+
+      if (result.success) {
+        socket.emit('aiRecorder:resumeSuccess', {
+          sessionId: data.sessionId,
+          testCaseId: data.testCaseId,
+          stepId: data.stepId,
+          veroCode: result.veroCode,
+        });
+      } else {
+        socket.emit('aiRecorder:resumeFailed', {
+          sessionId: data.sessionId,
+          testCaseId: data.testCaseId,
+          stepId: data.stepId,
+          error: result.error,
+        });
+      }
+    } catch (error: any) {
+      logger.error('AI Recorder: Failed to resume with hint:', error);
+      socket.emit('aiRecorder:error', { error: error.message, ...data });
+    }
+  });
+
+  // Skip a stuck step
+  socket.on('aiRecorder:skipStep', async (data: {
+    sessionId: string;
+    testCaseId: string;
+    stepId: string;
+  }) => {
+    try {
+      logger.info('AI Recorder: Skipping step', data);
+      await aiRecorderService.skipStep(data.sessionId, data.testCaseId, data.stepId);
+      socket.emit('aiRecorder:step:skipped', data);
+    } catch (error: any) {
+      socket.emit('aiRecorder:error', { error: error.message, ...data });
+    }
+  });
+
+  // Capture manual action (browser takeover)
+  socket.on('aiRecorder:captureAction', async (data: {
+    sessionId: string;
+    testCaseId: string;
+    stepId: string;
+    veroCode: string;
+    selector?: string;
+  }) => {
+    try {
+      logger.info('AI Recorder: Capturing manual action', data);
+      await aiRecorderService.captureManualAction(
+        data.sessionId,
+        data.testCaseId,
+        data.stepId,
+        data.veroCode,
+        data.selector
+      );
+      socket.emit('aiRecorder:step:captured', {
+        sessionId: data.sessionId,
+        testCaseId: data.testCaseId,
+        stepId: data.stepId,
+        veroCode: data.veroCode,
+      });
+    } catch (error: any) {
+      socket.emit('aiRecorder:error', { error: error.message, ...data });
+    }
+  });
+
+  // ======== BROWSER CAPTURE ========
+
+  // Start browser capture mode (single step replacement or manual recording)
+  socket.on('aiRecorder:startCapture', async (data: {
+    sessionId: string;
+    testCaseId: string;
+    stepId?: string; // If set, replace this specific step
+    mode: 'single' | 'manual';
+  }) => {
+    if (!userId) {
+      socket.emit('aiRecorder:error', { error: 'Not authenticated' });
+      return;
+    }
+
+    try {
+      logger.info('AI Recorder: Starting browser capture', data);
+
+      // Get AI settings
+      const aiSettings = await getAISettings(userId);
+
+      // Start capture
+      const result = await aiRecorderService.startBrowserCapture(
+        data.sessionId,
+        data.testCaseId,
+        data.stepId,
+        data.mode,
+        aiSettings
+      );
+
+      if (result.success) {
+        socket.emit('aiRecorder:capture:started', {
+          sessionId: data.sessionId,
+          testCaseId: data.testCaseId,
+          stepId: data.stepId,
+          mode: data.mode,
+        });
+      } else {
+        socket.emit('aiRecorder:error', {
+          error: result.error || 'Failed to start capture',
+          ...data,
+        });
+      }
+    } catch (error: any) {
+      logger.error('AI Recorder: Failed to start capture:', error);
+      socket.emit('aiRecorder:error', { error: error.message, ...data });
+    }
+  });
+
+  // Stop browser capture and process captured actions
+  socket.on('aiRecorder:stopCapture', async (data: {
+    sessionId: string;
+    testCaseId: string;
+  }) => {
+    try {
+      logger.info('AI Recorder: Stopping browser capture', data);
+
+      const result = await aiRecorderService.stopBrowserCapture(
+        data.sessionId,
+        data.testCaseId
+      );
+
+      if (result.success) {
+        socket.emit('aiRecorder:capture:stopped', {
+          sessionId: data.sessionId,
+          testCaseId: data.testCaseId,
+          actions: result.actions,
+        });
+      } else {
+        socket.emit('aiRecorder:error', {
+          error: result.error || 'Failed to stop capture',
+          ...data,
+        });
+      }
+    } catch (error: any) {
+      logger.error('AI Recorder: Failed to stop capture:', error);
+      socket.emit('aiRecorder:error', { error: error.message, ...data });
+    }
+  });
+
+  // Check if capture is active
+  socket.on('aiRecorder:isCaptureActive', (data: {
+    sessionId: string;
+    testCaseId: string;
+  }) => {
+    const isCapturing = aiRecorderService.isCapturing(data.sessionId, data.testCaseId);
+    socket.emit('aiRecorder:captureStatus', {
+      sessionId: data.sessionId,
+      testCaseId: data.testCaseId,
+      isCapturing,
+    });
+  });
+
   // ======== APPROVAL ========
+
+  // Preview Vero code before saving (shows diff if file exists)
+  socket.on('aiRecorder:preview', async (data: {
+    testCaseId: string;
+    targetPath: string;
+  }) => {
+    try {
+      logger.info('AI Recorder: Previewing test case', data);
+      const preview = await aiRecorderService.previewTestCaseVero(data.testCaseId, data.targetPath);
+      socket.emit('aiRecorder:preview', {
+        testCaseId: data.testCaseId,
+        ...preview,
+      });
+    } catch (error: any) {
+      socket.emit('aiRecorder:error', { error: error.message });
+    }
+  });
 
   // Approve a test case and save as .vero file
   socket.on('aiRecorder:approve', async (data: {
     testCaseId: string;
     targetPath: string;
+    merge?: boolean; // If true, append to existing file
+    overwrite?: boolean; // If true, replace existing scenario
   }) => {
     try {
       logger.info('AI Recorder: Approving test case', data);
-      const filePath = await aiRecorderService.approveTestCase(data.testCaseId, data.targetPath);
+      const filePath = await aiRecorderService.approveTestCase(
+        data.testCaseId,
+        data.targetPath,
+        { merge: data.merge, overwrite: data.overwrite }
+      );
       socket.emit('aiRecorder:approved', { testCaseId: data.testCaseId, filePath });
     } catch (error: any) {
       socket.emit('aiRecorder:error', { error: error.message });

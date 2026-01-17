@@ -8,14 +8,14 @@ export class LoginPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.emailInput = page.getByLabel('Email');
-    this.passwordInput = page.getByLabel('Password');
-    this.submitBtn = page.getByRole('button', { name: 'Sign In' });
+    this.emailInput = page.locator('[name=email], [type=email], input[placeholder*='Email']');
+    this.passwordInput = page.locator('[name=password], [type=password]');
+    this.submitBtn = page.locator('[type=submit], button:has-text('Sign In')');
   }
 
   async login(email: string, password: string) {
-    await this.emailInput.fill(email);
-    await this.passwordInput.fill(password);
-    await this.submitBtn.click();
+    await test.step('Fill LoginPage.emailInput', async () => { await loginPage.emailInput.fill(email); });
+    await test.step('Fill LoginPage.passwordInput', async () => { await loginPage.passwordInput.fill(password); });
+    await test.step('Click LoginPage.submitBtn', async () => { await loginPage.submitBtn.click(); });
   }
 }

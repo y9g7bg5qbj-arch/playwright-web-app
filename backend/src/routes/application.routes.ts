@@ -747,21 +747,12 @@ router.post('/:id/projects', async (req: AuthRequest, res: Response) => {
             }
         };
 
-        // Create project folder structure (or duplicate from source)
+        // Create project folder structure with environments (master/dev/sandboxes)
         try {
-            if (sourceProject && sourceProject.veroPath) {
-                // Duplicate files from source project
-                await copyDirectory(sourceProject.veroPath, veroPath);
-            } else {
-                // Create empty folder structure with example files
-                // EXACTLY 3 folders: Pages, Features, Data
-                await mkdir(join(veroPath, 'Pages'), { recursive: true });
-                await mkdir(join(veroPath, 'Features'), { recursive: true });
-                await mkdir(join(veroPath, 'Data'), { recursive: true });
+            const { writeFile } = await import('fs/promises');
 
-                // Create example page file
-                const { writeFile } = await import('fs/promises');
-                const examplePageContent = `# Example Page Object
+            // Example file contents
+            const examplePageContent = `# Example Page Object
 # Define page elements with FIELD definitions
 
 PAGE LoginPage
@@ -789,10 +780,8 @@ PAGE LoginPage
   END
 END
 `;
-                await writeFile(join(veroPath, 'Pages', 'example.vero'), examplePageContent);
 
-                // Create example feature file
-                const exampleFeatureContent = `# Example Feature Test
+            const exampleFeatureContent = `# Example Feature Test
 # Write your test scenarios using FEATURE/SCENARIO syntax
 
 @testId("TC001")
@@ -816,10 +805,8 @@ FEATURE "User Authentication"
 
 END
 `;
-                await writeFile(join(veroPath, 'Features', 'example.vero'), exampleFeatureContent);
 
-                // Create example data file
-                const exampleDataContent = `# Example Test Data
+            const exampleDataContent = `# Example Test Data
 # Define test data for data-driven testing
 
 DATA LoginCredentials
@@ -836,7 +823,30 @@ DATA LoginCredentials
   END
 END
 `;
-                await writeFile(join(veroPath, 'Data', 'example.vero'), exampleDataContent);
+
+            if (sourceProject && sourceProject.veroPath) {
+                // Duplicate files from source project
+                await copyDirectory(sourceProject.veroPath, veroPath);
+            } else {
+                // Create environment-based folder structure
+                // Master environment (production - stable code)
+                await mkdir(join(veroPath, 'master', 'Pages'), { recursive: true });
+                await mkdir(join(veroPath, 'master', 'Features'), { recursive: true });
+                await mkdir(join(veroPath, 'master', 'Data'), { recursive: true });
+                await writeFile(join(veroPath, 'master', 'Pages', 'example.vero'), examplePageContent);
+                await writeFile(join(veroPath, 'master', 'Features', 'example.vero'), exampleFeatureContent);
+                await writeFile(join(veroPath, 'master', 'Data', 'example.vero'), exampleDataContent);
+
+                // Dev environment (development/integration)
+                await mkdir(join(veroPath, 'dev', 'Pages'), { recursive: true });
+                await mkdir(join(veroPath, 'dev', 'Features'), { recursive: true });
+                await mkdir(join(veroPath, 'dev', 'Data'), { recursive: true });
+                await writeFile(join(veroPath, 'dev', 'Pages', 'example.vero'), examplePageContent);
+                await writeFile(join(veroPath, 'dev', 'Features', 'example.vero'), exampleFeatureContent);
+                await writeFile(join(veroPath, 'dev', 'Data', 'example.vero'), exampleDataContent);
+
+                // Sandboxes folder (user-specific isolated environments)
+                await mkdir(join(veroPath, 'sandboxes'), { recursive: true });
             }
         } catch (fsError) {
             console.warn('Could not create/copy project folders:', fsError);

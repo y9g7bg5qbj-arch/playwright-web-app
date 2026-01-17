@@ -1,14 +1,18 @@
 # HomePage
 
-page HomePage {
-    field htmlclick = html
-    field htmlclick1 = text "Example Domainbody{background:#eee;width:60vw;marg"
-    field learnMore = link "Learn more"
-    field divclick = text "Example Domains
-    field aclick = link "IANA-managed Reserved Domains"
-    field aclick1 = link "Special-Use Domain Names"
-    field icann = link "ICANN"
-    field ianaManagedReservedDomainsCertainDomainsAreSetAsideAndNominallytext = text "IANA-managed Reserved Domains Certain domains are set aside, and nominally"
-    field contractualLimitationslink = link "contractual limitations"
-    field header = #header
+PAGE HomePage {
+    FIELD heading = "h1"
+    FIELD learnMore = "a:has-text('More information')"
+    FIELD header = "#header"
+    FIELD aclick = "a:has-text('IANA-managed Reserved Domains')"
+    FIELD signUpButton = "button:has-text('Sign Up')"
+    FIELD loginLink = "a:has-text('Log In')"
+
+    navigateToSignUp {
+        CLICK HomePage.signUpButton
+    }
+
+    navigateToLogin {
+        CLICK HomePage.loginLink
+    }
 }

@@ -15,32 +15,32 @@ export class CheckoutPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.emailInput = page.getByLabel('Email');
-    this.addressInput = page.getByLabel('Address');
-    this.cityInput = page.getByLabel('City');
-    this.zipInput = page.getByLabel('ZIP Code');
-    this.cardNumberInput = page.getByPlaceholder('Card number');
-    this.expiryInput = page.getByPlaceholder('MM/YY');
-    this.cvvInput = page.getByPlaceholder('CVV');
-    this.placeOrderBtn = page.getByRole('button', { name: 'Place Order' });
-    this.orderConfirmation = page.getByTestId('order-confirmation');
-    this.orderNumber = page.getByTestId('order-number');
+    this.emailInput = page.locator('input[name='email'], input[type='email']');
+    this.addressInput = page.locator('input[name='address']');
+    this.cityInput = page.locator('input[name='city']');
+    this.zipInput = page.locator('input[name='zip'], input[placeholder*='ZIP']');
+    this.cardNumberInput = page.locator('[placeholder*='Card number']');
+    this.expiryInput = page.locator('[placeholder*='MM/YY']');
+    this.cvvInput = page.locator('[placeholder*='CVV']');
+    this.placeOrderBtn = page.locator('button:has-text('Place Order')');
+    this.orderConfirmation = page.locator('[data-testid='order-confirmation']');
+    this.orderNumber = page.locator('[data-testid='order-number']');
   }
 
   async fillShippingInfo(email: string, address: string, city: string, zip: string) {
-    await this.emailInput.fill(email);
-    await this.addressInput.fill(address);
-    await this.cityInput.fill(city);
-    await this.zipInput.fill(zip);
+    await test.step('Fill CheckoutPage.emailInput', async () => { await checkoutPage.emailInput.fill(email); });
+    await test.step('Fill CheckoutPage.addressInput', async () => { await checkoutPage.addressInput.fill(address); });
+    await test.step('Fill CheckoutPage.cityInput', async () => { await checkoutPage.cityInput.fill(city); });
+    await test.step('Fill CheckoutPage.zipInput', async () => { await checkoutPage.zipInput.fill(zip); });
   }
 
   async fillPaymentInfo(cardNumber: string, expiry: string, cvv: string) {
-    await this.cardNumberInput.fill(cardNumber);
-    await this.expiryInput.fill(expiry);
-    await this.cvvInput.fill(cvv);
+    await test.step('Fill CheckoutPage.cardNumberInput', async () => { await checkoutPage.cardNumberInput.fill(cardNumber); });
+    await test.step('Fill CheckoutPage.expiryInput', async () => { await checkoutPage.expiryInput.fill(expiry); });
+    await test.step('Fill CheckoutPage.cvvInput', async () => { await checkoutPage.cvvInput.fill(cvv); });
   }
 
   async placeOrder() {
-    await this.placeOrderBtn.click();
+    await test.step('Click CheckoutPage.placeOrderBtn', async () => { await checkoutPage.placeOrderBtn.click(); });
   }
 }

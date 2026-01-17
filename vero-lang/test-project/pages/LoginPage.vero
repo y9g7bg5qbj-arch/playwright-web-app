@@ -1,11 +1,13 @@
+# LoginPage
+
 PAGE LoginPage {
-    FIELD emailInput = TEXTBOX "Email"
-    FIELD passwordInput = TEXTBOX "Password"
-    FIELD submitBtn = BUTTON "Sign In"
-    
+    FIELD emailInput = "[name=email], [type=email], input[placeholder*='Email']"
+    FIELD passwordInput = "[name=password], [type=password]"
+    FIELD submitBtn = "[type=submit], button:has-text('Sign In')"
+
     login WITH email, password {
-        FILL emailInput WITH email
-        FILL passwordInput WITH password
-        CLICK submitBtn
+        FILL LoginPage.emailInput WITH email
+        FILL LoginPage.passwordInput WITH password
+        CLICK LoginPage.submitBtn
     }
 }

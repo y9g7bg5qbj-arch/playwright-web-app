@@ -24,7 +24,8 @@ import {
     ModuleRegistry,
     AllCommunityModule,
 } from 'ag-grid-community';
-import { Plus, Trash2, Download, Upload, Copy, Filter, Check, Code, MousePointer, BarChart3, Hash, Calculator, TrendingUp, TrendingDown, Sigma, Search, X, AlertCircle, CopyPlus, Wand2, Edit3, Pin, PinOff, Eye, EyeOff, ChevronDown, Columns3, Palette, ArrowUpDown, Layers, Zap } from 'lucide-react';
+import { Plus, Trash2, Copy, Filter, Check, Code, MousePointer, BarChart3, Hash, Calculator, TrendingUp, TrendingDown, Sigma, Search, X, AlertCircle, CopyPlus, Wand2, Edit3, Pin, PinOff, Eye, EyeOff, ChevronDown, Columns3, Palette, ArrowUpDown, Layers, Zap, FileDown, FileUp, LayoutGrid, Undo2, Redo2, Type, LetterText } from 'lucide-react';
+// Note: Download/Upload icons replaced with FileDown/FileUp for clearer semantics
 import { DataGeneratorModal } from './DataGeneratorModal';
 import { BulkUpdateModal, type BulkUpdate } from './BulkUpdateModal';
 import { CellFormattingModal, type CellFormat } from './CellFormattingModal';
@@ -361,14 +362,13 @@ export function AGGridDataTable({
     onGenerateColumnData,
     onBulkUpdate,
     onRowsDuplicate,
-    onFillSeries: _onFillSeries,
+    onFillSeries,
     loading = false,
 }: AGGridDataTableProps) {
     // Suppress unused variable warnings - these will be used in column context menus
     void _onColumnRemove;
     void _onColumnRename;
     void _onColumnTypeChange;
-    void _onFillSeries;
     const gridRef = useRef<AgGridReact>(null);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
     const [vdqlQuery, setVdqlQuery] = useState<string>('');
@@ -406,6 +406,43 @@ export function AGGridDataTable({
     const [showColumnDropdown, setShowColumnDropdown] = useState(false);
     const columnDropdownRef = useRef<HTMLDivElement>(null);
 
+    // Row freeze state (pinned to top)
+    const [frozenRowIds, setFrozenRowIds] = useState<string[]>([]);
+
+    // Toolbar dropdown states
+    const [showDataDropdown, setShowDataDropdown] = useState(false);
+    const [showViewDropdown, setShowViewDropdown] = useState(false);
+    const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+    const dataDropdownRef = useRef<HTMLDivElement>(null);
+    const viewDropdownRef = useRef<HTMLDivElement>(null);
+    const filterDropdownRef = useRef<HTMLDivElement>(null);
+
+    // Fill column modal state
+    const [showFillColumnModal, setShowFillColumnModal] = useState(false);
+    const [fillColumnName, setFillColumnName] = useState<string | null>(null);
+    const [fillValue, setFillValue] = useState('');
+
+    // Find & Replace modal state
+    const [showFindReplaceModal, setShowFindReplaceModal] = useState(false);
+    const [findText, setFindText] = useState('');
+    const [replaceText, setReplaceText] = useState('');
+    const [findInColumn, setFindInColumn] = useState<string>('__all__');
+    const [matchCase, setMatchCase] = useState(false);
+    const [matchWholeCell, setMatchWholeCell] = useState(false);
+    const [findResults, setFindResults] = useState<{ rowId: string; column: string; value: string }[]>([]);
+
+    // Undo/Redo history
+    interface HistoryEntry {
+        rowId: string;
+        column: string;
+        oldValue: any;
+        newValue: any;
+        timestamp: number;
+    }
+    const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
+    const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
+    const MAX_HISTORY = 50;
+
     // Cell formatting state - key is "rowId:columnName"
     const [cellFormats, setCellFormats] = useState<Record<string, CellFormat>>({});
     const [showFormattingModal, setShowFormattingModal] = useState(false);
@@ -422,17 +459,24 @@ export function AGGridDataTable({
     const [conditionalRules, setConditionalRules] = useState<ConditionalFormatRule[]>([]);
     const [showConditionalModal, setShowConditionalModal] = useState(false);
 
-    // Convert rows to AG Grid format
-    const rowData = useMemo(() => {
-        const data = rows.map((row) => ({
+    // Convert rows to AG Grid format - separate frozen and regular rows
+    const { rowData, pinnedTopRowData } = useMemo(() => {
+        const allData = rows.map((row) => ({
             _id: row.id,
             _order: row.order,
             ...row.data,
         }));
-        console.log('[AGGrid] rowData:', data);
+
+        // Separate frozen rows (pinned to top) from regular rows
+        const frozen = allData.filter(row => frozenRowIds.includes(row._id));
+        const regular = allData.filter(row => !frozenRowIds.includes(row._id));
+
+        console.log('[AGGrid] rowData:', regular);
+        console.log('[AGGrid] pinnedTopRowData:', frozen);
         console.log('[AGGrid] columns:', columns);
-        return data;
-    }, [rows, columns]);
+
+        return { rowData: regular, pinnedTopRowData: frozen };
+    }, [rows, columns, frozenRowIds]);
 
     // Generate column definitions
     const columnDefs = useMemo((): ColDef[] => {
@@ -662,16 +706,89 @@ export function AGGridDataTable({
         return params.data._id;
     }, []);
 
-    // Handle cell value changes
+    // Handle cell value changes with history tracking
     const onCellValueChanged = useCallback((event: CellValueChangedEvent) => {
         const rowId = event.data._id;
         const field = event.colDef.field;
         const newValue = event.newValue;
+        const oldValue = event.oldValue;
 
         if (field && field !== '_id' && field !== '_order' && field !== '_actions') {
+            // Add to undo stack
+            setUndoStack(prev => {
+                const entry: HistoryEntry = {
+                    rowId,
+                    column: field,
+                    oldValue,
+                    newValue,
+                    timestamp: Date.now()
+                };
+                const newStack = [...prev, entry];
+                // Limit history size
+                if (newStack.length > MAX_HISTORY) {
+                    return newStack.slice(-MAX_HISTORY);
+                }
+                return newStack;
+            });
+            // Clear redo stack on new change
+            setRedoStack([]);
+
             onCellChange(rowId, field, newValue);
         }
-    }, [onCellChange]);
+    }, [onCellChange, MAX_HISTORY]);
+
+    // Undo last change
+    const handleUndo = useCallback(() => {
+        if (undoStack.length === 0) return;
+
+        const lastChange = undoStack[undoStack.length - 1];
+
+        // Move to redo stack
+        setRedoStack(prev => [...prev, lastChange]);
+        setUndoStack(prev => prev.slice(0, -1));
+
+        // Apply the old value
+        onCellChange(lastChange.rowId, lastChange.column, lastChange.oldValue);
+
+        // Update grid
+        gridRef.current?.api.refreshCells({ rowNodes: [gridRef.current.api.getRowNode(lastChange.rowId)!] });
+    }, [undoStack, onCellChange]);
+
+    // Redo last undone change
+    const handleRedo = useCallback(() => {
+        if (redoStack.length === 0) return;
+
+        const lastUndo = redoStack[redoStack.length - 1];
+
+        // Move back to undo stack
+        setUndoStack(prev => [...prev, lastUndo]);
+        setRedoStack(prev => prev.slice(0, -1));
+
+        // Apply the new value
+        onCellChange(lastUndo.rowId, lastUndo.column, lastUndo.newValue);
+
+        // Update grid
+        gridRef.current?.api.refreshCells({ rowNodes: [gridRef.current.api.getRowNode(lastUndo.rowId)!] });
+    }, [redoStack, onCellChange]);
+
+    // Keyboard shortcuts for undo/redo
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                handleUndo();
+            } else if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) {
+                e.preventDefault();
+                handleRedo();
+            } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+                e.preventDefault();
+                handleRedo();
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [handleUndo, handleRedo]);
 
     // Handle selection changes
     const onSelectionChanged = useCallback((event: SelectionChangedEvent) => {
@@ -1059,6 +1176,103 @@ export function AGGridDataTable({
         setShowBulkUpdateModal(false);
     }, [onBulkUpdate]);
 
+    // Handle fill column with value
+    const handleOpenFillColumn = useCallback((columnName: string) => {
+        setFillColumnName(columnName);
+        setFillValue('');
+        setShowFillColumnModal(true);
+        setShowDataDropdown(false);
+    }, []);
+
+    const handleFillColumn = useCallback(async () => {
+        if (!onFillSeries || !fillColumnName) return;
+        const allRowIds = rows.map(r => r.id);
+        await onFillSeries(allRowIds, fillColumnName, 'value', { value: fillValue });
+        setShowFillColumnModal(false);
+        setFillColumnName(null);
+        setFillValue('');
+    }, [onFillSeries, fillColumnName, fillValue, rows]);
+
+    // Find & Replace handlers
+    const handleFind = useCallback(() => {
+        if (!findText) {
+            setFindResults([]);
+            return;
+        }
+
+        const results: { rowId: string; column: string; value: string }[] = [];
+        const searchText = matchCase ? findText : findText.toLowerCase();
+
+        for (const row of rows) {
+            const columnsToSearch = findInColumn === '__all__'
+                ? columns.map(c => c.name)
+                : [findInColumn];
+
+            for (const colName of columnsToSearch) {
+                const cellValue = String(row.data[colName] ?? '');
+                const compareValue = matchCase ? cellValue : cellValue.toLowerCase();
+
+                let isMatch = false;
+                if (matchWholeCell) {
+                    isMatch = compareValue === searchText;
+                } else {
+                    isMatch = compareValue.includes(searchText);
+                }
+
+                if (isMatch) {
+                    results.push({ rowId: row.id, column: colName, value: cellValue });
+                }
+            }
+        }
+
+        setFindResults(results);
+    }, [findText, findInColumn, matchCase, matchWholeCell, rows, columns]);
+
+    const handleReplaceAll = useCallback(async () => {
+        if (!findText || findResults.length === 0) return;
+
+        // Group by row for efficient updates
+        const updatesByRow = new Map<string, Record<string, string>>();
+
+        for (const result of findResults) {
+            const row = rows.find(r => r.id === result.rowId);
+            if (!row) continue;
+
+            const currentValue = String(row.data[result.column] ?? '');
+            let newValue: string;
+
+            if (matchWholeCell) {
+                newValue = replaceText;
+            } else {
+                // Replace all occurrences in the cell
+                if (matchCase) {
+                    newValue = currentValue.split(findText).join(replaceText);
+                } else {
+                    const regex = new RegExp(findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+                    newValue = currentValue.replace(regex, replaceText);
+                }
+            }
+
+            if (!updatesByRow.has(result.rowId)) {
+                updatesByRow.set(result.rowId, {});
+            }
+            updatesByRow.get(result.rowId)![result.column] = newValue;
+        }
+
+        // Apply updates
+        for (const [rowId, updates] of updatesByRow) {
+            for (const [column, value] of Object.entries(updates)) {
+                onCellChange(rowId, column, value);
+            }
+        }
+
+        // Re-run find to update results (should be empty now)
+        setFindResults([]);
+        setFindText('');
+        setReplaceText('');
+        setShowFindReplaceModal(false);
+    }, [findText, replaceText, findResults, matchCase, matchWholeCell, rows, onCellChange]);
+
     // Freeze/Unfreeze column handlers
     const handleFreezeColumn = useCallback((columnName: string) => {
         setFrozenColumns(prev =>
@@ -1070,6 +1284,29 @@ export function AGGridDataTable({
 
     const handleUnfreezeAll = useCallback(() => {
         setFrozenColumns([]);
+    }, []);
+
+    // Freeze/Unfreeze row handlers (pin rows to top)
+    // Individual row freeze (used in context menu - currently disabled due to AG Grid v35 type issues)
+    const handleFreezeRow = useCallback((rowId: string) => {
+        setFrozenRowIds(prev =>
+            prev.includes(rowId)
+                ? prev.filter(id => id !== rowId)
+                : [...prev, rowId]
+        );
+    }, []);
+    void handleFreezeRow; // Reserved for future context menu implementation
+
+    const handleFreezeSelectedRows = useCallback(() => {
+        if (selectedRowIds.length === 0) return;
+        setFrozenRowIds(prev => {
+            const newIds = selectedRowIds.filter(id => !prev.includes(id));
+            return [...prev, ...newIds];
+        });
+    }, [selectedRowIds]);
+
+    const handleUnfreezeAllRows = useCallback(() => {
+        setFrozenRowIds([]);
     }, []);
 
     // Column visibility handlers
@@ -1089,10 +1326,70 @@ export function AGGridDataTable({
         setHiddenColumns(columns.map(c => c.name));
     }, [columns]);
 
-    // Close dropdown when clicking outside
+    // Quick Transform handler - applies text transformations to a column
+    const handleQuickTransform = useCallback((columnName: string, transform: string) => {
+        type TransformFn = (value: unknown, idx?: number) => unknown;
+        const transformFn: Record<string, TransformFn> = {
+            'trim': (v) => typeof v === 'string' ? v.trim() : v,
+            'uppercase': (v) => typeof v === 'string' ? v.toUpperCase() : v,
+            'lowercase': (v) => typeof v === 'string' ? v.toLowerCase() : v,
+            'capitalize': (v) => typeof v === 'string' ? v.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') : v,
+            'titlecase': (v) => typeof v === 'string' ? v.replace(/\w\S*/g, txt => txt.charAt(0).toUpperCase() + txt.substring(1).toLowerCase()) : v,
+            'sentencecase': (v) => typeof v === 'string' ? v.charAt(0).toUpperCase() + v.slice(1).toLowerCase() : v,
+            'remove_spaces': (v) => typeof v === 'string' ? v.replace(/\s+/g, '') : v,
+            'remove_special': (v) => typeof v === 'string' ? v.replace(/[^a-zA-Z0-9\s]/g, '') : v,
+            'pad_left_zeros': (v) => typeof v === 'string' || typeof v === 'number' ? String(v).padStart(5, '0') : v,
+            'prefix_add': (v) => typeof v === 'string' ? `TEST_${v}` : v,
+            'sequence': (_v, idx) => idx !== undefined ? String(idx + 1) : _v,
+        };
+
+        const fn = transformFn[transform];
+        if (!fn) return;
+
+        // Apply transform to all rows in the column
+        let changeCount = 0;
+        rows.forEach((row, idx) => {
+            const oldValue = row.data[columnName];
+            const newValue = fn(oldValue, idx);
+            if (oldValue !== newValue) {
+                // Track in undo stack
+                setUndoStack(prev => {
+                    const entry: HistoryEntry = {
+                        rowId: row.id,
+                        column: columnName,
+                        oldValue,
+                        newValue,
+                        timestamp: Date.now()
+                    };
+                    return [...prev.slice(-(MAX_HISTORY - 1)), entry];
+                });
+                onCellChange(row.id, columnName, newValue);
+                changeCount++;
+            }
+        });
+
+        // Clear redo stack after bulk transform
+        if (changeCount > 0) {
+            setRedoStack([]);
+        }
+
+        setShowDataDropdown(false);
+    }, [rows, onCellChange, MAX_HISTORY]);
+
+    // Close dropdowns when clicking outside
     const handleClickOutside = useCallback((e: MouseEvent) => {
-        if (columnDropdownRef.current && !columnDropdownRef.current.contains(e.target as Node)) {
+        const target = e.target as Node;
+        if (columnDropdownRef.current && !columnDropdownRef.current.contains(target)) {
             setShowColumnDropdown(false);
+        }
+        if (dataDropdownRef.current && !dataDropdownRef.current.contains(target)) {
+            setShowDataDropdown(false);
+        }
+        if (viewDropdownRef.current && !viewDropdownRef.current.contains(target)) {
+            setShowViewDropdown(false);
+        }
+        if (filterDropdownRef.current && !filterDropdownRef.current.contains(target)) {
+            setShowFilterDropdown(false);
         }
     }, []);
 
@@ -1246,11 +1543,16 @@ export function AGGridDataTable({
         );
     }
 
+    // Count active view settings
+    const activeViewCount = (hiddenColumns.length > 0 ? 1 : 0) + (sortLevels.length > 0 ? 1 : 0) + (conditionalRules.length > 0 ? 1 : 0);
+    const activeFilterCount = (activeQuickFilter ? 1 : 0) + (hasActiveFilters ? 1 : 0) + (quickSearch ? 1 : 0);
+
     return (
         <div className="flex flex-col bg-[#161b22] h-full">
-            {/* Toolbar */}
+            {/* Toolbar - Simplified with Dropdown Groups */}
             <div className="flex items-center justify-between px-4 py-2 border-b border-[#30363d] bg-[#0d1117]/50">
                 <div className="flex items-center gap-2">
+                    {/* Primary Actions - Always Visible */}
                     <button
                         onClick={onRowAdd}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-md text-xs text-white transition-colors"
@@ -1265,180 +1567,355 @@ export function AGGridDataTable({
                         <Plus className="w-3.5 h-3.5" />
                         Add Column
                     </button>
+
                     <div className="h-4 w-px bg-[#30363d] mx-1" />
-                    <button
-                        onClick={onImportCSV}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#30363d] hover:bg-[#3d444d] rounded-md text-xs text-[#e6edf3] transition-colors"
-                    >
-                        <Upload className="w-3.5 h-3.5" />
-                        Import
-                    </button>
-                    <button
-                        onClick={onExportCSV}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#30363d] hover:bg-[#3d444d] rounded-md text-xs text-[#e6edf3] transition-colors"
-                    >
-                        <Download className="w-3.5 h-3.5" />
-                        Export
-                    </button>
-                    <div className="h-4 w-px bg-[#30363d] mx-1" />
-                    {/* Column Visibility Dropdown */}
-                    <div className="relative" ref={columnDropdownRef}>
+
+                    {/* Undo/Redo Buttons */}
+                    <div className="flex items-center gap-0.5">
                         <button
-                            onClick={() => setShowColumnDropdown(!showColumnDropdown)}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors ${hiddenColumns.length > 0
-                                ? 'bg-amber-600/20 text-amber-400 hover:bg-amber-600/30'
-                                : 'bg-[#30363d] hover:bg-[#3d444d] text-[#e6edf3]'
-                                }`}
+                            onClick={handleUndo}
+                            disabled={undoStack.length === 0}
+                            title={`Undo (Ctrl+Z)${undoStack.length > 0 ? ` - ${undoStack.length} change${undoStack.length > 1 ? 's' : ''}` : ''}`}
+                            className={`p-1.5 rounded-md text-xs transition-colors ${
+                                undoStack.length > 0
+                                    ? 'bg-[#30363d] hover:bg-[#3d444d] text-[#e6edf3]'
+                                    : 'bg-[#21262d] text-[#484f58] cursor-not-allowed'
+                            }`}
                         >
-                            <Columns3 className="w-3.5 h-3.5" />
-                            Columns
-                            {hiddenColumns.length > 0 && (
-                                <span className="ml-1 px-1.5 py-0.5 bg-amber-600 text-white text-xs rounded-full">
-                                    {hiddenColumns.length}
-                                </span>
-                            )}
-                            <ChevronDown className={`w-3 h-3 transition-transform ${showColumnDropdown ? 'rotate-180' : ''}`} />
+                            <Undo2 className="w-3.5 h-3.5" />
                         </button>
-                        {showColumnDropdown && (
-                            <div className="absolute top-full left-0 mt-1 w-64 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl z-50 overflow-hidden">
-                                <div className="p-2 border-b border-[#30363d] bg-[#0d1117]/50">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-xs font-medium text-[#c9d1d9]">Column Visibility</span>
-                                        <div className="flex gap-1">
-                                            <button
-                                                onClick={handleShowAllColumns}
-                                                className="px-2 py-0.5 text-xs text-sky-400 hover:bg-sky-500/20 rounded transition-colors"
-                                            >
-                                                Show All
-                                            </button>
-                                            <button
-                                                onClick={handleHideAllColumns}
-                                                className="px-2 py-0.5 text-xs text-[#8b949e] hover:bg-[#30363d] rounded transition-colors"
-                                            >
-                                                Hide All
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="max-h-64 overflow-y-auto">
-                                    {columns.map((col) => {
-                                        const isHidden = hiddenColumns.includes(col.name);
-                                        const isFrozen = frozenColumns.includes(col.name);
-                                        return (
-                                            <div
-                                                key={col.name}
-                                                className="flex items-center justify-between px-3 py-2 hover:bg-[#21262d] transition-colors group"
-                                            >
-                                                <button
-                                                    onClick={() => handleToggleColumnVisibility(col.name)}
-                                                    className="flex items-center gap-2 flex-1"
-                                                >
-                                                    {isHidden ? (
-                                                        <EyeOff className="w-3.5 h-3.5 text-[#6e7681]" />
-                                                    ) : (
-                                                        <Eye className="w-3.5 h-3.5 text-emerald-400" />
-                                                    )}
-                                                    <span className={`text-xs ${isHidden ? 'text-[#6e7681] line-through' : 'text-[#c9d1d9]'}`}>
-                                                        {col.name}
-                                                    </span>
-                                                    {col.type === 'reference' && (
-                                                        <span className="text-xs text-sky-400">🔗</span>
-                                                    )}
-                                                    {isFrozen && (
-                                                        <Pin className="w-3 h-3 text-sky-400" />
-                                                    )}
-                                                </button>
-                                                <div className="flex items-center gap-1">
-                                                    {/* Edit Column Button */}
-                                                    {onColumnEdit && (
-                                                        <button
-                                                            onClick={() => {
-                                                                onColumnEdit(col.name);
-                                                                setShowColumnDropdown(false);
-                                                            }}
-                                                            className="p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-500/20 text-amber-400"
-                                                            title="Edit column type"
-                                                        >
-                                                            <Edit3 className="w-3 h-3" />
-                                                        </button>
-                                                    )}
-                                                    {/* Freeze/Unfreeze Button */}
-                                                    <button
-                                                        onClick={() => handleFreezeColumn(col.name)}
-                                                        className={`p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity ${isFrozen
-                                                            ? 'bg-sky-500/20 text-sky-400'
-                                                            : 'hover:bg-[#30363d] text-[#8b949e]'
-                                                            }`}
-                                                        title={isFrozen ? 'Unfreeze column' : 'Freeze column'}
-                                                        disabled={isHidden}
-                                                    >
-                                                        {isFrozen ? (
-                                                            <PinOff className="w-3 h-3" />
-                                                        ) : (
-                                                            <Pin className="w-3 h-3" />
-                                                        )}
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                                {frozenColumns.length > 0 && (
-                                    <div className="p-2 border-t border-[#30363d] bg-[#0d1117]/50">
+                        <button
+                            onClick={handleRedo}
+                            disabled={redoStack.length === 0}
+                            title={`Redo (Ctrl+Y)${redoStack.length > 0 ? ` - ${redoStack.length} change${redoStack.length > 1 ? 's' : ''}` : ''}`}
+                            className={`p-1.5 rounded-md text-xs transition-colors ${
+                                redoStack.length > 0
+                                    ? 'bg-[#30363d] hover:bg-[#3d444d] text-[#e6edf3]'
+                                    : 'bg-[#21262d] text-[#484f58] cursor-not-allowed'
+                            }`}
+                        >
+                            <Redo2 className="w-3.5 h-3.5" />
+                        </button>
+                    </div>
+
+                    <div className="h-4 w-px bg-[#30363d] mx-1" />
+
+                    {/* Data Dropdown - Import/Export */}
+                    <div className="relative" ref={dataDropdownRef}>
+                        <button
+                            onClick={() => {
+                                setShowDataDropdown(!showDataDropdown);
+                                setShowViewDropdown(false);
+                                setShowFilterDropdown(false);
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#30363d] hover:bg-[#3d444d] rounded-md text-xs text-[#e6edf3] transition-colors"
+                        >
+                            <FileDown className="w-3.5 h-3.5" />
+                            Data
+                            <ChevronDown className={`w-3 h-3 transition-transform ${showDataDropdown ? 'rotate-180' : ''}`} />
+                        </button>
+                        {showDataDropdown && (
+                            <div className="absolute top-full left-0 mt-1 w-52 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl z-50 overflow-hidden">
+                                <button
+                                    onClick={() => { onImportCSV(); setShowDataDropdown(false); }}
+                                    className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                >
+                                    <FileUp className="w-3.5 h-3.5 text-sky-400" />
+                                    Import CSV
+                                </button>
+                                <button
+                                    onClick={() => { onExportCSV(); setShowDataDropdown(false); }}
+                                    className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                >
+                                    <FileDown className="w-3.5 h-3.5 text-emerald-400" />
+                                    Export CSV
+                                </button>
+                                <div className="h-px bg-[#30363d] my-1" />
+                                <button
+                                    onClick={() => { setShowFindReplaceModal(true); setShowDataDropdown(false); }}
+                                    className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                >
+                                    <Search className="w-3.5 h-3.5 text-blue-400" />
+                                    Find & Replace
+                                    <span className="ml-auto text-[10px] text-[#6e7681]">Ctrl+H</span>
+                                </button>
+                                {onGenerateColumnData && columnSummary && (
+                                    <>
+                                        <div className="h-px bg-[#30363d] my-1" />
                                         <button
-                                            onClick={handleUnfreezeAll}
-                                            className="w-full px-2 py-1 text-xs text-sky-400 hover:bg-sky-500/20 rounded transition-colors flex items-center justify-center gap-1"
+                                            onClick={() => { handleOpenGenerator(columnSummary.columnName); setShowDataDropdown(false); }}
+                                            className="flex items-center gap-2 w-full px-3 py-2 text-xs text-purple-400 hover:bg-purple-600/20 transition-colors"
                                         >
-                                            <PinOff className="w-3 h-3" />
-                                            Unfreeze All ({frozenColumns.length})
+                                            <Wand2 className="w-3.5 h-3.5" />
+                                            Generate "{columnSummary.columnName}"
                                         </button>
-                                    </div>
+                                    </>
+                                )}
+                                {/* Fill Column - when column is selected */}
+                                {onFillSeries && columnSummary && (
+                                    <button
+                                        onClick={() => handleOpenFillColumn(columnSummary.columnName)}
+                                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-amber-400 hover:bg-amber-600/20 transition-colors"
+                                    >
+                                        <Edit3 className="w-3.5 h-3.5" />
+                                        Fill "{columnSummary.columnName}" with Value
+                                    </button>
+                                )}
+                                {/* Fill any column - always available */}
+                                {onFillSeries && columns.length > 0 && !columnSummary && (
+                                    <>
+                                        <div className="h-px bg-[#30363d] my-1" />
+                                        <div className="px-3 py-1 text-[10px] text-[#6e7681] uppercase">Fill Column</div>
+                                        {columns.slice(0, 5).map(col => (
+                                            <button
+                                                key={col.name}
+                                                onClick={() => handleOpenFillColumn(col.name)}
+                                                className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                            >
+                                                <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                                                {col.name}
+                                            </button>
+                                        ))}
+                                        {columns.length > 5 && (
+                                            <div className="px-3 py-1 text-[10px] text-[#6e7681]">
+                                                Click a column header for more...
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                                {/* Quick Transforms Section */}
+                                {columnSummary && columns.find(c => c.name === columnSummary.columnName)?.type === 'text' && (
+                                    <>
+                                        <div className="h-px bg-[#30363d] my-1" />
+                                        <div className="px-3 py-1 text-[10px] text-[#6e7681] uppercase">Transform "{columnSummary.columnName}"</div>
+                                        <button
+                                            onClick={() => handleQuickTransform(columnSummary.columnName, 'trim')}
+                                            className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                        >
+                                            <Type className="w-3.5 h-3.5 text-sky-400" />
+                                            Trim Whitespace
+                                        </button>
+                                        <button
+                                            onClick={() => handleQuickTransform(columnSummary.columnName, 'uppercase')}
+                                            className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                        >
+                                            <LetterText className="w-3.5 h-3.5 text-emerald-400" />
+                                            UPPERCASE
+                                        </button>
+                                        <button
+                                            onClick={() => handleQuickTransform(columnSummary.columnName, 'lowercase')}
+                                            className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                        >
+                                            <LetterText className="w-3.5 h-3.5 text-amber-400" />
+                                            lowercase
+                                        </button>
+                                        <button
+                                            onClick={() => handleQuickTransform(columnSummary.columnName, 'capitalize')}
+                                            className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                        >
+                                            <Type className="w-3.5 h-3.5 text-purple-400" />
+                                            Capitalize Each Word
+                                        </button>
+                                        <button
+                                            onClick={() => handleQuickTransform(columnSummary.columnName, 'sequence')}
+                                            className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                        >
+                                            <Hash className="w-3.5 h-3.5 text-orange-400" />
+                                            Generate Sequence (1, 2, 3...)
+                                        </button>
+                                    </>
                                 )}
                             </div>
                         )}
                     </div>
-                    {/* Sort Button */}
-                    <button
-                        onClick={() => setShowSortModal(true)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors ${sortLevels.length > 0
-                            ? 'bg-amber-600/20 text-amber-400 hover:bg-amber-600/30'
-                            : 'bg-[#30363d] hover:bg-[#3d444d] text-[#e6edf3]'
+
+                    {/* View Dropdown - Columns, Sort, Format */}
+                    <div className="relative" ref={viewDropdownRef}>
+                        <button
+                            onClick={() => {
+                                setShowViewDropdown(!showViewDropdown);
+                                setShowDataDropdown(false);
+                                setShowFilterDropdown(false);
+                            }}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors ${
+                                activeViewCount > 0
+                                    ? 'bg-sky-600/20 text-sky-400 hover:bg-sky-600/30'
+                                    : 'bg-[#30363d] hover:bg-[#3d444d] text-[#e6edf3]'
                             }`}
-                    >
-                        <ArrowUpDown className="w-3.5 h-3.5" />
-                        Sort
-                        {sortLevels.length > 0 && (
-                            <span className="ml-1 px-1.5 py-0.5 bg-amber-600 text-white text-xs rounded-full">
-                                {sortLevels.length}
-                            </span>
+                        >
+                            <LayoutGrid className="w-3.5 h-3.5" />
+                            View
+                            {activeViewCount > 0 && (
+                                <span className="ml-1 px-1.5 py-0.5 bg-sky-600 text-white text-xs rounded-full">
+                                    {activeViewCount}
+                                </span>
+                            )}
+                            <ChevronDown className={`w-3 h-3 transition-transform ${showViewDropdown ? 'rotate-180' : ''}`} />
+                        </button>
+                        {showViewDropdown && (
+                            <div className="absolute top-full left-0 mt-1 w-56 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl z-50 overflow-hidden">
+                                {/* Columns Section */}
+                                <button
+                                    onClick={() => { setShowColumnDropdown(true); setShowViewDropdown(false); }}
+                                    className="flex items-center justify-between w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <Columns3 className="w-3.5 h-3.5 text-amber-400" />
+                                        Column Visibility
+                                    </div>
+                                    {hiddenColumns.length > 0 && (
+                                        <span className="px-1.5 py-0.5 bg-amber-600 text-white text-xs rounded-full">
+                                            {hiddenColumns.length} hidden
+                                        </span>
+                                    )}
+                                </button>
+                                <button
+                                    onClick={() => { setShowSortModal(true); setShowViewDropdown(false); }}
+                                    className="flex items-center justify-between w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <ArrowUpDown className="w-3.5 h-3.5 text-purple-400" />
+                                        Multi-Column Sort
+                                    </div>
+                                    {sortLevels.length > 0 && (
+                                        <span className="px-1.5 py-0.5 bg-purple-600 text-white text-xs rounded-full">
+                                            {sortLevels.length}
+                                        </span>
+                                    )}
+                                </button>
+                                <button
+                                    onClick={() => { setShowConditionalModal(true); setShowViewDropdown(false); }}
+                                    className="flex items-center justify-between w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                                        Conditional Formatting
+                                    </div>
+                                    {conditionalRules.length > 0 && (
+                                        <span className="px-1.5 py-0.5 bg-emerald-600 text-white text-xs rounded-full">
+                                            {conditionalRules.length}
+                                        </span>
+                                    )}
+                                </button>
+                                {/* Row Freezing Section */}
+                                <div className="h-px bg-[#30363d] my-1" />
+                                <div className="px-3 py-1 text-[10px] text-[#8b949e] uppercase tracking-wider">Row Pinning</div>
+                                {selectedRowIds.length > 0 && (
+                                    <button
+                                        onClick={() => { handleFreezeSelectedRows(); setShowViewDropdown(false); }}
+                                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                    >
+                                        <Pin className="w-3.5 h-3.5 text-orange-400" />
+                                        Freeze Selected Rows ({selectedRowIds.length})
+                                    </button>
+                                )}
+                                {frozenRowIds.length > 0 && (
+                                    <button
+                                        onClick={() => { handleUnfreezeAllRows(); setShowViewDropdown(false); }}
+                                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-orange-400 hover:bg-orange-600/20 transition-colors"
+                                    >
+                                        <PinOff className="w-3.5 h-3.5" />
+                                        Unfreeze All Rows ({frozenRowIds.length})
+                                    </button>
+                                )}
+                                {selectedRowIds.length === 0 && frozenRowIds.length === 0 && (
+                                    <div className="px-3 py-2 text-xs text-[#6e7681]">
+                                        Select rows to freeze them
+                                    </div>
+                                )}
+                                {/* Column Freezing Section */}
+                                {(frozenColumns.length > 0) && (
+                                    <>
+                                        <div className="h-px bg-[#30363d] my-1" />
+                                        <button
+                                            onClick={() => { handleUnfreezeAll(); setShowViewDropdown(false); }}
+                                            className="flex items-center gap-2 w-full px-3 py-2 text-xs text-sky-400 hover:bg-sky-600/20 transition-colors"
+                                        >
+                                            <PinOff className="w-3.5 h-3.5" />
+                                            Unfreeze All Columns ({frozenColumns.length})
+                                        </button>
+                                    </>
+                                )}
+                            </div>
                         )}
-                    </button>
-                    {/* Conditional Formatting Button */}
-                    <button
-                        onClick={() => setShowConditionalModal(true)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors ${conditionalRules.length > 0
-                            ? 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30'
-                            : 'bg-[#30363d] hover:bg-[#3d444d] text-[#e6edf3]'
+                    </div>
+
+                    {/* Filter Dropdown */}
+                    <div className="relative" ref={filterDropdownRef}>
+                        <button
+                            onClick={() => {
+                                setShowFilterDropdown(!showFilterDropdown);
+                                setShowDataDropdown(false);
+                                setShowViewDropdown(false);
+                            }}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors ${
+                                activeFilterCount > 0
+                                    ? 'bg-amber-600/20 text-amber-400 hover:bg-amber-600/30'
+                                    : 'bg-[#30363d] hover:bg-[#3d444d] text-[#e6edf3]'
                             }`}
-                    >
-                        <Zap className="w-3.5 h-3.5" />
-                        Format
-                        {conditionalRules.length > 0 && (
-                            <span className="ml-1 px-1.5 py-0.5 bg-emerald-600 text-white text-xs rounded-full">
-                                {conditionalRules.length}
-                            </span>
+                        >
+                            <Filter className="w-3.5 h-3.5" />
+                            Filter
+                            {activeFilterCount > 0 && (
+                                <span className="ml-1 px-1.5 py-0.5 bg-amber-600 text-white text-xs rounded-full">
+                                    {activeFilterCount}
+                                </span>
+                            )}
+                            <ChevronDown className={`w-3 h-3 transition-transform ${showFilterDropdown ? 'rotate-180' : ''}`} />
+                        </button>
+                        {showFilterDropdown && (
+                            <div className="absolute top-full left-0 mt-1 w-48 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl z-50 overflow-hidden">
+                                <button
+                                    onClick={() => { handleShowEmpty(); setShowFilterDropdown(false); }}
+                                    className={`flex items-center gap-2 w-full px-3 py-2 text-xs transition-colors ${
+                                        activeQuickFilter === 'empty'
+                                            ? 'bg-amber-600/20 text-amber-400'
+                                            : 'text-[#c9d1d9] hover:bg-[#21262d]'
+                                    }`}
+                                >
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    Show Empty Cells
+                                    {activeQuickFilter === 'empty' && <Check className="w-3 h-3 ml-auto" />}
+                                </button>
+                                <button
+                                    onClick={() => { handleShowDuplicates(); setShowFilterDropdown(false); }}
+                                    className={`flex items-center gap-2 w-full px-3 py-2 text-xs transition-colors ${
+                                        activeQuickFilter === 'duplicates'
+                                            ? 'bg-purple-600/20 text-purple-400'
+                                            : 'text-[#c9d1d9] hover:bg-[#21262d]'
+                                    }`}
+                                >
+                                    <CopyPlus className="w-3.5 h-3.5" />
+                                    Show Duplicates
+                                    {activeQuickFilter === 'duplicates' && <Check className="w-3 h-3 ml-auto" />}
+                                </button>
+                                {(hasActiveFilters || quickSearch || activeQuickFilter) && (
+                                    <>
+                                        <div className="h-px bg-[#30363d] my-1" />
+                                        <button
+                                            onClick={() => { handleClearQuickFilters(); setShowFilterDropdown(false); }}
+                                            className="flex items-center gap-2 w-full px-3 py-2 text-xs text-red-400 hover:bg-red-600/20 transition-colors"
+                                        >
+                                            <X className="w-3.5 h-3.5" />
+                                            Clear All Filters
+                                        </button>
+                                    </>
+                                )}
+                            </div>
                         )}
-                    </button>
+                    </div>
+
                     <div className="h-4 w-px bg-[#30363d] mx-1" />
-                    {/* Quick Search */}
+
+                    {/* Quick Search - Always Visible */}
                     <div className="relative">
                         <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#8b949e]" />
                         <input
                             type="text"
-                            placeholder="Search all columns..."
+                            placeholder="Search..."
                             value={quickSearch}
                             onChange={(e) => handleQuickSearch(e.target.value)}
-                            className="w-48 pl-7 pr-7 py-1.5 text-xs bg-[#21262d] border border-[#30363d] rounded-md text-[#e6edf3] placeholder-[#6e7681] focus:outline-none focus:border-blue-500 transition-colors"
+                            className="w-36 pl-7 pr-7 py-1.5 text-xs bg-[#21262d] border border-[#30363d] rounded-md text-[#e6edf3] placeholder-[#6e7681] focus:outline-none focus:border-blue-500 focus:w-48 transition-all"
                         />
                         {quickSearch && (
                             <button
@@ -1449,56 +1926,11 @@ export function AGGridDataTable({
                             </button>
                         )}
                     </div>
-                    {/* Quick Filter Buttons */}
-                    <button
-                        onClick={handleShowEmpty}
-                        className={`flex items-center gap-1 px-2 py-1.5 rounded text-xs transition-colors ${activeQuickFilter === 'empty'
-                            ? 'bg-amber-600 text-white'
-                            : 'bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9]'
-                            }`}
-                        title="Show rows with empty values"
-                    >
-                        <AlertCircle className="w-3 h-3" />
-                        Empty
-                    </button>
-                    <button
-                        onClick={handleShowDuplicates}
-                        className={`flex items-center gap-1 px-2 py-1.5 rounded text-xs transition-colors ${activeQuickFilter === 'duplicates'
-                            ? 'bg-purple-600 text-white'
-                            : 'bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9]'
-                            }`}
-                        title="Show duplicate values"
-                    >
-                        <CopyPlus className="w-3 h-3" />
-                        Duplicates
-                    </button>
-                    {(hasActiveFilters || quickSearch || activeQuickFilter) && (
-                        <button
-                            onClick={handleClearQuickFilters}
-                            className="flex items-center gap-1 px-2 py-1.5 bg-red-600/20 hover:bg-red-600/40 rounded text-xs text-red-400 transition-colors"
-                            title="Clear all filters"
-                        >
-                            <X className="w-3 h-3" />
-                            Clear
-                        </button>
-                    )}
-                    {/* Generate Data Button - shown when column is selected */}
-                    {onGenerateColumnData && columnSummary && (
-                        <>
-                            <div className="h-4 w-px bg-[#30363d] mx-1" />
-                            <button
-                                onClick={() => handleOpenGenerator(columnSummary.columnName)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 rounded-md text-xs text-white transition-colors"
-                                title={`Generate test data for "${columnSummary.columnName}"`}
-                            >
-                                <Wand2 className="w-3.5 h-3.5" />
-                                Generate
-                            </button>
-                        </>
-                    )}
                 </div>
+
+                {/* Right Side - Contextual Actions */}
                 <div className="flex items-center gap-2">
-                    {/* Update Filtered button - shown when filters active */}
+                    {/* Update Filtered button */}
                     {onBulkUpdate && hasActiveFilters && filteredRowIds.length > 0 && (
                         <button
                             onClick={() => setShowBulkUpdateModal(true)}
@@ -1506,55 +1938,147 @@ export function AGGridDataTable({
                             title={`Update ${filteredRowIds.length} filtered rows`}
                         >
                             <Edit3 className="w-3.5 h-3.5" />
-                            Update Filtered ({filteredRowIds.length})
+                            Update {filteredRowIds.length}
                         </button>
                     )}
+
+                    {/* Selection Actions */}
                     {selectedRowIds.length > 0 && (
-                        <>
-                            <span className="text-xs text-[#8b949e]">
-                                {selectedRowIds.length} row{selectedRowIds.length > 1 ? 's' : ''} selected
+                        <div className="flex items-center gap-1.5 pl-2 border-l border-[#30363d]">
+                            <span className="text-xs text-[#8b949e] mr-1">
+                                {selectedRowIds.length} selected
                             </span>
-                            {/* Update Selected button */}
                             {onBulkUpdate && (
                                 <button
                                     onClick={() => setShowBulkUpdateModal(true)}
-                                    className="flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white transition-colors"
-                                    title="Update selected rows"
+                                    className="p-1.5 bg-blue-600 hover:bg-blue-500 rounded text-white transition-colors"
+                                    title="Update selected"
                                 >
-                                    <Edit3 className="w-3 h-3" />
-                                    Update
+                                    <Edit3 className="w-3.5 h-3.5" />
                                 </button>
                             )}
                             <button
                                 onClick={handleCopySelected}
-                                className="flex items-center gap-1 px-2 py-1 bg-[#30363d] hover:bg-[#3d444d] rounded text-xs text-[#c9d1d9] transition-colors"
+                                className="p-1.5 bg-[#30363d] hover:bg-[#3d444d] rounded text-[#c9d1d9] transition-colors"
+                                title="Copy selected"
                             >
-                                <Copy className="w-3 h-3" />
-                                Copy
+                                <Copy className="w-3.5 h-3.5" />
                             </button>
                             {onRowsDuplicate && (
                                 <button
                                     onClick={handleDuplicateSelected}
-                                    className="flex items-center gap-1 px-2 py-1 bg-sky-600/20 hover:bg-sky-600/40 rounded text-xs text-sky-400 transition-colors"
+                                    className="p-1.5 bg-sky-600/20 hover:bg-sky-600/40 rounded text-sky-400 transition-colors"
+                                    title="Duplicate selected"
                                 >
-                                    <CopyPlus className="w-3 h-3" />
-                                    Duplicate
+                                    <CopyPlus className="w-3.5 h-3.5" />
                                 </button>
                             )}
                             <button
                                 onClick={handleDeleteSelected}
-                                className="flex items-center gap-1 px-2 py-1 bg-red-600/20 hover:bg-red-600/40 rounded text-xs text-red-400 transition-colors"
+                                className="p-1.5 bg-red-600/20 hover:bg-red-600/40 rounded text-red-400 transition-colors"
+                                title="Delete selected"
                             >
-                                <Trash2 className="w-3 h-3" />
-                                Delete
+                                <Trash2 className="w-3.5 h-3.5" />
                             </button>
-                        </>
+                        </div>
                     )}
-                    <span className="text-xs text-[#8b949e]">
-                        {rows.length} row{rows.length !== 1 ? 's' : ''}
+
+                    {/* Row Count */}
+                    <span className="text-xs text-[#6e7681] tabular-nums">
+                        {rows.length} rows
                     </span>
                 </div>
             </div>
+
+            {/* Column Visibility Floating Panel (opened from View dropdown) */}
+            {showColumnDropdown && (
+                <div className="absolute top-14 left-48 z-50" ref={columnDropdownRef}>
+                    <div className="w-64 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl overflow-hidden">
+                        <div className="p-2 border-b border-[#30363d] bg-[#0d1117]/50">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-medium text-[#c9d1d9]">Column Visibility</span>
+                                <div className="flex gap-1">
+                                    <button
+                                        onClick={handleShowAllColumns}
+                                        className="px-2 py-0.5 text-xs text-sky-400 hover:bg-sky-500/20 rounded transition-colors"
+                                    >
+                                        Show All
+                                    </button>
+                                    <button
+                                        onClick={handleHideAllColumns}
+                                        className="px-2 py-0.5 text-xs text-[#8b949e] hover:bg-[#30363d] rounded transition-colors"
+                                    >
+                                        Hide All
+                                    </button>
+                                    <button
+                                        onClick={() => setShowColumnDropdown(false)}
+                                        className="p-0.5 text-[#8b949e] hover:text-white rounded transition-colors"
+                                    >
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="max-h-64 overflow-y-auto">
+                            {columns.map((col) => {
+                                const isHidden = hiddenColumns.includes(col.name);
+                                const isFrozen = frozenColumns.includes(col.name);
+                                return (
+                                    <div
+                                        key={col.name}
+                                        className="flex items-center justify-between px-3 py-2 hover:bg-[#21262d] transition-colors group"
+                                    >
+                                        <button
+                                            onClick={() => handleToggleColumnVisibility(col.name)}
+                                            className="flex items-center gap-2 flex-1"
+                                        >
+                                            {isHidden ? (
+                                                <EyeOff className="w-3.5 h-3.5 text-[#6e7681]" />
+                                            ) : (
+                                                <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                                            )}
+                                            <span className={`text-xs ${isHidden ? 'text-[#6e7681] line-through' : 'text-[#c9d1d9]'}`}>
+                                                {col.name}
+                                            </span>
+                                            {col.type === 'reference' && (
+                                                <span className="text-xs text-sky-400">🔗</span>
+                                            )}
+                                            {isFrozen && (
+                                                <Pin className="w-3 h-3 text-sky-400" />
+                                            )}
+                                        </button>
+                                        <div className="flex items-center gap-1">
+                                            {onColumnEdit && (
+                                                <button
+                                                    onClick={() => {
+                                                        onColumnEdit(col.name);
+                                                        setShowColumnDropdown(false);
+                                                    }}
+                                                    className="p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-500/20 text-amber-400"
+                                                    title="Edit column"
+                                                >
+                                                    <Edit3 className="w-3 h-3" />
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => handleFreezeColumn(col.name)}
+                                                className={`p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity ${isFrozen
+                                                    ? 'bg-sky-500/20 text-sky-400'
+                                                    : 'hover:bg-[#30363d] text-[#8b949e]'
+                                                }`}
+                                                title={isFrozen ? 'Unfreeze' : 'Freeze'}
+                                                disabled={isHidden}
+                                            >
+                                                {isFrozen ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />}
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* AG Grid */}
             <div
@@ -1565,6 +2089,7 @@ export function AGGridDataTable({
                     ref={gridRef}
                     theme={darkTheme}
                     rowData={rowData}
+                    pinnedTopRowData={pinnedTopRowData}
                     columnDefs={columnDefs}
                     defaultColDef={defaultColDef}
                     getRowId={getRowId}
@@ -1861,6 +2386,200 @@ export function AGGridDataTable({
                     rules={conditionalRules}
                     onApply={setConditionalRules}
                 />
+            )}
+
+            {/* Fill Column Modal */}
+            {showFillColumnModal && fillColumnName && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+                    <div className="bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl w-80">
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-[#30363d]">
+                            <h3 className="text-sm font-medium text-white">Fill Column</h3>
+                            <button
+                                onClick={() => setShowFillColumnModal(false)}
+                                className="p-1 hover:bg-[#30363d] rounded text-[#8b949e]"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                        <div className="p-4 space-y-4">
+                            <div>
+                                <label className="block text-xs text-[#8b949e] mb-1">
+                                    Column: <span className="text-amber-400">{fillColumnName}</span>
+                                </label>
+                                <p className="text-xs text-[#6e7681]">
+                                    Fill all {rows.length} rows with this value
+                                </p>
+                            </div>
+                            <div>
+                                <label className="block text-xs text-[#8b949e] mb-1">Value</label>
+                                <input
+                                    type="text"
+                                    value={fillValue}
+                                    onChange={(e) => setFillValue(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleFillColumn()}
+                                    placeholder="Enter value (e.g., 0, N/A, default)"
+                                    className="w-full px-3 py-2 bg-[#0d1117] border border-[#30363d] rounded-md text-sm text-white placeholder-[#6e7681] focus:outline-none focus:border-amber-500"
+                                    autoFocus
+                                />
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[#30363d]">
+                            <button
+                                onClick={() => setShowFillColumnModal(false)}
+                                className="px-3 py-1.5 text-xs text-[#8b949e] hover:text-white transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleFillColumn}
+                                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 rounded-md text-xs text-white transition-colors"
+                            >
+                                Fill All Rows
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Find & Replace Modal */}
+            {showFindReplaceModal && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+                    <div className="bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl w-[420px]">
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-[#30363d]">
+                            <h3 className="text-sm font-medium text-white flex items-center gap-2">
+                                <Search className="w-4 h-4 text-blue-400" />
+                                Find & Replace
+                            </h3>
+                            <button
+                                onClick={() => setShowFindReplaceModal(false)}
+                                className="p-1 hover:bg-[#30363d] rounded text-[#8b949e]"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                        <div className="p-4 space-y-4">
+                            {/* Find Input */}
+                            <div>
+                                <label className="block text-xs text-[#8b949e] mb-1">Find</label>
+                                <input
+                                    type="text"
+                                    value={findText}
+                                    onChange={(e) => setFindText(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleFind()}
+                                    placeholder="Text to find..."
+                                    className="w-full px-3 py-2 bg-[#0d1117] border border-[#30363d] rounded-md text-sm text-white placeholder-[#6e7681] focus:outline-none focus:border-blue-500"
+                                    autoFocus
+                                />
+                            </div>
+
+                            {/* Replace Input */}
+                            <div>
+                                <label className="block text-xs text-[#8b949e] mb-1">Replace with</label>
+                                <input
+                                    type="text"
+                                    value={replaceText}
+                                    onChange={(e) => setReplaceText(e.target.value)}
+                                    placeholder="Replacement text..."
+                                    className="w-full px-3 py-2 bg-[#0d1117] border border-[#30363d] rounded-md text-sm text-white placeholder-[#6e7681] focus:outline-none focus:border-blue-500"
+                                />
+                            </div>
+
+                            {/* Options Row */}
+                            <div className="flex items-center gap-4">
+                                {/* Column Selection */}
+                                <div className="flex-1">
+                                    <label className="block text-xs text-[#8b949e] mb-1">In column</label>
+                                    <select
+                                        value={findInColumn}
+                                        onChange={(e) => setFindInColumn(e.target.value)}
+                                        className="w-full px-3 py-1.5 bg-[#0d1117] border border-[#30363d] rounded-md text-xs text-white focus:outline-none focus:border-blue-500"
+                                    >
+                                        <option value="__all__">All columns</option>
+                                        {columns.map(col => (
+                                            <option key={col.name} value={col.name}>{col.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Checkboxes */}
+                                <div className="flex flex-col gap-1 pt-4">
+                                    <label className="flex items-center gap-2 text-xs text-[#c9d1d9] cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={matchCase}
+                                            onChange={(e) => setMatchCase(e.target.checked)}
+                                            className="w-3.5 h-3.5 rounded border-[#30363d] bg-[#0d1117] text-blue-500"
+                                        />
+                                        Match case
+                                    </label>
+                                    <label className="flex items-center gap-2 text-xs text-[#c9d1d9] cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={matchWholeCell}
+                                            onChange={(e) => setMatchWholeCell(e.target.checked)}
+                                            className="w-3.5 h-3.5 rounded border-[#30363d] bg-[#0d1117] text-blue-500"
+                                        />
+                                        Whole cell
+                                    </label>
+                                </div>
+                            </div>
+
+                            {/* Results */}
+                            {findText && (
+                                <div className="p-3 bg-[#0d1117] rounded-md border border-[#30363d]">
+                                    {findResults.length === 0 ? (
+                                        <p className="text-xs text-[#6e7681]">No matches found</p>
+                                    ) : (
+                                        <div>
+                                            <p className="text-xs text-emerald-400 mb-2">
+                                                Found {findResults.length} match{findResults.length !== 1 ? 'es' : ''}
+                                            </p>
+                                            <div className="max-h-32 overflow-y-auto space-y-1">
+                                                {findResults.slice(0, 10).map((r, i) => (
+                                                    <div key={i} className="text-xs text-[#8b949e] truncate">
+                                                        <span className="text-[#6e7681]">{r.column}:</span> {r.value}
+                                                    </div>
+                                                ))}
+                                                {findResults.length > 10 && (
+                                                    <div className="text-xs text-[#6e7681]">
+                                                        ...and {findResults.length - 10} more
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        <div className="flex items-center justify-between px-4 py-3 border-t border-[#30363d]">
+                            <button
+                                onClick={handleFind}
+                                className="px-3 py-1.5 bg-[#30363d] hover:bg-[#3d444d] rounded-md text-xs text-white transition-colors"
+                            >
+                                Find All
+                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setShowFindReplaceModal(false)}
+                                    className="px-3 py-1.5 text-xs text-[#8b949e] hover:text-white transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleReplaceAll}
+                                    disabled={findResults.length === 0}
+                                    className={`px-3 py-1.5 rounded-md text-xs text-white transition-colors ${
+                                        findResults.length === 0
+                                            ? 'bg-[#30363d] text-[#6e7681] cursor-not-allowed'
+                                            : 'bg-blue-600 hover:bg-blue-500'
+                                    }`}
+                                >
+                                    Replace All ({findResults.length})
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

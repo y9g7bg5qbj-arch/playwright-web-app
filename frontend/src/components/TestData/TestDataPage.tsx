@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Papa from 'papaparse';
 import {
     Plus, Upload, Download, RefreshCw, Settings,
-    Code, Check, AlertTriangle, FileText
+    Check, AlertTriangle, MoreHorizontal
 } from 'lucide-react';
 import { apiUrl } from '@/config';
 import { SheetList } from './SheetList';
@@ -23,6 +23,7 @@ import { EnvironmentManager } from './EnvironmentManager';
 import { SavedViewsDropdown } from './SavedViewsDropdown';
 import { testDataApi } from '@/api/testData';
 import type { SavedView } from '@/api/testData';
+import { DataStorageSettingsModal } from '@/components/settings/DataStorageSettingsModal';
 
 // ============================================
 // TYPES
@@ -93,11 +94,15 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
     const [showColumnEditor, setShowColumnEditor] = useState(false);
     const [editingColumn, setEditingColumn] = useState<AGDataColumn | null>(null);
     const [showEnvironments, setShowEnvironments] = useState(false);
+    const [showDataStorageSettings, setShowDataStorageSettings] = useState(false);
 
     // Saved views state
     const [currentFilterState, setCurrentFilterState] = useState<Record<string, unknown>>({});
     const [currentSortState, setCurrentSortState] = useState<unknown[]>([]);
     const [currentColumnState, setCurrentColumnState] = useState<unknown[]>([]);
+
+    // Sidebar dropdown
+    const [showSidebarMenu, setShowSidebarMenu] = useState(false);
 
     // Messages
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -382,7 +387,7 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
                 ...selectedSheet.columns,
                 ...newColumns.map(col => ({
                     name: col.name,
-                    type: col.type === 'text' ? 'string' as const : col.type,
+                    type: col.type === 'text' ? 'string' as const : col.type as DataColumn['type'],
                     required: false
                 }))
             ];
@@ -443,7 +448,7 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
 
         const newColumn: DataColumn = {
             name: column.name,
-            type: column.type === 'text' ? 'string' : column.type,
+            type: column.type === 'text' ? 'string' : column.type as DataColumn['type'],
             required: column.required || false,
             ...(column.formula && { formula: column.formula }),
             ...(column.referenceConfig && { referenceConfig: column.referenceConfig }),
@@ -666,22 +671,6 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
         }
     };
 
-    // Generate DTO code
-    const handleGenerateCode = async () => {
-        try {
-            const res = await fetch(apiUrl(`/api/test-data/generate-dto?projectId=${projectId}`));
-            const data = await res.json();
-            if (data.success) {
-                // Open in new window/tab for viewing
-                const blob = new Blob([data.code], { type: 'text/typescript' });
-                const url = URL.createObjectURL(blob);
-                window.open(url, '_blank');
-            }
-        } catch (err) {
-            showError('Failed to generate code');
-        }
-    };
-
     return (
         <div className="flex h-full bg-[#0d1117]">
             {/* Left Sidebar - Sheet List */}
@@ -693,37 +682,69 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
                         <h1 className="text-base font-semibold text-white">Test Data</h1>
                     </div>
 
-                    {/* Actions */}
-                    <div className="flex flex-wrap gap-1.5">
+                    {/* Actions - Simplified */}
+                    <div className="flex items-center gap-2">
                         <button
                             onClick={() => setShowSheetForm(true)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#238636] hover:bg-[#2ea043] rounded-md text-xs font-medium text-white transition-colors"
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#238636] hover:bg-[#2ea043] rounded-md text-xs font-medium text-white transition-colors flex-1"
                             title="New Data Table"
                         >
                             <Plus className="w-3.5 h-3.5" />
                             New Table
                         </button>
+
+                        {/* Data Storage Settings Button */}
                         <button
-                            onClick={() => setShowImportModal(true)}
-                            className="flex items-center gap-1 px-2 py-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md text-xs text-[#c9d1d9] transition-colors"
-                            title="Import Excel"
+                            onClick={() => setShowDataStorageSettings(true)}
+                            className="flex items-center gap-1 p-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md text-[#c9d1d9] transition-colors"
+                            title="Data Storage Configuration"
                         >
-                            <Upload className="w-3.5 h-3.5" />
+                            <Settings className="w-4 h-4" />
                         </button>
-                        <button
-                            onClick={handleExport}
-                            className="flex items-center gap-1 px-2 py-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md text-xs text-[#c9d1d9] transition-colors"
-                            title="Export Excel"
-                        >
-                            <Download className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                            onClick={() => setShowEnvironments(true)}
-                            className="flex items-center gap-1 px-2 py-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md text-xs text-[#c9d1d9] transition-colors"
-                            title="Environments"
-                        >
-                            <Settings className="w-3.5 h-3.5" />
-                        </button>
+
+                        {/* More Actions Dropdown */}
+                        <div className="relative">
+                            <button
+                                onClick={() => setShowSidebarMenu(!showSidebarMenu)}
+                                className="flex items-center gap-1 p-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md text-[#c9d1d9] transition-colors"
+                                title="More actions"
+                            >
+                                <MoreHorizontal className="w-4 h-4" />
+                            </button>
+                            {showSidebarMenu && (
+                                <div className="absolute top-full right-0 mt-1 w-44 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl z-50 overflow-hidden">
+                                    <button
+                                        onClick={() => { setShowImportModal(true); setShowSidebarMenu(false); }}
+                                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                    >
+                                        <Upload className="w-3.5 h-3.5 text-sky-400" />
+                                        Import Excel
+                                    </button>
+                                    <button
+                                        onClick={() => { handleExport(); setShowSidebarMenu(false); }}
+                                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                    >
+                                        <Download className="w-3.5 h-3.5 text-emerald-400" />
+                                        Export All (Excel)
+                                    </button>
+                                    <div className="h-px bg-[#30363d] my-1" />
+                                    <button
+                                        onClick={() => { setShowEnvironments(true); setShowSidebarMenu(false); }}
+                                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                    >
+                                        <Settings className="w-3.5 h-3.5 text-[#8b949e]" />
+                                        Environments
+                                    </button>
+                                    <button
+                                        onClick={() => { setShowDataStorageSettings(true); setShowSidebarMenu(false); }}
+                                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                                    >
+                                        <span className="material-symbols-outlined text-[14px] text-[#8b949e]">database</span>
+                                        Data Storage
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -778,25 +799,9 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
                                 }}
                             />
                             <button
-                                onClick={() => setShowCSVImportModal(true)}
-                                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md text-xs text-[#c9d1d9] transition-colors"
-                                title="Import CSV"
-                            >
-                                <FileText className="w-3.5 h-3.5" />
-                                CSV
-                            </button>
-                            <button
-                                onClick={handleGenerateCode}
-                                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#1f6feb] hover:bg-[#388bfd] rounded-md text-xs font-medium text-white transition-colors"
-                                title="Generate TypeScript DTO Classes"
-                            >
-                                <Code className="w-3.5 h-3.5" />
-                                Generate Code
-                            </button>
-                            <button
                                 onClick={() => fetchRows(selectedSheetId!)}
                                 className="p-1.5 hover:bg-[#21262d] rounded-md transition-colors"
-                                title="Refresh"
+                                title="Refresh data"
                             >
                                 <RefreshCw className={`w-4 h-4 text-[#8b949e] ${loadingRows ? 'animate-spin' : ''}`} />
                             </button>
@@ -928,6 +933,13 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
                     currentSheetId={selectedSheet.id}
                 />
             )}
+
+            {/* Data Storage Settings Modal */}
+            <DataStorageSettingsModal
+                isOpen={showDataStorageSettings}
+                onClose={() => setShowDataStorageSettings(false)}
+                applicationId={projectId}
+            />
         </div>
     );
 }

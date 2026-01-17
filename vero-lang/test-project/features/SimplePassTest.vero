@@ -1,29 +1,17 @@
-feature Simple Pass Test
-    Browser: chromium
-    Viewport: 1280x720
+# Simple Pass Test
 
-    scenario "Google Search Test" as GoogleSearch
-        # Navigate to Google
-        navigate to "https://www.google.com"
-        
-        # Verify page loaded
-        page contains "Google"
-        
-        # Take a screenshot for verification
-        take screenshot "google_homepage"
-    end scenario
+FEATURE SimplePassTest {
 
-    scenario "Example.com Test" as ExampleTest
-        # Navigate to Example.com (a simple, reliable test site)
-        navigate to "https://example.com"
-        
-        # Verify the page title
-        page contains "Example Domain"
-        
-        # Click the "More information..." link
-        click "More information..."
-        
-        # Take screenshot
-        take screenshot "example_clicked"
-    end scenario
-end feature
+    SCENARIO "Google Search Test" @smoke {
+        OPEN "https://www.google.com"
+        VERIFY "Google" IS VISIBLE
+        TAKE SCREENSHOT "google_homepage.png"
+    }
+
+    SCENARIO "Example Domain Test" @smoke {
+        OPEN "https://example.com"
+        VERIFY "Example Domain" IS VISIBLE
+        CLICK "More information..."
+        TAKE SCREENSHOT "example_clicked.png"
+    }
+}

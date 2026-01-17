@@ -1,0 +1,137 @@
+# ============================================
+# ALL VERO ASSERTION KEYWORDS TEST
+# Testing all VERIFY assertion patterns
+# ============================================
+
+PAGE AssertionsTestPage {
+    FIELD welcomeMessage = ".welcome"
+    FIELD errorBanner = ".error-banner"
+    FIELD successAlert = ".success-alert"
+    FIELD pageTitle = "h1"
+    FIELD emailInput = "#email"
+    FIELD passwordInput = "#password"
+    FIELD submitBtn = "[type=submit]"
+    FIELD disabledBtn = ".disabled-btn"
+    FIELD agreeCheckbox = "#agree"
+    FIELD helpLink = "a[href*=help]"
+    FIELD menuItems = ".menu-item"
+    FIELD loadingSpinner = ".loading-spinner"
+    FIELD priceDisplay = ".price"
+}
+
+FEATURE AllAssertionsTest {
+    USE AssertionsTestPage
+
+    SCENARIO "Test VERIFY IS VISIBLE" @assertions @visiblestate {
+        OPEN "https://example.com"
+        VERIFY AssertionsTestPage.welcomeMessage IS VISIBLE
+        VERIFY AssertionsTestPage.submitBtn IS VISIBLE
+        VERIFY AssertionsTestPage.pageTitle IS VISIBLE
+        LOG "Visibility assertions passed"
+    }
+
+    SCENARIO "Test VERIFY IS NOT VISIBLE" @assertions @notvisible {
+        OPEN "https://example.com"
+        VERIFY AssertionsTestPage.errorBanner IS NOT VISIBLE
+        VERIFY AssertionsTestPage.loadingSpinner IS NOT VISIBLE
+        LOG "Not visible assertions passed"
+    }
+
+    SCENARIO "Test VERIFY IS HIDDEN" @assertions @hiddenstate {
+        OPEN "https://example.com"
+        VERIFY AssertionsTestPage.errorBanner IS HIDDEN
+        VERIFY AssertionsTestPage.loadingSpinner IS HIDDEN
+        LOG "Hidden assertions passed"
+    }
+
+    SCENARIO "Test VERIFY IS ENABLED" @assertions @enabledstate {
+        OPEN "https://example.com/form"
+        VERIFY AssertionsTestPage.emailInput IS ENABLED
+        VERIFY AssertionsTestPage.passwordInput IS ENABLED
+        VERIFY AssertionsTestPage.submitBtn IS ENABLED
+        LOG "Enabled assertions passed"
+    }
+
+    SCENARIO "Test VERIFY IS DISABLED" @assertions @disabledstate {
+        OPEN "https://example.com/form"
+        VERIFY AssertionsTestPage.disabledBtn IS DISABLED
+        LOG "Disabled assertions passed"
+    }
+
+    SCENARIO "Test VERIFY IS NOT DISABLED" @assertions @notdisabled {
+        OPEN "https://example.com/form"
+        VERIFY AssertionsTestPage.submitBtn IS NOT DISABLED
+        LOG "Not disabled assertions passed"
+    }
+
+    SCENARIO "Test VERIFY IS CHECKED" @assertions @checkedstate {
+        OPEN "https://example.com/preferences"
+        CHECK AssertionsTestPage.agreeCheckbox
+        VERIFY AssertionsTestPage.agreeCheckbox IS CHECKED
+        LOG "Checked assertions passed"
+    }
+
+    SCENARIO "Test VERIFY IS EMPTY" @assertions @emptystate {
+        OPEN "https://example.com/form"
+        VERIFY AssertionsTestPage.emailInput IS EMPTY
+        LOG "Empty assertions passed"
+    }
+
+    SCENARIO "Test VERIFY IS NOT EMPTY" @assertions @notempty {
+        OPEN "https://example.com/form"
+        FILL AssertionsTestPage.emailInput WITH "test@example.com"
+        VERIFY AssertionsTestPage.emailInput IS NOT EMPTY
+        LOG "Not empty assertions passed"
+    }
+
+    SCENARIO "Test VERIFY URL CONTAINS" @assertions @urlcheck {
+        OPEN "https://example.com/dashboard"
+        VERIFY URL CONTAINS "/dashboard"
+        VERIFY URL CONTAINS "example.com"
+        LOG "URL contains passed"
+    }
+
+    SCENARIO "Test VERIFY URL EQUAL" @assertions @urlexact {
+        OPEN "https://example.com/"
+        VERIFY URL EQUAL "https://example.com/"
+        LOG "URL equals passed"
+    }
+
+    SCENARIO "Test VERIFY URL MATCHES" @assertions @urlregex {
+        OPEN "https://example.com/users/123"
+        VERIFY URL MATCHES "/users/.*"
+        LOG "URL matches passed"
+    }
+
+    SCENARIO "Test VERIFY TITLE CONTAINS" @assertions @titlecheck {
+        OPEN "https://example.com"
+        VERIFY TITLE CONTAINS "Example"
+        LOG "Title contains passed"
+    }
+
+    SCENARIO "Test VERIFY TITLE EQUAL" @assertions @titleexact {
+        OPEN "https://example.com"
+        VERIFY TITLE EQUAL "Example Domain"
+        LOG "Title equals passed"
+    }
+
+    SCENARIO "Test VERIFY HAS COUNT" @assertions @counting {
+        OPEN "https://example.com/list"
+        VERIFY AssertionsTestPage.menuItems HAS COUNT 5
+        LOG "Count assertions passed"
+    }
+
+    SCENARIO "Test VERIFY HAS VALUE" @assertions @valuecheck {
+        OPEN "https://example.com/form"
+        FILL AssertionsTestPage.emailInput WITH "test@example.com"
+        VERIFY AssertionsTestPage.emailInput HAS VALUE "test@example.com"
+        LOG "Value assertions passed"
+    }
+
+    SCENARIO "Test VERIFY HAS ATTRIBUTE" @assertions @attrcheck {
+        OPEN "https://example.com"
+        VERIFY AssertionsTestPage.emailInput HAS ATTRIBUTE "type" EQUAL "email"
+        VERIFY AssertionsTestPage.submitBtn HAS ATTRIBUTE "type" EQUAL "submit"
+        LOG "Attribute assertions passed"
+    }
+}

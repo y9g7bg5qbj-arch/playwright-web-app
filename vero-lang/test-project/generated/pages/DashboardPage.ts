@@ -10,18 +10,18 @@ export class DashboardPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.welcomeMessage = page.getByTestId('welcome-message');
-    this.userAvatar = page.getByTestId('user-avatar');
-    this.logoutButton = page.getByRole('button', { name: 'Log Out' });
-    this.settingsLink = page.getByRole('link', { name: 'Settings' });
-    this.notificationBell = page.getByTestId('notifications');
+    this.welcomeMessage = page.locator('[data-testid='welcome-message']');
+    this.userAvatar = page.locator('[data-testid='user-avatar']');
+    this.logoutButton = page.locator('button:has-text('Log Out')');
+    this.settingsLink = page.locator('a:has-text('Settings')');
+    this.notificationBell = page.locator('[data-testid='notifications']');
   }
 
   async logout() {
-    await this.logoutButton.click();
+    await test.step('Click DashboardPage.logoutButton', async () => { await dashboardPage.logoutButton.click(); });
   }
 
   async openSettings() {
-    await this.settingsLink.click();
+    await test.step('Click DashboardPage.settingsLink', async () => { await dashboardPage.settingsLink.click(); });
   }
 }

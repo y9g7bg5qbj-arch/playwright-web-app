@@ -1,0 +1,103 @@
+# ============================================
+# ALL VERO ACTION KEYWORDS TEST
+# Testing actions that are confirmed working
+# ============================================
+
+PAGE ActionsTestPage {
+    FIELD emailInput = "#email"
+    FIELD passwordInput = "#password"
+    FIELD submitBtn = "[type=submit]"
+    FIELD searchBox = "#search"
+    FIELD agreeCheckbox = "#agree"
+    FIELD menuIcon = "[aria-label=Menu]"
+    FIELD welcomeHeading = "h1"
+
+    login WITH email, password {
+        FILL ActionsTestPage.emailInput WITH email
+        FILL ActionsTestPage.passwordInput WITH password
+        CLICK ActionsTestPage.submitBtn
+    }
+
+    search WITH query {
+        FILL ActionsTestPage.searchBox WITH query
+        PRESS "Enter"
+    }
+}
+
+FEATURE AllActionsTest {
+    USE ActionsTestPage
+
+    SCENARIO "Test OPEN action" @actions @navigation {
+        OPEN "https://example.com"
+        LOG "Opened example.com"
+        OPEN "https://example.com/login"
+        LOG "Opened login page"
+    }
+
+    SCENARIO "Test CLICK action" @actions @interaction {
+        OPEN "https://example.com"
+        CLICK ActionsTestPage.submitBtn
+        LOG "Clicked submit button"
+    }
+
+    SCENARIO "Test FILL action" @actions @forms {
+        OPEN "https://example.com/form"
+        FILL ActionsTestPage.emailInput WITH "test@example.com"
+        FILL ActionsTestPage.passwordInput WITH "SecurePass123"
+        LOG "Filled form fields"
+    }
+
+    SCENARIO "Test CHECK action" @actions @checkboxes {
+        OPEN "https://example.com/preferences"
+        CHECK ActionsTestPage.agreeCheckbox
+        LOG "Checked checkbox"
+    }
+
+    SCENARIO "Test HOVER action" @actions @mouse {
+        OPEN "https://example.com"
+        HOVER ActionsTestPage.menuIcon
+        LOG "Hovered menu icon"
+    }
+
+    SCENARIO "Test PRESS action" @actions @keyboard {
+        OPEN "https://example.com"
+        PRESS "Enter"
+        PRESS "Tab"
+        PRESS "Escape"
+        LOG "Pressed keys"
+    }
+
+    SCENARIO "Test WAIT action with time" @actions @timing {
+        OPEN "https://example.com"
+        WAIT 1 SECONDS
+        LOG "Waited 1 second"
+        WAIT 500 MILLISECONDS
+        LOG "Waited 500ms"
+    }
+
+    SCENARIO "Test DO action" @actions @pageaction {
+        OPEN "https://example.com/login"
+        DO ActionsTestPage.login WITH "user@test.com", "password123"
+        LOG "Executed login action"
+    }
+
+    SCENARIO "Test REFRESH action" @actions @reload {
+        OPEN "https://example.com"
+        REFRESH
+        LOG "Page refreshed"
+    }
+
+    SCENARIO "Test LOG action" @actions @logging {
+        OPEN "https://example.com"
+        LOG "Test started"
+        LOG "Step 1 completed"
+        LOG "All steps passed"
+    }
+
+    SCENARIO "Test TAKE SCREENSHOT action" @actions @capture {
+        OPEN "https://example.com"
+        TAKE SCREENSHOT "homepage.png"
+        FILL ActionsTestPage.emailInput WITH "test@example.com"
+        TAKE SCREENSHOT "after-fill.png"
+    }
+}

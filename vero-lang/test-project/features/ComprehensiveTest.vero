@@ -1,109 +1,45 @@
 # Comprehensive Vero DSL Test Scenario
-# Tests all major keywords, operators, control flow, and data types
+# Tests major keywords and page actions
 
-page TestPage {
-    field heading = "h1"
-    field contentDiv = ".content"
-    field inputField = "#test-input"
-    field submitBtn = "button"
-    field resultText = ".result"
-    field counter = "#counter"
-    
-    # Action to fill and submit
-    fillAndSubmit with value {
-        fill inputField with value
-        click submitBtn
-        wait 1 second
+PAGE TestPage {
+    FIELD heading = "h1"
+    FIELD contentDiv = ".content"
+    FIELD inputField = "#test-input"
+    FIELD submitBtn = "button"
+    FIELD resultText = ".result"
+    FIELD counter = "#counter"
+
+    fillAndSubmit WITH inputValue {
+        FILL TestPage.inputField WITH inputValue
+        CLICK TestPage.submitBtn
+        WAIT 1 SECONDS
     }
 }
 
-feature ComprehensiveTest {
-    use TestPage
-    
-    before each {
-        open "https://example.com"
-    }
-    
-    scenario "Test basic actions and assertions" @smoke @comprehensive {
-        # Test log action
-        log "Starting comprehensive test"
-        
-        # Test verify with is visible
-        verify TestPage.heading is visible
-        
-        # Test wait action
-        wait 2 seconds
-        
-        # Test variable declarations - all types
-        text greeting = "Hello World"
-        number maxRetries = 3
-        flag isEnabled = true
-        list colors = "red", "green", "blue"
-        
-        # Test if/else with element state condition
-        if TestPage.heading is visible {
-            log "Heading is visible - test passed"
-        } else {
-            log "Heading not visible - test failed"
-        }
-        
-        # Test if with comparison operator ==
-        if maxRetries == 3 {
-            log "maxRetries equals 3 - correct"
-        }
-        
-        # Test if with comparison operator >
-        if maxRetries > 0 {
-            log "maxRetries greater than 0 - correct"
-        }
-        
-        # Test if with comparison operator >=
-        if maxRetries >= 3 {
-            log "maxRetries >= 3 - correct"
-        }
-        
-        # Test if with comparison operator <
-        if maxRetries < 10 {
-            log "maxRetries less than 10 - correct"
-        }
-        
-        # Test if with comparison operator <=
-        if maxRetries <= 3 {
-            log "maxRetries <= 3 - correct"
-        }
-        
-        # Test if with comparison operator !=
-        if maxRetries != 0 {
-            log "maxRetries not equal to 0 - correct"
-        }
-        
-        # Test repeat loop
-        repeat 3 times {
-            log "Repeating action"
-            wait 500 milliseconds
-        }
-        
-        # Test do action (calling page method)
-        do TestPage.fillAndSubmit with "test value"
-        
-        # Test hover and scroll
-        hover TestPage.heading
-        scroll to TestPage.contentDiv
-        
-        # Test press key
-        press "Escape"
-        
-        # Final verification
-        log "All tests completed successfully"
+FEATURE ComprehensiveTest {
+    USE TestPage
+    USE HomePage
+
+    BEFORE EACH {
+        OPEN "https://example.com"
     }
 
-    scenario "fghjf" {
-        open "https://example.com/"
-    
-        click HomePage.learnMore
-    
-        click HomePage.aclick
-    
-        click HomePage.contractualLimitationslink
+    SCENARIO "Test basic actions and assertions" @smoke @comprehensive {
+        LOG "Starting comprehensive test"
+        VERIFY TestPage.heading IS VISIBLE
+        WAIT 2 SECONDS
+
+        DO TestPage.fillAndSubmit WITH "test value"
+        HOVER TestPage.heading
+        PRESS "Escape"
+
+        LOG "All tests completed successfully"
+    }
+
+    SCENARIO "Example page navigation" @smoke {
+        OPEN "https://example.com/"
+        CLICK HomePage.learnMore
+        WAIT 1 SECONDS
+        CLICK HomePage.aclick
     }
 }

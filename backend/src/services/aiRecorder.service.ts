@@ -16,6 +16,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { EventEmitter } from 'events';
 import { prisma } from '../db/prisma';
 import { StagehandService, StagehandConfig, ActResult } from './copilot/StagehandService';
+import { browserCaptureService, CapturedAction } from './aiRecorder.browserCapture';
 import { logger } from '../utils/logger';
 
 // ============================================
@@ -551,24 +552,59 @@ export class AIRecorderService extends EventEmitter {
       }
     }
 
-    // All retries exhausted - mark as needs review
+    // All retries exhausted - enter stuck state
+    // Generate suggestions based on the error and step description
+    const suggestions = this.generateStuckSuggestions(step.description, lastError || '');
+
+    // Take a screenshot for context
+    let screenshotPath: string | null = null;
+    try {
+      const screenshot = await stagehand.takeScreenshot();
+      screenshotPath = await this.saveScreenshot(step.id, screenshot);
+    } catch (e) {
+      logger.warn('Failed to take screenshot for stuck step:', e);
+    }
+
+    // Mark step as stuck
     await prisma.aIRecorderStep.update({
       where: { id: step.id },
       data: {
-        status: 'needs_review',
+        status: 'stuck',
         errorMessage: lastError,
+        suggestions: JSON.stringify(suggestions),
+        screenshotPath,
         retryCount: EXECUTION_CONFIG.maxRetries,
         completedAt: new Date(),
       },
     });
 
-    this.emit('step:completed', {
+    // Mark test case as stuck and record which step
+    await prisma.aIRecorderTestCase.update({
+      where: { id: testCaseId },
+      data: {
+        status: 'stuck',
+        stuckAtStep: step.stepNumber,
+      },
+    });
+
+    // Emit stuck event with suggestions for UI
+    this.emit('step:stuck', {
       sessionId,
       testCaseId,
       stepId: step.id,
-      success: false,
+      stepNumber: step.stepNumber,
+      description: step.description,
       error: lastError,
+      screenshot: screenshotPath,
+      suggestions,
       retryCount: EXECUTION_CONFIG.maxRetries,
+    });
+
+    // Also emit testCase:stuck event
+    this.emit('testCase:stuck', {
+      sessionId,
+      testCaseId,
+      stuckAtStep: step.stepNumber,
     });
 
     return {
@@ -577,10 +613,51 @@ export class AIRecorderService extends EventEmitter {
       selector: null,
       selectorType: null,
       confidence: 0,
-      screenshotPath: null,
+      screenshotPath,
       error: lastError,
       retryCount: EXECUTION_CONFIG.maxRetries,
     };
+  }
+
+  /**
+   * Generate helpful suggestions when a step gets stuck
+   */
+  private generateStuckSuggestions(description: string, error: string): string[] {
+    const suggestions: string[] = [];
+    const lowerDesc = description.toLowerCase();
+    const lowerError = error.toLowerCase();
+
+    // Common element matching issues
+    if (lowerError.includes('multiple') || lowerError.includes('found') || lowerError.includes('ambiguous')) {
+      suggestions.push(`Try being more specific: "${description}" in the header area`);
+      suggestions.push(`Try being more specific: "${description}" with specific text`);
+    }
+
+    // Element not found
+    if (lowerError.includes('not found') || lowerError.includes('no element') || lowerError.includes('timeout')) {
+      suggestions.push('Check if the element has a different label on this page');
+      suggestions.push('The element might be hidden - try scrolling first');
+      suggestions.push('Wait for the page to fully load before clicking');
+    }
+
+    // Click-specific issues
+    if (lowerDesc.includes('click')) {
+      suggestions.push('Try clicking a nearby element instead');
+      suggestions.push('The button might have a different label now');
+    }
+
+    // Fill-specific issues
+    if (lowerDesc.includes('fill') || lowerDesc.includes('enter') || lowerDesc.includes('type')) {
+      suggestions.push('Make sure the input field is visible and not disabled');
+      suggestions.push('Try clicking the field first, then filling');
+    }
+
+    // Always add these options
+    suggestions.push('Skip this step and continue');
+    suggestions.push('Let me do it manually');
+
+    // Limit to 5 suggestions
+    return suggestions.slice(0, 5);
   }
 
   /**
@@ -702,6 +779,192 @@ export class AIRecorderService extends EventEmitter {
       default:
         return `// ${description}`;
     }
+  }
+
+  // ----------------------------------------
+  // Recovery & Resume Features
+  // ----------------------------------------
+
+  /**
+   * Resume execution after user provides help for a stuck step
+   * This is called when user provides a chat hint to retry the stuck step
+   */
+  async resumeWithHint(
+    sessionId: string,
+    testCaseId: string,
+    stepId: string,
+    userHint: string,
+    aiSettings: any
+  ): Promise<{ success: boolean; veroCode?: string; error?: string }> {
+    const step = await prisma.aIRecorderStep.findUnique({
+      where: { id: stepId },
+      include: { testCase: { include: { session: true, steps: true } } },
+    });
+
+    if (!step || step.status !== 'stuck') {
+      return { success: false, error: 'Step is not in stuck state' };
+    }
+
+    let stagehand: StagehandService | null = null;
+
+    try {
+      // Initialize Stagehand with headed browser for user to see
+      const stagehandConfig: StagehandConfig = {
+        modelName: aiSettings.modelName,
+        apiKey: aiSettings.apiKey,
+        headless: false, // Show browser for recovery
+        useBrowserbase: aiSettings.useBrowserbase,
+        browserbaseApiKey: aiSettings.browserbaseApiKey,
+      };
+
+      stagehand = new StagehandService(stagehandConfig);
+      await stagehand.initialize();
+
+      // Navigate to base URL if available
+      const baseUrl = step.testCase.session.baseUrl || step.testCase.targetUrl;
+      if (baseUrl) {
+        await stagehand.navigateTo(baseUrl);
+      }
+
+      // Replay all successful steps before the stuck one
+      for (const prevStep of step.testCase.steps) {
+        if (prevStep.stepNumber >= step.stepNumber) break;
+        if (prevStep.status === 'success' || prevStep.status === 'resolved') {
+          await stagehand.act(prevStep.description);
+        }
+      }
+
+      // Try the stuck step with user's hint
+      const refinedDescription = `${step.description}. User hint: ${userHint}`;
+      const actResult = await stagehand.act(refinedDescription);
+
+      if (actResult.success) {
+        // Find best selector and generate Vero code
+        const selector = await stagehand.findBestSelector(step.description);
+        const veroCode = this.generateVeroCode(step.stepType, step.description, selector);
+        const screenshot = await stagehand.takeScreenshot();
+        const screenshotPath = await this.saveScreenshot(step.id, screenshot);
+
+        // Mark step as resolved
+        await prisma.aIRecorderStep.update({
+          where: { id: stepId },
+          data: {
+            status: 'resolved',
+            veroCode,
+            selector,
+            selectorType: this.getSelectorType(selector),
+            screenshotPath,
+            errorMessage: null,
+          },
+        });
+
+        // Update test case status - continue execution or mark for review
+        const remainingSteps = step.testCase.steps.filter(
+          (s) => s.stepNumber > step.stepNumber && s.status === 'pending'
+        );
+
+        if (remainingSteps.length === 0) {
+          await prisma.aIRecorderTestCase.update({
+            where: { id: testCaseId },
+            data: { status: 'human_review', stuckAtStep: null },
+          });
+        } else {
+          await prisma.aIRecorderTestCase.update({
+            where: { id: testCaseId },
+            data: { status: 'partially_complete', stuckAtStep: null },
+          });
+        }
+
+        this.emit('step:resolved', {
+          sessionId,
+          testCaseId,
+          stepId,
+          veroCode,
+          screenshot: screenshotPath,
+        });
+
+        return { success: true, veroCode };
+      }
+
+      return { success: false, error: actResult.error || 'Action failed with user hint' };
+    } catch (error: any) {
+      logger.error('Failed to resume with hint:', error);
+      return { success: false, error: error.message };
+    } finally {
+      if (stagehand) {
+        await stagehand.close();
+      }
+    }
+  }
+
+  /**
+   * Skip a stuck step and continue with the next one
+   */
+  async skipStep(
+    sessionId: string,
+    testCaseId: string,
+    stepId: string
+  ): Promise<void> {
+    await prisma.aIRecorderStep.update({
+      where: { id: stepId },
+      data: {
+        status: 'skipped',
+        veroCode: null,
+      },
+    });
+
+    // Update test case to partially_complete
+    await prisma.aIRecorderTestCase.update({
+      where: { id: testCaseId },
+      data: {
+        status: 'partially_complete',
+        stuckAtStep: null,
+      },
+    });
+
+    this.emit('step:skipped', {
+      sessionId,
+      testCaseId,
+      stepId,
+    });
+  }
+
+  /**
+   * Update a step with manually captured action (browser takeover)
+   */
+  async captureManualAction(
+    sessionId: string,
+    testCaseId: string,
+    stepId: string,
+    veroCode: string,
+    selector?: string
+  ): Promise<void> {
+    await prisma.aIRecorderStep.update({
+      where: { id: stepId },
+      data: {
+        status: 'captured',
+        veroCode,
+        selector: selector || null,
+        selectorType: selector ? this.getSelectorType(selector) : null,
+        errorMessage: null,
+      },
+    });
+
+    // Update test case status
+    await prisma.aIRecorderTestCase.update({
+      where: { id: testCaseId },
+      data: {
+        status: 'partially_complete',
+        stuckAtStep: null,
+      },
+    });
+
+    this.emit('step:captured', {
+      sessionId,
+      testCaseId,
+      stepId,
+      veroCode,
+    });
   }
 
   // ----------------------------------------
@@ -847,15 +1110,368 @@ export class AIRecorderService extends EventEmitter {
   }
 
   // ----------------------------------------
+  // Browser Capture Features
+  // ----------------------------------------
+
+  /**
+   * Active Stagehand instances for capture mode
+   * Maps sessionId:testCaseId to stagehand instance
+   */
+  private captureStagehandMap: Map<string, StagehandService> = new Map();
+
+  /**
+   * Start browser capture mode for a step (single action) or manual recording (multiple actions)
+   */
+  async startBrowserCapture(
+    sessionId: string,
+    testCaseId: string,
+    stepId: string | undefined,
+    mode: 'single' | 'manual',
+    aiSettings: any
+  ): Promise<{ success: boolean; error?: string }> {
+    const captureKey = `${sessionId}:${testCaseId}`;
+
+    try {
+      // Initialize headed Stagehand for capture
+      const stagehandConfig: StagehandConfig = {
+        modelName: aiSettings.modelName,
+        apiKey: aiSettings.apiKey,
+        headless: false, // Must be headed for user interaction
+        useBrowserbase: aiSettings.useBrowserbase,
+        browserbaseApiKey: aiSettings.browserbaseApiKey,
+      };
+
+      const stagehand = new StagehandService(stagehandConfig);
+      await stagehand.initialize();
+
+      // Get the page and context from Stagehand
+      const page = stagehand.getActivePage();
+      const context = stagehand.getBrowserContext();
+
+      if (!page || !context) {
+        throw new Error('Failed to get browser page from Stagehand');
+      }
+
+      // Navigate to the test case's target URL if available
+      const testCase = await prisma.aIRecorderTestCase.findUnique({
+        where: { id: testCaseId },
+      });
+      if (testCase?.targetUrl) {
+        await stagehand.navigateTo(testCase.targetUrl);
+      }
+
+      // Store stagehand instance for later cleanup
+      this.captureStagehandMap.set(captureKey, stagehand);
+
+      // Start browser capture
+      // Note: Stagehand Page is compatible with Playwright Page at runtime
+      // but TypeScript types differ slightly
+      await browserCaptureService.startCapture(
+        sessionId,
+        testCaseId,
+        stepId,
+        mode,
+        page as any,
+        context as any
+      );
+
+      // Update test case status to manual_recording if in manual mode
+      if (mode === 'manual') {
+        await prisma.aIRecorderTestCase.update({
+          where: { id: testCaseId },
+          data: { status: 'manual_recording' },
+        });
+      }
+
+      // Set up event forwarding from capture service
+      this.setupCaptureEventForwarding(sessionId, testCaseId, stepId);
+
+      logger.info('Browser capture started', { sessionId, testCaseId, stepId, mode });
+
+      this.emit('capture:started', {
+        sessionId,
+        testCaseId,
+        stepId,
+        mode,
+      });
+
+      return { success: true };
+    } catch (error: any) {
+      logger.error('Failed to start browser capture:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Stop browser capture and process captured actions
+   */
+  async stopBrowserCapture(
+    sessionId: string,
+    testCaseId: string
+  ): Promise<{ success: boolean; actions: CapturedAction[]; error?: string }> {
+    const captureKey = `${sessionId}:${testCaseId}`;
+
+    try {
+      // Stop capture and get actions
+      const actions = await browserCaptureService.stopCapture(sessionId, testCaseId);
+
+      // Clean up Stagehand
+      const stagehand = this.captureStagehandMap.get(captureKey);
+      if (stagehand) {
+        await stagehand.close();
+        this.captureStagehandMap.delete(captureKey);
+      }
+
+      // Process captured actions into steps
+      if (actions.length > 0) {
+        await this.processCapturedActions(sessionId, testCaseId, actions);
+      }
+
+      // Update test case status
+      await prisma.aIRecorderTestCase.update({
+        where: { id: testCaseId },
+        data: {
+          status: 'human_review',
+        },
+      });
+
+      logger.info('Browser capture stopped', { sessionId, testCaseId, actionsCount: actions.length });
+
+      this.emit('capture:stopped', {
+        sessionId,
+        testCaseId,
+        actions,
+      });
+
+      return { success: true, actions };
+    } catch (error: any) {
+      logger.error('Failed to stop browser capture:', error);
+      return { success: false, actions: [], error: error.message };
+    }
+  }
+
+  /**
+   * Process captured browser actions and convert them to steps
+   */
+  private async processCapturedActions(
+    sessionId: string,
+    testCaseId: string,
+    actions: CapturedAction[]
+  ): Promise<void> {
+    const captureSession = browserCaptureService.getCaptureSession(sessionId, testCaseId);
+
+    if (captureSession?.stepId) {
+      // Single step replacement mode - update the specific step
+      if (actions.length > 0) {
+        await prisma.aIRecorderStep.update({
+          where: { id: captureSession.stepId },
+          data: {
+            status: 'captured',
+            veroCode: actions[0].veroCode,
+            selector: actions[0].selector,
+          },
+        });
+      }
+    } else {
+      // Manual recording mode - add all actions as new steps
+      const existingSteps = await prisma.aIRecorderStep.findMany({
+        where: { testCaseId },
+        orderBy: { stepNumber: 'desc' },
+        take: 1,
+      });
+
+      let nextStepNumber = (existingSteps[0]?.stepNumber || 0) + 1;
+
+      for (const action of actions) {
+        await prisma.aIRecorderStep.create({
+          data: {
+            id: uuidv4(),
+            testCaseId,
+            stepNumber: nextStepNumber++,
+            description: this.actionToDescription(action),
+            status: 'captured',
+            veroCode: action.veroCode,
+            selector: action.selector,
+          },
+        });
+      }
+    }
+  }
+
+  /**
+   * Convert a captured action to a human-readable description
+   */
+  private actionToDescription(action: CapturedAction): string {
+    switch (action.type) {
+      case 'click':
+        return `Click on ${action.target}`;
+      case 'fill':
+        return `Fill ${action.target} with "${action.value || ''}"`;
+      case 'select':
+        return `Select "${action.value || ''}" from ${action.target}`;
+      case 'check':
+        return `Check ${action.target}`;
+      case 'uncheck':
+        return `Uncheck ${action.target}`;
+      case 'navigate':
+        return `Navigate to ${action.value || action.target}`;
+      case 'hover':
+        return `Hover over ${action.target}`;
+      case 'press':
+        return `Press ${action.value || 'Enter'} key`;
+      default:
+        return `Perform ${action.type} on ${action.target}`;
+    }
+  }
+
+  /**
+   * Set up event forwarding from browser capture service
+   */
+  private setupCaptureEventForwarding(
+    sessionId: string,
+    testCaseId: string,
+    stepId: string | undefined
+  ): void {
+    const handleAction = async (data: {
+      sessionId: string;
+      testCaseId: string;
+      stepId?: string;
+      action: CapturedAction;
+    }) => {
+      // Only forward events for this capture session
+      if (data.sessionId !== sessionId || data.testCaseId !== testCaseId) return;
+
+      // If single step mode and we have a stepId, update that step
+      if (stepId && data.action) {
+        await prisma.aIRecorderStep.update({
+          where: { id: stepId },
+          data: {
+            status: 'captured',
+            veroCode: data.action.veroCode,
+            selector: data.action.selector,
+          },
+        });
+
+        // Update test case status
+        await prisma.aIRecorderTestCase.update({
+          where: { id: testCaseId },
+          data: {
+            status: 'partially_complete',
+            stuckAtStep: null,
+          },
+        });
+      }
+
+      // Emit the action to WebSocket clients
+      this.emit('capture:action', {
+        sessionId,
+        testCaseId,
+        stepId,
+        action: data.action,
+      });
+    };
+
+    // Listen for capture actions
+    browserCaptureService.on('capture:action', handleAction);
+
+    // Clean up listener when capture stops
+    const handleStopped = (data: { sessionId: string; testCaseId: string }) => {
+      if (data.sessionId === sessionId && data.testCaseId === testCaseId) {
+        browserCaptureService.off('capture:action', handleAction);
+        browserCaptureService.off('capture:stopped', handleStopped);
+      }
+    };
+    browserCaptureService.on('capture:stopped', handleStopped);
+  }
+
+  /**
+   * Check if browser capture is active for a test case
+   */
+  isCapturing(sessionId: string, testCaseId: string): boolean {
+    return browserCaptureService.isCapturing(sessionId, testCaseId);
+  }
+
+  // ----------------------------------------
   // Approval & Export
   // ----------------------------------------
 
   /**
+   * Preview Vero code for a test case before saving
+   */
+  async previewTestCaseVero(
+    testCaseId: string,
+    targetPath: string
+  ): Promise<{
+    veroCode: string;
+    filePath: string;
+    fileExists: boolean;
+    existingContent: string | null;
+    willMerge: boolean;
+  }> {
+    const testCase = await prisma.aIRecorderTestCase.findUnique({
+      where: { id: testCaseId },
+      include: { steps: { orderBy: { stepNumber: 'asc' } } },
+    });
+
+    if (!testCase) {
+      throw new Error('Test case not found');
+    }
+
+    // Generate Vero scenario content
+    const veroCode = this.generateVeroScenario(testCase);
+
+    // Determine file path
+    const fileName = testCase.name.toLowerCase().replace(/\s+/g, '_') + '.vero';
+    const filePath = path.join(targetPath, fileName);
+
+    // Check if file exists
+    let fileExists = false;
+    let existingContent: string | null = null;
+    try {
+      existingContent = await fs.readFile(filePath, 'utf-8');
+      fileExists = true;
+    } catch {
+      // File doesn't exist
+    }
+
+    // Check if we'll merge (file exists and has different scenarios)
+    const willMerge = fileExists && existingContent !== null &&
+      !existingContent.includes(`scenario "${testCase.name}"`);
+
+    return {
+      veroCode,
+      filePath,
+      fileExists,
+      existingContent,
+      willMerge,
+    };
+  }
+
+  /**
+   * Generate Vero scenario code from test case
+   */
+  private generateVeroScenario(testCase: any): string {
+    const stepsCode = testCase.steps
+      .filter((s: any) => s.veroCode)
+      .map((s: any) => `  ${s.veroCode}`)
+      .join('\n');
+
+    return `scenario "${testCase.name}" {
+${stepsCode}
+}`;
+  }
+
+  /**
    * Approve a test case and save as .vero file
+   * Supports merging with existing files
    */
   async approveTestCase(
     testCaseId: string,
-    targetPath: string
+    targetPath: string,
+    options: {
+      merge?: boolean; // If true, append to existing file
+      overwrite?: boolean; // If true, replace existing scenario
+    } = {}
   ): Promise<string> {
     const testCase = await prisma.aIRecorderTestCase.findUnique({
       where: { id: testCaseId },
@@ -866,37 +1482,75 @@ export class AIRecorderService extends EventEmitter {
       throw new Error('Test case not found');
     }
 
-    // Generate Vero file content
-    const stepsCode = testCase.steps
-      .filter((s) => s.veroCode)
-      .map((s) => `  ${s.veroCode}`)
-      .join('\n');
-
-    const veroContent = `# ${testCase.name}
-${testCase.description ? `# ${testCase.description}\n` : ''}
-scenario "${testCase.name}" {
-${stepsCode}
-}
-`;
-
-    // Write to file
+    const scenarioCode = this.generateVeroScenario(testCase);
     const fileName = testCase.name.toLowerCase().replace(/\s+/g, '_') + '.vero';
     const filePath = path.join(targetPath, fileName);
 
     await fs.mkdir(targetPath, { recursive: true });
-    await fs.writeFile(filePath, veroContent, 'utf-8');
+
+    // Check for existing file
+    let finalContent: string;
+    let existingContent: string | null = null;
+
+    try {
+      existingContent = await fs.readFile(filePath, 'utf-8');
+    } catch {
+      // File doesn't exist
+    }
+
+    if (existingContent) {
+      // File exists - decide how to handle
+      const scenarioPattern = new RegExp(
+        `scenario\\s+"${testCase.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s*\\{[\\s\\S]*?\\n\\}`,
+        'g'
+      );
+
+      if (scenarioPattern.test(existingContent)) {
+        // Scenario with same name exists
+        if (options.overwrite) {
+          // Replace the existing scenario
+          finalContent = existingContent.replace(scenarioPattern, scenarioCode);
+          logger.info(`Overwrote existing scenario in: ${filePath}`);
+        } else {
+          throw new Error(`Scenario "${testCase.name}" already exists in ${fileName}. Use overwrite option to replace.`);
+        }
+      } else if (options.merge) {
+        // Append to existing file
+        finalContent = existingContent.trimEnd() + '\n\n' + scenarioCode + '\n';
+        logger.info(`Merged scenario into: ${filePath}`);
+      } else {
+        // Create new file with just this scenario
+        finalContent = this.generateVeroFileContent(testCase, scenarioCode);
+        logger.info(`Created new Vero file: ${filePath}`);
+      }
+    } else {
+      // New file
+      finalContent = this.generateVeroFileContent(testCase, scenarioCode);
+      logger.info(`Created Vero file: ${filePath}`);
+    }
+
+    await fs.writeFile(filePath, finalContent, 'utf-8');
 
     // Update test case status
     await prisma.aIRecorderTestCase.update({
       where: { id: testCaseId },
       data: {
         status: 'complete',
-        veroCode: veroContent,
+        veroCode: scenarioCode,
       },
     });
 
-    logger.info(`Saved Vero file: ${filePath}`);
     return filePath;
+  }
+
+  /**
+   * Generate full Vero file content with header
+   */
+  private generateVeroFileContent(testCase: any, scenarioCode: string): string {
+    return `# ${testCase.name}
+${testCase.description ? `# ${testCase.description}\n` : ''}
+${scenarioCode}
+`;
   }
 
   /**

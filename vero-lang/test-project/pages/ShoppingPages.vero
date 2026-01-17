@@ -1,81 +1,81 @@
-# E-Commerce Shopping Flow
+# E-Commerce Shopping Pages
 
-page ProductPage {
-    field productTitle = testId "product-title"
-    field productPrice = testId "product-price"
-    field quantityInput = textbox "Quantity"
-    field addToCartBtn = button "Add to Cart"
-    field wishlistBtn = button "Add to Wishlist"
-    field reviewsSection = testId "reviews"
-    field ratingStars = testId "rating"
-    field cartBadge = testId "cart-count"
-    
+PAGE ProductPage {
+    FIELD productTitle = "[data-testid='product-title']"
+    FIELD productPrice = "[data-testid='product-price']"
+    FIELD quantityInput = "[name='quantity'], input[placeholder*='Quantity']"
+    FIELD addToCartBtn = "button:has-text('Add to Cart')"
+    FIELD wishlistBtn = "button:has-text('Add to Wishlist')"
+    FIELD reviewsSection = "[data-testid='reviews']"
+    FIELD ratingStars = "[data-testid='rating']"
+    FIELD cartBadge = "[data-testid='cart-count']"
+
     addToCart {
-        click addToCartBtn
+        CLICK ProductPage.addToCartBtn
     }
-    
-    addToCartWithQuantity with quantity {
-        fill quantityInput with quantity
-        click addToCartBtn
+
+    addToCartWithQuantity WITH quantity {
+        FILL ProductPage.quantityInput WITH quantity
+        CLICK ProductPage.addToCartBtn
     }
-    
+
     addToWishlist {
-        click wishlistBtn
+        CLICK ProductPage.wishlistBtn
     }
 }
 
-page CartPage {
-    field cartItems = testId "cart-items"
-    field cartTotal = testId "cart-total"
-    field checkoutBtn = button "Proceed to Checkout"
-    field emptyCartMessage = testId "empty-cart"
-    field removeItemBtn = button "Remove"
-    field updateQuantityInput = textbox "Qty"
-    field applyPromoInput = placeholder "Promo code"
-    field applyPromoBtn = button "Apply"
-    field promoSuccessMsg = testId "promo-success"
-    field promoErrorMsg = testId "promo-error"
-    
+PAGE CartPage {
+    FIELD cartItems = "[data-testid='cart-items']"
+    FIELD cartTotal = "[data-testid='cart-total']"
+    FIELD checkoutBtn = "button:has-text('Proceed to Checkout')"
+    FIELD emptyCartMessage = "[data-testid='empty-cart']"
+    FIELD removeItemBtn = "button:has-text('Remove')"
+    FIELD updateQuantityInput = "input[name='qty']"
+    FIELD applyPromoInput = "[placeholder*='Promo']"
+    FIELD applyPromoBtn = "button:has-text('Apply')"
+    FIELD promoSuccessMsg = "[data-testid='promo-success']"
+    FIELD promoErrorMsg = "[data-testid='promo-error']"
+
     proceedToCheckout {
-        click checkoutBtn
+        CLICK CartPage.checkoutBtn
     }
-    
+
     removeFirstItem {
-        click removeItemBtn
+        CLICK CartPage.removeItemBtn
     }
-    
-    applyPromoCode with code {
-        fill applyPromoInput with code
-        click applyPromoBtn
+
+    applyPromoCode WITH code {
+        FILL CartPage.applyPromoInput WITH code
+        CLICK CartPage.applyPromoBtn
     }
 }
 
-page CheckoutPage {
-    field emailInput = textbox "Email"
-    field addressInput = textbox "Address"
-    field cityInput = textbox "City"
-    field zipInput = textbox "ZIP Code"
-    field cardNumberInput = placeholder "Card number"
-    field expiryInput = placeholder "MM/YY"
-    field cvvInput = placeholder "CVV"
-    field placeOrderBtn = button "Place Order"
-    field orderConfirmation = testId "order-confirmation"
-    field orderNumber = testId "order-number"
-    
-    fillShippingInfo with email, address, city, zip {
-        fill emailInput with email
-        fill addressInput with address
-        fill cityInput with city
-        fill zipInput with zip
+PAGE CheckoutPage {
+    FIELD emailInput = "input[name='email'], input[type='email']"
+    FIELD addressInput = "input[name='address']"
+    FIELD cityInput = "input[name='city']"
+    FIELD zipInput = "input[name='zip'], input[placeholder*='ZIP']"
+    FIELD cardNumberInput = "[placeholder*='Card number']"
+    FIELD expiryInput = "[placeholder*='MM/YY']"
+    FIELD cvvInput = "[placeholder*='CVV']"
+    FIELD placeOrderBtn = "button:has-text('Place Order')"
+    FIELD orderConfirmation = "[data-testid='order-confirmation']"
+    FIELD orderNumber = "[data-testid='order-number']"
+
+    fillShippingInfo WITH email, address, city, zip {
+        FILL CheckoutPage.emailInput WITH email
+        FILL CheckoutPage.addressInput WITH address
+        FILL CheckoutPage.cityInput WITH city
+        FILL CheckoutPage.zipInput WITH zip
     }
-    
-    fillPaymentInfo with cardNumber, expiry, cvv {
-        fill cardNumberInput with cardNumber
-        fill expiryInput with expiry
-        fill cvvInput with cvv
+
+    fillPaymentInfo WITH cardNumber, expiry, cvv {
+        FILL CheckoutPage.cardNumberInput WITH cardNumber
+        FILL CheckoutPage.expiryInput WITH expiry
+        FILL CheckoutPage.cvvInput WITH cvv
     }
-    
+
     placeOrder {
-        click placeOrderBtn
+        CLICK CheckoutPage.placeOrderBtn
     }
 }

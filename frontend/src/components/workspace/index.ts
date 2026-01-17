@@ -2,6 +2,9 @@
 // Following GitHub dark theme from design files
 
 export { ActivityBar, type ActivityView, type ActivityBarProps } from './ActivityBar';
+export { CompareTab, type CompareTabProps } from './CompareTab';
+export { CompareWithModal, type CompareWithModalProps } from './CompareWithModal';
+export { FileContextMenu, type FileContextMenuProps } from './FileContextMenu';
 export { Header, type HeaderProps } from './Header';
 export { ExplorerPanel, type FileNode, type ExplorerPanelProps } from './ExplorerPanel';
 export { RunConfigurationModal, type RunConfiguration, type RunConfigurationModalProps } from './RunConfigurationModal';

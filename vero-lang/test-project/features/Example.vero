@@ -1,37 +1,36 @@
-feature Example {
-  use HomePage
+# Example Feature
 
-  scenario "Parallel Test 1" {
-    open "https://example.com/"
-    wait 3 seconds
-    log "scenario 1 step"
-  }
+FEATURE Example {
+    USE HomePage
 
-  scenario "Parallel Test 2" {
-    open "https://example.com/"
-    wait 3 seconds
-    log "scenario 2 step"
-  }
-  
+    SCENARIO "Parallel Test 1" @parallel {
+        OPEN "https://example.com/"
+        WAIT 3 SECONDS
+        LOG "scenario 1 step"
+    }
 
-  scenario "Parallel Test 3" {
-    open "https://example.com/"
-    wait 3 seconds
-log "scenario 3 step"
-  }
+    SCENARIO "Parallel Test 2" @parallel {
+        OPEN "https://example.com/"
+        WAIT 3 SECONDS
+        LOG "scenario 2 step"
+    }
 
-  scenario "Parallel Test 4" {
-    open "https://example.com/"
-    wait 3 seconds
-    log "scenario 4 step"
-  }
+    SCENARIO "Parallel Test 3" @parallel {
+        OPEN "https://example.com/"
+        WAIT 3 SECONDS
+        LOG "scenario 3 step"
+    }
 
-  scenario "newTest" {
-    open "https://example.com/"
-    click HomePage.learnMore
-    click HomePage.aclick
-    click HomePage.header
-  }
+    SCENARIO "Parallel Test 4" @parallel {
+        OPEN "https://example.com/"
+        WAIT 3 SECONDS
+        LOG "scenario 4 step"
+    }
 
-  
+    SCENARIO "Example Navigation Test" @smoke {
+        OPEN "https://example.com/"
+        CLICK HomePage.learnMore
+        CLICK HomePage.aclick
+        CLICK HomePage.header
+    }
 }

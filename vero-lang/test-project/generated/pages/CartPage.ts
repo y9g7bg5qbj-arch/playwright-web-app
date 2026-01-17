@@ -15,28 +15,28 @@ export class CartPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.cartItems = page.getByTestId('cart-items');
-    this.cartTotal = page.getByTestId('cart-total');
-    this.checkoutBtn = page.getByRole('button', { name: 'Proceed to Checkout' });
-    this.emptyCartMessage = page.getByTestId('empty-cart');
-    this.removeItemBtn = page.getByRole('button', { name: 'Remove' });
-    this.updateQuantityInput = page.getByLabel('Qty');
-    this.applyPromoInput = page.getByPlaceholder('Promo code');
-    this.applyPromoBtn = page.getByRole('button', { name: 'Apply' });
-    this.promoSuccessMsg = page.getByTestId('promo-success');
-    this.promoErrorMsg = page.getByTestId('promo-error');
+    this.cartItems = page.locator('[data-testid='cart-items']');
+    this.cartTotal = page.locator('[data-testid='cart-total']');
+    this.checkoutBtn = page.locator('button:has-text('Proceed to Checkout')');
+    this.emptyCartMessage = page.locator('[data-testid='empty-cart']');
+    this.removeItemBtn = page.locator('button:has-text('Remove')');
+    this.updateQuantityInput = page.locator('input[name='qty']');
+    this.applyPromoInput = page.locator('[placeholder*='Promo']');
+    this.applyPromoBtn = page.locator('button:has-text('Apply')');
+    this.promoSuccessMsg = page.locator('[data-testid='promo-success']');
+    this.promoErrorMsg = page.locator('[data-testid='promo-error']');
   }
 
   async proceedToCheckout() {
-    await this.checkoutBtn.click();
+    await test.step('Click CartPage.checkoutBtn', async () => { await cartPage.checkoutBtn.click(); });
   }
 
   async removeFirstItem() {
-    await this.removeItemBtn.click();
+    await test.step('Click CartPage.removeItemBtn', async () => { await cartPage.removeItemBtn.click(); });
   }
 
   async applyPromoCode(code: string) {
-    await this.applyPromoInput.fill(code);
-    await this.applyPromoBtn.click();
+    await test.step('Fill CartPage.applyPromoInput', async () => { await cartPage.applyPromoInput.fill(code); });
+    await test.step('Click CartPage.applyPromoBtn', async () => { await cartPage.applyPromoBtn.click(); });
   }
 }

@@ -1,0 +1,27 @@
+# Example Page Object
+# Define page elements with FIELD definitions
+
+PAGE LoginPage
+  URL "/login"
+
+  FIELD usernameInput
+    SELECTOR input[name="username"]
+    TYPE text
+  END
+
+  FIELD passwordInput
+    SELECTOR input[name="password"]
+    TYPE password
+  END
+
+  FIELD submitButton
+    SELECTOR button[type="submit"]
+    TYPE button
+  END
+
+  ACTION login(username, password)
+    fill usernameInput with username
+    fill passwordInput with password
+    click submitButton
+  END
+END

@@ -2,9 +2,11 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import {
     Play, Upload, FileText, ChevronDown, ChevronRight,
     Plus, RefreshCw, Check, X, Trash2, Edit3, ExternalLink,
-    Loader2, AlertCircle, CheckCircle, RotateCcw, Eye
+    Loader2, AlertCircle, CheckCircle, RotateCcw, Eye,
+    AlertTriangle, SkipForward, Video, StopCircle
 } from 'lucide-react';
 import { useAIRecorder, TestCaseInput } from '@/hooks/useAIRecorder';
+import { AIStudioChat } from './AIStudioChat';
 import './AITestRecorderPanel.css';
 
 interface Environment {
@@ -30,13 +32,25 @@ const ENVIRONMENTS: Environment[] = [
 export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, projectPath }: AITestRecorderPanelProps) {
     const {
         session,
+        capture,
+        capturedActions,
         isConnected,
         isProcessing,
         isComplete,
+        isStuck,
         importExcel,
         createAndStart,
         cancelSession,
         refreshProgress,
+        // Recovery (Stuck State)
+        resumeWithHint,
+        skipStep,
+        captureAction: _captureAction, // Used when manually typing code
+        getStuckStep,
+        // Browser Capture (Human Takeover)
+        startCapture,
+        stopCapture,
+        // Human Review
         replayStep,
         updateStepCode,
         addStep,
@@ -45,13 +59,49 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
         reset,
     } = useAIRecorder();
 
+    // Get current stuck step for chat
+    const stuckStep = getStuckStep();
+    const stuckTestCase = session.testCases.find(tc => tc.status === 'stuck') || null;
+
+    // State for resolving (when user sends hint)
+    const [isResolving, setIsResolving] = useState(false);
+
+    // Handle resume with hint from chat
+    const handleResumeWithHint = useCallback((testCaseId: string, stepId: string, hint: string) => {
+        setIsResolving(true);
+        resumeWithHint(testCaseId, stepId, hint);
+        // Reset after a delay - will be updated by WebSocket events
+        setTimeout(() => setIsResolving(false), 5000);
+    }, [resumeWithHint]);
+
+    // Handle skip step from chat
+    const handleSkipStep = useCallback((testCaseId: string, stepId: string) => {
+        skipStep(testCaseId, stepId);
+    }, [skipStep]);
+
+    // Handle take over (manual browser interaction for single step)
+    const handleTakeOver = useCallback((testCaseId: string, stepId: string) => {
+        // Start browser capture in 'single' mode - capture one action to replace this step
+        startCapture(testCaseId, 'single', stepId);
+    }, [startCapture]);
+
+    // Handle finish manually (record all remaining steps)
+    const handleFinishManually = useCallback((testCaseId: string) => {
+        // Start browser capture in 'manual' mode - capture multiple actions until stopped
+        startCapture(testCaseId, 'manual');
+    }, [startCapture]);
+
+    // Handle stopping manual capture
+    const handleStopCapture = useCallback(() => {
+        stopCapture();
+    }, [stopCapture]);
+
     // UI State
     const [selectedEnv, setSelectedEnv] = useState<Environment>(ENVIRONMENTS[1]);
     const [showEnvDropdown, setShowEnvDropdown] = useState(false);
     const [showQuickCreate, setShowQuickCreate] = useState(false);
     const [showImportModal, setShowImportModal] = useState(false);
     const [expandedTestId, setExpandedTestId] = useState<string | null>(null);
-    const [replaceMode, setReplaceMode] = useState<{ testId: string; stepIndex: number } | null>(null);
     const [browserUrl, setBrowserUrl] = useState('');
     const [replayingStepId, setReplayingStepId] = useState<string | null>(null);
     const [editingStepId, setEditingStepId] = useState<string | null>(null);
@@ -187,16 +237,23 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
         switch (status) {
             case 'success':
             case 'complete':
-            case 'human_review':
+            case 'resolved':
+            case 'captured':
                 return <CheckCircle size={14} className="step-status-icon success" />;
+            case 'human_review':
+                return <Eye size={14} className="step-status-icon" style={{ color: '#ba68c8' }} />;
             case 'failed':
-            case 'needs_review':
                 return <AlertCircle size={14} className="step-status-icon error" />;
+            case 'stuck':
+                return <AlertTriangle size={14} className="step-status-icon" style={{ color: '#ffb74d' }} />;
+            case 'skipped':
+                return <SkipForward size={14} className="step-status-icon" style={{ color: '#78909c' }} />;
             case 'running':
+            case 'retrying':
                 return (
                     <span className="step-status-retry">
                         <Loader2 size={14} className="step-status-icon spin" />
-                        {retryCount !== undefined && retryCount > 1 && (
+                        {retryCount !== undefined && retryCount > 0 && (
                             <span className="retry-count">{retryCount}/10</span>
                         )}
                     </span>
@@ -300,7 +357,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
             {/* Main Content */}
             <div className="ai-recorder-content">
                 {/* Browser Panel */}
-                <div className={`browser-panel ${replaceMode ? 'replace-mode' : ''}`}>
+                <div className={`browser-panel ${capture.isCapturing ? 'capture-mode' : ''}`}>
                     <div className="browser-chrome">
                         <div className="browser-dots">
                             <span className="dot dot-red" />
@@ -316,13 +373,41 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                         />
                     </div>
                     <div className="browser-viewport">
-                        {replaceMode && (
-                            <div className="replace-hint">
-                                <Edit3 size={16} />
-                                Click on an element to replace the step
-                                <button className="cancel-replace" onClick={() => setReplaceMode(null)}>
-                                    <X size={14} /> Cancel
-                                </button>
+                        {/* Capture Mode Overlay */}
+                        {capture.isCapturing && (
+                            <div className="capture-overlay">
+                                <div className="capture-content">
+                                    <div className="capture-indicator">
+                                        <Video size={24} className="recording-icon" />
+                                        <span className="capture-label">
+                                            {capture.mode === 'single' ? 'Waiting for your action...' : 'Recording your actions...'}
+                                        </span>
+                                    </div>
+                                    <p className="capture-hint">
+                                        {capture.mode === 'single'
+                                            ? 'Click on an element in the browser to capture the action'
+                                            : `${capturedActions.length} action${capturedActions.length !== 1 ? 's' : ''} captured so far`
+                                        }
+                                    </p>
+                                    {capturedActions.length > 0 && (
+                                        <div className="captured-actions-list">
+                                            {capturedActions.slice(-3).map((action, i) => (
+                                                <div key={i} className="captured-action-item">
+                                                    <CheckCircle size={12} className="success" />
+                                                    <code>{action.veroCode}</code>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {capture.mode === 'manual' && (
+                                        <button
+                                            className="btn btn-primary capture-done-btn"
+                                            onClick={handleStopCapture}
+                                        >
+                                            <StopCircle size={16} /> Done Recording
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         )}
 
@@ -409,10 +494,14 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                                         </div>
                                         <span className={`status-chip chip-${test.status}`}>
                                             {test.status === 'complete' && <Check size={12} />}
+                                            {test.status === 'approved' && <Check size={12} />}
                                             {test.status === 'human_review' && <Eye size={12} />}
                                             {test.status === 'failed' && <X size={12} />}
                                             {test.status === 'in_progress' && <Loader2 size={12} className="spin" />}
-                                            {test.status.replace('_', ' ')}
+                                            {test.status === 'stuck' && <AlertTriangle size={12} />}
+                                            {test.status === 'manual_recording' && <Edit3 size={12} />}
+                                            {test.status === 'partially_complete' && <RefreshCw size={12} />}
+                                            {test.status.replace(/_/g, ' ')}
                                         </span>
                                         <button
                                             className="expand-btn"
@@ -425,7 +514,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                                     {expandedTestId === test.id && (
                                         <>
                                             <div className="test-steps">
-                                                {test.steps.map((step, i) => (
+                                                {test.steps.map((step) => (
                                                     <div key={step.stepId} className={`step-item step-${step.status}`}>
                                                         <div className="step-header">
                                                             <span className="step-num">{step.stepNumber}</span>
@@ -433,24 +522,51 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                                                         </div>
                                                         <div className="step-desc">{step.description}</div>
                                                         {editingStepId === step.stepId ? (
-                                                            <div className="step-edit">
-                                                                <input
-                                                                    type="text"
+                                                            <div className="step-edit-container">
+                                                                <textarea
                                                                     value={editingCode}
                                                                     onChange={(e) => setEditingCode(e.target.value)}
-                                                                    className="step-edit-input"
+                                                                    className="step-edit-textarea"
+                                                                    rows={2}
+                                                                    placeholder="Enter Vero code..."
+                                                                    autoFocus
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Escape') {
+                                                                            setEditingStepId(null);
+                                                                        } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                                                                            handleSaveEdit();
+                                                                        }
+                                                                    }}
                                                                 />
-                                                                <button className="btn btn-sm" onClick={handleSaveEdit}>
-                                                                    <Check size={12} />
-                                                                </button>
-                                                                <button className="btn btn-sm" onClick={() => setEditingStepId(null)}>
-                                                                    <X size={12} />
-                                                                </button>
+                                                                <div className="step-edit-actions">
+                                                                    <button
+                                                                        className="btn btn-sm btn-primary"
+                                                                        onClick={handleSaveEdit}
+                                                                        title="Save (Cmd+Enter)"
+                                                                    >
+                                                                        <Check size={12} /> Save
+                                                                    </button>
+                                                                    <button
+                                                                        className="btn btn-sm"
+                                                                        onClick={() => handleTakeOver(test.id, step.stepId)}
+                                                                        title="Replace by clicking in browser"
+                                                                    >
+                                                                        <Video size={12} /> Record
+                                                                    </button>
+                                                                    <button
+                                                                        className="btn btn-sm"
+                                                                        onClick={() => setEditingStepId(null)}
+                                                                        title="Cancel (Escape)"
+                                                                    >
+                                                                        <X size={12} />
+                                                                    </button>
+                                                                </div>
                                                             </div>
                                                         ) : (
                                                             <div
                                                                 className="step-code"
-                                                                onClick={() => step.veroCode && handleStartEdit(step.stepId, step.veroCode)}
+                                                                onClick={() => handleStartEdit(step.stepId, step.veroCode || '')}
+                                                                title="Click to edit"
                                                             >
                                                                 {step.veroCode || '// Pending...'}
                                                             </div>
@@ -463,9 +579,16 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                                                         <div className="step-actions">
                                                             <button
                                                                 className="step-action"
+                                                                onClick={() => handleStartEdit(step.stepId, step.veroCode || '')}
+                                                                title="Edit Vero code"
+                                                            >
+                                                                <Edit3 size={12} /> Edit
+                                                            </button>
+                                                            <button
+                                                                className="step-action"
                                                                 onClick={() => handleReplayStep(test.id, step.stepId)}
                                                                 disabled={replayingStepId === step.stepId}
-                                                                title="Replay step"
+                                                                title="Replay step in browser"
                                                             >
                                                                 {replayingStepId === step.stepId ? (
                                                                     <Loader2 size={12} className="spin" />
@@ -476,14 +599,19 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                                                             </button>
                                                             <button
                                                                 className="step-action"
-                                                                onClick={() => setReplaceMode({ testId: test.id, stepIndex: i })}
-                                                                title="Replace step"
+                                                                onClick={() => handleTakeOver(test.id, step.stepId)}
+                                                                disabled={capture.isCapturing}
+                                                                title="Replace by recording a browser action"
                                                             >
-                                                                <RefreshCw size={12} /> Replace
+                                                                <Video size={12} /> Record
                                                             </button>
                                                             <button
                                                                 className="step-action danger"
-                                                                onClick={() => deleteStep(step.stepId)}
+                                                                onClick={() => {
+                                                                    if (confirm('Delete this step?')) {
+                                                                        deleteStep(step.stepId);
+                                                                    }
+                                                                }}
                                                                 title="Delete step"
                                                             >
                                                                 <Trash2 size={12} />
@@ -527,6 +655,19 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                             <span className="error">{session.failedTests} Failed</span>, {' '}
                             <span className="pending">{session.totalTests - session.completedTests} Pending</span>
                         </div>
+                    )}
+
+                    {/* AI Chat Panel for Recovery */}
+                    {(isStuck || session.testCases.length > 0) && (
+                        <AIStudioChat
+                            testCase={stuckTestCase}
+                            stuckStep={stuckStep}
+                            onResumeWithHint={handleResumeWithHint}
+                            onSkipStep={handleSkipStep}
+                            onTakeOver={handleTakeOver}
+                            onFinishManually={handleFinishManually}
+                            isResolving={isResolving}
+                        />
                     )}
 
                     {/* Error display */}

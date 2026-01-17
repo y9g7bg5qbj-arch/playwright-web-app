@@ -2,11 +2,14 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 
 import { ActivityBar, type ActivityView } from './ActivityBar.js';
+import { CompareTab } from './CompareTab.js';
+import { CompareWithModal } from './CompareWithModal.js';
 import { ConsolePanel } from './ConsolePanel.js';
 import { EnvironmentManager } from './EnvironmentManager.js';
 import { type Execution } from './ExecutionsPanel.js';
 import { ExecutionReportView } from '../ExecutionDashboard/ExecutionReportView';
 import { ExplorerPanel, type FileNode, type NestedProject } from './ExplorerPanel.js';
+import { FileContextMenu } from './FileContextMenu.js';
 import { Header } from './Header.js';
 import { RecordingModal } from './RecordingModal.js';
 import { RunConfigurationModal, type RunConfiguration } from './RunConfigurationModal.js';
@@ -22,7 +25,10 @@ import { VeroEditor } from '../vero/VeroEditor.js';
 import { useProjectStore } from '@/store/projectStore';
 import { useLocalExecutionStore } from '@/store/useLocalExecutionStore';
 import { useRunConfigStore, type RunConfiguration as ZustandRunConfig } from '@/store/runConfigStore';
+import { CreateSandboxModal } from '@/components/sandbox/CreateSandboxModal';
+import { MergeConflictModal } from './MergeConflictModal';
 import { githubRunsApi } from '@/api/github';
+import { sandboxApi, type ConflictFile } from '@/api/sandbox';
 
 const API_BASE = '/api';
 
@@ -41,6 +47,11 @@ interface OpenTab {
   name: string;
   content: string;
   hasChanges: boolean;
+  type?: 'file' | 'compare';
+  // Compare-specific fields
+  compareSource?: string;
+  compareTarget?: string;
+  projectId?: string;
 }
 
 export function VeroWorkspace() {
@@ -80,6 +91,18 @@ export function VeroWorkspace() {
   // Recording state
   const [showRecordingModal, setShowRecordingModal] = useState(false);
   const [recordingSessionId, setRecordingSessionId] = useState<string | null>(null);
+
+  // Sandbox creation state
+  const [showCreateSandboxModal, setShowCreateSandboxModal] = useState(false);
+  const [sandboxTargetProjectId, setSandboxTargetProjectId] = useState<string | null>(null);
+
+  // Merge conflict resolution state
+  const [showMergeConflictModal, setShowMergeConflictModal] = useState(false);
+  const [mergeConflicts, setMergeConflicts] = useState<ConflictFile[]>([]);
+  const [mergeSandboxId, setMergeSandboxId] = useState<string | null>(null);
+  const [mergeSandboxName, setMergeSandboxName] = useState<string>('');
+  const [mergeSourceBranch, setMergeSourceBranch] = useState<string>('dev');
+
   const socketRef = useRef<Socket | null>(null);
   const activeTabIdRef = useRef<string | null>(null);
 
@@ -223,6 +246,21 @@ export function VeroWorkspace() {
   // Trace viewer state
   const [selectedTraceUrl, setSelectedTraceUrl] = useState<string | null>(null);
   const [selectedTraceName, setSelectedTraceName] = useState<string>('');
+
+  // File context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    filePath: string;
+    fileName: string;
+    projectId?: string;
+  } | null>(null);
+
+  // Compare modal state
+  const [compareModal, setCompareModal] = useState<{
+    filePath: string;
+    projectId?: string;
+  } | null>(null);
 
   // Scenario Browser state
   const [showScenarioBrowser, setShowScenarioBrowser] = useState(false);
@@ -1030,6 +1068,22 @@ feature ${fileName.replace('.vero', '')} {
     }
   }
 
+  // Keyboard shortcuts (Ctrl+S to save)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        const currentTab = openTabs.find(t => t.id === activeTabIdRef.current);
+        if (currentTab && currentTab.type !== 'compare') {
+          saveFileContent(currentTab.content);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [openTabs]);
+
   // Cleanup WebSocket on unmount
   useEffect(() => {
     return () => {
@@ -1256,6 +1310,256 @@ feature ${fileName.replace('.vero', '')} {
     console.log('Create new file in', projectId, folderPath);
   };
 
+  const handleCreateSandbox = (projectId: string) => {
+    console.log('[handleCreateSandbox] Called with projectId:', projectId);
+    console.log('[handleCreateSandbox] nestedProjects:', nestedProjects.map(p => ({ id: p.id, name: p.name })));
+    console.log('[handleCreateSandbox] currentProject:', currentProject?.id, currentProject?.name);
+
+    if (!projectId || projectId.trim() === '') {
+      console.error('[handleCreateSandbox] Empty projectId received!');
+      addConsoleOutput('Error: Cannot create sandbox - project ID is missing. Please expand a project first.');
+      return;
+    }
+
+    // Validate UUID format
+    if (!isValidUUID(projectId)) {
+      console.error('[handleCreateSandbox] Invalid UUID format:', projectId);
+      addConsoleOutput(`Error: Invalid project ID format: "${projectId}". Expected a UUID.`);
+      return;
+    }
+
+    setSandboxTargetProjectId(projectId);
+    setShowCreateSandboxModal(true);
+  };
+
+  const handleSandboxCreated = () => {
+    setShowCreateSandboxModal(false);
+    setSandboxTargetProjectId(null);
+    // Refresh the project files to show the new sandbox
+    if (sandboxTargetProjectId) {
+      const project = nestedProjects.find(p => p.id === sandboxTargetProjectId);
+      if (project?.veroPath) {
+        loadProjectFiles(sandboxTargetProjectId, project.veroPath);
+      }
+    }
+    addConsoleOutput('Sandbox created successfully!');
+  };
+
+  // Helper to validate UUID format
+  const isValidUUID = (str: string): boolean => {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(str);
+  };
+
+  // Sync sandbox handler - triggers three-way merge if conflicts exist
+  const handleSyncSandbox = async (sandboxName: string, projectId: string) => {
+    console.log('[handleSyncSandbox] Called with:', { sandboxName, projectId });
+    console.log('[handleSyncSandbox] nestedProjects:', nestedProjects.map(p => ({ id: p.id, name: p.name })));
+    console.log('[handleSyncSandbox] currentProject:', currentProject?.id, currentProject?.name);
+
+    if (!projectId || projectId.trim() === '') {
+      console.error('[handleSyncSandbox] Empty projectId received!');
+      addConsoleOutput('Error: Cannot sync sandbox - project ID is missing. Please expand a project first.');
+      return;
+    }
+
+    // Validate UUID format
+    if (!isValidUUID(projectId)) {
+      console.error('[handleSyncSandbox] Invalid UUID format:', projectId);
+      addConsoleOutput(`Error: Invalid project ID format: "${projectId}". Expected a UUID.`);
+      return;
+    }
+
+    addConsoleOutput(`Syncing sandbox "${sandboxName}" (projectId: ${projectId})...`);
+
+    try {
+      // First, we need to find the sandbox ID from the name
+      // The sandbox folder name might be the sandbox name with some ID suffix
+      // For now, we'll fetch all sandboxes and match by name
+      const project = nestedProjects.find(p => p.id === projectId);
+      console.log('[handleSyncSandbox] Found project:', project);
+      if (!project) {
+        addConsoleOutput(`Error: Project not found (id=${projectId})`);
+        return;
+      }
+
+      // List sandboxes for this project to find the sandbox ID
+      console.log('[handleSyncSandbox] Calling listByProject with:', projectId);
+      const sandboxes = await sandboxApi.listByProject(projectId);
+      const sandbox = sandboxes.find(s => s.name === sandboxName || s.folderPath?.includes(sandboxName));
+
+      if (!sandbox) {
+        addConsoleOutput(`Error: Sandbox "${sandboxName}" not found. It may not be registered in the database.`);
+        return;
+      }
+
+      addConsoleOutput(`Found sandbox ID: ${sandbox.id}, source: ${sandbox.sourceBranch}`);
+
+      // Call sync with details to get conflict information
+      const result = await sandboxApi.syncWithDetails(sandbox.id);
+
+      // Note: result.success=false means "sync not complete, conflicts exist"
+      // This is NOT an error - it's a normal case that triggers the merge UI
+      if (result.hasConflicts && result.conflicts && result.conflicts.length > 0) {
+        // Show merge conflict resolution modal
+        addConsoleOutput(`Found ${result.conflicts.length} file(s) with conflicts`);
+        setMergeConflicts(result.conflicts);
+        setMergeSandboxId(sandbox.id);
+        setMergeSandboxName(sandbox.name);
+        setMergeSourceBranch(sandbox.sourceBranch);
+        setShowMergeConflictModal(true);
+      } else {
+        // No conflicts, sync completed successfully
+        addConsoleOutput(`Sandbox "${sandboxName}" synced successfully with no conflicts!`);
+        // Refresh the project files
+        if (project.veroPath) {
+          loadProjectFiles(projectId, project.veroPath);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to sync sandbox:', error);
+      addConsoleOutput(`Error syncing sandbox: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  // Handle merge conflict resolution
+  const handleResolveMergeConflicts = async (resolutions: Record<string, string>) => {
+    if (!mergeSandboxId) return;
+
+    try {
+      addConsoleOutput(`Applying conflict resolutions...`);
+
+      const result = await sandboxApi.resolveConflicts(mergeSandboxId, resolutions, true);
+
+      if (result.success) {
+        addConsoleOutput(`Resolved conflicts and updated ${result.updatedFiles.length} file(s)`);
+        setShowMergeConflictModal(false);
+        setMergeConflicts([]);
+        setMergeSandboxId(null);
+
+        // Refresh the project files to show updated content
+        // Find the project that contains this sandbox
+        for (const project of nestedProjects) {
+          if (project.veroPath && result.sandbox?.folderPath?.includes(project.veroPath)) {
+            loadProjectFiles(project.id, project.veroPath);
+            break;
+          }
+        }
+      } else {
+        addConsoleOutput(`Failed to resolve conflicts`);
+      }
+    } catch (error) {
+      console.error('Failed to resolve conflicts:', error);
+      addConsoleOutput(`Error resolving conflicts: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  // File context menu handler
+  const handleFileContextMenu = (file: FileNode, projectId: string | undefined, x: number, y: number) => {
+    // Construct full path using project's veroPath
+    const project = nestedProjects.find(p => p.id === projectId);
+    const fullPath = project?.veroPath
+      ? `${project.veroPath}/${file.path}`
+      : file.path;
+
+    setContextMenu({
+      x,
+      y,
+      filePath: fullPath,
+      fileName: file.name,
+      projectId,
+    });
+  };
+
+  // Handler to open compare modal
+  const handleOpenCompareWith = (filePath: string) => {
+    // Get the project ID from context menu or selected project
+    // Fall back to application ID if no nested project is selected
+    const nestedProjectId = contextMenu?.projectId || selectedProjectId;
+
+    // Use nested project ID, or fall back to the application ID
+    const projectId = nestedProjectId || currentProject?.id;
+
+    if (!projectId) {
+      addConsoleOutput('Error: No project selected. Please select a project first.');
+      setContextMenu(null);
+      return;
+    }
+
+    console.log('[Compare] Opening compare modal with projectId:', projectId, 'from:', {
+      contextMenuProjectId: contextMenu?.projectId,
+      selectedProjectId,
+      applicationId: currentProject?.id,
+    });
+
+    setCompareModal({
+      filePath,
+      projectId,
+    });
+    setContextMenu(null);
+  };
+
+  // Handler to open compare tab
+  const handleCompare = (source: string, target: string) => {
+    if (!compareModal) return;
+
+    const fileName = compareModal.filePath.split('/').pop() || 'Compare';
+    const tabId = `compare-${Date.now()}`;
+
+    const newTab: OpenTab = {
+      id: tabId,
+      path: compareModal.filePath,
+      name: `${fileName} (${source} ↔ ${target})`,
+      content: '', // Compare tabs don't have editable content
+      hasChanges: false,
+      type: 'compare',
+      compareSource: source,
+      compareTarget: target,
+      projectId: compareModal.projectId,
+    };
+
+    setOpenTabs(prev => [...prev, newTab]);
+    setActiveTabId(tabId);
+    setCompareModal(null);
+    addConsoleOutput(`Comparing ${fileName}: ${source} vs ${target}`);
+  };
+
+  // Handler to apply changes from compare view
+  const handleApplyCompareChanges = (tabId: string, content: string) => {
+    const tab = openTabs.find(t => t.id === tabId);
+    if (!tab) return;
+
+    // Find or create a file tab for this path
+    const existingFileTab = openTabs.find(t => t.path === tab.path && t.type !== 'compare');
+
+    if (existingFileTab) {
+      // Update existing file tab
+      setOpenTabs(prev => prev.map(t =>
+        t.id === existingFileTab.id
+          ? { ...t, content, hasChanges: true }
+          : t
+      ));
+      setActiveTabId(existingFileTab.id);
+      addConsoleOutput(`Applied changes to ${tab.name.split(' (')[0]}`);
+    } else {
+      // Create new file tab with the content
+      const fileName = tab.path.split('/').pop() || 'Untitled';
+      const newTabId = `tab-${Date.now()}`;
+      const newTab: OpenTab = {
+        id: newTabId,
+        path: tab.path,
+        name: fileName,
+        content,
+        hasChanges: true,
+        type: 'file',
+        projectId: tab.projectId,
+      };
+      setOpenTabs(prev => [...prev, newTab]);
+      setActiveTabId(newTabId);
+      addConsoleOutput(`Created file tab with applied changes: ${fileName}`);
+    }
+  };
+
   // Convert nested projects from store format to ExplorerPanel format
   const nestedProjects: NestedProject[] = (currentProject?.projects || []).map(p => ({
     id: p.id,
@@ -1417,11 +1721,14 @@ feature ${fileName.replace('.vero', '')} {
                   onCreateProject={handleCreateProject}
                   onDeleteProject={handleDeleteProject}
                   onCreateFile={handleCreateFile}
+                  onCreateSandbox={handleCreateSandbox}
+                  onSyncSandbox={handleSyncSandbox}
                   onNavigateToLine={(line) => {
                     // TODO: Implement editor scrolling to specific line
                     console.log('Navigate to line:', line);
                     addConsoleOutput(`Navigate to line ${line}`);
                   }}
+                  onFileContextMenu={handleFileContextMenu}
                 />
               )}
               {activeView === 'settings' && (
@@ -1459,8 +1766,12 @@ feature ${fileName.replace('.vero', '')} {
                             : 'bg-[#161b22] text-[#8b949e] hover:text-white hover:bg-[#21262d]'
                             }`}
                         >
-                          <span className={`material-symbols-outlined text-sm ${activeTabId === tab.id ? 'text-[#135bec]' : 'text-[#8b949e]'
-                            }`}>description</span>
+                          <span className={`material-symbols-outlined text-sm ${tab.type === 'compare'
+                              ? (activeTabId === tab.id ? 'text-purple-400' : 'text-[#8b949e]')
+                              : (activeTabId === tab.id ? 'text-[#135bec]' : 'text-[#8b949e]')
+                            }`}>
+                            {tab.type === 'compare' ? 'compare' : 'description'}
+                          </span>
                           <span className="truncate max-w-[120px]">{tab.name}</span>
                           {tab.hasChanges && (
                             <span className="w-2 h-2 bg-[#58a6ff] rounded-full flex-shrink-0" />
@@ -1477,8 +1788,8 @@ feature ${fileName.replace('.vero', '')} {
                         </div>
                       ))}
                     </div>
-                    {/* Save Button */}
-                    {activeTab && (
+                    {/* Save Button - only for file tabs */}
+                    {activeTab && activeTab.type !== 'compare' && (
                       <button
                         onClick={() => saveFileContent(activeTab.content)}
                         className="mx-2 px-3 py-1 text-xs bg-[#238636] hover:bg-[#2ea043] text-white rounded transition-colors flex items-center gap-1 flex-shrink-0"
@@ -1489,9 +1800,19 @@ feature ${fileName.replace('.vero', '')} {
                     )}
                   </div>
 
-                  {/* Editor */}
+                  {/* Editor or Compare View */}
                   <div className="flex-1 overflow-hidden">
-                    {activeTab && (
+                    {activeTab && activeTab.type === 'compare' ? (
+                      <CompareTab
+                        key={activeTab.id}
+                        projectId={activeTab.projectId || currentProject?.id || ''}
+                        filePath={activeTab.path}
+                        initialSource={activeTab.compareSource}
+                        initialTarget={activeTab.compareTarget}
+                        onClose={() => closeTab(activeTab.id)}
+                        onApplyChanges={(content) => handleApplyCompareChanges(activeTab.id, content)}
+                      />
+                    ) : activeTab ? (
                       <VeroEditor
                         key={activeTab.id}
                         initialValue={activeTab.content}
@@ -1499,7 +1820,7 @@ feature ${fileName.replace('.vero', '')} {
                         onRunScenario={handleRunScenario}
                         onRunFeature={handleRunFeature}
                       />
-                    )}
+                    ) : null}
                   </div>
                 </div>
               ) : (
@@ -1615,6 +1936,15 @@ feature ${fileName.replace('.vero', '')} {
         defaultUrl={configurations.find(c => c.id === selectedConfigId)?.baseUrl || 'https://example.com'}
       />
 
+      {/* Create Sandbox Modal */}
+      {sandboxTargetProjectId && (
+        <CreateSandboxModal
+          isOpen={showCreateSandboxModal}
+          onClose={handleSandboxCreated}
+          projectId={sandboxTargetProjectId}
+        />
+      )}
+
       {/* Environment Manager Modal */}
       <EnvironmentManager />
 
@@ -1624,6 +1954,44 @@ feature ${fileName.replace('.vero', '')} {
         onClose={() => setShowScenarioBrowser(false)}
         scenarios={extractedScenarios}
         onNavigateToScenario={handleNavigateToScenario}
+      />
+
+      {/* File Context Menu */}
+      {contextMenu && (
+        <FileContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          filePath={contextMenu.filePath}
+          fileName={contextMenu.fileName}
+          onClose={() => setContextMenu(null)}
+          onCompareWith={handleOpenCompareWith}
+        />
+      )}
+
+      {/* Compare With Modal */}
+      {compareModal && compareModal.projectId && (
+        <CompareWithModal
+          isOpen={true}
+          projectId={compareModal.projectId}
+          filePath={compareModal.filePath}
+          currentEnvironment="dev"
+          onClose={() => setCompareModal(null)}
+          onCompare={handleCompare}
+        />
+      )}
+
+      {/* Merge Conflict Resolution Modal */}
+      <MergeConflictModal
+        isOpen={showMergeConflictModal}
+        sandboxName={mergeSandboxName}
+        sourceBranch={mergeSourceBranch}
+        conflicts={mergeConflicts}
+        onClose={() => {
+          setShowMergeConflictModal(false);
+          setMergeConflicts([]);
+          setMergeSandboxId(null);
+        }}
+        onResolve={handleResolveMergeConflicts}
       />
     </div>
   );

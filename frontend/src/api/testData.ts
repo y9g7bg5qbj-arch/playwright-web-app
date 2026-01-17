@@ -44,40 +44,6 @@ export interface SavedViewCreate {
 
 export interface SavedViewUpdate extends Partial<SavedViewCreate> {}
 
-// Table Relationships
-export interface TableRelationship {
-  id: string;
-  name: string;
-  sourceSheetId: string;
-  sourceSheetName?: string;
-  sourceColumn: string;
-  targetSheetId: string;
-  targetSheetName?: string;
-  targetColumn: string;
-  displayColumns: string[];
-  relationshipType: 'many-to-one' | 'one-to-many' | 'many-to-many';
-  cascadeDelete: boolean;
-  createdAt: string;
-  updatedAt?: string;
-}
-
-export interface RelationshipCreate {
-  sourceSheetId: string;
-  targetSheetId: string;
-  name: string;
-  sourceColumn: string;
-  targetColumn: string;
-  displayColumns?: string[];
-  relationshipType?: 'many-to-one' | 'one-to-many' | 'many-to-many';
-  cascadeDelete?: boolean;
-}
-
-export interface RelationshipUpdate {
-  name?: string;
-  displayColumns?: string[];
-  cascadeDelete?: boolean;
-}
-
 // Formula types
 export interface FormulaResult {
   result: number | string;
@@ -405,20 +371,6 @@ export const testDataApi = {
   },
 
   // ============================================
-  // DTO GENERATION
-  // ============================================
-
-  /**
-   * Generate TypeScript DTOs
-   */
-  async generateDto(projectId: string): Promise<string> {
-    const response = await fetchJson<{ success: boolean; code: string }>(
-      `/test-data/generate-dto?projectId=${encodeURIComponent(projectId)}`
-    );
-    return response.code;
-  },
-
-  // ============================================
   // SAVED VIEWS
   // ============================================
 
@@ -459,88 +411,6 @@ export const testDataApi = {
    */
   async deleteSavedView(viewId: string): Promise<void> {
     await fetchJson(`/test-data/views/${viewId}`, { method: 'DELETE' });
-  },
-
-  // ============================================
-  // TABLE RELATIONSHIPS
-  // ============================================
-
-  /**
-   * List all relationships for a sheet
-   */
-  async listSheetRelationships(sheetId: string): Promise<{
-    outgoing: TableRelationship[];
-    incoming: TableRelationship[];
-  }> {
-    const response = await fetchJson<{
-      success: boolean;
-      outgoing: TableRelationship[];
-      incoming: TableRelationship[];
-    }>(`/test-data/sheets/${sheetId}/relationships`);
-    return {
-      outgoing: response.outgoing || [],
-      incoming: response.incoming || [],
-    };
-  },
-
-  /**
-   * List all relationships for a project
-   */
-  async listRelationships(projectId: string): Promise<TableRelationship[]> {
-    const response = await fetchJson<{ success: boolean; relationships: TableRelationship[] }>(
-      `/test-data/relationships?projectId=${encodeURIComponent(projectId)}`
-    );
-    return response.relationships || [];
-  },
-
-  /**
-   * Create a new relationship
-   */
-  async createRelationship(data: RelationshipCreate): Promise<TableRelationship> {
-    const response = await fetchJson<{ success: boolean; relationship: TableRelationship }>(
-      '/test-data/relationships',
-      { method: 'POST', body: JSON.stringify(data) }
-    );
-    return response.relationship;
-  },
-
-  /**
-   * Update a relationship
-   */
-  async updateRelationship(relationshipId: string, data: RelationshipUpdate): Promise<TableRelationship> {
-    const response = await fetchJson<{ success: boolean; relationship: TableRelationship }>(
-      `/test-data/relationships/${relationshipId}`,
-      { method: 'PUT', body: JSON.stringify(data) }
-    );
-    return response.relationship;
-  },
-
-  /**
-   * Delete a relationship
-   */
-  async deleteRelationship(relationshipId: string): Promise<void> {
-    await fetchJson(`/test-data/relationships/${relationshipId}`, { method: 'DELETE' });
-  },
-
-  /**
-   * Lookup related data for a value
-   */
-  async lookupRelatedData(relationshipId: string, value: string): Promise<{
-    found: boolean;
-    data: Record<string, unknown> | null;
-    rowId?: string;
-  }> {
-    const response = await fetchJson<{
-      success: boolean;
-      found: boolean;
-      data: Record<string, unknown> | null;
-      rowId?: string;
-    }>(`/test-data/relationships/${relationshipId}/lookup?value=${encodeURIComponent(value)}`);
-    return {
-      found: response.found,
-      data: response.data,
-      rowId: response.rowId,
-    };
   },
 
   // ============================================

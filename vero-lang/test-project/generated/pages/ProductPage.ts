@@ -13,26 +13,26 @@ export class ProductPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.productTitle = page.getByTestId('product-title');
-    this.productPrice = page.getByTestId('product-price');
-    this.quantityInput = page.getByLabel('Quantity');
-    this.addToCartBtn = page.getByRole('button', { name: 'Add to Cart' });
-    this.wishlistBtn = page.getByRole('button', { name: 'Add to Wishlist' });
-    this.reviewsSection = page.getByTestId('reviews');
-    this.ratingStars = page.getByTestId('rating');
-    this.cartBadge = page.getByTestId('cart-count');
+    this.productTitle = page.locator('[data-testid='product-title']');
+    this.productPrice = page.locator('[data-testid='product-price']');
+    this.quantityInput = page.locator('[name='quantity'], input[placeholder*='Quantity']');
+    this.addToCartBtn = page.locator('button:has-text('Add to Cart')');
+    this.wishlistBtn = page.locator('button:has-text('Add to Wishlist')');
+    this.reviewsSection = page.locator('[data-testid='reviews']');
+    this.ratingStars = page.locator('[data-testid='rating']');
+    this.cartBadge = page.locator('[data-testid='cart-count']');
   }
 
   async addToCart() {
-    await this.addToCartBtn.click();
+    await test.step('Click ProductPage.addToCartBtn', async () => { await productPage.addToCartBtn.click(); });
   }
 
   async addToCartWithQuantity(quantity: string) {
-    await this.quantityInput.fill(quantity);
-    await this.addToCartBtn.click();
+    await test.step('Fill ProductPage.quantityInput', async () => { await productPage.quantityInput.fill(quantity); });
+    await test.step('Click ProductPage.addToCartBtn', async () => { await productPage.addToCartBtn.click(); });
   }
 
   async addToWishlist() {
-    await this.wishlistBtn.click();
+    await test.step('Click ProductPage.wishlistBtn', async () => { await productPage.wishlistBtn.click(); });
   }
 }

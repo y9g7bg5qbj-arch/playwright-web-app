@@ -1,0 +1,100 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - button "App Launcher" [ref=e7] [cursor=pointer]
+      - generic [ref=e19]:
+        - generic [ref=e21]: V
+        - generic [ref=e22]: Vero IDE
+      - generic [ref=e23]: /
+      - generic [ref=e24]:
+        - generic [ref=e26]: V
+        - generic [ref=e27]: Vero
+    - button "search Search commands and files... ⌘ K" [ref=e29] [cursor=pointer]:
+      - generic [ref=e30]: search
+      - generic [ref=e31]: Search commands and files...
+      - generic [ref=e32]:
+        - generic [ref=e33]: ⌘
+        - generic [ref=e34]: K
+    - generic [ref=e35]:
+      - generic [ref=e37]:
+        - button "play_arrow Run" [ref=e38] [cursor=pointer]:
+          - generic [ref=e39]: play_arrow
+          - generic [ref=e40]: Run
+        - button "expand_more" [ref=e41] [cursor=pointer]:
+          - generic [ref=e42]: expand_more
+      - button "fiber_manual_record Record" [ref=e43] [cursor=pointer]:
+        - generic [ref=e44]: fiber_manual_record
+        - generic [ref=e45]: Record
+      - generic [ref=e46]:
+        - button "check_circle QA expand_more" [ref=e48] [cursor=pointer]:
+          - generic [ref=e49]: check_circle
+          - generic [ref=e50]: QA
+          - generic [ref=e51]: expand_more
+        - button "visibility" [ref=e53] [cursor=pointer]:
+          - generic [ref=e54]: visibility
+  - generic [ref=e56]:
+    - complementary [ref=e57]:
+      - button "folder_open Explorer" [ref=e58] [cursor=pointer]:
+        - generic [ref=e60]: folder_open
+        - generic [ref=e61]: Explorer
+      - button "rocket_launch Runs" [ref=e62] [cursor=pointer]:
+        - generic [ref=e63]: rocket_launch
+        - generic [ref=e64]: Runs
+      - button "event_repeat Schedules" [ref=e65] [cursor=pointer]:
+        - generic [ref=e66]: event_repeat
+        - generic [ref=e67]: Schedules
+      - button "table_chart Data" [ref=e68] [cursor=pointer]:
+        - generic [ref=e69]: table_chart
+        - generic [ref=e70]: Data
+      - button "auto_awesome AI Studio" [ref=e71] [cursor=pointer]:
+        - generic [ref=e72]: auto_awesome
+        - generic [ref=e73]: AI Studio
+      - button "checklist Scenarios" [ref=e75] [cursor=pointer]:
+        - generic [ref=e76]: checklist
+        - generic [ref=e77]: Scenarios
+      - generic [ref=e78]:
+        - button "person" [ref=e80] [cursor=pointer]:
+          - generic [ref=e81]: person
+        - button "tune" [ref=e82] [cursor=pointer]:
+          - generic [ref=e83]: tune
+    - complementary [ref=e84]:
+      - generic [ref=e85]:
+        - generic [ref=e86]:
+          - generic [ref=e87]: Explorer
+          - button "more_horiz" [ref=e88] [cursor=pointer]:
+            - generic [ref=e89]: more_horiz
+        - generic [ref=e90]:
+          - button "chevron_right VERO" [ref=e92] [cursor=pointer]:
+            - generic [ref=e93]: chevron_right
+            - text: VERO
+          - generic [ref=e94]:
+            - generic [ref=e95]:
+              - generic [ref=e96]: Projects
+              - button "add" [ref=e97] [cursor=pointer]:
+                - generic [ref=e98]: add
+            - generic [ref=e100] [cursor=pointer]:
+              - generic [ref=e101]: chevron_right
+              - generic [ref=e102]: folder
+              - generic [ref=e103]: VeroProject
+              - button "delete" [ref=e104]:
+                - generic [ref=e105]: delete
+            - generic [ref=e107] [cursor=pointer]:
+              - generic [ref=e108]: chevron_right
+              - generic [ref=e109]: folder
+              - generic [ref=e110]: yuti
+              - button "delete" [ref=e111]:
+                - generic [ref=e112]: delete
+    - main [ref=e113]:
+      - generic [ref=e115]:
+        - generic [ref=e117]: V
+        - heading "Welcome to Vero IDE" [level=2] [ref=e118]
+        - paragraph [ref=e119]:
+          - text: Select a file from the Explorer to start editing,
+          - text: or create a new test scenario.
+  - button "terminal Terminal" [ref=e121] [cursor=pointer]:
+    - generic [ref=e122]: terminal
+    - generic [ref=e123]: Terminal
+```

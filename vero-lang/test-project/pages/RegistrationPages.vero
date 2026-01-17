@@ -1,77 +1,75 @@
-# Registration Flow Test
+# Registration Flow Pages
 
-page HomePage {
-    field heroHeading = "h1.hero-title"
-    field signUpButton = button "Sign Up"
-    field loginLink = link "Log In"
-    field searchInput = placeholder "Search..."
-    
-    text baseUrl = "https://example.com"
-    
+PAGE RegistrationHomePage {
+    FIELD heroHeading = "h1.hero-title"
+    FIELD signUpButton = "button:has-text('Sign Up')"
+    FIELD loginLink = "a:has-text('Log In')"
+    FIELD searchInput = "[placeholder='Search...']"
+
     navigateToSignUp {
-        click signUpButton
+        CLICK RegistrationHomePage.signUpButton
     }
-    
+
     navigateToLogin {
-        click loginLink
+        CLICK RegistrationHomePage.loginLink
     }
-    
-    search with query {
-        fill searchInput with query
-        press "Enter"
+
+    search WITH query {
+        FILL RegistrationHomePage.searchInput WITH query
+        PRESS "Enter"
     }
 }
 
-page SignUpPage {
-    field firstNameInput = textbox "First Name"
-    field lastNameInput = textbox "Last Name"
-    field emailInput = textbox "Email Address"
-    field passwordInput = textbox "Password"
-    field confirmPasswordInput = textbox "Confirm Password"
-    field termsCheckbox = role "checkbox"
-    field submitBtn = button "Create Account"
-    field errorMessage = testId "error-message"
-    field successMessage = testId "success-message"
-    
-    fillRegistrationForm with firstName, lastName, email, password {
-        fill firstNameInput with firstName
-        fill lastNameInput with lastName
-        fill emailInput with email
-        fill passwordInput with password
-        fill confirmPasswordInput with password
+PAGE SignUpPage {
+    FIELD firstNameInput = "[name='firstName'], [placeholder*='First Name']"
+    FIELD lastNameInput = "[name='lastName'], [placeholder*='Last Name']"
+    FIELD emailInput = "[name='email'], [type='email']"
+    FIELD passwordInput = "[name='password']"
+    FIELD confirmPasswordInput = "[name='confirmPassword']"
+    FIELD termsCheckbox = "[type='checkbox']"
+    FIELD submitBtn = "button:has-text('Create Account')"
+    FIELD errorMessage = "[data-testid='error-message']"
+    FIELD successMessage = "[data-testid='success-message']"
+
+    fillRegistrationForm WITH firstName, lastName, email, password {
+        FILL SignUpPage.firstNameInput WITH firstName
+        FILL SignUpPage.lastNameInput WITH lastName
+        FILL SignUpPage.emailInput WITH email
+        FILL SignUpPage.passwordInput WITH password
+        FILL SignUpPage.confirmPasswordInput WITH password
     }
-    
+
     acceptTerms {
-        check termsCheckbox
+        CHECK SignUpPage.termsCheckbox
     }
-    
+
     submitForm {
-        click submitBtn
+        CLICK SignUpPage.submitBtn
     }
-    
-    register with firstName, lastName, email, password {
-        fill firstNameInput with firstName
-        fill lastNameInput with lastName
-        fill emailInput with email
-        fill passwordInput with password
-        fill confirmPasswordInput with password
-        check termsCheckbox
-        click submitBtn
+
+    register WITH firstName, lastName, email, password {
+        FILL SignUpPage.firstNameInput WITH firstName
+        FILL SignUpPage.lastNameInput WITH lastName
+        FILL SignUpPage.emailInput WITH email
+        FILL SignUpPage.passwordInput WITH password
+        FILL SignUpPage.confirmPasswordInput WITH password
+        CHECK SignUpPage.termsCheckbox
+        CLICK SignUpPage.submitBtn
     }
 }
 
-page DashboardPage {
-    field welcomeMessage = testId "welcome-message"
-    field userAvatar = testId "user-avatar"
-    field logoutButton = button "Log Out"
-    field settingsLink = link "Settings"
-    field notificationBell = testId "notifications"
-    
+PAGE DashboardPage {
+    FIELD welcomeMessage = "[data-testid='welcome-message']"
+    FIELD userAvatar = "[data-testid='user-avatar']"
+    FIELD logoutButton = "button:has-text('Log Out')"
+    FIELD settingsLink = "a:has-text('Settings')"
+    FIELD notificationBell = "[data-testid='notifications']"
+
     logout {
-        click logoutButton
+        CLICK DashboardPage.logoutButton
     }
-    
+
     openSettings {
-        click settingsLink
+        CLICK DashboardPage.settingsLink
     }
 }

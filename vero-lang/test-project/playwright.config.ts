@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
-    testDir: './output',
+    testDir: './generated/tests',
     fullyParallel: true,  // Enable test-level parallelism
     workers: 4,           // Run 4 browser instances simultaneously
     timeout: 30000,

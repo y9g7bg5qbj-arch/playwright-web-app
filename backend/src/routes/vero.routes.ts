@@ -195,7 +195,17 @@ router.put('/files/:path(*)', authenticateToken, async (req: AuthRequest, res: R
         const filePath = req.params.path;
         const { content } = req.body;
         const projectId = req.query.projectId as string | undefined;
-        const projectPath = await getProjectPath(projectId);
+        const veroPathParam = req.query.veroPath as string | undefined;
+
+        // If veroPath is provided directly, use it; otherwise look up by projectId
+        let projectPath: string;
+        if (veroPathParam) {
+            projectPath = veroPathParam;
+        } else {
+            projectPath = await getProjectPath(projectId);
+        }
+
+        console.log('[Vero] Saving file:', { filePath, projectPath, veroPathParam, projectId });
         const fullPath = join(projectPath, filePath);
 
         // Security check: ensure path is within project
@@ -1888,9 +1898,13 @@ async function scanDirectory(dirPath: string, relativePath = ''): Promise<FileNo
         const stats = await stat(fullPath);
 
         if (stats.isDirectory()) {
-            // Scan Pages, Features, Data folders (case-insensitive)
+            // Scan environment folders (master, dev, sandboxes) and content folders (pages, features, data)
             const lowerEntry = entry.toLowerCase();
-            if (lowerEntry === 'pages' || lowerEntry === 'features' || lowerEntry === 'data' || relativePath) {
+            const isEnvironmentFolder = lowerEntry === 'master' || lowerEntry === 'dev' || lowerEntry === 'sandboxes';
+            const isContentFolder = lowerEntry === 'pages' || lowerEntry === 'features' || lowerEntry === 'data';
+            const isSandboxFolder = relativePath.startsWith('sandboxes/') || relativePath === 'sandboxes';
+
+            if (isEnvironmentFolder || isContentFolder || relativePath) {
                 const children = await scanDirectory(fullPath, relPath);
                 result.push({
                     name: entry,

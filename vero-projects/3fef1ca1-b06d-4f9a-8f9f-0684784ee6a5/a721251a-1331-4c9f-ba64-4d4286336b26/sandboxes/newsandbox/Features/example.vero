@@ -1,0 +1,23 @@
+# Example Feature Test
+# Write your test scenarios using FEATURE/SCENARIO syntax
+
+@testId("TC001")
+FEATURE "User Authentication"
+
+  SCENARIO "User can login with valid credentials"
+    navigate to "https://example.com/login"
+    fill "Username" with "testuser"
+    fill "Password" with "password123"
+    click "Login" button
+    assert "Dashboard" is visible
+  END
+yutyuoi
+  SCENARIO "User sees error with invalid credentials"
+    navigate to "https://example.com/login"
+    fill "Username" with "invalid"
+    fill "Password" with "wrong"
+    click "Login" button
+    assert "Invalid credentials" is visible
+  END
+
+END

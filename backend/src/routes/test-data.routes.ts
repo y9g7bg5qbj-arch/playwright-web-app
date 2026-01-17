@@ -9,7 +9,6 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { prisma } from '../db/prisma';
 import { excelParserService } from '../services/excel-parser';
-import { dtoGenerator } from '../services/dto-generator';
 import { environmentService } from '../services/environment.service';
 import { TestDataValidator } from '../services/test-data-validator';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
@@ -1229,72 +1228,6 @@ router.get('/schema', async (req: AuthRequest, res: Response) => {
         });
     } catch (error) {
         console.error('Error fetching schema:', error);
-        res.status(500).json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
-    }
-});
-
-// ============================================
-// DTO CODE GENERATION
-// ============================================
-
-/**
- * GET /api/test-data/generate-dto
- * Generate TypeScript DTO classes
- */
-router.get('/generate-dto', async (req: Request, res: Response) => {
-    try {
-        const { projectId, userId } = req.query;
-
-        const pid = (projectId || userId) as string;
-        if (!pid) {
-            return res.status(400).json({
-                success: false,
-                error: 'projectId is required'
-            });
-        }
-
-        const code = await dtoGenerator.generateDtoClasses(pid);
-
-        res.json({
-            success: true,
-            code,
-            contentType: 'text/typescript'
-        });
-    } catch (error) {
-        console.error('Error generating DTO:', error);
-        res.status(500).json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
-    }
-});
-
-/**
- * GET /api/test-data/generate-dto/download
- * Download generated DTO file
- */
-router.get('/generate-dto/download', async (req: Request, res: Response) => {
-    try {
-        const { projectId, userId } = req.query;
-
-        const pid = (projectId || userId) as string;
-        if (!pid) {
-            return res.status(400).json({
-                success: false,
-                error: 'projectId is required'
-            });
-        }
-
-        const code = await dtoGenerator.generateDtoClasses(pid);
-
-        res.setHeader('Content-Type', 'text/typescript');
-        res.setHeader('Content-Disposition', 'attachment; filename="TestData.ts"');
-        res.send(code);
-    } catch (error) {
-        console.error('Error downloading DTO:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'

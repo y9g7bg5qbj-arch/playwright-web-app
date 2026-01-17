@@ -183,11 +183,34 @@ export async function getTestCaseVeroCode(testCaseId: string): Promise<string> {
 }
 
 /**
+ * Preview Vero code before saving (shows diff if file exists)
+ */
+export async function previewTestCase(
+  testCaseId: string,
+  targetPath: string
+): Promise<{
+  veroCode: string;
+  filePath: string;
+  fileExists: boolean;
+  existingContent: string | null;
+  willMerge: boolean;
+}> {
+  return apiClient.post(`/ai-recorder/test-cases/${testCaseId}/preview`, {
+    targetPath,
+  });
+}
+
+/**
  * Approve a test case and save as .vero file
  */
-export async function approveTestCase(testCaseId: string, targetPath: string): Promise<string> {
+export async function approveTestCase(
+  testCaseId: string,
+  targetPath: string,
+  options?: { merge?: boolean; overwrite?: boolean }
+): Promise<string> {
   const result = await apiClient.post<{ filePath: string }>(`/ai-recorder/test-cases/${testCaseId}/approve`, {
     targetPath,
+    ...options,
   });
   return result.filePath;
 }

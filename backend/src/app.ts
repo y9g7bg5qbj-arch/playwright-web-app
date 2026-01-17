@@ -29,6 +29,9 @@ import { githubRoutes } from './routes/github.routes';
 import copilotRoutes from './routes/copilot.routes';
 import aiSettingsRoutes from './routes/ai-settings.routes';
 import aiRecorderRoutes from './routes/ai-recorder.routes';
+import sandboxRoutes from './routes/sandbox.routes';
+import pullRequestRoutes from './routes/pullRequest.routes';
+import dataStorageRoutes from './routes/data-storage.routes';
 
 export function createApp() {
   const app = express();
@@ -120,6 +123,9 @@ export function createApp() {
   app.use('/api/copilot', copilotRoutes);
   app.use('/api/ai-settings', aiSettingsRoutes);
   app.use('/api/ai-recorder', aiRecorderRoutes);
+  app.use('/api/data-storage', dataStorageRoutes); // Data storage configuration
+  app.use('/api', sandboxRoutes); // Sandbox collaboration routes
+  app.use('/api', pullRequestRoutes); // Pull request routes
 
   // Error handlers (must be last)
   app.use(notFoundHandler);

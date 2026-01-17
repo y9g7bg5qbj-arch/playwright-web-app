@@ -44,6 +44,12 @@ export interface ExplorerPanelProps {
   onDeleteProject?: (projectId: string) => void;
   onCreateFile?: (projectId: string, folderPath: string) => void;
   onNavigateToLine?: (line: number) => void;
+  // Context menu callback for file comparison
+  onFileContextMenu?: (file: FileNode, projectId: string | undefined, x: number, y: number) => void;
+  // Callback to create a new sandbox
+  onCreateSandbox?: (projectId: string) => void;
+  // Callback to sync a sandbox from its source branch
+  onSyncSandbox?: (sandboxName: string, projectId: string) => void;
 }
 
 export function ExplorerPanel({
@@ -63,6 +69,9 @@ export function ExplorerPanel({
   onDeleteProject,
   onCreateFile,
   onNavigateToLine,
+  onFileContextMenu,
+  onCreateSandbox,
+  onSyncSandbox,
 }: ExplorerPanelProps) {
   const [internalExpandedFolders, setInternalExpandedFolders] = useState<Set<string>>(
     new Set(['proj:default', 'data', 'features', 'pages'])
@@ -113,6 +122,14 @@ export function ExplorerPanel({
   const getFolderIcon = (name: string): { icon: string; color: string } => {
     const lowerName = name.toLowerCase();
     switch (lowerName) {
+      // Environment folders
+      case 'master':
+        return { icon: 'verified', color: 'text-green-500' };
+      case 'dev':
+        return { icon: 'science', color: 'text-blue-500' };
+      case 'sandboxes':
+        return { icon: 'folder_shared', color: 'text-purple-500' };
+      // Content folders
       case 'data':
         return { icon: 'database', color: 'text-emerald-400' };
       case 'features':
@@ -120,11 +137,45 @@ export function ExplorerPanel({
       case 'pages':
         return { icon: 'web', color: 'text-orange-400' };
       default:
+        // Check if it's inside sandboxes folder (sandbox item)
         return { icon: 'folder', color: 'text-[#8b949e]' };
     }
   };
 
-  const renderFileTree = (nodes: FileNode[], depth: number = 0, projectId?: string) => {
+  // Check if a folder is an environment folder
+  const isEnvironmentFolder = (name: string): boolean => {
+    const lowerName = name.toLowerCase();
+    return ['master', 'dev', 'sandboxes'].includes(lowerName);
+  };
+
+  // Get environment label
+  const getEnvironmentLabel = (name: string): string => {
+    const lowerName = name.toLowerCase();
+    switch (lowerName) {
+      case 'master':
+        return 'Production';
+      case 'dev':
+        return 'Development';
+      case 'sandboxes':
+        return 'Sandboxes';
+      default:
+        return name;
+    }
+  };
+
+  // Check if a folder is a sandbox (direct child of 'sandboxes' folder)
+  const isSandboxFolder = (parentPath: string | undefined): boolean => {
+    if (!parentPath) return false;
+    const parts = parentPath.split('/');
+    const lastPart = parts[parts.length - 1];
+    return lastPart?.toLowerCase() === 'sandboxes';
+  };
+
+  const renderFileTree = (nodes: FileNode[], depth: number = 0, projectId?: string, parentPath?: string) => {
+    // Debug: Log first call to renderFileTree for this project
+    if (depth === 0) {
+      console.log('[ExplorerPanel] renderFileTree called:', { projectId, nodeCount: nodes.length, parentPath });
+    }
     return nodes.map((node) => {
       const nodePath = projectId ? `${projectId}:${node.path}` : node.path;
       const isExpanded = expandedFolders.has(nodePath);
@@ -134,12 +185,17 @@ export function ExplorerPanel({
       if (node.type === 'directory') {
         const hasChildren = node.children && node.children.length > 0;
         const { icon: folderIcon, color: folderColor } = getFolderIcon(node.name);
+        const isEnvFolder = isEnvironmentFolder(node.name);
+        const isSandbox = isSandboxFolder(parentPath);
+        const displayName = isEnvFolder ? getEnvironmentLabel(node.name) : node.name;
 
         return (
           <div key={nodePath} className="flex flex-col">
             <button
               onClick={() => toggleFolder(nodePath)}
-              className="w-full flex items-center px-2 py-0.5 hover:bg-[#21262d] cursor-pointer text-[#c9d1d9] text-[13px] group/item border-0 outline-none"
+              className={`w-full flex items-center px-2 py-0.5 hover:bg-[#21262d] cursor-pointer text-[13px] group/item border-0 outline-none ${
+                isEnvFolder ? 'text-white font-medium' : isSandbox ? 'text-purple-300' : 'text-[#c9d1d9]'
+              }`}
               style={{ paddingLeft: `${paddingLeft}px` }}
             >
               <span
@@ -150,15 +206,57 @@ export function ExplorerPanel({
                 chevron_right
               </span>
               <span
-                className={`material-symbols-outlined text-[14px] mr-1.5 ${
-                  isExpanded ? folderColor : 'text-[#8b949e]'
-                } icon-filled`}
+                className={`material-symbols-outlined text-[14px] mr-1.5 ${isSandbox ? 'text-purple-400' : folderColor} icon-filled`}
               >
-                {folderIcon}
+                {isSandbox ? 'inventory_2' : folderIcon}
               </span>
-              <span className="truncate">{node.name}</span>
-              {/* Add file button on hover */}
-              {onCreateFile && (
+              <span className="truncate">{displayName}</span>
+              {/* Environment badge */}
+              {isEnvFolder && node.name.toLowerCase() === 'master' && (
+                <span className="ml-2 px-1.5 py-0.5 text-[9px] font-semibold bg-green-500/20 text-green-400 rounded">
+                  PROD
+                </span>
+              )}
+              {/* Sync button for sandbox folders */}
+              {isSandbox && onSyncSandbox && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    console.log('[ExplorerPanel] Sync clicked:', { sandboxName: node.name, projectId, parentPath });
+                    if (!projectId) {
+                      console.error('[ExplorerPanel] projectId is undefined/empty!');
+                    }
+                    onSyncSandbox(node.name, projectId || '');
+                  }}
+                  className="ml-auto opacity-0 group-hover/item:opacity-100 p-0.5 hover:bg-[#30363d] rounded transition-opacity"
+                  title="Sync from source"
+                >
+                  <span className="material-symbols-outlined text-[12px] text-[#8b949e] hover:text-[#58a6ff]">
+                    sync
+                  </span>
+                </button>
+              )}
+              {/* Add sandbox button for Sandboxes folder */}
+              {isEnvFolder && node.name.toLowerCase() === 'sandboxes' && onCreateSandbox && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    console.log('[ExplorerPanel] Create sandbox clicked:', { projectId, nodePath: node.path });
+                    if (!projectId) {
+                      console.error('[ExplorerPanel] projectId is undefined/empty for create sandbox!');
+                    }
+                    onCreateSandbox(projectId || '');
+                  }}
+                  className="ml-auto opacity-0 group-hover/item:opacity-100 p-0.5 hover:bg-[#30363d] rounded transition-opacity"
+                  title="New Sandbox"
+                >
+                  <span className="material-symbols-outlined text-[12px] text-[#8b949e] hover:text-purple-400">
+                    add
+                  </span>
+                </button>
+              )}
+              {/* Add file button on hover (not for environment root folders or sandbox root) */}
+              {onCreateFile && !isEnvFolder && !isSandbox && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -176,7 +274,7 @@ export function ExplorerPanel({
 
             {isExpanded && hasChildren && (
               <div className="flex flex-col">
-                {renderFileTree(node.children!, depth + 1, projectId)}
+                {renderFileTree(node.children!, depth + 1, projectId, node.path)}
               </div>
             )}
           </div>
@@ -186,10 +284,19 @@ export function ExplorerPanel({
       // File node
       const { icon, color } = getFileIcon(node.name);
 
+      const handleContextMenu = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (onFileContextMenu) {
+          onFileContextMenu(node, projectId, e.clientX, e.clientY);
+        }
+      };
+
       return (
         <button
           key={nodePath}
           onClick={() => onFileSelect(node, projectId)}
+          onContextMenu={handleContextMenu}
           className={`w-full flex items-center pr-2 py-0.5 cursor-pointer text-[13px] border-0 outline-none ${
             isSelected
               ? 'bg-[#21262d] text-white'
@@ -215,6 +322,15 @@ export function ExplorerPanel({
     const isExpanded = expandedFolders.has(projPath);
     const isSelected = selectedProjectId === project.id;
     const files = projectFiles[project.id] || project.files || [];
+
+    // Debug: Log project details
+    console.log('[ExplorerPanel] renderProject:', {
+      projectId: project.id,
+      projectName: project.name,
+      veroPath: project.veroPath,
+      fileCount: files.length,
+      isExpanded,
+    });
 
     return (
       <div key={project.id} className="flex flex-col">
@@ -259,66 +375,69 @@ export function ExplorerPanel({
           )}
         </div>
 
-        {/* Project contents (Data, Features, Pages folders) */}
+        {/* Project contents (Environment folders: master, dev, sandboxes) */}
         {isExpanded && (
           <div className="ml-2">
             {files.length > 0 ? (
               renderFileTree(files, 0, project.id)
             ) : (
-              // Default structure when no files loaded
+              // Default environment structure when no files loaded
               <div className="flex flex-col">
-                {/* Data folder */}
+                {/* Master (Production) environment */}
                 <button
-                  onClick={() => toggleFolder(`${project.id}:data`)}
-                  className="flex items-center pl-5 pr-2 py-0.5 hover:bg-[#21262d] cursor-pointer text-[#c9d1d9] text-[13px]"
+                  onClick={() => toggleFolder(`${project.id}:master`)}
+                  className="flex items-center pl-5 pr-2 py-0.5 hover:bg-[#21262d] cursor-pointer text-white text-[13px] font-medium"
                 >
                   <span
                     className={`material-symbols-outlined text-[14px] mr-0.5 text-[#8b949e] transition-transform ${
-                      expandedFolders.has(`${project.id}:data`) ? 'rotate-90' : ''
+                      expandedFolders.has(`${project.id}:master`) ? 'rotate-90' : ''
                     }`}
                   >
                     chevron_right
                   </span>
-                  <span className="material-symbols-outlined text-[14px] mr-1.5 text-emerald-400 icon-filled">
-                    database
+                  <span className="material-symbols-outlined text-[14px] mr-1.5 text-green-500 icon-filled">
+                    verified
                   </span>
-                  <span>Data</span>
+                  <span>Production</span>
+                  <span className="ml-2 px-1.5 py-0.5 text-[9px] font-semibold bg-green-500/20 text-green-400 rounded">
+                    PROD
+                  </span>
                 </button>
 
-                {/* Features folder */}
+                {/* Dev (Development) environment */}
                 <button
-                  onClick={() => toggleFolder(`${project.id}:features`)}
-                  className="flex items-center pl-5 pr-2 py-0.5 hover:bg-[#21262d] cursor-pointer text-[#c9d1d9] text-[13px]"
+                  onClick={() => toggleFolder(`${project.id}:dev`)}
+                  className="flex items-center pl-5 pr-2 py-0.5 hover:bg-[#21262d] cursor-pointer text-white text-[13px] font-medium"
                 >
                   <span
                     className={`material-symbols-outlined text-[14px] mr-0.5 text-[#8b949e] transition-transform ${
-                      expandedFolders.has(`${project.id}:features`) ? 'rotate-90' : ''
+                      expandedFolders.has(`${project.id}:dev`) ? 'rotate-90' : ''
                     }`}
                   >
                     chevron_right
                   </span>
-                  <span className="material-symbols-outlined text-[14px] mr-1.5 text-blue-400 icon-filled">
-                    play_circle
+                  <span className="material-symbols-outlined text-[14px] mr-1.5 text-blue-500 icon-filled">
+                    science
                   </span>
-                  <span>Features</span>
+                  <span>Development</span>
                 </button>
 
-                {/* Pages folder */}
+                {/* Sandboxes folder */}
                 <button
-                  onClick={() => toggleFolder(`${project.id}:pages`)}
-                  className="flex items-center pl-5 pr-2 py-0.5 hover:bg-[#21262d] cursor-pointer text-[#c9d1d9] text-[13px]"
+                  onClick={() => toggleFolder(`${project.id}:sandboxes`)}
+                  className="flex items-center pl-5 pr-2 py-0.5 hover:bg-[#21262d] cursor-pointer text-white text-[13px] font-medium"
                 >
                   <span
                     className={`material-symbols-outlined text-[14px] mr-0.5 text-[#8b949e] transition-transform ${
-                      expandedFolders.has(`${project.id}:pages`) ? 'rotate-90' : ''
+                      expandedFolders.has(`${project.id}:sandboxes`) ? 'rotate-90' : ''
                     }`}
                   >
                     chevron_right
                   </span>
-                  <span className="material-symbols-outlined text-[14px] mr-1.5 text-orange-400 icon-filled">
-                    web
+                  <span className="material-symbols-outlined text-[14px] mr-1.5 text-purple-500 icon-filled">
+                    folder_shared
                   </span>
-                  <span>Pages</span>
+                  <span>Sandboxes</span>
                 </button>
               </div>
             )}

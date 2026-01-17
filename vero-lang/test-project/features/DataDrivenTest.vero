@@ -1,11 +1,27 @@
-FEATURE MyDataValidation {
-  SCENARIO "Load user data from table" {
-    load users from "Users"
-    Text username = users[0].
-    Text userPass = users
-    for each user in users {
-      log user.firstName
-      log user.email
+# Data-Driven Test Placeholder
+# Note: VDQL queries are defined in grammar but not yet implemented in transpiler
+
+PAGE DataTestPage {
+    FIELD usernameInput = "#username"
+    FIELD emailInput = "#email"
+    FIELD submitBtn = "[type=submit]"
+    FIELD resultMessage = ".result-message"
+}
+
+FEATURE DataDrivenTest {
+    USE DataTestPage
+
+    SCENARIO "Basic form interaction" @datadriven {
+        OPEN "https://example.com/users"
+        LOG "Data test placeholder"
+        VERIFY DataTestPage.usernameInput IS VISIBLE
     }
-  }
+
+    SCENARIO "Form submission test" @datadriven {
+        OPEN "https://example.com/form"
+        FILL DataTestPage.emailInput WITH "test@example.com"
+        CLICK DataTestPage.submitBtn
+        WAIT 1 SECONDS
+        LOG "Form submitted"
+    }
 }

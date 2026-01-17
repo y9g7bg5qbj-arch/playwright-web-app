@@ -47,7 +47,8 @@ interface AISettingsModalProps {
 }
 
 const GEMINI_MODELS = [
-  { value: 'gemini-2.5-pro-preview-03-25', label: 'Gemini 2.5 Pro (Recommended)' },
+  { value: 'google/gemini-3-flash-preview', label: 'Gemini 3 Flash (Recommended)' },
+  { value: 'gemini-2.5-pro-preview-03-25', label: 'Gemini 2.5 Pro' },
   { value: 'gemini-2.5-flash-preview-04-17', label: 'Gemini 2.5 Flash (Fast)' },
   { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
   { value: 'gemini-2.0-flash-lite', label: 'Gemini 2.0 Flash Lite' },
@@ -78,7 +79,7 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps) {
   // Form state
   const [provider, setProvider] = useState<'gemini' | 'openai' | 'anthropic'>('gemini');
   const [geminiApiKey, setGeminiApiKey] = useState('');
-  const [geminiModel, setGeminiModel] = useState('gemini-2.5-pro-preview-03-25');
+  const [geminiModel, setGeminiModel] = useState('google/gemini-3-flash-preview');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
   const [openaiModel, setOpenaiModel] = useState('gpt-4o');
   const [anthropicApiKey, setAnthropicApiKey] = useState('');

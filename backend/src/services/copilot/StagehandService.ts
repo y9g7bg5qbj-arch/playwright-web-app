@@ -106,7 +106,7 @@ export class StagehandService extends EventEmitter {
   constructor(config: StagehandConfig = {}) {
     super();
     this.config = {
-      modelName: config.modelName || 'gemini-2.5-pro-preview-03-25',
+      modelName: config.modelName || 'google/gemini-3-flash-preview',
       apiKey: config.apiKey,
       headless: config.headless ?? true,
       debugDom: config.debugDom ?? false,
@@ -124,8 +124,8 @@ export class StagehandService extends EventEmitter {
     if (this.isInitialized) return;
 
     try {
-      const modelName = this.config.modelName || 'gemini-3-pro';
-      const isGemini = modelName.startsWith('gemini');
+      const modelName = this.config.modelName || 'google/gemini-3-flash-preview';
+      const isGemini = modelName.startsWith('gemini') || modelName.includes('gemini');
       const isOpenAI = modelName.startsWith('gpt') || modelName.startsWith('o1');
       const isAnthropic = modelName.startsWith('claude');
 
@@ -205,6 +205,22 @@ export class StagehandService extends EventEmitter {
       throw new Error('No page available');
     }
     return page;
+  }
+
+  /**
+   * Get the active page for external use (e.g., browser capture)
+   */
+  getActivePage(): Page | null {
+    if (!this.stagehand) return null;
+    return this.stagehand.context.activePage() || null;
+  }
+
+  /**
+   * Get the browser context for external use (e.g., browser capture)
+   */
+  getBrowserContext(): any {
+    if (!this.stagehand) return null;
+    return this.stagehand.context;
   }
 
   async navigateTo(url: string): Promise<{ success: boolean; screenshot?: string }> {

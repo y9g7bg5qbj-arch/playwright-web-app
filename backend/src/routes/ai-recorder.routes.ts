@@ -318,10 +318,10 @@ router.get('/test-cases/:testCaseId/vero', async (req: Request, res: Response) =
 });
 
 /**
- * POST /api/ai-recorder/test-cases/:testCaseId/approve
- * Approve a test case and save as .vero file
+ * POST /api/ai-recorder/test-cases/:testCaseId/preview
+ * Preview Vero code before saving (shows diff if file exists)
  */
-router.post('/test-cases/:testCaseId/approve', async (req: Request, res: Response) => {
+router.post('/test-cases/:testCaseId/preview', async (req: Request, res: Response) => {
   try {
     const authReq = req as AuthRequest;
     const userId = authReq.userId!;
@@ -342,7 +342,44 @@ router.post('/test-cases/:testCaseId/approve', async (req: Request, res: Respons
       return res.status(404).json({ error: 'Test case not found' });
     }
 
-    const filePath = await aiRecorderService.approveTestCase(testCaseId, targetPath);
+    const preview = await aiRecorderService.previewTestCaseVero(testCaseId, targetPath);
+
+    res.json(preview);
+  } catch (error: any) {
+    logger.error('Error previewing test case:', error);
+    res.status(500).json({ error: error.message || 'Failed to preview test case' });
+  }
+});
+
+/**
+ * POST /api/ai-recorder/test-cases/:testCaseId/approve
+ * Approve a test case and save as .vero file
+ */
+router.post('/test-cases/:testCaseId/approve', async (req: Request, res: Response) => {
+  try {
+    const authReq = req as AuthRequest;
+    const userId = authReq.userId!;
+    const { testCaseId } = req.params;
+    const { targetPath, merge, overwrite } = req.body;
+
+    if (!targetPath) {
+      return res.status(400).json({ error: 'Target path is required' });
+    }
+
+    // Verify ownership
+    const testCase = await prisma.aIRecorderTestCase.findUnique({
+      where: { id: testCaseId },
+      include: { session: true },
+    });
+
+    if (!testCase || testCase.session.userId !== userId) {
+      return res.status(404).json({ error: 'Test case not found' });
+    }
+
+    const filePath = await aiRecorderService.approveTestCase(testCaseId, targetPath, {
+      merge,
+      overwrite,
+    });
 
     res.json({ success: true, filePath });
   } catch (error: any) {

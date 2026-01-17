@@ -8,6 +8,6 @@ export class ExamplePage {
   constructor(page: Page) {
     this.page = page;
     this.heading = page.getByText('h1');
-    this.learnMoreLink = page.getByRole('link', { name: 'Learn more' });
+    this.learnMoreLink = page.locator('a:has-text('More information')');
   }
 }

@@ -15,6 +15,7 @@ model User {
   email        String     @unique
   passwordHash String     @map("password_hash")
   name         String?
+  role         String     @default("qa_tester") // qa_tester, senior_qa, qa_lead, admin
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
@@ -24,6 +25,13 @@ model User {
   environments        Environment[]
   applications        Application[]        // Applications owned by this user
   applicationMembers  ApplicationMember[]  // Applications user is a member of
+
+  // Sandbox & PR collaboration
+  sandboxes           Sandbox[]
+  authoredPRs         PullRequest[]        @relation("PRAuthor")
+  mergedPRs           PullRequest[]        @relation("PRMerger")
+  prReviews           PullRequestReview[]
+  prComments          PullRequestComment[]
 
   @@map("users")
 }
@@ -48,6 +56,7 @@ model Application {
   testDataSheets TestDataSheet[]
   scheduledTests ScheduledTest[]
   appEnvironments AppEnvironment[]    // Postman-style environments for this application
+  dataStorageConfig DataStorageConfig? // Custom database configuration for test data
 
   @@unique([userId, name]) // User can't have duplicate application names
   @@index([userId])
@@ -79,10 +88,16 @@ model Project {
   name          String
   description   String?
   veroPath      String?  @map("vero_path") // Path to project's Vero files folder
+  gitInitialized Boolean @default(false) @map("git_initialized") // Whether git repo is initialized
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  // Sandbox & PR collaboration
+  sandboxes       Sandbox[]
+  pullRequests    PullRequest[]
+  projectSettings ProjectSettings?
 
   @@unique([applicationId, name]) // No duplicate project names within an application
   @@index([applicationId])
@@ -467,6 +482,36 @@ model DataRow {
   @@index([tableId])
   @@index([order])
   @@map("data_rows")
+}
+
+// ============================================
+// DATA STORAGE CONFIGURATION
+// ============================================
+
+// DataStorageConfig - Configurable database for test data storage
+// Allows users to use MongoDB, PostgreSQL, MySQL, etc. instead of SQLite
+model DataStorageConfig {
+  id               String    @id @default(uuid())
+  applicationId    String    @unique @map("application_id")
+  provider         String    @default("sqlite") // sqlite, mongodb, postgresql, mysql
+  connectionString String?   @map("connection_string") // Full connection string (encrypted)
+  host             String?
+  port             Int?
+  database         String?
+  username         String?
+  password         String?   // Encrypted
+  useSSL           Boolean   @default(true) @map("use_ssl")
+  options          String?   // JSON: Additional provider-specific options
+  isActive         Boolean   @default(true) @map("is_active")
+  lastTestedAt     DateTime? @map("last_tested_at")
+  lastError        String?   @map("last_error")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  application      Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([provider])
+  @@map("data_storage_configs")
 }
 
 // ============================================
@@ -1239,11 +1284,12 @@ model AIRecorderTestCase {
   sessionId     String    @map("session_id")
   name          String
   description   String?
-  status        String    @default("pending") // pending, in_progress, complete, human_review, failed
+  status        String    @default("pending") // pending, in_progress, stuck, manual_recording, partially_complete, human_review, approved, complete, failed
   order         Int       @default(0)
   veroCode      String?   @map("vero_code") // Final generated Vero code
   targetUrl     String?   @map("target_url") // Target URL for this test case
   retryCount    Int       @default(0) @map("retry_count")
+  stuckAtStep   Int?      @map("stuck_at_step") // Step number where AI got stuck (for recovery)
   errorMessage  String?   @map("error_message")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
@@ -1270,12 +1316,13 @@ model AIRecorderStep {
   selector        String?   // Best selector found
   selectorType    String?   @map("selector_type") // testid, role, label, text, css, xpath
   value           String?   // Value for fill actions
-  status          String    @default("pending") // pending, running, success, failed, needs_review
+  status          String    @default("pending") // pending, running, retrying, success, stuck, resolved, captured, manual, skipped
   retryCount      Int       @default(0) @map("retry_count")
   maxRetries      Int       @default(10) @map("max_retries")
   confidence      Float     @default(0.0) // AI confidence score 0-1
   screenshotPath  String?   @map("screenshot_path")
   errorMessage    String?   @map("error_message")
+  suggestions     String?   // JSON: Array of suggested actions when stuck
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
   startedAt       DateTime? @map("started_at")
@@ -1287,4 +1334,138 @@ model AIRecorderStep {
   @@index([stepNumber])
   @@index([status])
   @@map("ai_recorder_steps")
+}
+
+// ============================================
+// SANDBOX & PULL REQUEST COLLABORATION
+// ============================================
+
+// Sandbox - Isolated copy of the codebase per user
+// Users work in sandboxes, then create PRs to merge to Dev/Master
+model Sandbox {
+  id           String    @id @default(uuid())
+  name         String
+  description  String?
+  ownerId      String    @map("owner_id")
+  projectId    String    @map("project_id")
+  sourceBranch String    @default("dev") @map("source_branch") // dev or master (source environment)
+  folderPath   String    @map("folder_path") // sandboxes/{sandbox-name} - relative path within project
+  status       String    @default("active") // active, merged, archived
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  lastSyncAt   DateTime? @map("last_sync_at")
+
+  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  pullRequests PullRequest[]
+
+  @@unique([projectId, name])
+  @@index([ownerId])
+  @@index([projectId])
+  @@index([status])
+  @@map("sandboxes")
+}
+
+// PullRequest - Code review workflow for merging sandbox changes
+model PullRequest {
+  id           String    @id @default(uuid())
+  number       Int       // Auto-increment per project
+  title        String
+  description  String?
+  authorId     String    @map("author_id")
+  sandboxId    String    @map("sandbox_id")
+  projectId    String    @map("project_id")
+  targetBranch String    @default("dev") @map("target_branch") // dev or master
+  status       String    @default("draft") // draft, open, approved, merged, closed
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  mergedAt     DateTime? @map("merged_at")
+  mergedById   String?   @map("merged_by_id")
+  closedAt     DateTime? @map("closed_at")
+
+  author       User                  @relation("PRAuthor", fields: [authorId], references: [id])
+  mergedBy     User?                 @relation("PRMerger", fields: [mergedById], references: [id])
+  sandbox      Sandbox               @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+  project      Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reviews      PullRequestReview[]
+  comments     PullRequestComment[]
+  changedFiles PullRequestFile[]
+
+  @@unique([projectId, number])
+  @@index([authorId])
+  @@index([sandboxId])
+  @@index([projectId])
+  @@index([status])
+  @@map("pull_requests")
+}
+
+// PullRequestReview - Review decision on a PR
+model PullRequestReview {
+  id            String   @id @default(uuid())
+  pullRequestId String   @map("pull_request_id")
+  reviewerId    String   @map("reviewer_id")
+  status        String   @default("pending") // pending, approved, changes_requested
+  comment       String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  pullRequest PullRequest @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+  reviewer    User        @relation(fields: [reviewerId], references: [id])
+
+  @@unique([pullRequestId, reviewerId])
+  @@index([pullRequestId])
+  @@index([reviewerId])
+  @@map("pull_request_reviews")
+}
+
+// PullRequestComment - Comments on PRs (general or line-specific)
+model PullRequestComment {
+  id            String   @id @default(uuid())
+  pullRequestId String   @map("pull_request_id")
+  authorId      String   @map("author_id")
+  body          String
+  filePath      String?  @map("file_path") // For line comments
+  lineNumber    Int?     @map("line_number") // For line comments
+  resolved      Boolean  @default(false)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  pullRequest PullRequest @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+  author      User        @relation(fields: [authorId], references: [id])
+
+  @@index([pullRequestId])
+  @@index([authorId])
+  @@map("pull_request_comments")
+}
+
+// PullRequestFile - Files changed in a PR
+model PullRequestFile {
+  id            String @id @default(uuid())
+  pullRequestId String @map("pull_request_id")
+  filePath      String @map("file_path")
+  changeType    String // added, modified, deleted
+  additions     Int    @default(0)
+  deletions     Int    @default(0)
+
+  pullRequest PullRequest @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([pullRequestId, filePath])
+  @@index([pullRequestId])
+  @@map("pull_request_files")
+}
+
+// ProjectSettings - Project-level settings for PR workflow
+model ProjectSettings {
+  id                String  @id @default(uuid())
+  projectId         String  @unique @map("project_id")
+  requiredApprovals Int     @default(1) @map("required_approvals")
+  requireTestPass   Boolean @default(true) @map("require_test_pass")
+  allowSelfApproval Boolean @default(false) @map("allow_self_approval")
+  autoDeleteSandbox Boolean @default(true) @map("auto_delete_sandbox")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_settings")
 }
