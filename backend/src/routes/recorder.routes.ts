@@ -23,10 +23,10 @@ function getTempFilePath(testFlowId: string): string {
 router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const { url, testFlowId } = req.body;
-    console.log('POST /recorder/start called:', { url, testFlowId });
+    // POST /recorder/start called:', { url, testFlowId });
 
     if (!url || !testFlowId) {
-      console.log('Missing required fields:', { url, testFlowId });
+      // Missing required fields:', { url, testFlowId });
       return res.status(400).json({
         success: false,
         data: null,
@@ -42,7 +42,7 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
     }
 
     const outputFile = getTempFilePath(testFlowId);
-    console.log('Output file path:', outputFile);
+    // Output file path:', outputFile);
 
     // Don't create empty file - let playwright create it
     // This prevents issues with the file being overwritten
@@ -51,7 +51,7 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
     // Use a single command string with shell: true for proper argument handling
     // Use playwright-test target for proper test format that the parser understands
     const command = `npx playwright codegen "${url}" --target=playwright-test -o "${outputFile}"`;
-    console.log('Running command:', command);
+    // Running command:', command);
 
     const codegenProcess = spawn(command, [], {
       stdio: 'inherit',
@@ -73,7 +73,7 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
               if (recording) {
                 recording.currentCode = code;
               }
-              console.log('Code updated, length:', code.length);
+              // Code updated, length:', code.length);
             } catch (error) {
               // File might not exist yet or is being written
             }
@@ -89,7 +89,7 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
     setTimeout(setupFileWatcher, 2000);
 
     codegenProcess.on('close', async (exitCode) => {
-      console.log('Codegen process closed with code:', exitCode);
+      // Codegen process closed with code:', exitCode);
 
       // Stop watching the file
       if (fileWatcher) {
@@ -102,10 +102,10 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
       // Read final code
       try {
         const finalCode = await readFile(outputFile, 'utf-8');
-        console.log('Final generated code length:', finalCode.length);
-        console.log('=== FULL GENERATED CODE ===');
-        console.log(finalCode);
-        console.log('=== END GENERATED CODE ===');
+        // Final generated code length:', finalCode.length);
+        // === FULL GENERATED CODE ===;
+        // finalCode;
+        // === END GENERATED CODE ===;
 
         const recording = activeRecordings.get(testFlowId);
         if (recording) {
@@ -114,7 +114,7 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
           recording.exitCode = exitCode;
         }
       } catch (error) {
-        console.error('Error reading final code:', error);
+        // Error reading final code:', error);
         const recording = activeRecordings.get(testFlowId);
         if (recording) {
           recording.isComplete = true;
@@ -127,7 +127,7 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
     });
 
     codegenProcess.on('error', (error) => {
-      console.error('Codegen process error:', error);
+      // Codegen process error:', error);
       if (fileWatcher) {
         fileWatcher.close();
       }
@@ -163,11 +163,11 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
 router.get('/code/:testFlowId', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const { testFlowId } = req.params;
-    console.log('GET /code called for testFlowId:', testFlowId);
+    // GET /code called for testFlowId:', testFlowId);
 
     const recording = activeRecordings.get(testFlowId);
     if (!recording) {
-      console.log('No active recording found for testFlowId:', testFlowId);
+      // No active recording found for testFlowId:', testFlowId);
       return res.json({
         success: true,
         data: {
@@ -182,21 +182,7 @@ router.get('/code/:testFlowId', authenticateToken, async (req: AuthRequest, res,
     const isRecording = !recording.process.killed && recording.process.exitCode === null;
     const isComplete = recording.isComplete === true;
 
-    console.log('Recording status:', {
-      testFlowId,
-      isRecording,
-      isComplete,
-      codeLength: code.length,
-      processKilled: recording.process.killed,
-      processExitCode: recording.process.exitCode
-    });
-
-    // If complete, also log the code that will be returned
-    if (isComplete) {
-      console.log('=== RETURNING CODE (isComplete=true) ===');
-      console.log(code);
-      console.log('=== END CODE ===');
-    }
+    // Removed debug logging
 
     res.json({
       success: true,
@@ -232,9 +218,9 @@ router.post('/stop/:testFlowId', authenticateToken, async (req: AuthRequest, res
       let code = '';
       try {
         code = await readFile(recording.outputFile, 'utf-8');
-        console.log('Read code from file, length:', code.length);
+        // Read code from file, length:', code.length);
       } catch (error) {
-        console.error('Error reading code file:', error);
+        // Error reading code file:', error);
         code = recording.getCode();
       }
 
@@ -302,7 +288,7 @@ router.post('/import', authenticateToken, async (req: AuthRequest, res, next) =>
 
     importedRecordings.set(recordingId, recording);
 
-    console.log(`[Recorder] Imported recording ${recordingId} with ${actions.length} actions`);
+    // [Recorder] Imported recording ${recordingId} with ${actions.length} actions`);
 
     res.json({
       success: true,
@@ -362,7 +348,7 @@ router.post('/page-object', authenticateToken, async (req: AuthRequest, res, nex
     // Generate page object code
     const pageObjectCode = generatePageObjectCode(name, url, elements, pageActions);
 
-    console.log(`[Recorder] Generated page object: ${name} with ${Object.keys(elements).length} elements`);
+    // [Recorder] Generated page object: ${name} with ${Object.keys(elements).length} elements`);
 
     res.json({
       success: true,

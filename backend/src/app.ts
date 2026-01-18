@@ -32,6 +32,8 @@ import aiRecorderRoutes from './routes/ai-recorder.routes';
 import sandboxRoutes from './routes/sandbox.routes';
 import pullRequestRoutes from './routes/pullRequest.routes';
 import dataStorageRoutes from './routes/data-storage.routes';
+import testDataMongoRoutes from './routes/test-data-mongo.routes';
+import { connectMongoDB } from './db/mongodb';
 
 export function createApp() {
   const app = express();
@@ -124,6 +126,7 @@ export function createApp() {
   app.use('/api/ai-settings', aiSettingsRoutes);
   app.use('/api/ai-recorder', aiRecorderRoutes);
   app.use('/api/data-storage', dataStorageRoutes); // Data storage configuration
+  app.use('/api/test-data-mongo', testDataMongoRoutes); // MongoDB test data routes
   app.use('/api', sandboxRoutes); // Sandbox collaboration routes
   app.use('/api', pullRequestRoutes); // Pull request routes
 

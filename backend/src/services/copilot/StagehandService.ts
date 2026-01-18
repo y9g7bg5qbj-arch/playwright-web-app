@@ -5,12 +5,33 @@
  * - observe() - Capture page state and identify interactive elements
  * - act() - Execute actions with self-healing selectors
  * - extract() - Pull structured data from pages
+ *
+ * NOTE: Stagehand is loaded dynamically to avoid Node.js v25 compatibility issues
  */
 
-import { Stagehand, type Page } from '@browserbasehq/stagehand';
+// Dynamic import type for Stagehand
+type StagehandModule = typeof import('@browserbasehq/stagehand');
+type Stagehand = InstanceType<StagehandModule['Stagehand']>;
+type Page = Awaited<ReturnType<Stagehand['context']['activePage']>>;
+
 import { z } from 'zod';
 import { EventEmitter } from 'events';
 import { logger } from '../../utils/logger';
+
+// Lazy-loaded stagehand module
+let stagehandModule: StagehandModule | null = null;
+
+async function loadStagehand(): Promise<StagehandModule> {
+  if (!stagehandModule) {
+    try {
+      stagehandModule = await import('@browserbasehq/stagehand');
+    } catch (error: any) {
+      logger.error('Failed to load Stagehand module:', error.message);
+      throw new Error(`Stagehand module failed to load: ${error.message}. This may be a Node.js version compatibility issue.`);
+    }
+  }
+  return stagehandModule;
+}
 
 // ============================================
 // Types
@@ -124,6 +145,9 @@ export class StagehandService extends EventEmitter {
     if (this.isInitialized) return;
 
     try {
+      // Dynamically load Stagehand to avoid startup crashes on Node.js v25
+      const { Stagehand } = await loadStagehand();
+
       const modelName = this.config.modelName || 'google/gemini-3-flash-preview';
       const isGemini = modelName.startsWith('gemini') || modelName.includes('gemini');
       const isOpenAI = modelName.startsWith('gpt') || modelName.startsWith('o1');
@@ -167,7 +191,7 @@ export class StagehandService extends EventEmitter {
         stagehandConfig.browserbaseApiKey = this.config.browserbaseApiKey;
       }
 
-      this.stagehand = new Stagehand(stagehandConfig);
+      this.stagehand = new Stagehand(stagehandConfig) as Stagehand;
 
       await this.stagehand.init();
       this.isInitialized = true;

@@ -3,12 +3,21 @@ import { createApp } from './app';
 import { config } from './config';
 import { logger } from './utils/logger';
 import { connectDatabase, disconnectDatabase } from './db/prisma';
+import { connectMongoDB, closeMongoDB } from './db/mongodb';
 import { WebSocketServer } from './websocket';
 
 async function start() {
   try {
-    // Connect to database
+    // Connect to databases
     await connectDatabase();
+
+    // Connect to MongoDB Atlas (for test data)
+    try {
+      await connectMongoDB();
+      logger.info('MongoDB Atlas connected for test data');
+    } catch (mongoError) {
+      logger.warn('MongoDB connection failed (test data will use SQLite fallback):', mongoError);
+    }
 
     // Create Express app
     const app = createApp();
@@ -39,6 +48,7 @@ async function start() {
       });
 
       await disconnectDatabase();
+      await closeMongoDB();
       process.exit(0);
     };
 

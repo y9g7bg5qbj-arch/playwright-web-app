@@ -8,13 +8,14 @@ import os
 import uuid
 from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import List
+from typing import List, Annotated
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Header, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 
-from .config import get_llm, LLM_PROVIDER, VERO_PROJECT_PATH, MAX_RETRIES
+from .config import get_llm, LLM_PROVIDER, VERO_PROJECT_PATH, MAX_RETRIES, VERO_API_KEY, REQUIRE_API_KEY
 from .agent.selector_resolver import SelectorResolver
 from .agent.vero_generator import VeroGenerator
 from .agent.retry_executor import RetryExecutor
@@ -47,6 +48,10 @@ async def lifespan(app: FastAPI):
     print(f"✅ Vero Agent ready!")
     print(f"   Project path: {project_path}")
     print(f"   Existing pages found: {len(selector_resolver.existing_pages)}")
+    if REQUIRE_API_KEY and VERO_API_KEY:
+        print(f"   🔐 API Key authentication: ENABLED")
+    else:
+        print(f"   ⚠️  API Key authentication: DISABLED (set VERO_API_KEY and REQUIRE_API_KEY=true to enable)")
     
     yield
     
@@ -68,6 +73,42 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# API Key Security
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+async def verify_api_key(api_key: Annotated[str | None, Depends(api_key_header)]):
+    """
+    Verify API key if authentication is enabled.
+
+    To enable authentication:
+    1. Set VERO_API_KEY env var to your secret key
+    2. Set REQUIRE_API_KEY=true
+
+    Clients must then include the header: X-API-Key: <your-key>
+    """
+    # If no API key configured or not required, allow all requests
+    if not VERO_API_KEY or not REQUIRE_API_KEY:
+        return None
+
+    # API key is required but not provided
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing API key. Include 'X-API-Key' header.",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    # Verify the API key
+    if api_key != VERO_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid API key",
+        )
+
+    return api_key
 
 
 # Request/Response Models
@@ -122,7 +163,7 @@ async def health_check():
     )
 
 
-@app.post("/api/generate", response_model=GenerateResponse)
+@app.post("/api/generate", response_model=GenerateResponse, dependencies=[Depends(verify_api_key)])
 async def generate_vero(request: GenerateRequest):
     """
     Generate Vero DSL code from plain English test steps.
@@ -164,7 +205,7 @@ async def generate_vero(request: GenerateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/run", response_model=RunResponse)
+@app.post("/api/run", response_model=RunResponse, dependencies=[Depends(verify_api_key)])
 async def run_vero(request: RunRequest):
     """
     Run Vero code with self-healing retry loop.
@@ -193,7 +234,7 @@ async def run_vero(request: RunRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/generate-and-run", response_model=RunResponse)
+@app.post("/api/generate-and-run", response_model=RunResponse, dependencies=[Depends(verify_api_key)])
 async def generate_and_run(request: GenerateRequest):
     """
     Generate Vero code and run it with self-healing.
@@ -231,7 +272,7 @@ async def generate_and_run(request: GenerateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/pages")
+@app.get("/api/pages", dependencies=[Depends(verify_api_key)])
 async def get_existing_pages():
     """Get all existing Page objects found in the project"""
     if not selector_resolver:
@@ -256,7 +297,7 @@ class LiveExecutionResponse(BaseModel):
     message: str
 
 
-@app.post("/api/live/start", response_model=LiveExecutionResponse)
+@app.post("/api/live/start", response_model=LiveExecutionResponse, dependencies=[Depends(verify_api_key)])
 async def start_live_execution(request: LiveExecutionRequest):
     """
     Start a live execution session.
@@ -304,7 +345,7 @@ async def websocket_live_execution(websocket: WebSocket, session_id: str):
     await handle_websocket(websocket, session_id)
 
 
-@app.get("/api/live/sessions")
+@app.get("/api/live/sessions", dependencies=[Depends(verify_api_key)])
 async def list_active_sessions():
     """List all active live execution sessions"""
     return {
@@ -313,7 +354,7 @@ async def list_active_sessions():
     }
 
 
-@app.delete("/api/live/sessions/{session_id}")
+@app.delete("/api/live/sessions/{session_id}", dependencies=[Depends(verify_api_key)])
 async def stop_session(session_id: str):
     """Stop a specific live execution session"""
     if session_id in ws_manager.active_connections:

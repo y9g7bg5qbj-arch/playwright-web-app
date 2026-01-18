@@ -2,6 +2,36 @@ import { prisma } from '../db/prisma';
 import { NotFoundError, ForbiddenError } from '../utils/errors';
 import type { Execution, ExecutionCreate, ExecutionLog } from '@playwright-web-app/shared';
 
+interface RecentExecutionScenario {
+  id: string;
+  name: string;
+  status: string;
+  duration: number | null;
+  error: string | null;
+  traceUrl: string;
+  screenshot: string | null;
+  steps: unknown[];
+}
+
+interface RecentExecution {
+  id: string;
+  testFlowId: string;
+  testFlowName: string;
+  status: string;
+  target: string;
+  triggeredBy: { type: string; name?: string };
+  startedAt?: string;
+  finishedAt?: string;
+  stepCount: number;
+  passedCount: number;
+  failedCount: number;
+  skippedCount: number;
+  duration?: number;
+  configSnapshot?: unknown;
+  scenarios: RecentExecutionScenario[];
+  logs: { id: string; message: string; level: string; timestamp: string }[];
+}
+
 export class ExecutionService {
   async create(userId: string, testFlowId: string, data: ExecutionCreate): Promise<Execution> {
     // Verify test flow belongs to user
@@ -84,7 +114,7 @@ export class ExecutionService {
     exitCode?: number,
     testFlowId?: string
   ): Promise<Execution | null> {
-    const data: any = { status };
+    const data: { status: string; startedAt?: Date; finishedAt?: Date; exitCode?: number } = { status };
 
     if (status === 'running') {
       data.startedAt = new Date();
@@ -102,9 +132,10 @@ export class ExecutionService {
         data,
       });
       return this.formatExecution(execution);
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const prismaError = error as { code?: string };
       // If record not found and we have testFlowId, create it
-      if (error.code === 'P2025' && testFlowId) {
+      if (prismaError.code === 'P2025' && testFlowId) {
         const execution = await prisma.execution.create({
           data: {
             id: executionId,
@@ -118,9 +149,8 @@ export class ExecutionService {
         });
         return this.formatExecution(execution);
       }
-      // If record not found but no testFlowId, just log and return null (non-critical)
-      if (error.code === 'P2025') {
-        console.warn(`Execution ${executionId} not found, skipping status update`);
+      // If record not found but no testFlowId, return null (non-critical)
+      if (prismaError.code === 'P2025') {
         return null;
       }
       throw error;
@@ -152,7 +182,7 @@ export class ExecutionService {
   /**
    * Find recent executions across all test flows for a user
    */
-  async findRecent(userId: string, limit: number = 200): Promise<any[]> {
+  async findRecent(userId: string, limit: number = 200): Promise<RecentExecution[]> {
     const executions = await prisma.execution.findMany({
       where: {
         testFlow: {

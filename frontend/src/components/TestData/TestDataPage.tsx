@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Papa from 'papaparse';
 import {
     Plus, Upload, Download, RefreshCw, Settings,
-    Check, AlertTriangle, MoreHorizontal
+    Check, AlertTriangle, MoreHorizontal, Database
 } from 'lucide-react';
 import { apiUrl } from '@/config';
 import { SheetList } from './SheetList';
@@ -693,13 +693,14 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
                             New Table
                         </button>
 
-                        {/* Data Storage Settings Button */}
+                        {/* Data Storage Settings Button - Made more visible */}
                         <button
                             onClick={() => setShowDataStorageSettings(true)}
-                            className="flex items-center gap-1 p-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md text-[#c9d1d9] transition-colors"
-                            title="Data Storage Configuration"
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-emerald-500/10 to-green-500/10 hover:from-emerald-500/20 hover:to-green-500/20 border border-emerald-500/30 rounded-md text-emerald-400 hover:text-emerald-300 transition-all"
+                            title="Configure database connection (MongoDB, PostgreSQL, MySQL)"
                         >
-                            <Settings className="w-4 h-4" />
+                            <Database className="w-4 h-4" />
+                            <span className="text-xs font-medium">DB Config</span>
                         </button>
 
                         {/* More Actions Dropdown */}

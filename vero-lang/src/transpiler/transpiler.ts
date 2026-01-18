@@ -182,7 +182,7 @@ export class Transpiler {
         // Actions
         for (const action of page.actions) {
             lines.push('');
-            lines.push(this.transpileActionDefinition(action));
+            lines.push(this.transpileActionDefinition(action, page.name));
         }
 
         this.indent--;
@@ -191,7 +191,7 @@ export class Transpiler {
         return lines.join('\n');
     }
 
-    private transpileActionDefinition(action: ActionDefinitionNode): string {
+    private transpileActionDefinition(action: ActionDefinitionNode, pageName?: string): string {
         const lines: string[] = [];
         const params = action.parameters.map(p => `${p}: string`).join(', ');
         const returnType = action.returnType
@@ -202,7 +202,8 @@ export class Transpiler {
         this.indent++;
 
         for (const statement of action.statements) {
-            const code = this.transpileStatement(statement);
+            // Pass empty uses array and the current page name for context
+            const code = this.transpileStatement(statement, [], pageName);
             if (code) lines.push(this.line(code));
         }
 
@@ -569,44 +570,44 @@ export class Transpiler {
 
     // ==================== STATEMENT TRANSPILATION ====================
 
-    private transpileStatement(statement: StatementNode, uses: string[] = []): string {
+    private transpileStatement(statement: StatementNode, uses: string[] = [], currentPage?: string): string {
         switch (statement.type) {
             case 'Click': {
                 const targetDesc = this.getTargetDescription(statement.target);
-                return `await test.step('Click ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses)}.click(); });`;
+                return `await test.step('Click ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses, currentPage)}.click(); });`;
             }
 
             case 'RightClick': {
                 const targetDesc = this.getTargetDescription(statement.target);
-                return `await test.step('Right-click ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses)}.click({ button: 'right' }); });`;
+                return `await test.step('Right-click ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses, currentPage)}.click({ button: 'right' }); });`;
             }
 
             case 'DoubleClick': {
                 const targetDesc = this.getTargetDescription(statement.target);
-                return `await test.step('Double-click ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses)}.dblclick(); });`;
+                return `await test.step('Double-click ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses, currentPage)}.dblclick(); });`;
             }
 
             case 'ForceClick': {
                 const targetDesc = this.getTargetDescription(statement.target);
-                return `await test.step('Force-click ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses)}.click({ force: true }); });`;
+                return `await test.step('Force-click ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses, currentPage)}.click({ force: true }); });`;
             }
 
             case 'Drag': {
-                const sourceLocator = this.transpileTarget(statement.source, uses);
+                const sourceLocator = this.transpileTarget(statement.source, uses, currentPage);
                 if (statement.destination.type === 'Coordinate') {
                     // Drag to coordinates
                     const { x, y } = statement.destination;
                     return `await test.step('Drag to (${x}, ${y})', async () => { await ${sourceLocator}.dragTo(page.locator('body'), { targetPosition: { x: ${x}, y: ${y} } }); });`;
                 } else {
                     // Drag to another element
-                    const destLocator = this.transpileTarget(statement.destination as any, uses);
+                    const destLocator = this.transpileTarget(statement.destination as any, uses, currentPage);
                     return `await test.step('Drag element', async () => { await ${sourceLocator}.dragTo(${destLocator}); });`;
                 }
             }
 
             case 'Fill': {
                 const targetDesc = this.getTargetDescription(statement.target);
-                return `await test.step('Fill ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses)}.fill(${this.transpileExpression(statement.value)}); });`;
+                return `await test.step('Fill ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses, currentPage)}.fill(${this.transpileExpression(statement.value)}); });`;
             }
 
             case 'Open': {
@@ -616,12 +617,12 @@ export class Transpiler {
 
             case 'Check': {
                 const targetDesc = this.getTargetDescription(statement.target);
-                return `await test.step('Check ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses)}.check(); });`;
+                return `await test.step('Check ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses, currentPage)}.check(); });`;
             }
 
             case 'Hover': {
                 const targetDesc = this.getTargetDescription(statement.target);
-                return `await test.step('Hover ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses)}.hover(); });`;
+                return `await test.step('Hover ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses, currentPage)}.hover(); });`;
             }
 
             case 'Press':
@@ -637,10 +638,10 @@ export class Transpiler {
                 return `await test.step('Wait for network idle', async () => { await page.waitForLoadState('networkidle'); });`;
 
             case 'Verify':
-                return this.transpileVerify(statement.target, statement.condition, uses);
+                return this.transpileVerify(statement.target, statement.condition, uses, currentPage);
 
             case 'Do':
-                return this.transpileDoAction(statement.action, uses);
+                return this.transpileDoAction(statement.action, uses, currentPage);
 
             case 'Refresh':
                 return `await test.step('Refresh page', async () => { await page.reload(); });`;
@@ -648,7 +649,7 @@ export class Transpiler {
             case 'TakeScreenshot':
                 if (statement.target) {
                     // Element screenshot
-                    const locator = this.transpileTarget(statement.target, uses);
+                    const locator = this.transpileTarget(statement.target, uses, currentPage);
                     const opts = statement.filename ? `{ path: '${statement.filename}' }` : '';
                     const stepName = statement.filename ? `Take screenshot of element as ${statement.filename}` : 'Take screenshot of element';
                     return `await test.step('${stepName}', async () => { await ${locator}.screenshot(${opts}); });`;
@@ -667,13 +668,13 @@ export class Transpiler {
                 return this.transpileLoadStatement(statement as LoadStatement);
 
             case 'ForEach':
-                return this.transpileForEachStatement(statement as ForEachStatement, uses);
+                return this.transpileForEachStatement(statement as ForEachStatement, uses, currentPage);
 
             case 'DataQuery':
                 return this.transpileDataQueryStatement(statement as DataQueryStatement);
 
             case 'Upload':
-                return this.transpileUploadStatement(statement as UploadStatement, uses);
+                return this.transpileUploadStatement(statement as UploadStatement, uses, currentPage);
 
             case 'VerifyUrl':
                 return this.transpileVerifyUrlStatement(statement as VerifyUrlStatement);
@@ -682,15 +683,15 @@ export class Transpiler {
                 return this.transpileVerifyTitleStatement(statement as VerifyTitleStatement);
 
             case 'VerifyHas':
-                return this.transpileVerifyHasStatement(statement as VerifyHasStatement, uses);
+                return this.transpileVerifyHasStatement(statement as VerifyHasStatement, uses, currentPage);
 
             default:
                 return `// Unknown statement type`;
         }
     }
 
-    private transpileUploadStatement(statement: UploadStatement, uses: string[]): string {
-        const target = this.transpileTarget(statement.target, uses);
+    private transpileUploadStatement(statement: UploadStatement, uses: string[], currentPage?: string): string {
+        const target = this.transpileTarget(statement.target, uses, currentPage);
         const files = statement.files.map(f => this.transpileExpression(f));
 
         if (files.length === 1) {
@@ -714,8 +715,8 @@ export class Transpiler {
         return `await expect(page).toHaveTitle(${expectValue});`;
     }
 
-    private transpileVerifyHasStatement(statement: VerifyHasStatement, uses: string[]): string {
-        const target = this.transpileTarget(statement.target, uses);
+    private transpileVerifyHasStatement(statement: VerifyHasStatement, uses: string[], currentPage?: string): string {
+        const target = this.transpileTarget(statement.target, uses, currentPage);
         const cond = statement.hasCondition;
 
         switch (cond.type) {
@@ -773,7 +774,7 @@ export class Transpiler {
         return opMap[op] || 'equals';
     }
 
-    private transpileForEachStatement(statement: ForEachStatement, uses: string[]): string {
+    private transpileForEachStatement(statement: ForEachStatement, uses: string[], currentPage?: string): string {
         const { itemVariable, collectionVariable, statements } = statement;
 
         const lines: string[] = [];
@@ -781,7 +782,7 @@ export class Transpiler {
         this.indent++;
 
         for (const stmt of statements) {
-            const code = this.transpileStatement(stmt, uses);
+            const code = this.transpileStatement(stmt, uses, currentPage);
             if (code) lines.push(this.line(code));
         }
 
@@ -994,13 +995,14 @@ export class Transpiler {
     private transpileVerify(
         target: TargetNode | ExpressionNode,
         condition: VerifyCondition,
-        uses: string[]
+        uses: string[],
+        currentPage?: string
     ): string {
         const isNegated = condition.operator === 'IS_NOT';
         let locator: string;
 
         if ('type' in target && target.type === 'Target') {
-            locator = this.transpileTarget(target, uses);
+            locator = this.transpileTarget(target, uses, currentPage);
         } else {
             const expr = this.transpileExpression(target as ExpressionNode);
             locator = `page.getByText(${expr})`;
@@ -1022,13 +1024,23 @@ export class Transpiler {
 
     private transpileDoAction(
         action: { page?: string; action: string; arguments: ExpressionNode[] },
-        _uses: string[]
+        _uses: string[],
+        currentPage?: string
     ): string {
         const args = action.arguments.map(a => this.transpileExpression(a)).join(', ');
 
         if (action.page) {
+            // If we're inside a page action and referencing the same page, use 'this'
+            if (currentPage && action.page === currentPage) {
+                return `await this.${action.action}(${args});`;
+            }
             const varName = this.camelCase(action.page);
             return `await ${varName}.${action.action}(${args});`;
+        }
+
+        // If no page specified but we're inside a page action, use 'this'
+        if (currentPage) {
+            return `await this.${action.action}(${args});`;
         }
 
         return `await ${action.action}(${args});`;
@@ -1082,10 +1094,16 @@ export class Transpiler {
         return 'element';
     }
 
-    private transpileTarget(target: TargetNode, _uses: string[] = []): string {
+    private transpileTarget(target: TargetNode, _uses: string[] = [], currentPage?: string): string {
         if (target.text) return `page.getByText('${target.text}')`;
         if (target.selector) return this.transpileSelector(target.selector);
-        if (target.page && target.field) return `${this.camelCase(target.page)}.${target.field}`;
+        if (target.page && target.field) {
+            // If we're inside a page action and referencing the same page, use 'this'
+            if (currentPage && target.page === currentPage) {
+                return `this.${target.field}`;
+            }
+            return `${this.camelCase(target.page)}.${target.field}`;
+        }
         if (target.field) return `this.${target.field}`;
         return 'page';
     }

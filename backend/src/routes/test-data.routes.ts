@@ -12,6 +12,7 @@ import { excelParserService } from '../services/excel-parser';
 import { environmentService } from '../services/environment.service';
 import { TestDataValidator } from '../services/test-data-validator';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { mongoTestDataService } from '../services/mongodb-test-data.service';
 
 const router = Router();
 
@@ -70,7 +71,7 @@ const upload = multer({
 
 /**
  * GET /api/test-data/sheets
- * List all test data sheets for an application
+ * List all test data sheets for an application (uses MongoDB)
  */
 router.get('/sheets', async (req: AuthRequest, res: Response) => {
     try {
@@ -78,13 +79,22 @@ router.get('/sheets', async (req: AuthRequest, res: Response) => {
         const { projectId } = req.query;
 
         // projectId is actually applicationId for backwards compatibility
-        const applicationId = projectId as string;
+        let applicationId = projectId as string;
 
         if (!applicationId) {
-            return res.status(400).json({
-                success: false,
-                error: 'projectId is required'
+            // Fallback: use user's first application
+            const firstApp = await prisma.application.findFirst({
+                where: { userId },
+                orderBy: { createdAt: 'asc' }
             });
+            if (firstApp) {
+                applicationId = firstApp.id;
+            } else {
+                return res.json({
+                    success: true,
+                    sheets: []
+                });
+            }
         }
 
         // Verify application access
@@ -99,66 +109,35 @@ router.get('/sheets', async (req: AuthRequest, res: Response) => {
         });
 
         if (!application) {
-            // Fallback: use user's first application
-            const firstApp = await prisma.application.findFirst({
-                where: { userId },
-                orderBy: { createdAt: 'asc' }
-            });
-
-            if (firstApp) {
-                const sheets = await prisma.testDataSheet.findMany({
-                    where: { applicationId: firstApp.id },
-                    include: {
-                        _count: {
-                            select: { rows: true }
-                        }
-                    },
-                    orderBy: { name: 'asc' }
-                });
-
-                return res.json({
-                    success: true,
-                    sheets: sheets.map(s => ({
-                        id: s.id,
-                        name: s.name,
-                        pageObject: s.pageObject,
-                        description: s.description,
-                        columns: JSON.parse(s.columns),
-                        rowCount: s._count.rows,
-                        createdAt: s.createdAt,
-                        updatedAt: s.updatedAt
-                    }))
-                });
-            }
-
             return res.json({
                 success: true,
                 sheets: []
             });
         }
 
-        const sheets = await prisma.testDataSheet.findMany({
-            where: { applicationId: application.id },
-            include: {
-                _count: {
-                    select: { rows: true }
-                }
-            },
-            orderBy: { name: 'asc' }
-        });
+        // Get sheets from MongoDB
+        const sheets = await mongoTestDataService.getSheets(application.id);
+
+        // Get row counts for each sheet
+        const sheetsWithCounts = await Promise.all(
+            sheets.map(async (sheet) => {
+                const stats = await mongoTestDataService.getSheetStats(sheet.id);
+                return {
+                    id: sheet.id,
+                    name: sheet.name,
+                    pageObject: sheet.pageObject,
+                    description: sheet.description,
+                    columns: sheet.columns || [],
+                    rowCount: stats.totalRows,
+                    createdAt: sheet.createdAt,
+                    updatedAt: sheet.updatedAt
+                };
+            })
+        );
 
         res.json({
             success: true,
-            sheets: sheets.map(s => ({
-                id: s.id,
-                name: s.name,
-                pageObject: s.pageObject,
-                description: s.description,
-                columns: JSON.parse(s.columns),
-                rowCount: s._count.rows,
-                createdAt: s.createdAt,
-                updatedAt: s.updatedAt
-            }))
+            sheets: sheetsWithCounts
         });
     } catch (error) {
         console.error('Error listing sheets:', error);
@@ -171,7 +150,7 @@ router.get('/sheets', async (req: AuthRequest, res: Response) => {
 
 /**
  * POST /api/test-data/sheets
- * Create a new test data sheet
+ * Create a new test data sheet (uses MongoDB)
  */
 router.post('/sheets', async (req: AuthRequest, res: Response) => {
     try {
@@ -179,82 +158,63 @@ router.post('/sheets', async (req: AuthRequest, res: Response) => {
         const { projectId, name, pageObject, description, columns } = req.body;
 
         // projectId here is actually the applicationId (for backwards compatibility)
-        const applicationId = projectId;
-        if (!applicationId || !name) {
+        let applicationId = projectId;
+        if (!name) {
             return res.status(400).json({
                 success: false,
-                error: 'projectId and name are required'
+                error: 'name is required'
             });
         }
 
         // Verify the application exists and user has access
-        const application = await prisma.application.findFirst({
+        let application = applicationId ? await prisma.application.findFirst({
             where: {
                 id: applicationId,
                 OR: [
-                    { userId }, // User owns the application
-                    { members: { some: { userId } } } // User is a member
+                    { userId },
+                    { members: { some: { userId } } }
                 ]
             }
-        });
+        }) : null;
 
         if (!application) {
-            // Fallback: use user's first application (don't auto-create new ones)
-            const firstApp = await prisma.application.findFirst({
+            // Fallback: use user's first application
+            application = await prisma.application.findFirst({
                 where: { userId },
                 orderBy: { createdAt: 'asc' }
             });
 
-            if (!firstApp) {
+            if (!application) {
                 return res.status(400).json({
                     success: false,
                     error: 'No application found. Please create an application first.'
                 });
             }
+        }
 
-            const sheet = await prisma.testDataSheet.create({
-                data: {
-                    applicationId: firstApp.id,
-                    name,
-                    pageObject: pageObject || name,
-                    description,
-                    columns: JSON.stringify(columns || [])
-                }
-            });
-
-            return res.status(201).json({
-                success: true,
-                sheet: {
-                    ...sheet,
-                    columns: JSON.parse(sheet.columns)
-                }
+        // Check if sheet with same name already exists in MongoDB
+        const existingSheet = await mongoTestDataService.getSheetByName(application.id, name);
+        if (existingSheet) {
+            return res.status(409).json({
+                success: false,
+                error: `Sheet "${name}" already exists`
             });
         }
 
-        const sheet = await prisma.testDataSheet.create({
-            data: {
-                applicationId: application.id,
-                name,
-                pageObject: pageObject || name,
-                description,
-                columns: JSON.stringify(columns || [])
-            }
+        // Create sheet in MongoDB
+        const sheet = await mongoTestDataService.createSheet({
+            applicationId: application.id,
+            name,
+            pageObject: pageObject || name,
+            description,
+            columns: columns || []
         });
 
         res.status(201).json({
             success: true,
-            sheet: {
-                ...sheet,
-                columns: JSON.parse(sheet.columns)
-            }
+            sheet
         });
     } catch (error: any) {
-        if (error.code === 'P2002') {
-            return res.status(409).json({
-                success: false,
-                error: `Sheet "${req.body.name}" already exists`
-            });
-        }
         console.error('Error creating sheet:', error);
         res.status(500).json({
             success: false,
@@ -265,20 +225,14 @@ router.post('/sheets', async (req: AuthRequest, res: Response) => {
 
 /**
  * GET /api/test-data/sheets/:id
- * Get a sheet with all its rows
+ * Get a sheet with all its rows (uses MongoDB)
  */
 router.get('/sheets/:id', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
 
-        const sheet = await prisma.testDataSheet.findUnique({
-            where: { id },
-            include: {
-                rows: {
-                    orderBy: { scenarioId: 'asc' }
-                }
-            }
-        });
+        // Get sheet from MongoDB
+        const sheet = await mongoTestDataService.getSheetById(id);
 
         if (!sheet) {
             return res.status(404).json({
@@ -287,14 +241,22 @@ router.get('/sheets/:id', async (req: Request, res: Response) => {
             });
         }
 
+        // Get rows from MongoDB
+        const rows = await mongoTestDataService.getRows(id);
+
         res.json({
             success: true,
             sheet: {
                 ...sheet,
-                columns: JSON.parse(sheet.columns),
-                rows: sheet.rows.map(r => ({
-                    ...r,
-                    data: JSON.parse(r.data)
+                columns: sheet.columns || [],
+                rows: rows.map(r => ({
+                    id: r.id,
+                    sheetId: r.sheetId,
+                    scenarioId: r.scenarioId,
+                    data: r.data,
+                    enabled: r.enabled,
+                    createdAt: r.createdAt,
+                    updatedAt: r.updatedAt
                 }))
             }
         });
@@ -309,7 +271,7 @@ router.get('/sheets/:id', async (req: Request, res: Response) => {
 
 /**
  * PUT /api/test-data/sheets/:id
- * Update a sheet (name, columns, etc.)
+ * Update a sheet (name, columns, etc.) (uses MongoDB)
  */
 router.put('/sheets/:id', async (req: Request, res: Response) => {
     try {
@@ -320,19 +282,20 @@ router.put('/sheets/:id', async (req: Request, res: Response) => {
         if (name !== undefined) updateData.name = name;
         if (pageObject !== undefined) updateData.pageObject = pageObject;
         if (description !== undefined) updateData.description = description;
-        if (columns !== undefined) updateData.columns = JSON.stringify(columns);
+        if (columns !== undefined) updateData.columns = columns;
 
-        const sheet = await prisma.testDataSheet.update({
-            where: { id },
-            data: updateData
-        });
+        const sheet = await mongoTestDataService.updateSheet(id, updateData);
+
+        if (!sheet) {
+            return res.status(404).json({
+                success: false,
+                error: 'Sheet not found'
+            });
+        }
 
         res.json({
             success: true,
-            sheet: {
-                ...sheet,
-                columns: JSON.parse(sheet.columns)
-            }
+            sheet
         });
     } catch (error) {
         console.error('Error updating sheet:', error);
@@ -345,15 +308,20 @@ router.put('/sheets/:id', async (req: Request, res: Response) => {
 
 /**
  * DELETE /api/test-data/sheets/:id
- * Delete a sheet and all its rows
+ * Delete a sheet and all its rows (uses MongoDB)
  */
 router.delete('/sheets/:id', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
 
-        await prisma.testDataSheet.delete({
-            where: { id }
-        });
+        const deleted = await mongoTestDataService.deleteSheet(id);
+
+        if (!deleted) {
+            return res.status(404).json({
+                success: false,
+                error: 'Sheet not found'
+            });
+        }
 
         res.json({ success: true });
     } catch (error) {
@@ -371,28 +339,30 @@ router.delete('/sheets/:id', async (req: Request, res: Response) => {
 
 /**
  * GET /api/test-data/sheets/:id/rows
- * List all rows for a sheet
+ * List all rows for a sheet (uses MongoDB)
  */
 router.get('/sheets/:id/rows', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         const { enabledOnly } = req.query;
 
-        const where: any = { sheetId: id };
+        let rows;
         if (enabledOnly === 'true') {
-            where.enabled = true;
+            rows = await mongoTestDataService.getEnabledRows(id);
+        } else {
+            rows = await mongoTestDataService.getRows(id);
         }
-
-        const rows = await prisma.testDataRow.findMany({
-            where,
-            orderBy: { scenarioId: 'asc' }
-        });
 
         res.json({
             success: true,
             rows: rows.map(r => ({
-                ...r,
-                data: JSON.parse(r.data)
+                id: r.id,
+                sheetId: r.sheetId,
+                scenarioId: r.scenarioId,
+                data: r.data,
+                enabled: r.enabled,
+                createdAt: r.createdAt,
+                updatedAt: r.updatedAt
             }))
         });
     } catch (error) {
@@ -406,7 +376,7 @@ router.get('/sheets/:id/rows', async (req: Request, res: Response) => {
 
 /**
  * POST /api/test-data/sheets/:id/rows
- * Create a new row
+ * Create a new row (uses MongoDB)
  */
 router.post('/sheets/:id/rows', async (req: Request, res: Response) => {
     try {
@@ -420,29 +390,27 @@ router.post('/sheets/:id/rows', async (req: Request, res: Response) => {
             });
         }
 
-        const row = await prisma.testDataRow.create({
-            data: {
-                sheetId,
-                scenarioId,
-                data: JSON.stringify(data || {}),
-                enabled
-            }
+        // Check for duplicate scenarioId in this sheet
+        const existingRow = await mongoTestDataService.getRowByScenarioId(sheetId, scenarioId);
+        if (existingRow) {
+            return res.status(409).json({
+                success: false,
+                error: `Row with TestID "${scenarioId}" already exists`
+            });
+        }
+
+        const row = await mongoTestDataService.createRow({
+            sheetId,
+            scenarioId,
+            data: data || {},
+            enabled
         });
 
         res.status(201).json({
             success: true,
-            row: {
-                ...row,
-                data: JSON.parse(row.data)
-            }
+            row
         });
     } catch (error: any) {
-        if (error.code === 'P2002') {
-            return res.status(409).json({
-                success: false,
-                error: `Row with TestID "${req.body.scenarioId}" already exists`
-            });
-        }
         console.error('Error creating row:', error);
         res.status(500).json({
             success: false,
@@ -453,7 +421,7 @@ router.post('/sheets/:id/rows', async (req: Request, res: Response) => {
 
 /**
  * PUT /api/test-data/rows/:id
- * Update a row
+ * Update a row (uses MongoDB)
  */
 router.put('/rows/:id', async (req: Request, res: Response) => {
     try {
@@ -462,20 +430,21 @@ router.put('/rows/:id', async (req: Request, res: Response) => {
 
         const updateData: any = {};
         if (scenarioId !== undefined) updateData.scenarioId = scenarioId;
-        if (data !== undefined) updateData.data = JSON.stringify(data);
+        if (data !== undefined) updateData.data = data;
         if (enabled !== undefined) updateData.enabled = enabled;
 
-        const row = await prisma.testDataRow.update({
-            where: { id },
-            data: updateData
-        });
+        const row = await mongoTestDataService.updateRow(id, updateData);
+
+        if (!row) {
+            return res.status(404).json({
+                success: false,
+                error: 'Row not found'
+            });
+        }
 
         res.json({
             success: true,
-            row: {
-                ...row,
-                data: JSON.parse(row.data)
-            }
+            row
         });
     } catch (error) {
         console.error('Error updating row:', error);
@@ -488,15 +457,20 @@ router.put('/rows/:id', async (req: Request, res: Response) => {
 
 /**
  * DELETE /api/test-data/rows/:id
- * Delete a row
+ * Delete a row (uses MongoDB)
  */
 router.delete('/rows/:id', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
 
-        await prisma.testDataRow.delete({
-            where: { id }
-        });
+        const deleted = await mongoTestDataService.deleteRow(id);
+
+        if (!deleted) {
+            return res.status(404).json({
+                success: false,
+                error: 'Row not found'
+            });
+        }
 
         res.json({ success: true });
     } catch (error) {
@@ -510,7 +484,7 @@ router.delete('/rows/:id', async (req: Request, res: Response) => {
 
 /**
  * POST /api/test-data/sheets/:id/rows/bulk
- * Bulk create rows
+ * Bulk create rows (uses MongoDB)
  */
 router.post('/sheets/:id/rows/bulk', async (req: Request, res: Response) => {
     try {
@@ -524,18 +498,18 @@ router.post('/sheets/:id/rows/bulk', async (req: Request, res: Response) => {
             });
         }
 
-        const result = await prisma.testDataRow.createMany({
-            data: rows.map((row: any) => ({
-                sheetId,
-                scenarioId: row.scenarioId || row.TestID,
-                data: JSON.stringify(row.data || row),
-                enabled: row.enabled ?? true
-            }))
-        });
+        const rowInputs = rows.map((row: any) => ({
+            sheetId,
+            scenarioId: row.scenarioId || row.TestID,
+            data: row.data || row,
+            enabled: row.enabled ?? true
+        }));
+
+        const result = await mongoTestDataService.bulkCreateRows(rowInputs);
 
         res.status(201).json({
             success: true,
-            count: result.count
+            count: result.length
         });
     } catch (error) {
         console.error('Error bulk creating rows:', error);
@@ -548,7 +522,7 @@ router.post('/sheets/:id/rows/bulk', async (req: Request, res: Response) => {
 
 /**
  * POST /api/test-data/sheets/:id/rows/bulk-update
- * Bulk update multiple rows in a sheet
+ * Bulk update multiple rows in a sheet (uses MongoDB)
  * Body: { updates: Array<{ rowId: string, data: Record<string, any> }> }
  */
 router.post('/sheets/:id/rows/bulk-update', async (req: Request, res: Response) => {
@@ -570,44 +544,37 @@ router.post('/sheets/:id/rows/bulk-update', async (req: Request, res: Response) 
             });
         }
 
-        // Verify all rows belong to this sheet
-        const rowIds = updates.map((u: { rowId: string }) => u.rowId);
-        const existingRows = await prisma.testDataRow.findMany({
-            where: {
-                id: { in: rowIds },
-                sheetId
-            },
-            select: { id: true, data: true }
-        });
+        // Verify all rows belong to this sheet and get existing data
+        const existingRows = await mongoTestDataService.getRows(sheetId);
+        const existingRowMap = new Map(existingRows.map(r => [r.id, r]));
 
-        if (existingRows.length !== rowIds.length) {
+        const rowIds = updates.map((u: { rowId: string }) => u.rowId);
+        const validRows = rowIds.filter(id => existingRowMap.has(id));
+
+        if (validRows.length !== rowIds.length) {
             return res.status(400).json({
                 success: false,
                 error: 'Some row IDs do not belong to this sheet'
             });
         }
 
-        // Create a map of existing data for merging
-        const existingDataMap = new Map(
-            existingRows.map(row => [row.id, typeof row.data === 'string' ? JSON.parse(row.data) : row.data])
-        );
+        // Build update operations with merged data
+        const updateOps = updates.map((update: { rowId: string; data: Record<string, any> }) => {
+            const existingRow = existingRowMap.get(update.rowId);
+            const existingData = existingRow?.data || {};
+            const mergedData = { ...existingData, ...update.data };
 
-        // Execute updates in a transaction
-        const results = await prisma.$transaction(
-            updates.map((update: { rowId: string; data: Record<string, any> }) => {
-                const existingData = existingDataMap.get(update.rowId) || {};
-                const mergedData = { ...existingData, ...update.data };
+            return {
+                id: update.rowId,
+                input: { data: mergedData }
+            };
+        });
 
-                return prisma.testDataRow.update({
-                    where: { id: update.rowId },
-                    data: { data: JSON.stringify(mergedData) }
-                });
-            })
-        );
+        const updatedCount = await mongoTestDataService.bulkUpdateRows(updateOps);
 
         res.json({
             success: true,
-            updated: results.length
+            updated: updatedCount
         });
     } catch (error) {
         console.error('Error bulk updating rows:', error);
@@ -620,7 +587,7 @@ router.post('/sheets/:id/rows/bulk-update', async (req: Request, res: Response) 
 
 /**
  * POST /api/test-data/sheets/:id/rows/bulk-delete
- * Bulk delete multiple rows
+ * Bulk delete multiple rows (uses MongoDB)
  * Body: { rowIds: string[] }
  */
 router.post('/sheets/:id/rows/bulk-delete', async (req: Request, res: Response) => {
@@ -636,15 +603,11 @@ router.post('/sheets/:id/rows/bulk-delete', async (req: Request, res: Response) 
         }
 
         // Verify all rows belong to this sheet
-        const existingRows = await prisma.testDataRow.findMany({
-            where: {
-                id: { in: rowIds },
-                sheetId
-            },
-            select: { id: true }
-        });
+        const existingRows = await mongoTestDataService.getRows(sheetId);
+        const existingRowIds = new Set(existingRows.map(r => r.id));
+        const validRowIds = rowIds.filter(id => existingRowIds.has(id));
 
-        if (existingRows.length !== rowIds.length) {
+        if (validRowIds.length !== rowIds.length) {
             return res.status(400).json({
                 success: false,
                 error: 'Some row IDs do not belong to this sheet'
@@ -652,16 +615,15 @@ router.post('/sheets/:id/rows/bulk-delete', async (req: Request, res: Response) 
         }
 
         // Delete all matching rows
-        const result = await prisma.testDataRow.deleteMany({
-            where: {
-                id: { in: rowIds },
-                sheetId
-            }
-        });
+        let deletedCount = 0;
+        for (const rowId of validRowIds) {
+            const deleted = await mongoTestDataService.deleteRow(rowId);
+            if (deleted) deletedCount++;
+        }
 
         res.json({
             success: true,
-            deleted: result.count
+            deleted: deletedCount
         });
     } catch (error) {
         console.error('Error bulk deleting rows:', error);
@@ -674,7 +636,7 @@ router.post('/sheets/:id/rows/bulk-delete', async (req: Request, res: Response) 
 
 /**
  * POST /api/test-data/sheets/:id/rows/duplicate
- * Duplicate selected rows
+ * Duplicate selected rows (uses MongoDB)
  * Body: { rowIds: string[], insertPosition: 'after' | 'end' }
  */
 router.post('/sheets/:id/rows/duplicate', async (req: Request, res: Response) => {
@@ -689,13 +651,12 @@ router.post('/sheets/:id/rows/duplicate', async (req: Request, res: Response) =>
             });
         }
 
-        // Fetch rows to duplicate
-        const rowsToDuplicate = await prisma.testDataRow.findMany({
-            where: {
-                id: { in: rowIds },
-                sheetId
-            }
-        });
+        // Fetch all rows in the sheet
+        const allRows = await mongoTestDataService.getRows(sheetId);
+        const rowMap = new Map(allRows.map(r => [r.id, r]));
+
+        // Filter to rows to duplicate
+        const rowsToDuplicate = rowIds.map(id => rowMap.get(id)).filter(Boolean);
 
         if (rowsToDuplicate.length === 0) {
             return res.status(400).json({
@@ -705,18 +666,14 @@ router.post('/sheets/:id/rows/duplicate', async (req: Request, res: Response) =>
         }
 
         // Generate unique scenarioIds for duplicates
-        const existingScenarioIds = await prisma.testDataRow.findMany({
-            where: { sheetId },
-            select: { scenarioId: true }
-        });
-        const existingIds = new Set(existingScenarioIds.map(r => r.scenarioId));
+        const existingIds = new Set(allRows.map(r => r.scenarioId));
 
-        const newRows = rowsToDuplicate.map(row => {
+        const newRowInputs = rowsToDuplicate.map(row => {
             // Generate a unique scenarioId
-            let newScenarioId = `${row.scenarioId}_copy`;
+            let newScenarioId = `${row!.scenarioId}_copy`;
             let counter = 1;
             while (existingIds.has(newScenarioId)) {
-                newScenarioId = `${row.scenarioId}_copy${counter}`;
+                newScenarioId = `${row!.scenarioId}_copy${counter}`;
                 counter++;
             }
             existingIds.add(newScenarioId);
@@ -724,31 +681,18 @@ router.post('/sheets/:id/rows/duplicate', async (req: Request, res: Response) =>
             return {
                 sheetId,
                 scenarioId: newScenarioId,
-                data: row.data,
-                enabled: row.enabled
+                data: row!.data,
+                enabled: row!.enabled
             };
         });
 
         // Create duplicated rows
-        const result = await prisma.testDataRow.createMany({
-            data: newRows
-        });
-
-        // Fetch the newly created rows to return
-        const createdRows = await prisma.testDataRow.findMany({
-            where: {
-                sheetId,
-                scenarioId: { in: newRows.map(r => r.scenarioId) }
-            }
-        });
+        const createdRows = await mongoTestDataService.bulkCreateRows(newRowInputs);
 
         res.status(201).json({
             success: true,
-            duplicated: result.count,
-            rows: createdRows.map(r => ({
-                ...r,
-                data: JSON.parse(r.data)
-            }))
+            duplicated: createdRows.length,
+            rows: createdRows
         });
     } catch (error) {
         console.error('Error duplicating rows:', error);
@@ -761,7 +705,7 @@ router.post('/sheets/:id/rows/duplicate', async (req: Request, res: Response) =>
 
 /**
  * POST /api/test-data/sheets/:id/search-replace
- * Find and replace text across cells
+ * Find and replace text across cells (uses MongoDB)
  * Body: { find: string, replace: string, scope: 'all' | 'selection' | 'column', columnId?: string, rowIds?: string[], options: { caseSensitive, wholeWord, useRegex } }
  */
 router.post('/sheets/:id/search-replace', async (req: Request, res: Response) => {
@@ -778,15 +722,14 @@ router.post('/sheets/:id/search-replace', async (req: Request, res: Response) =>
 
         const { caseSensitive = false, wholeWord = false, useRegex = false } = options;
 
-        // Fetch rows based on scope
-        let whereClause: any = { sheetId };
-        if (scope === 'selection' && rowIds && Array.isArray(rowIds)) {
-            whereClause.id = { in: rowIds };
-        }
+        // Fetch rows from MongoDB
+        let rows = await mongoTestDataService.getRows(sheetId);
 
-        const rows = await prisma.testDataRow.findMany({
-            where: whereClause
-        });
+        // Filter by rowIds if scope is selection
+        if (scope === 'selection' && rowIds && Array.isArray(rowIds)) {
+            const rowIdSet = new Set(rowIds);
+            rows = rows.filter(r => rowIdSet.has(r.id));
+        }
 
         // Build regex pattern
         let pattern: RegExp;
@@ -806,11 +749,11 @@ router.post('/sheets/:id/search-replace', async (req: Request, res: Response) =>
         let totalMatches = 0;
         let totalReplacements = 0;
         const updatedRowIds: string[] = [];
+        const updateOps: Array<{ id: string; input: { data: Record<string, any> } }> = [];
 
         // Process each row
-        const updates: Promise<any>[] = [];
         for (const row of rows) {
-            const data = JSON.parse(row.data) as Record<string, any>;
+            const data = { ...row.data } as Record<string, any>;
             let rowUpdated = false;
 
             // Get columns to process
@@ -836,17 +779,14 @@ router.post('/sheets/:id/search-replace', async (req: Request, res: Response) =>
 
             if (rowUpdated) {
                 updatedRowIds.push(row.id);
-                updates.push(
-                    prisma.testDataRow.update({
-                        where: { id: row.id },
-                        data: { data: JSON.stringify(data) }
-                    })
-                );
+                updateOps.push({ id: row.id, input: { data } });
             }
         }
 
-        // Execute all updates
-        await Promise.all(updates);
+        // Execute all updates via MongoDB
+        if (updateOps.length > 0) {
+            await mongoTestDataService.bulkUpdateRows(updateOps);
+        }
 
         res.json({
             success: true,

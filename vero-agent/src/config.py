@@ -65,6 +65,10 @@ CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", DEFAULT_CLAUDE_MODEL)
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "20"))
 VERO_PROJECT_PATH = os.getenv("VERO_PROJECT_PATH", "../")
 
+# API Security - set VERO_API_KEY env var to enable authentication
+VERO_API_KEY = os.getenv("VERO_API_KEY")  # If None, authentication is disabled
+REQUIRE_API_KEY = os.getenv("REQUIRE_API_KEY", "false").lower() == "true"
+
 # Gemini Configuration (alternative for complex UIs)
 GEMINI_THINKING_MODEL = os.getenv("GEMINI_THINKING_MODEL", "gemini-2.0-flash-thinking-exp-01-21")
 GEMINI_STANDARD_MODEL = os.getenv("GEMINI_STANDARD_MODEL", "gemini-3-pro")
