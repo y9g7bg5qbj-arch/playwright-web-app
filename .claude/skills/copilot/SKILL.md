@@ -299,7 +299,7 @@ PAGE ${pageName} {
 FEATURE ${pageName.replace('Page', 'Test')} {
     USE ${pageName}
 
-    SCENARIO "User can interact with ${pageName}" {
+    SCENARIO UserCanInteractWith${pageName} {
         OPEN "${exploration.url}"
         ${generateTestSteps(exploration)}
     }

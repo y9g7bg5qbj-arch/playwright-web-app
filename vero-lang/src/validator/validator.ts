@@ -118,8 +118,8 @@ export class Validator {
     }
 
     private validateStatement(stmt: StatementNode, feature: FeatureNode): void {
-        // Check DO statements for undefined pages/actions
-        if (stmt.type === 'Do') {
+        // Check PERFORM statements for undefined pages/actions
+        if (stmt.type === 'Perform') {
             const action = stmt.action;
             if (action.page) {
                 if (!feature.uses.includes(action.page)) {

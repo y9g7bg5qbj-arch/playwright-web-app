@@ -5,7 +5,7 @@
  * allowing strongly-typed access like: TestData.Driver.firstName
  */
 
-import { prisma } from '../db/prisma';
+import { dataTableRepository, dataRowRepository } from '../db/repositories/mongo';
 
 // ============================================
 // TYPES
@@ -166,18 +166,19 @@ export class TestDataClassGenerator {
      */
     async generateTestDataNamespace(workflowId: string): Promise<string> {
         // Fetch all tables for this workflow
-        const tables = await prisma.dataTable.findMany({
-            where: { workflowId },
-            include: {
-                rows: {
-                    orderBy: { order: 'asc' }
-                }
-            }
-        });
+        const tables = await dataTableRepository.findByWorkflowId(workflowId);
 
         if (tables.length === 0) {
             return '// No data tables defined\nexport namespace TestData {}';
         }
+
+        // Fetch rows for each table
+        const tablesWithRows = await Promise.all(
+            tables.map(async (table) => {
+                const rows = await dataRowRepository.findByTableId(table.id);
+                return { ...table, rows };
+            })
+        );
 
         const lines: string[] = [];
         lines.push(`/**`);
@@ -187,8 +188,8 @@ export class TestDataClassGenerator {
         lines.push(` * Usage:`);
 
         // Add usage examples
-        for (const table of tables) {
-            const columns: DataTableColumn[] = JSON.parse(table.columns as string);
+        for (const table of tablesWithRows) {
+            const columns: DataTableColumn[] = table.columns as DataTableColumn[] || [];
             const className = this.toClassName(table.name);
             if (columns.length > 0) {
                 lines.push(` *   const value = TestData.${className}.${this.sanitizeIdentifier(columns[0].name)};`);
@@ -199,15 +200,15 @@ export class TestDataClassGenerator {
         lines.push(``);
 
         // Generate interfaces and classes for each table
-        for (const table of tables) {
-            const columns: DataTableColumn[] = JSON.parse(table.columns as string);
+        for (const table of tablesWithRows) {
+            const columns: DataTableColumn[] = table.columns as DataTableColumn[] || [];
             const tableInfo: DataTableInfo = {
                 id: table.id,
                 name: table.name,
                 columns,
                 rows: table.rows.map(r => ({
                     id: r.id,
-                    data: JSON.parse(r.data as string),
+                    data: r.data as Record<string, any>,
                     order: r.order
                 }))
             };
@@ -220,7 +221,7 @@ export class TestDataClassGenerator {
 
         // Generate the TestData namespace
         lines.push(`export namespace TestData {`);
-        for (const table of tables) {
+        for (const table of tablesWithRows) {
             const className = this.toClassName(table.name);
             lines.push(`    export const ${className} = ${className}Data;`);
         }
@@ -257,22 +258,17 @@ export async function getTypedTableData(tableId: string): Promise<{
     className: string;
     rows: Record<string, any>[];
 }> {
-    const table = await prisma.dataTable.findUnique({
-        where: { id: tableId },
-        include: {
-            rows: { orderBy: { order: 'asc' } }
-        }
-    });
+    const table = await dataTableRepository.findById(tableId);
 
     if (!table) {
         throw new Error(`Table ${tableId} not found`);
     }
 
-    const generator = new TestDataClassGenerator();
-    const columns: DataTableColumn[] = JSON.parse(table.columns as string);
+    const tableRows = await dataRowRepository.findByTableId(tableId);
+    const columns: DataTableColumn[] = table.columns as DataTableColumn[] || [];
 
-    const rows = table.rows.map(row => {
-        const data = JSON.parse(row.data as string);
+    const rows = tableRows.map(row => {
+        const data = row.data as Record<string, any>;
         const typed: Record<string, any> = {};
 
         for (const col of columns) {

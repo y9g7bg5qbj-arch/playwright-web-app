@@ -18,10 +18,10 @@ export class DashboardPage {
   }
 
   async logout() {
-    await test.step('Click DashboardPage.logoutButton', async () => { await dashboardPage.logoutButton.click(); });
+    await test.step('Click DashboardPage.logoutButton', async () => { await this.logoutButton.click(); });
   }
 
   async openSettings() {
-    await test.step('Click DashboardPage.settingsLink', async () => { await dashboardPage.settingsLink.click(); });
+    await test.step('Click DashboardPage.settingsLink', async () => { await this.settingsLink.click(); });
   }
 }

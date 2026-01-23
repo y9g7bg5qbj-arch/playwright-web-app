@@ -18,6 +18,8 @@ import { RunConfigModal } from '../RunConfig/RunConfigModal';
 import { SchedulePanel, type Schedule } from './SchedulePanel.js';
 import { AIAgentPanel } from '../ide/AIAgentPanel.js';
 import { AITestRecorderPanel } from '../ide/AITestRecorderPanel.js';
+import { ReviewSidePanel } from '../ide/ReviewSidePanel.js';
+import { AISettingsModal } from '../settings/AISettingsModal.js';
 import { LiveExecutionPanel } from '../ide/LiveExecutionPanel.js';
 import { TestDataPage } from '../TestData/TestDataPage.js';
 import { TraceViewerPanel } from '../TraceViewer/TraceViewerPanel.js';
@@ -103,6 +105,9 @@ export function VeroWorkspace() {
   const [mergeSandboxName, setMergeSandboxName] = useState<string>('');
   const [mergeSourceBranch, setMergeSourceBranch] = useState<string>('dev');
 
+  // Review side panel state
+  const [selectedReviewSessionId, setSelectedReviewSessionId] = useState<string | null>(null);
+
   const socketRef = useRef<Socket | null>(null);
   const activeTabIdRef = useRef<string | null>(null);
 
@@ -164,6 +169,7 @@ export function VeroWorkspace() {
 
   const [selectedConfigId, setSelectedConfigId] = useState<string | null>('local-chromium');
   const [showConfigModal, setShowConfigModal] = useState(false);
+  const [showAISettingsModal, setShowAISettingsModal] = useState(false);
 
   // Executions state
   const [executionBadge, setExecutionBadge] = useState(0);
@@ -1669,6 +1675,7 @@ feature ${fileName.replace('.vero', '')} {
                   addConsoleOutput(`Test approved and loaded: ${filePath}`);
                 }}
                 projectPath={selectedProjectId ? nestedProjects.find(p => p.id === selectedProjectId)?.veroPath : undefined}
+                selectedSessionId={selectedReviewSessionId}
               />
             )}
             {activeView === 'ai-test-generator' && !currentProject && (
@@ -1738,6 +1745,13 @@ feature ${fileName.replace('.vero', '')} {
                   </div>
                   <div className="p-4 space-y-4">
                     <button
+                      onClick={() => setShowAISettingsModal(true)}
+                      className="w-full px-4 py-2 bg-[#21262d] border border-[#30363d] rounded-lg text-sm text-white hover:bg-[#30363d] transition-colors flex items-center gap-2"
+                    >
+                      <span className="material-symbols-outlined text-lg">auto_awesome</span>
+                      AI Provider Settings
+                    </button>
+                    <button
                       onClick={() => setShowConfigModal(true)}
                       className="w-full px-4 py-2 bg-[#21262d] border border-[#30363d] rounded-lg text-sm text-white hover:bg-[#30363d] transition-colors flex items-center gap-2"
                     >
@@ -1801,7 +1815,7 @@ feature ${fileName.replace('.vero', '')} {
                   </div>
 
                   {/* Editor or Compare View */}
-                  <div className="flex-1 overflow-hidden">
+                  <div className="flex-1 flex flex-col min-h-0">
                     {activeTab && activeTab.type === 'compare' ? (
                       <CompareTab
                         key={activeTab.id}
@@ -1819,6 +1833,8 @@ feature ${fileName.replace('.vero', '')} {
                         onChange={(value) => value && updateTabContent(activeTab.id, value)}
                         onRunScenario={handleRunScenario}
                         onRunFeature={handleRunFeature}
+                        showErrorPanel={true}
+                        token={null}
                       />
                     ) : null}
                   </div>
@@ -1838,6 +1854,15 @@ feature ${fileName.replace('.vero', '')} {
                 </div>
               )}
             </main>
+
+            {/* Review Side Panel - Shows sessions needing attention */}
+            <ReviewSidePanel
+              onSelectSession={(sessionId) => {
+                setSelectedReviewSessionId(sessionId);
+                setActiveView('ai-test-generator');
+              }}
+              onOpenAIStudio={() => setActiveView('ai-test-generator')}
+            />
           </>
         )}
       </div>
@@ -1927,6 +1952,12 @@ feature ${fileName.replace('.vero', '')} {
 
       {/* New Run Configuration Modal (Zustand-managed) */}
       <RunConfigModal onRun={runTests} />
+
+      {/* AI Settings Modal */}
+      <AISettingsModal
+        isOpen={showAISettingsModal}
+        onClose={() => setShowAISettingsModal(false)}
+      />
 
       {/* Recording Modal */}
       <RecordingModal

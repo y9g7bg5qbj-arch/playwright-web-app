@@ -3,7 +3,12 @@
  * Core scheduling service for managing scheduled test executions
  */
 
-import { prisma } from '../../db/prisma';
+import {
+  scheduledTestRepository,
+  scheduledTestRunRepository,
+  scheduleNotificationRepository
+} from '../../db/repositories/mongo';
+import { MongoScheduledTest, MongoScheduledTestRun, MongoScheduleNotification } from '../../db/mongodb';
 import { EventEmitter } from 'events';
 import { logger } from '../../utils/logger';
 import { NotFoundError, ForbiddenError, ValidationError } from '../../utils/errors';
@@ -66,27 +71,22 @@ export class SchedulerService extends EventEmitter {
     // Calculate next run time
     const nextRunAt = getNextRunTime(dto.cronExpression);
 
-    const schedule = await prisma.scheduledTest.create({
-      data: {
-        projectId: dto.projectId,
-        userId,
-        name: dto.name,
-        description: dto.description,
-        testPattern: dto.testPattern,
-        cronExpression: dto.cronExpression,
-        timezone: dto.timezone || 'UTC',
-        enabled: dto.enabled ?? true,
-        config: JSON.stringify(dto.config || {}),
-        nextRunAt,
-      },
-      include: {
-        runs: {
-          take: 5,
-          orderBy: { createdAt: 'desc' },
-        },
-        notifications: true,
-      },
+    const schedule = await scheduledTestRepository.create({
+      projectId: dto.projectId,
+      userId,
+      name: dto.name,
+      description: dto.description,
+      testPattern: dto.testPattern,
+      cronExpression: dto.cronExpression,
+      timezone: dto.timezone || 'UTC',
+      enabled: dto.enabled ?? true,
+      config: JSON.stringify(dto.config || {}),
+      nextRunAt: nextRunAt || undefined,
     });
+
+    // Fetch related data for response
+    const runs = await scheduledTestRunRepository.findByScheduleId(schedule.id, 5);
+    const notifications = await scheduleNotificationRepository.findByScheduleId(schedule.id);
 
     // Schedule the job if enabled
     if (schedule.enabled && nextRunAt) {
@@ -96,7 +96,7 @@ export class SchedulerService extends EventEmitter {
     logger.info(`Schedule created: ${schedule.id} - ${schedule.name}`);
     this.emit('schedule:created', { scheduleId: schedule.id });
 
-    return this.formatSchedule(schedule);
+    return this.formatSchedule({ ...schedule, runs, notifications });
   }
 
   /**
@@ -114,35 +114,33 @@ export class SchedulerService extends EventEmitter {
     }
 
     // Validate new cron expression if provided
-    let nextRunAt = existing.nextRunAt;
+    let nextRunAt: Date | undefined = existing.nextRunAt;
     if (dto.cronExpression) {
       const validation = validateCronExpression(dto.cronExpression);
       if (!validation.valid) {
         throw new ValidationError(validation.error || 'Invalid cron expression');
       }
-      nextRunAt = getNextRunTime(dto.cronExpression);
+      nextRunAt = getNextRunTime(dto.cronExpression) || undefined;
     }
 
-    const schedule = await prisma.scheduledTest.update({
-      where: { id: scheduleId },
-      data: {
-        name: dto.name,
-        description: dto.description,
-        testPattern: dto.testPattern,
-        cronExpression: dto.cronExpression,
-        timezone: dto.timezone,
-        enabled: dto.enabled,
-        config: dto.config ? JSON.stringify(dto.config) : undefined,
-        nextRunAt,
-      },
-      include: {
-        runs: {
-          take: 5,
-          orderBy: { createdAt: 'desc' },
-        },
-        notifications: true,
-      },
+    const schedule = await scheduledTestRepository.update(scheduleId, {
+      name: dto.name,
+      description: dto.description,
+      testPattern: dto.testPattern,
+      cronExpression: dto.cronExpression,
+      timezone: dto.timezone,
+      enabled: dto.enabled,
+      config: dto.config ? JSON.stringify(dto.config) : undefined,
+      nextRunAt: nextRunAt || undefined,
     });
+
+    if (!schedule) {
+      throw new NotFoundError('Schedule not found');
+    }
+
+    // Fetch related data for response
+    const runs = await scheduledTestRunRepository.findByScheduleId(schedule.id, 5);
+    const notifications = await scheduleNotificationRepository.findByScheduleId(schedule.id);
 
     // Update scheduled job
     this.unscheduleJob(scheduleId);
@@ -153,7 +151,7 @@ export class SchedulerService extends EventEmitter {
     logger.info(`Schedule updated: ${scheduleId}`);
     this.emit('schedule:updated', { scheduleId });
 
-    return this.formatSchedule(schedule);
+    return this.formatSchedule({ ...schedule, runs, notifications });
   }
 
   /**
@@ -169,9 +167,10 @@ export class SchedulerService extends EventEmitter {
     // Unschedule the job
     this.unscheduleJob(scheduleId);
 
-    await prisma.scheduledTest.delete({
-      where: { id: scheduleId },
-    });
+    // Delete related data first
+    await scheduledTestRunRepository.deleteByScheduleId(scheduleId);
+    await scheduleNotificationRepository.deleteByScheduleId(scheduleId);
+    await scheduledTestRepository.delete(scheduleId);
 
     logger.info(`Schedule deleted: ${scheduleId}`);
     this.emit('schedule:deleted', { scheduleId });
@@ -181,16 +180,7 @@ export class SchedulerService extends EventEmitter {
    * Get a single schedule by ID
    */
   async getSchedule(userId: string, scheduleId: string): Promise<ScheduledTestResponse> {
-    const schedule = await prisma.scheduledTest.findUnique({
-      where: { id: scheduleId },
-      include: {
-        runs: {
-          take: 20,
-          orderBy: { createdAt: 'desc' },
-        },
-        notifications: true,
-      },
-    });
+    const schedule = await scheduledTestRepository.findById(scheduleId);
 
     if (!schedule) {
       throw new NotFoundError('Schedule not found');
@@ -200,31 +190,34 @@ export class SchedulerService extends EventEmitter {
       throw new ForbiddenError('Access denied');
     }
 
-    return this.formatSchedule(schedule);
+    // Fetch related data
+    const runs = await scheduledTestRunRepository.findByScheduleId(scheduleId, 20);
+    const notifications = await scheduleNotificationRepository.findByScheduleId(scheduleId);
+
+    return this.formatSchedule({ ...schedule, runs, notifications });
   }
 
   /**
    * List all schedules for a project
    */
   async listSchedules(userId: string, projectId?: string): Promise<ScheduledTestResponse[]> {
-    const where: any = { userId };
+    let schedules: MongoScheduledTest[];
     if (projectId) {
-      where.projectId = projectId;
+      const allProjectSchedules = await scheduledTestRepository.findByProjectId(projectId);
+      schedules = allProjectSchedules.filter(s => s.userId === userId);
+    } else {
+      schedules = await scheduledTestRepository.findByUserId(userId);
     }
 
-    const schedules = await prisma.scheduledTest.findMany({
-      where,
-      include: {
-        runs: {
-          take: 1,
-          orderBy: { createdAt: 'desc' },
-        },
-        notifications: true,
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
+    // Fetch related data for each schedule
+    const results: ScheduledTestResponse[] = [];
+    for (const schedule of schedules) {
+      const runs = await scheduledTestRunRepository.findByScheduleId(schedule.id, 1);
+      const notifications = await scheduleNotificationRepository.findByScheduleId(schedule.id);
+      results.push(this.formatSchedule({ ...schedule, runs, notifications }));
+    }
 
-    return schedules.map(s => this.formatSchedule(s));
+    return results;
   }
 
   // =============================================
@@ -243,9 +236,9 @@ export class SchedulerService extends EventEmitter {
 
     const nextRunAt = getNextRunTime(existing.cronExpression);
 
-    await prisma.scheduledTest.update({
-      where: { id: scheduleId },
-      data: { enabled: true, nextRunAt },
+    await scheduledTestRepository.update(scheduleId, {
+      enabled: true,
+      nextRunAt: nextRunAt || undefined
     });
 
     // Schedule the job
@@ -265,9 +258,9 @@ export class SchedulerService extends EventEmitter {
       throw new ForbiddenError('Access denied');
     }
 
-    await prisma.scheduledTest.update({
-      where: { id: scheduleId },
-      data: { enabled: false, nextRunAt: null },
+    await scheduledTestRepository.update(scheduleId, {
+      enabled: false,
+      nextRunAt: undefined
     });
 
     // Unschedule the job
@@ -318,9 +311,7 @@ export class SchedulerService extends EventEmitter {
     this.isRunning = true;
 
     // Load all enabled schedules
-    const schedules = await prisma.scheduledTest.findMany({
-      where: { enabled: true },
-    });
+    const schedules = await scheduledTestRepository.findEnabledSchedules();
 
     for (const schedule of schedules) {
       this.scheduleJob(schedule.id, schedule.cronExpression, schedule.timezone);
@@ -483,11 +474,7 @@ export class SchedulerService extends EventEmitter {
       throw new ForbiddenError('Access denied');
     }
 
-    const runs = await prisma.scheduledTestRun.findMany({
-      where: { scheduleId },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    });
+    const runs = await scheduledTestRunRepository.findByScheduleId(scheduleId, limit);
 
     return runs.map(r => this.formatRun(r));
   }
@@ -496,16 +483,14 @@ export class SchedulerService extends EventEmitter {
    * Get a specific run
    */
   async getRun(userId: string, runId: string): Promise<ScheduledRunResponse> {
-    const run = await prisma.scheduledTestRun.findUnique({
-      where: { id: runId },
-      include: { schedule: true },
-    });
+    const run = await scheduledTestRunRepository.findById(runId);
 
     if (!run) {
       throw new NotFoundError('Run not found');
     }
 
-    if (run.schedule.userId !== userId) {
+    const schedule = await scheduledTestRepository.findById(run.scheduleId);
+    if (!schedule || schedule.userId !== userId) {
       throw new ForbiddenError('Access denied');
     }
 
@@ -516,16 +501,14 @@ export class SchedulerService extends EventEmitter {
    * Cancel a running execution
    */
   async cancelRun(userId: string, runId: string): Promise<void> {
-    const run = await prisma.scheduledTestRun.findUnique({
-      where: { id: runId },
-      include: { schedule: true },
-    });
+    const run = await scheduledTestRunRepository.findById(runId);
 
     if (!run) {
       throw new NotFoundError('Run not found');
     }
 
-    if (run.schedule.userId !== userId) {
+    const schedule = await scheduledTestRepository.findById(run.scheduleId);
+    if (!schedule || schedule.userId !== userId) {
       throw new ForbiddenError('Access denied');
     }
 
@@ -533,12 +516,9 @@ export class SchedulerService extends EventEmitter {
       throw new ValidationError('Can only cancel queued or running executions');
     }
 
-    await prisma.scheduledTestRun.update({
-      where: { id: runId },
-      data: {
-        status: 'cancelled',
-        completedAt: new Date(),
-      },
+    await scheduledTestRunRepository.update(runId, {
+      status: 'cancelled',
+      completedAt: new Date(),
     });
 
     this.emit('run:cancelled', { runId, scheduleId: run.scheduleId });
@@ -551,10 +531,8 @@ export class SchedulerService extends EventEmitter {
   /**
    * Get schedule by ID (internal use)
    */
-  private async getScheduleById(scheduleId: string) {
-    const schedule = await prisma.scheduledTest.findUnique({
-      where: { id: scheduleId },
-    });
+  private async getScheduleById(scheduleId: string): Promise<MongoScheduledTest> {
+    const schedule = await scheduledTestRepository.findById(scheduleId);
 
     if (!schedule) {
       throw new NotFoundError('Schedule not found');
@@ -569,12 +547,7 @@ export class SchedulerService extends EventEmitter {
   private async checkDueSchedules(): Promise<void> {
     const now = new Date();
 
-    const dueSchedules = await prisma.scheduledTest.findMany({
-      where: {
-        enabled: true,
-        nextRunAt: { lte: now },
-      },
-    });
+    const dueSchedules = await scheduledTestRepository.findDueSchedules(now);
 
     for (const schedule of dueSchedules) {
       // Skip if already being handled by a timer
@@ -594,9 +567,7 @@ export class SchedulerService extends EventEmitter {
    * Execute a scheduled test
    */
   private async executeSchedule(scheduleId: string): Promise<void> {
-    const schedule = await prisma.scheduledTest.findUnique({
-      where: { id: scheduleId },
-    });
+    const schedule = await scheduledTestRepository.findById(scheduleId);
 
     if (!schedule || !schedule.enabled) {
       return;
@@ -608,12 +579,9 @@ export class SchedulerService extends EventEmitter {
     // Update last run and calculate next run
     const nextRunAt = getNextRunTime(schedule.cronExpression);
 
-    await prisma.scheduledTest.update({
-      where: { id: scheduleId },
-      data: {
-        lastRunAt: new Date(),
-        nextRunAt,
-      },
+    await scheduledTestRepository.update(scheduleId, {
+      lastRunAt: new Date(),
+      nextRunAt: nextRunAt || undefined,
     });
 
     // Execute the run
@@ -627,12 +595,10 @@ export class SchedulerService extends EventEmitter {
     scheduleId: string,
     triggeredBy: RunTriggerType
   ): Promise<ScheduledRunResponse> {
-    const run = await prisma.scheduledTestRun.create({
-      data: {
-        scheduleId,
-        triggeredBy,
-        status: 'queued',
-      },
+    const run = await scheduledTestRunRepository.create({
+      scheduleId,
+      triggeredBy,
+      status: 'queued',
     });
 
     return this.formatRun(run);
@@ -644,30 +610,29 @@ export class SchedulerService extends EventEmitter {
   private async executeRun(runId: string): Promise<void> {
     try {
       // Update status to running
-      await prisma.scheduledTestRun.update({
-        where: { id: runId },
-        data: {
-          status: 'running',
-          startedAt: new Date(),
-        },
+      await scheduledTestRunRepository.update(runId, {
+        status: 'running',
+        startedAt: new Date(),
       });
 
       this.emit('run:started', { runId });
 
-      const run = await prisma.scheduledTestRun.findUnique({
-        where: { id: runId },
-        include: { schedule: true },
-      });
+      const run = await scheduledTestRunRepository.findById(runId);
 
       if (!run) {
         throw new Error(`Run not found: ${runId}`);
       }
 
+      const schedule = await scheduledTestRepository.findById(run.scheduleId);
+      if (!schedule) {
+        throw new Error(`Schedule not found: ${run.scheduleId}`);
+      }
+
       // Parse config
-      const config: ExecutionConfig = JSON.parse(run.schedule.config || '{}');
+      const config: ExecutionConfig = JSON.parse(schedule.config || '{}');
 
       logger.info(`Executing run ${runId} for schedule ${run.scheduleId}`);
-      logger.info(`Test pattern: ${run.schedule.testPattern}`);
+      logger.info(`Test pattern: ${schedule.testPattern}`);
       logger.info(`Config: ${JSON.stringify(config)}`);
 
       // Initialize execution engine if needed
@@ -691,7 +656,7 @@ export class SchedulerService extends EventEmitter {
 
       // Execute the test
       const startTime = Date.now();
-      const testResult = await executionEngine.runTest(run.schedule.testPattern, executionOptions);
+      const testResult = await executionEngine.runTest(schedule.testPattern, executionOptions);
       const duration = Date.now() - startTime;
 
       // Build run results from test result
@@ -715,14 +680,11 @@ export class SchedulerService extends EventEmitter {
       };
 
       // Mark as completed
-      await prisma.scheduledTestRun.update({
-        where: { id: runId },
-        data: {
-          status: testResult.status === 'failed' ? 'failed' : 'completed',
-          completedAt: new Date(),
-          executionId: testResult.runId,
-          results: JSON.stringify(results),
-        },
+      await scheduledTestRunRepository.update(runId, {
+        status: testResult.status === 'failed' ? 'failed' : 'completed',
+        completedAt: new Date(),
+        executionId: testResult.runId,
+        results: JSON.stringify(results),
       });
 
       this.emit('run:completed', { runId, status: 'completed' });
@@ -730,13 +692,10 @@ export class SchedulerService extends EventEmitter {
     } catch (error: any) {
       logger.error(`Run ${runId} failed:`, error);
 
-      await prisma.scheduledTestRun.update({
-        where: { id: runId },
-        data: {
-          status: 'failed',
-          completedAt: new Date(),
-          errorMessage: error.message,
-        },
+      await scheduledTestRunRepository.update(runId, {
+        status: 'failed',
+        completedAt: new Date(),
+        errorMessage: error.message,
       });
 
       this.emit('run:failed', { runId, error: error.message });

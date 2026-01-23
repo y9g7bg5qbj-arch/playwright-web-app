@@ -1,11 +1,15 @@
 /**
  * Recording Persistence Service
+ * NOW USES MONGODB INSTEAD OF PRISMA
  *
  * Persists recording sessions to database to survive server restarts.
  * Provides recovery, session management, and step tracking.
  */
-import { prisma } from '../db/prisma';
-import { RecordingSession, RecordingStep } from '@prisma/client';
+import {
+  recordingSessionRepository,
+  recordingStepRepository
+} from '../db/repositories/mongo';
+import { MongoRecordingSession, MongoRecordingStep } from '../db/mongodb';
 
 // Types for creating sessions and steps
 export interface CreateSessionDTO {
@@ -37,99 +41,81 @@ export interface CreateStepDTO {
     boundingBox?: { x: number; y: number; width: number; height: number };
 }
 
-export interface SessionWithSteps extends RecordingSession {
-    steps: RecordingStep[];
+export interface SessionWithSteps extends MongoRecordingSession {
+    steps: MongoRecordingStep[];
 }
 
 class RecordingPersistenceService {
     /**
      * Create a new recording session
      */
-    async createSession(data: CreateSessionDTO): Promise<RecordingSession> {
-        return prisma.recordingSession.create({
-            data: {
-                testFlowId: data.testFlowId,
-                userId: data.userId,
-                startUrl: data.startUrl,
-                scenarioName: data.scenarioName,
-                pageName: data.pageName,
-                browserPid: data.browserPid,
-                status: 'active',
-            },
+    async createSession(data: CreateSessionDTO): Promise<MongoRecordingSession> {
+        return recordingSessionRepository.create({
+            testFlowId: data.testFlowId,
+            userId: data.userId,
+            startUrl: data.startUrl,
+            scenarioName: data.scenarioName,
+            pageName: data.pageName,
+            browserPid: data.browserPid,
+            status: 'active',
         });
     }
 
     /**
      * Add a step to an existing session
      */
-    async addStep(data: CreateStepDTO): Promise<RecordingStep> {
-        return prisma.recordingStep.create({
-            data: {
-                sessionId: data.sessionId,
-                stepNumber: data.stepNumber,
-                actionType: data.actionType,
-                veroCode: data.veroCode,
-                primarySelector: data.primarySelector,
-                selectorType: data.selectorType,
-                fallbackSelectors: JSON.stringify(data.fallbackSelectors || []),
-                confidence: data.confidence || 0,
-                isStable: data.isStable ?? true,
-                value: data.value,
-                url: data.url,
-                pageName: data.pageName,
-                fieldName: data.fieldName,
-                screenshotPath: data.screenshotPath,
-                elementTag: data.elementTag,
-                elementText: data.elementText,
-                boundingBox: data.boundingBox ? JSON.stringify(data.boundingBox) : null,
-            },
+    async addStep(data: CreateStepDTO): Promise<MongoRecordingStep> {
+        return recordingStepRepository.create({
+            sessionId: data.sessionId,
+            stepNumber: data.stepNumber,
+            actionType: data.actionType,
+            veroCode: data.veroCode,
+            primarySelector: data.primarySelector,
+            selectorType: data.selectorType,
+            fallbackSelectors: JSON.stringify(data.fallbackSelectors || []),
+            confidence: data.confidence || 0,
+            isStable: data.isStable ?? true,
+            value: data.value,
+            url: data.url,
+            pageName: data.pageName,
+            fieldName: data.fieldName,
+            screenshotPath: data.screenshotPath,
+            elementTag: data.elementTag,
+            elementText: data.elementText,
+            boundingBox: data.boundingBox ? JSON.stringify(data.boundingBox) : undefined,
         });
     }
 
     /**
      * Get a session by ID
      */
-    async getSession(sessionId: string): Promise<RecordingSession | null> {
-        return prisma.recordingSession.findUnique({
-            where: { id: sessionId },
-        });
+    async getSession(sessionId: string): Promise<MongoRecordingSession | null> {
+        return recordingSessionRepository.findById(sessionId);
     }
 
     /**
      * Get a session with all its steps
      */
     async getSessionWithSteps(sessionId: string): Promise<SessionWithSteps | null> {
-        return prisma.recordingSession.findUnique({
-            where: { id: sessionId },
-            include: {
-                steps: {
-                    orderBy: { stepNumber: 'asc' },
-                },
-            },
-        });
+        const session = await recordingSessionRepository.findById(sessionId);
+        if (!session) return null;
+
+        const steps = await recordingStepRepository.findBySessionId(sessionId);
+        return { ...session, steps };
     }
 
     /**
      * Get all active sessions for a user
      */
-    async getActiveSessions(userId: string): Promise<RecordingSession[]> {
-        return prisma.recordingSession.findMany({
-            where: {
-                userId,
-                status: 'active',
-            },
-            orderBy: { createdAt: 'desc' },
-        });
+    async getActiveSessions(userId: string): Promise<MongoRecordingSession[]> {
+        return recordingSessionRepository.findByUserId(userId, 'active');
     }
 
     /**
      * Recover a session (get all steps for replay)
      */
-    async recoverSession(sessionId: string): Promise<RecordingStep[]> {
-        return prisma.recordingStep.findMany({
-            where: { sessionId },
-            orderBy: { stepNumber: 'asc' },
-        });
+    async recoverSession(sessionId: string): Promise<MongoRecordingStep[]> {
+        return recordingStepRepository.findBySessionId(sessionId);
     }
 
     /**
@@ -139,83 +125,62 @@ class RecordingPersistenceService {
         sessionId: string,
         status: 'active' | 'paused' | 'completed' | 'failed',
         errorMessage?: string
-    ): Promise<RecordingSession> {
-        return prisma.recordingSession.update({
-            where: { id: sessionId },
-            data: {
-                status,
-                errorMessage,
-                completedAt: status === 'completed' || status === 'failed' ? new Date() : null,
-            },
+    ): Promise<MongoRecordingSession | null> {
+        return recordingSessionRepository.update(sessionId, {
+            status,
+            errorMessage,
+            completedAt: status === 'completed' || status === 'failed' ? new Date() : undefined,
         });
     }
 
     /**
      * Complete a session and save the final Vero code
      */
-    async completeSession(sessionId: string, veroCode: string): Promise<RecordingSession> {
-        return prisma.recordingSession.update({
-            where: { id: sessionId },
-            data: {
-                status: 'completed',
-                veroCode,
-                completedAt: new Date(),
-            },
+    async completeSession(sessionId: string, veroCode: string): Promise<MongoRecordingSession | null> {
+        return recordingSessionRepository.update(sessionId, {
+            status: 'completed',
+            veroCode,
+            completedAt: new Date(),
         });
     }
 
     /**
      * Mark a session as failed
      */
-    async failSession(sessionId: string, errorMessage: string): Promise<RecordingSession> {
-        return prisma.recordingSession.update({
-            where: { id: sessionId },
-            data: {
-                status: 'failed',
-                errorMessage,
-                completedAt: new Date(),
-            },
+    async failSession(sessionId: string, errorMessage: string): Promise<MongoRecordingSession | null> {
+        return recordingSessionRepository.update(sessionId, {
+            status: 'failed',
+            errorMessage,
+            completedAt: new Date(),
         });
     }
 
     /**
      * Pause a session
      */
-    async pauseSession(sessionId: string): Promise<RecordingSession> {
-        return prisma.recordingSession.update({
-            where: { id: sessionId },
-            data: { status: 'paused' },
-        });
+    async pauseSession(sessionId: string): Promise<MongoRecordingSession | null> {
+        return recordingSessionRepository.update(sessionId, { status: 'paused' });
     }
 
     /**
      * Resume a paused session
      */
-    async resumeSession(sessionId: string): Promise<RecordingSession> {
-        return prisma.recordingSession.update({
-            where: { id: sessionId },
-            data: { status: 'active' },
-        });
+    async resumeSession(sessionId: string): Promise<MongoRecordingSession | null> {
+        return recordingSessionRepository.update(sessionId, { status: 'active' });
     }
 
     /**
      * Update the page name for a session
      */
-    async updatePageName(sessionId: string, pageName: string): Promise<RecordingSession> {
-        return prisma.recordingSession.update({
-            where: { id: sessionId },
-            data: { pageName },
-        });
+    async updatePageName(sessionId: string, pageName: string): Promise<MongoRecordingSession | null> {
+        return recordingSessionRepository.update(sessionId, { pageName });
     }
 
     /**
      * Get the next step number for a session
      */
     async getNextStepNumber(sessionId: string): Promise<number> {
-        const lastStep = await prisma.recordingStep.findFirst({
-            where: { sessionId },
-            orderBy: { stepNumber: 'desc' },
-        });
+        const lastStep = await recordingStepRepository.findLastBySessionId(sessionId);
         return (lastStep?.stepNumber ?? -1) + 1;
     }
 
@@ -223,25 +188,23 @@ class RecordingPersistenceService {
      * Delete a session and all its steps
      */
     async deleteSession(sessionId: string): Promise<void> {
-        await prisma.recordingSession.delete({
-            where: { id: sessionId },
-        });
+        await recordingStepRepository.deleteBySessionId(sessionId);
+        await recordingSessionRepository.delete(sessionId);
     }
 
     /**
      * Get recent sessions for a user
      */
     async getRecentSessions(userId: string, limit = 10): Promise<SessionWithSteps[]> {
-        return prisma.recordingSession.findMany({
-            where: { userId },
-            include: {
-                steps: {
-                    orderBy: { stepNumber: 'asc' },
-                },
-            },
-            orderBy: { createdAt: 'desc' },
-            take: limit,
-        });
+        const sessions = await recordingSessionRepository.findByUserIdWithLimit(userId, limit);
+
+        const sessionsWithSteps: SessionWithSteps[] = [];
+        for (const session of sessions) {
+            const steps = await recordingStepRepository.findBySessionId(session.id);
+            sessionsWithSteps.push({ ...session, steps });
+        }
+
+        return sessionsWithSteps;
     }
 
     /**
@@ -256,7 +219,7 @@ class RecordingPersistenceService {
         const lines: string[] = [];
 
         // Group steps by page
-        const stepsByPage = new Map<string, RecordingStep[]>();
+        const stepsByPage = new Map<string, MongoRecordingStep[]>();
         for (const step of session.steps) {
             const pageName = step.pageName || 'DefaultPage';
             if (!stepsByPage.has(pageName)) {
@@ -282,14 +245,9 @@ class RecordingPersistenceService {
     /**
      * Find sessions that may need recovery (active but old)
      */
-    async findStaleActiveSessions(maxAgeMinutes = 30): Promise<RecordingSession[]> {
+    async findStaleActiveSessions(maxAgeMinutes = 30): Promise<MongoRecordingSession[]> {
         const cutoffTime = new Date(Date.now() - maxAgeMinutes * 60 * 1000);
-        return prisma.recordingSession.findMany({
-            where: {
-                status: 'active',
-                updatedAt: { lt: cutoffTime },
-            },
-        });
+        return recordingSessionRepository.findStaleActive(cutoffTime);
     }
 
     /**
@@ -297,23 +255,14 @@ class RecordingPersistenceService {
      */
     async cleanupOldSessions(maxAgeDays = 30): Promise<number> {
         const cutoffTime = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
-        const result = await prisma.recordingSession.deleteMany({
-            where: {
-                status: { in: ['completed', 'failed'] },
-                completedAt: { lt: cutoffTime },
-            },
-        });
-        return result.count;
+        return recordingSessionRepository.deleteOldCompleted(cutoffTime);
     }
 
     /**
      * Update step with screenshot path
      */
-    async updateStepScreenshot(stepId: string, screenshotPath: string): Promise<RecordingStep> {
-        return prisma.recordingStep.update({
-            where: { id: stepId },
-            data: { screenshotPath },
-        });
+    async updateStepScreenshot(stepId: string, screenshotPath: string): Promise<MongoRecordingStep | null> {
+        return recordingStepRepository.update(stepId, { screenshotPath });
     }
 
     /**

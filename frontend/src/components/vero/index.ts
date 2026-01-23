@@ -1,3 +1,3 @@
 export { VeroEditor } from './VeroEditor';
-export { registerVeroLanguage, parseVeroCode } from './veroLanguage';
+export { registerVeroLanguage, registerVeroLSPProviders, parseVeroCode } from './veroLanguage';
 export type { VeroCodeItem } from './veroLanguage';

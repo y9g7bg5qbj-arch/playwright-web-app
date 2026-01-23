@@ -11,13 +11,13 @@ PAGE DataTestPage {
 FEATURE DataDrivenTest {
     USE DataTestPage
 
-    SCENARIO "Basic form interaction" @datadriven {
+    SCENARIO BasicFormInteraction @datadriven {
         OPEN "https://example.com/users"
         LOG "Data test placeholder"
         VERIFY DataTestPage.usernameInput IS VISIBLE
     }
 
-    SCENARIO "Form submission test" @datadriven {
+    SCENARIO FormSubmissionTest @datadriven {
         OPEN "https://example.com/form"
         FILL DataTestPage.emailInput WITH "test@example.com"
         CLICK DataTestPage.submitBtn

@@ -1,5 +1,5 @@
 export enum TokenType {
-    // Structural Keywords
+    // Structural
     PAGE = 'PAGE',
     FEATURE = 'FEATURE',
     SCENARIO = 'SCENARIO',
@@ -49,12 +49,10 @@ export enum TokenType {
     PRESS = 'PRESS',
     SCROLL = 'SCROLL',
     WAIT = 'WAIT',
-    DO = 'DO',
+    PERFORM = 'PERFORM',
     REFRESH = 'REFRESH',
     CLEAR = 'CLEAR',
     UPLOAD = 'UPLOAD',
-
-    // Extended Actions (Phase 1)
     RIGHT = 'RIGHT',
     DOUBLE = 'DOUBLE',
     FORCE = 'FORCE',
@@ -102,10 +100,25 @@ export enum TokenType {
     TIMES = 'TIMES',
     FOR = 'FOR',
 
-    // Data Management
+    // Data Query (VDQL)
     LOAD = 'LOAD',
     WHERE = 'WHERE',
     AS = 'AS',
+    ROW = 'ROW',
+    ROWS = 'ROWS',
+    ORDER = 'ORDER',
+    BY = 'BY',
+    ASC = 'ASC',
+    DESC = 'DESC',
+    LIMIT = 'LIMIT',
+    OFFSET = 'OFFSET',
+    FIRST = 'FIRST',
+    LAST = 'LAST',
+    RANDOM = 'RANDOM',
+    DISTINCT = 'DISTINCT',
+    OR = 'OR',
+    STARTS = 'STARTS',
+    ENDS = 'ENDS',
 
     // Utilities
     TAKE = 'TAKE',
@@ -123,7 +136,46 @@ export enum TokenType {
     SECONDS = 'SECONDS',
     MILLISECONDS = 'MILLISECONDS',
 
-    // Values
+    // String Operations
+    TRIM = 'TRIM',
+    CONVERT = 'CONVERT',
+    UPPERCASE = 'UPPERCASE',
+    LOWERCASE = 'LOWERCASE',
+    EXTRACT = 'EXTRACT',
+    REPLACE = 'REPLACE',
+    SPLIT = 'SPLIT',
+    JOIN = 'JOIN',
+    LENGTH = 'LENGTH',
+    PAD = 'PAD',
+    THEN = 'THEN',
+
+    // Date Operations
+    TODAY = 'TODAY',
+    NOW = 'NOW',
+    ADD = 'ADD',
+    SUBTRACT = 'SUBTRACT',
+    DAY = 'DAY',
+    DAYS_UNIT = 'DAYS_UNIT',
+    MONTH = 'MONTH',
+    MONTHS_UNIT = 'MONTHS_UNIT',
+    YEAR = 'YEAR',
+    YEARS_UNIT = 'YEARS_UNIT',
+    FORMAT = 'FORMAT',
+
+    // Number Operations
+    ROUND = 'ROUND',
+    DECIMALS = 'DECIMALS',
+    UP = 'UP',
+    DOWN = 'DOWN',
+    ABSOLUTE = 'ABSOLUTE',
+    CURRENCY = 'CURRENCY',
+    PERCENT = 'PERCENT',
+
+    // Generate Operations
+    GENERATE = 'GENERATE',
+    UUID = 'UUID',
+
+    // Boolean Values
     TRUE = 'TRUE',
     FALSE = 'FALSE',
     NULL = 'NULL',
@@ -132,19 +184,19 @@ export enum TokenType {
     STRING = 'STRING',
     NUMBER_LITERAL = 'NUMBER_LITERAL',
     IDENTIFIER = 'IDENTIFIER',
-    ENV_VAR_REF = 'ENV_VAR_REF',  // {{variableName}} - Postman-style env var reference
+    ENV_VAR_REF = 'ENV_VAR_REF',
 
     // Punctuation
-    LBRACE = 'LBRACE',         // {
-    RBRACE = 'RBRACE',         // }
-    LPAREN = 'LPAREN',         // (
-    RPAREN = 'RPAREN',         // )
-    LBRACKET = 'LBRACKET',     // [
-    RBRACKET = 'RBRACKET',     // ]
-    EQUALS_SIGN = 'EQUALS_SIGN', // =
-    DOT = 'DOT',               // .
-    COMMA = 'COMMA',           // ,
-    AT_SIGN = 'AT_SIGN',       // @
+    LBRACE = 'LBRACE',
+    RBRACE = 'RBRACE',
+    LPAREN = 'LPAREN',
+    RPAREN = 'RPAREN',
+    LBRACKET = 'LBRACKET',
+    RBRACKET = 'RBRACKET',
+    EQUALS_SIGN = 'EQUALS_SIGN',
+    DOT = 'DOT',
+    COMMA = 'COMMA',
+    AT_SIGN = 'AT_SIGN',
 
     // Special
     COMMENT = 'COMMENT',

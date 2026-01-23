@@ -79,13 +79,13 @@ FEATURE Login @serial {
         LOG "Feature complete"
     }
 
-    @skip SCENARIO "User can login" @smoke @e2e {
-        DO LoginPage.login WITH "test@example.com", "password"
+    @skip SCENARIO UserCanLogin @smoke @e2e {
+        PERFORM LoginPage.login WITH "test@example.com", "password"
         VERIFY DashboardPage.heading IS VISIBLE
     }
 
-    @only SCENARIO "Invalid credentials show error" {
-        DO LoginPage.login WITH "bad@email.com", "wrong"
+    @only SCENARIO InvalidCredentialsShowError {
+        PERFORM LoginPage.login WITH "bad@email.com", "wrong"
         VERIFY "Invalid credentials" IS VISIBLE
     }
 }
@@ -106,7 +106,7 @@ FEATURE Login @serial {
 |--------|--------|---------------|
 | CLICK | `CLICK PageName.field` | `await field.click()` |
 | FILL | `FILL field WITH "value"` | `await field.fill('value')` |
-| OPEN | `OPEN "url"` or `OPEN $baseUrl + "/path"` | `await page.goto(url)` |
+| OPEN | `OPEN "url"` or `OPEN baseUrl + "/path"` | `await page.goto(url)` |
 | CHECK | `CHECK field` | `await field.check()` |
 | UNCHECK | `UNCHECK field` | `await field.uncheck()` |
 | SELECT | `SELECT "option" FROM field` | `await field.selectOption('option')` |
@@ -121,7 +121,7 @@ FEATURE Login @serial {
 | UPLOAD | `UPLOAD "file.pdf" TO field` | `await field.setInputFiles('file.pdf')` |
 | LOG | `LOG "message"` | `console.log('message')` |
 | TAKE SCREENSHOT | `TAKE SCREENSHOT "name.png"` | `await page.screenshot({path: 'name.png'})` |
-| DO | `DO PageName.action WITH arg1, arg2` | `await pageName.action(arg1, arg2)` |
+| PERFORM | `PERFORM PageName.action WITH arg1, arg2` | `await pageName.action(arg1, arg2)` |
 
 ---
 
@@ -169,9 +169,9 @@ IF PageName.heading IS VISIBLE {
 }
 
 # Comparison operators
-IF $maxRetries > 3 { ... }
-IF $status == "pending" { ... }
-IF $count != 0 { ... }
+IF maxRetries > 3 { ... }
+IF status == "pending" { ... }
+IF count != 0 { ... }
 
 # Repeat
 REPEAT 3 TIMES {
@@ -179,8 +179,8 @@ REPEAT 3 TIMES {
 }
 
 # For loop
-FOR $i FROM 1 TO 5 {
-    FILL "Item $i" WITH "Value"
+FOR i FROM 1 TO 5 {
+    FILL "Item" WITH "Value"
 }
 ```
 
@@ -195,8 +195,8 @@ FLAG isEnabled = true
 LIST colors = "red", "green", "blue"
 
 # Save from element
-SAVE TEXT OF PageName.price AS $currentPrice
-SAVE ATTRIBUTE "href" OF PageName.link AS $linkUrl
+SAVE TEXT OF PageName.price AS currentPrice
+SAVE ATTRIBUTE "href" OF PageName.link AS linkUrl
 ```
 
 ---
@@ -226,7 +226,7 @@ FIXTURE authenticatedUser WITH role {
 FEATURE Dashboard {
     WITH FIXTURE authenticatedUser { role = "admin" }
 
-    SCENARIO "Admin sees dashboard" {
+    SCENARIO AdminSeesDashboard {
         VERIFY AdminPanel IS VISIBLE
     }
 }
@@ -354,9 +354,9 @@ DATA user = TestData.Users WHERE id == 999 DEFAULT { id: 0, name: "Unknown" }
 ```vero
 DATA users = TestData.Users WHERE status == "active"
 
-FOR EACH $user IN users {
-    FILL emailField WITH $user.email
-    FILL passwordField WITH $user.password
+FOR EACH user IN users {
+    FILL emailField WITH user.email
+    FILL passwordField WITH user.password
     CLICK loginBtn
     VERIFY "Dashboard" IS VISIBLE
     CLICK logoutBtn
@@ -402,7 +402,7 @@ class LoginPage {
 
 ```vero
 FEATURE Login {
-    SCENARIO "User can login" @smoke { ... }
+    SCENARIO UserCanLogin @smoke { ... }
 }
 ```
 
@@ -436,11 +436,79 @@ Update `/frontend/src/components/vero/veroLanguage.ts`:
 
 ---
 
+## Utility Functions
+
+Vero provides built-in functions for string manipulation, dates, numbers, and random data generation.
+
+### String Utilities
+
+```vero
+TEXT clean = TRIM rawInput                        # Remove whitespace
+TEXT upper = CONVERT name TO UPPERCASE            # UPPERCASE
+TEXT lower = CONVERT email TO LOWERCASE           # lowercase
+TEXT first5 = EXTRACT code FROM 0 TO 5            # Substring
+TEXT fixed = REPLACE url "http" WITH "https"      # Replace
+LIST parts = SPLIT csv BY ","                     # Split to list
+TEXT combined = JOIN items WITH ", "              # Join list
+NUMBER len = LENGTH OF name                       # String length
+TEXT padded = PAD num TO 5 WITH "0"               # Pad string
+```
+
+### Date Utilities
+
+```vero
+TEXT date = TODAY                                 # Current date
+TEXT timestamp = NOW                              # Current datetime
+TEXT nextWeek = ADD 7 DAYS TO TODAY               # Add days
+TEXT lastMonth = SUBTRACT 30 DAYS FROM TODAY      # Subtract days
+TEXT futureDate = ADD 1 MONTH TO startDate        # Add months
+TEXT formatted = FORMAT TODAY AS "MM/DD/YYYY"     # Format date
+NUMBER yr = YEAR OF birthDate                     # Extract year
+NUMBER mo = MONTH OF date                         # Extract month
+NUMBER dy = DAY OF date                           # Extract day
+```
+
+### Number Utilities
+
+```vero
+NUMBER price = ROUND total TO 2 DECIMALS          # Round to decimals
+NUMBER qty = ROUND items UP                       # Round up
+NUMBER qty = ROUND items DOWN                     # Round down
+NUMBER diff = ABSOLUTE change                     # Absolute value
+TEXT priceStr = FORMAT total AS CURRENCY "USD"    # Currency format
+TEXT pct = FORMAT discount AS PERCENT             # Percent format
+NUMBER val = CONVERT "123" TO NUMBER              # Parse number
+```
+
+### Random/Generate Utilities
+
+```vero
+TEXT code = GENERATE "[A-Z0-9]{8}"                # Random from regex
+NUMBER pick = RANDOM NUMBER FROM 1 TO 100         # Random number
+TEXT id = GENERATE UUID                           # Generate UUID
+```
+
+### Chaining Operations
+
+```vero
+# Use THEN to chain operations
+TEXT result = TRIM email THEN CONVERT TO LOWERCASE
+
+# Or use intermediate variables for clarity
+TEXT step1 = TRIM email
+TEXT step2 = CONVERT step1 TO LOWERCASE
+TEXT step3 = REPLACE step2 "old" WITH "new"
+```
+
+---
+
 ## Gotchas
 
 1. **Case Insensitive**: All Vero keywords are case-insensitive (CLICK = click = Click)
 2. **String Escaping**: Use `\"` inside strings
 3. **Comments**: Use `#` for single-line comments
-4. **Variable Prefix**: Variables must start with `$` (e.g., `$user`)
-5. **Data Loading**: Data is loaded ONCE at test start, queries run in-memory
-6. **Selector Priority**: testId > role > label > text > CSS (for reliability)
+4. **Variables**: Variables are plain identifiers (e.g., `user`, `count`) - no `$` prefix needed
+5. **SCENARIO Names**: Use PascalCase identifiers, not quoted strings (`SCENARIO UserCanLogin` not `SCENARIO "User can login"`)
+6. **PERFORM Keyword**: Use `PERFORM` to call page actions (`PERFORM LoginPage.login WITH args`)
+7. **Data Loading**: Data is loaded ONCE at test start, queries run in-memory
+8. **Selector Priority**: testId > role > label > text > CSS (for reliability)

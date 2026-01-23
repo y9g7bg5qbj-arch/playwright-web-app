@@ -6,7 +6,6 @@
 
 import { EventEmitter } from 'events';
 import { logger } from '../../utils/logger';
-import { prisma } from '../../db/prisma';
 import { auditService } from '../audit.service';
 import { notificationService, NotificationConfig, ScheduleRunInfo } from '../notification.service';
 import type {

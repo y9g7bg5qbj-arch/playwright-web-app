@@ -1,4 +1,9 @@
-import { prisma } from '../db/prisma';
+/**
+ * Schedule Service
+ * NOW USES MONGODB INSTEAD OF PRISMA
+ */
+
+import { scheduleRepository, scheduleRunRepository, scheduleTestResultRepository, userRepository } from '../db/repositories/mongo';
 import { NotFoundError, ForbiddenError, ValidationError } from '../utils/errors';
 import type {
     Schedule,
@@ -43,14 +48,6 @@ function generateWebhookToken(): string {
     return randomBytes(32).toString('hex'); // 64 character hex string
 }
 
-/**
- * Hash a webhook token for storage (optional additional security)
- */
-function hashWebhookToken(token: string): string {
-    const crypto = require('crypto');
-    return crypto.createHash('sha256').update(token).digest('hex');
-}
-
 // =============================================
 // Timezone-aware Date Calculation
 // =============================================
@@ -60,10 +57,7 @@ function hashWebhookToken(token: string): string {
  */
 function getNowInTimezone(timezone: string): Date {
     try {
-        // Get current UTC time
         const now = new Date();
-
-        // Format in the target timezone to get the offset
         const formatter = new Intl.DateTimeFormat('en-US', {
             timeZone: timezone,
             year: 'numeric',
@@ -78,7 +72,6 @@ function getNowInTimezone(timezone: string): Date {
         const parts = formatter.formatToParts(now);
         const getPart = (type: string) => parts.find(p => p.type === type)?.value || '0';
 
-        // Construct date in the target timezone
         const tzDate = new Date(
             parseInt(getPart('year')),
             parseInt(getPart('month')) - 1,
@@ -90,7 +83,6 @@ function getNowInTimezone(timezone: string): Date {
 
         return tzDate;
     } catch {
-        // Fallback to UTC if timezone is invalid
         return new Date();
     }
 }
@@ -99,46 +91,9 @@ function getNowInTimezone(timezone: string): Date {
  * Calculate next run time with proper timezone support
  */
 function getNextRunTime(cronExpression: string, timezone: string = 'UTC'): Date | null {
-    // Get current time in the specified timezone
     const nowInTz = getNowInTimezone(timezone);
-
-    // Calculate next run using the cron parser
     const nextRun = calculateNextRunTime(cronExpression, nowInTz, timezone);
-
-    if (!nextRun) {
-        return null;
-    }
-
-    // Convert back to UTC for storage
-    // The nextRun is calculated in the target timezone, we need to adjust
-    try {
-        // Get the offset between the timezone and UTC
-        const utcFormatter = new Intl.DateTimeFormat('en-US', {
-            timeZone: 'UTC',
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-        });
-
-        const tzFormatter = new Intl.DateTimeFormat('en-US', {
-            timeZone: timezone,
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-        });
-
-        // For simplicity, return the calculated time
-        // In production, you might want to use a library like luxon or date-fns-tz
-        return nextRun;
-    } catch {
-        return nextRun;
-    }
+    return nextRun || null;
 }
 
 export class ScheduleService {
@@ -146,19 +101,16 @@ export class ScheduleService {
      * Create a new schedule
      */
     async create(userId: string, data: ScheduleCreate): Promise<Schedule> {
-        // Validate cron expression using the full-featured parser
+        // Validate cron expression
         const cronValidation = validateCron(data.cronExpression);
         if (!cronValidation.valid) {
             throw new ValidationError(cronValidation.error || 'Invalid cron expression');
         }
 
-        // Calculate next run time with timezone support
         const nextRunAt = getNextRunTime(data.cronExpression, data.timezone || 'UTC');
-
-        // Generate a secure webhook token for this schedule
         const webhookToken = generateWebhookToken();
 
-        // Validate GitHub Actions config if target is github-actions
+        // Validate GitHub Actions config
         if (data.executionTarget === 'github-actions') {
             if (!data.githubConfig?.repoFullName) {
                 throw new ValidationError('GitHub repository is required for GitHub Actions execution');
@@ -168,77 +120,56 @@ export class ScheduleService {
             }
         }
 
-        const schedule = await prisma.schedule.create({
-            data: {
-                userId,
-                workflowId: data.workflowId,
-                name: data.name,
-                description: data.description,
-                cronExpression: data.cronExpression,
-                timezone: data.timezone || 'UTC',
-                testSelector: JSON.stringify(data.testSelector || {}),
-                notificationConfig: data.notificationConfig ? JSON.stringify(data.notificationConfig) : null,
-                isActive: data.isActive ?? true,
-                nextRunAt,
-                webhookToken, // Store the secure webhook token
-                // Parameter system
-                parameters: data.parameters ? JSON.stringify(data.parameters) : null,
-                defaultExecutionConfig: data.defaultExecutionConfig
-                    ? JSON.stringify(data.defaultExecutionConfig)
-                    : null,
-                // Execution target
-                executionTarget: data.executionTarget || 'local',
-                // GitHub Actions configuration
-                githubRepoFullName: data.githubConfig?.repoFullName,
-                githubBranch: data.githubConfig?.branch || 'main',
-                githubWorkflowFile: data.githubConfig?.workflowFile,
-                githubInputs: data.githubConfig?.inputs ? JSON.stringify(data.githubConfig.inputs) : null,
-            },
-            include: {
-                runs: {
-                    take: 5,
-                    orderBy: { createdAt: 'desc' },
-                },
-            },
+        const schedule = await scheduleRepository.create({
+            userId,
+            workflowId: data.workflowId,
+            name: data.name,
+            description: data.description,
+            cronExpression: data.cronExpression,
+            timezone: data.timezone || 'UTC',
+            testSelector: JSON.stringify(data.testSelector || {}),
+            notificationConfig: data.notificationConfig ? JSON.stringify(data.notificationConfig) : undefined,
+            isActive: data.isActive ?? true,
+            nextRunAt: nextRunAt || undefined,
+            webhookToken,
+            parameters: data.parameters ? JSON.stringify(data.parameters) : undefined,
+            defaultExecutionConfig: data.defaultExecutionConfig
+                ? JSON.stringify(data.defaultExecutionConfig)
+                : undefined,
+            executionTarget: data.executionTarget || 'local',
+            githubRepoFullName: data.githubConfig?.repoFullName,
+            githubBranch: data.githubConfig?.branch || 'main',
+            githubWorkflowFile: data.githubConfig?.workflowFile,
+            githubInputs: data.githubConfig?.inputs ? JSON.stringify(data.githubConfig.inputs) : undefined,
         });
 
-        return this.formatSchedule(schedule);
+        // Get recent runs
+        const runs = await scheduleRunRepository.findByScheduleId(schedule.id, 5);
+
+        return this.formatSchedule({ ...schedule, runs });
     }
 
     /**
      * Find all schedules for a user
      */
     async findAll(userId: string): Promise<Schedule[]> {
-        const schedules = await prisma.schedule.findMany({
-            where: { userId },
-            include: {
-                runs: {
-                    take: 1,
-                    orderBy: { createdAt: 'desc' },
-                },
-            },
-            orderBy: { updatedAt: 'desc' },
-        });
+        const schedules = await scheduleRepository.findByUserId(userId);
 
-        return schedules.map(s => this.formatSchedule(s));
+        const schedulesWithRuns = await Promise.all(
+            schedules.map(async (schedule) => {
+                const runs = await scheduleRunRepository.findByScheduleId(schedule.id, 1);
+                return { ...schedule, runs };
+            })
+        );
+
+        return schedulesWithRuns.map(s => this.formatSchedule(s));
     }
 
     /**
      * Find a single schedule by ID
      */
     async findOne(userId: string, scheduleId: string): Promise<Schedule> {
-        const schedule = await prisma.schedule.findUnique({
-            where: { id: scheduleId },
-            include: {
-                runs: {
-                    take: 10,
-                    orderBy: { createdAt: 'desc' },
-                    include: {
-                        testResults: true,
-                    },
-                },
-            },
-        });
+        const schedule = await scheduleRepository.findById(scheduleId);
 
         if (!schedule) {
             throw new NotFoundError('Schedule not found');
@@ -248,16 +179,22 @@ export class ScheduleService {
             throw new ForbiddenError('Access denied');
         }
 
-        return this.formatSchedule(schedule);
+        const runs = await scheduleRunRepository.findByScheduleId(scheduleId, 10);
+        const runsWithResults = await Promise.all(
+            runs.map(async (run) => {
+                const testResults = await scheduleTestResultRepository.findByRunId(run.id);
+                return { ...run, testResults };
+            })
+        );
+
+        return this.formatSchedule({ ...schedule, runs: runsWithResults });
     }
 
     /**
      * Update a schedule
      */
     async update(userId: string, scheduleId: string, data: ScheduleUpdate): Promise<Schedule> {
-        const existing = await prisma.schedule.findUnique({
-            where: { id: scheduleId },
-        });
+        const existing = await scheduleRepository.findById(scheduleId);
 
         if (!existing) {
             throw new NotFoundError('Schedule not found');
@@ -267,17 +204,17 @@ export class ScheduleService {
             throw new ForbiddenError('Access denied');
         }
 
-        // Validate new cron expression if provided using the full-featured parser
+        // Validate new cron expression if provided
         let nextRunAt = existing.nextRunAt;
         if (data.cronExpression) {
             const cronValidation = validateCron(data.cronExpression);
             if (!cronValidation.valid) {
                 throw new ValidationError(cronValidation.error || 'Invalid cron expression');
             }
-            nextRunAt = getNextRunTime(data.cronExpression, data.timezone || existing.timezone);
+            nextRunAt = getNextRunTime(data.cronExpression, data.timezone || existing.timezone) || undefined;
         }
 
-        // Validate GitHub Actions config if target is being changed to github-actions
+        // Validate GitHub Actions config
         const effectiveTarget = data.executionTarget ?? existing.executionTarget;
         if (effectiveTarget === 'github-actions') {
             const effectiveRepo = data.githubConfig?.repoFullName ?? existing.githubRepoFullName;
@@ -290,52 +227,39 @@ export class ScheduleService {
             }
         }
 
-        const schedule = await prisma.schedule.update({
-            where: { id: scheduleId },
-            data: {
-                name: data.name,
-                description: data.description,
-                cronExpression: data.cronExpression,
-                timezone: data.timezone,
-                testSelector: data.testSelector ? JSON.stringify(data.testSelector) : undefined,
-                notificationConfig: data.notificationConfig ? JSON.stringify(data.notificationConfig) : undefined,
-                isActive: data.isActive,
-                nextRunAt,
-                // Parameter system
-                parameters: data.parameters !== undefined
-                    ? (data.parameters ? JSON.stringify(data.parameters) : null)
-                    : undefined,
-                defaultExecutionConfig: data.defaultExecutionConfig !== undefined
-                    ? (data.defaultExecutionConfig ? JSON.stringify(data.defaultExecutionConfig) : null)
-                    : undefined,
-                // Execution target
-                executionTarget: data.executionTarget,
-                // GitHub Actions configuration
-                githubRepoFullName: data.githubConfig?.repoFullName,
-                githubBranch: data.githubConfig?.branch,
-                githubWorkflowFile: data.githubConfig?.workflowFile,
-                githubInputs: data.githubConfig?.inputs !== undefined
-                    ? (data.githubConfig.inputs ? JSON.stringify(data.githubConfig.inputs) : null)
-                    : undefined,
-            },
-            include: {
-                runs: {
-                    take: 5,
-                    orderBy: { createdAt: 'desc' },
-                },
-            },
-        });
+        const updateData: any = {};
+        if (data.name !== undefined) updateData.name = data.name;
+        if (data.description !== undefined) updateData.description = data.description;
+        if (data.cronExpression !== undefined) updateData.cronExpression = data.cronExpression;
+        if (data.timezone !== undefined) updateData.timezone = data.timezone;
+        if (data.testSelector !== undefined) updateData.testSelector = JSON.stringify(data.testSelector);
+        if (data.notificationConfig !== undefined) updateData.notificationConfig = JSON.stringify(data.notificationConfig);
+        if (data.isActive !== undefined) updateData.isActive = data.isActive;
+        if (nextRunAt !== undefined) updateData.nextRunAt = nextRunAt;
+        if (data.parameters !== undefined) updateData.parameters = data.parameters ? JSON.stringify(data.parameters) : null;
+        if (data.defaultExecutionConfig !== undefined) updateData.defaultExecutionConfig = data.defaultExecutionConfig ? JSON.stringify(data.defaultExecutionConfig) : null;
+        if (data.executionTarget !== undefined) updateData.executionTarget = data.executionTarget;
+        if (data.githubConfig?.repoFullName !== undefined) updateData.githubRepoFullName = data.githubConfig.repoFullName;
+        if (data.githubConfig?.branch !== undefined) updateData.githubBranch = data.githubConfig.branch;
+        if (data.githubConfig?.workflowFile !== undefined) updateData.githubWorkflowFile = data.githubConfig.workflowFile;
+        if (data.githubConfig?.inputs !== undefined) updateData.githubInputs = data.githubConfig.inputs ? JSON.stringify(data.githubConfig.inputs) : null;
 
-        return this.formatSchedule(schedule);
+        const schedule = await scheduleRepository.update(scheduleId, updateData);
+
+        if (!schedule) {
+            throw new NotFoundError('Schedule not found');
+        }
+
+        const runs = await scheduleRunRepository.findByScheduleId(scheduleId, 5);
+
+        return this.formatSchedule({ ...schedule, runs });
     }
 
     /**
      * Delete a schedule
      */
     async delete(userId: string, scheduleId: string): Promise<void> {
-        const existing = await prisma.schedule.findUnique({
-            where: { id: scheduleId },
-        });
+        const existing = await scheduleRepository.findById(scheduleId);
 
         if (!existing) {
             throw new NotFoundError('Schedule not found');
@@ -345,18 +269,14 @@ export class ScheduleService {
             throw new ForbiddenError('Access denied');
         }
 
-        await prisma.schedule.delete({
-            where: { id: scheduleId },
-        });
+        await scheduleRepository.delete(scheduleId);
     }
 
     /**
      * Toggle schedule active status
      */
     async toggleActive(userId: string, scheduleId: string): Promise<Schedule> {
-        const existing = await prisma.schedule.findUnique({
-            where: { id: scheduleId },
-        });
+        const existing = await scheduleRepository.findById(scheduleId);
 
         if (!existing) {
             throw new NotFoundError('Schedule not found');
@@ -366,36 +286,31 @@ export class ScheduleService {
             throw new ForbiddenError('Access denied');
         }
 
-        const schedule = await prisma.schedule.update({
-            where: { id: scheduleId },
-            data: {
-                isActive: !existing.isActive,
-                nextRunAt: !existing.isActive
-                    ? getNextRunTime(existing.cronExpression, existing.timezone)
-                    : null,
-            },
-            include: {
-                runs: {
-                    take: 5,
-                    orderBy: { createdAt: 'desc' },
-                },
-            },
+        const schedule = await scheduleRepository.update(scheduleId, {
+            isActive: !existing.isActive,
+            nextRunAt: !existing.isActive
+                ? getNextRunTime(existing.cronExpression, existing.timezone) || undefined
+                : undefined,
         });
 
-        return this.formatSchedule(schedule);
+        if (!schedule) {
+            throw new NotFoundError('Schedule not found');
+        }
+
+        const runs = await scheduleRunRepository.findByScheduleId(scheduleId, 5);
+
+        return this.formatSchedule({ ...schedule, runs });
     }
 
     /**
-     * Trigger a manual run of a schedule with optional parameter overrides
+     * Trigger a manual run of a schedule
      */
     async triggerRun(
         userId: string,
         scheduleId: string,
         request?: ScheduleTriggerRequest
     ): Promise<ScheduleRun> {
-        const schedule = await prisma.schedule.findUnique({
-            where: { id: scheduleId },
-        });
+        const schedule = await scheduleRepository.findById(scheduleId);
 
         if (!schedule) {
             throw new NotFoundError('Schedule not found');
@@ -406,10 +321,7 @@ export class ScheduleService {
         }
 
         // Get user info for audit
-        const user = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { email: true },
-        });
+        const user = await userRepository.findById(userId);
 
         // Parse schedule's default execution config
         const defaultConfig: ScheduleExecutionConfig = schedule.defaultExecutionConfig
@@ -441,20 +353,18 @@ export class ScheduleService {
         // Validate parameter values against schema
         this.validateParameterValues(scheduleParams, effectiveParams);
 
-        // Create a new run with 'manual' trigger type and captured parameters
-        const run = await prisma.scheduleRun.create({
-            data: {
-                scheduleId,
-                triggerType: 'manual',
-                status: 'pending',
-                parameterValues: Object.keys(effectiveParams).length > 0
-                    ? JSON.stringify(effectiveParams)
-                    : null,
-                executionConfig: Object.keys(effectiveConfig).length > 0
-                    ? JSON.stringify(effectiveConfig)
-                    : null,
-                triggeredByUser: user?.email || userId,
-            },
+        // Create a new run
+        const run = await scheduleRunRepository.create({
+            scheduleId,
+            triggerType: 'manual',
+            status: 'pending',
+            parameterValues: Object.keys(effectiveParams).length > 0
+                ? JSON.stringify(effectiveParams)
+                : undefined,
+            executionConfig: Object.keys(effectiveConfig).length > 0
+                ? JSON.stringify(effectiveConfig)
+                : undefined,
+            triggeredByUser: user?.email || userId,
         });
 
         // Dispatch to execution queue
@@ -472,26 +382,21 @@ export class ScheduleService {
                 QUEUE_NAMES.SCHEDULE_RUN,
                 `schedule-run-${scheduleId}`,
                 jobData,
-                { priority: 2 } // High priority for manual triggers
+                { priority: 2 }
             );
 
             logger.info(`Schedule run ${run.id} dispatched to queue`);
 
-            // Audit log
             await auditService.logScheduleAction('triggered', scheduleId, userId, undefined, {
                 runId: run.id,
                 triggerType: 'manual',
             });
         } catch (error: any) {
             logger.error(`Failed to dispatch schedule run to queue:`, error);
-            // Update run status to failed
-            await prisma.scheduleRun.update({
-                where: { id: run.id },
-                data: {
-                    status: 'failed',
-                    errorMessage: `Failed to queue: ${error.message}`,
-                    completedAt: new Date(),
-                },
+            await scheduleRunRepository.update(run.id, {
+                status: 'failed',
+                errorMessage: `Failed to queue: ${error.message}`,
+                completedAt: new Date(),
             });
         }
 
@@ -508,15 +413,12 @@ export class ScheduleService {
         for (const param of schema) {
             const value = values[param.name];
 
-            // Check required parameters
             if (param.required && (value === undefined || value === '')) {
                 throw new ValidationError(`Parameter "${param.label}" is required`);
             }
 
-            // Skip validation if value is not provided and not required
             if (value === undefined) continue;
 
-            // Type-specific validation
             switch (param.type) {
                 case 'choice':
                     if (param.choices && !param.choices.includes(String(value))) {
@@ -547,10 +449,6 @@ export class ScheduleService {
                         }
                     }
                     break;
-
-                case 'boolean':
-                    // Boolean values are flexible - accept true/false/"true"/"false"
-                    break;
             }
         }
     }
@@ -559,15 +457,11 @@ export class ScheduleService {
      * Trigger a run via webhook token
      */
     async triggerWebhook(webhookToken: string): Promise<ScheduleRun> {
-        // Validate token format (must be 64 hex characters)
         if (!/^[a-f0-9]{64}$/i.test(webhookToken)) {
             throw new NotFoundError('Invalid webhook token');
         }
 
-        // Find the schedule by the secure webhook token
-        const schedule = await prisma.schedule.findFirst({
-            where: { webhookToken },
-        });
+        const schedule = await scheduleRepository.findByWebhookToken(webhookToken);
 
         if (!schedule) {
             throw new NotFoundError('Invalid webhook token');
@@ -577,18 +471,15 @@ export class ScheduleService {
             throw new ValidationError('Schedule is not active');
         }
 
-        const run = await prisma.scheduleRun.create({
-            data: {
-                scheduleId: schedule.id,
-                triggerType: 'webhook',
-                status: 'pending',
-                webhookToken,
-            },
+        const run = await scheduleRunRepository.create({
+            scheduleId: schedule.id,
+            triggerType: 'webhook',
+            status: 'pending',
+            webhookToken,
         });
 
         // Dispatch to execution queue
         try {
-            // Parse schedule's execution config
             const defaultConfig: ScheduleExecutionConfig = schedule.defaultExecutionConfig
                 ? JSON.parse(schedule.defaultExecutionConfig)
                 : {};
@@ -605,25 +496,21 @@ export class ScheduleService {
                 QUEUE_NAMES.SCHEDULE_RUN,
                 `schedule-run-${schedule.id}`,
                 jobData,
-                { priority: 1 } // Normal priority for webhook triggers
+                { priority: 1 }
             );
 
             logger.info(`Webhook-triggered run ${run.id} dispatched to queue`);
 
-            // Audit log
             await auditService.logScheduleAction('triggered', schedule.id, undefined, undefined, {
                 runId: run.id,
                 triggerType: 'webhook',
             });
         } catch (error: any) {
             logger.error(`Failed to dispatch webhook run to queue:`, error);
-            await prisma.scheduleRun.update({
-                where: { id: run.id },
-                data: {
-                    status: 'failed',
-                    errorMessage: `Failed to queue: ${error.message}`,
-                    completedAt: new Date(),
-                },
+            await scheduleRunRepository.update(run.id, {
+                status: 'failed',
+                errorMessage: `Failed to queue: ${error.message}`,
+                completedAt: new Date(),
             });
         }
 
@@ -634,9 +521,7 @@ export class ScheduleService {
      * Get run history for a schedule
      */
     async getRuns(userId: string, scheduleId: string, limit: number = 20): Promise<ScheduleRun[]> {
-        const schedule = await prisma.schedule.findUnique({
-            where: { id: scheduleId },
-        });
+        const schedule = await scheduleRepository.findById(scheduleId);
 
         if (!schedule) {
             throw new NotFoundError('Schedule not found');
@@ -646,56 +531,43 @@ export class ScheduleService {
             throw new ForbiddenError('Access denied');
         }
 
-        const runs = await prisma.scheduleRun.findMany({
-            where: { scheduleId },
-            include: {
-                testResults: true,
-            },
-            orderBy: { createdAt: 'desc' },
-            take: limit,
-        });
+        const runs = await scheduleRunRepository.findByScheduleId(scheduleId, limit);
+        const runsWithResults = await Promise.all(
+            runs.map(async (run) => {
+                const testResults = await scheduleTestResultRepository.findByRunId(run.id);
+                return { ...run, testResults };
+            })
+        );
 
-        return runs.map(r => this.formatRun(r));
+        return runsWithResults.map(r => this.formatRun(r));
     }
 
     /**
      * Get details of a specific run
      */
     async getRun(userId: string, runId: string): Promise<ScheduleRun> {
-        const run = await prisma.scheduleRun.findUnique({
-            where: { id: runId },
-            include: {
-                schedule: true,
-                testResults: true,
-            },
-        });
+        const run = await scheduleRunRepository.findById(runId);
 
         if (!run) {
             throw new NotFoundError('Run not found');
         }
 
-        if (run.schedule.userId !== userId) {
+        const schedule = await scheduleRepository.findById(run.scheduleId);
+
+        if (!schedule || schedule.userId !== userId) {
             throw new ForbiddenError('Access denied');
         }
 
-        return this.formatRun(run);
+        const testResults = await scheduleTestResultRepository.findByRunId(runId);
+
+        return this.formatRun({ ...run, testResults });
     }
 
     /**
      * Get schedules that are due to run
      */
     async getDueSchedules(): Promise<Schedule[]> {
-        const now = new Date();
-
-        const schedules = await prisma.schedule.findMany({
-            where: {
-                isActive: true,
-                nextRunAt: {
-                    lte: now,
-                },
-            },
-        });
-
+        const schedules = await scheduleRepository.findDue();
         return schedules.map(s => this.formatSchedule(s));
     }
 
@@ -714,37 +586,30 @@ export class ScheduleService {
     }): Promise<void> {
         const now = new Date();
 
-        await prisma.scheduleRun.update({
-            where: { id: runId },
-            data: {
-                status: results.status,
-                testCount: results.testCount,
-                passedCount: results.passedCount,
-                failedCount: results.failedCount,
-                skippedCount: results.skippedCount,
-                durationMs: results.durationMs,
-                artifactsPath: results.artifactsPath,
-                errorMessage: results.errorMessage,
-                completedAt: now,
-            },
+        await scheduleRunRepository.update(runId, {
+            status: results.status,
+            testCount: results.testCount,
+            passedCount: results.passedCount,
+            failedCount: results.failedCount,
+            skippedCount: results.skippedCount,
+            durationMs: results.durationMs,
+            artifactsPath: results.artifactsPath,
+            errorMessage: results.errorMessage,
+            completedAt: now,
         });
 
-        // Update the schedule's lastRunAt and calculate next run
-        const run = await prisma.scheduleRun.findUnique({
-            where: { id: runId },
-            include: { schedule: true },
-        });
+        const run = await scheduleRunRepository.findById(runId);
 
         if (run) {
-            const nextRunAt = getNextRunTime(run.schedule.cronExpression, run.schedule.timezone);
+            const schedule = await scheduleRepository.findById(run.scheduleId);
+            if (schedule) {
+                const nextRunAt = getNextRunTime(schedule.cronExpression, schedule.timezone);
 
-            await prisma.schedule.update({
-                where: { id: run.scheduleId },
-                data: {
+                await scheduleRepository.update(run.scheduleId, {
                     lastRunAt: now,
-                    nextRunAt,
-                },
-            });
+                    nextRunAt: nextRunAt || undefined,
+                });
+            }
         }
     }
 
@@ -770,10 +635,9 @@ export class ScheduleService {
     }
 
     /**
-     * Preview upcoming run times with proper timezone support
+     * Preview upcoming run times
      */
     previewNextRuns(cronExpression: string, timezone: string = 'UTC', count: number = 5): Date[] {
-        // Use the proper cron parser's getNextRunTimes function
         const nowInTz = getNowInTimezone(timezone);
         return calculateNextRunTimes(cronExpression, count, nowInTz, timezone);
     }
@@ -786,9 +650,7 @@ export class ScheduleService {
         webhookUrl: string | null;
         hasToken: boolean;
     }> {
-        const schedule = await prisma.schedule.findUnique({
-            where: { id: scheduleId },
-        });
+        const schedule = await scheduleRepository.findById(scheduleId);
 
         if (!schedule) {
             throw new NotFoundError('Schedule not found');
@@ -801,7 +663,7 @@ export class ScheduleService {
         const baseUrl = process.env.API_BASE_URL || 'http://localhost:3000';
 
         return {
-            token: schedule.webhookToken,
+            token: schedule.webhookToken || null,
             webhookUrl: schedule.webhookToken
                 ? `${baseUrl}/api/schedules/webhook/${schedule.webhookToken}`
                 : null,
@@ -810,12 +672,10 @@ export class ScheduleService {
     }
 
     /**
-     * Regenerate webhook token for a schedule (security feature)
+     * Regenerate webhook token for a schedule
      */
     async regenerateWebhookToken(userId: string, scheduleId: string): Promise<string> {
-        const existing = await prisma.schedule.findUnique({
-            where: { id: scheduleId },
-        });
+        const existing = await scheduleRepository.findById(scheduleId);
 
         if (!existing) {
             throw new NotFoundError('Schedule not found');
@@ -827,10 +687,7 @@ export class ScheduleService {
 
         const newToken = generateWebhookToken();
 
-        await prisma.schedule.update({
-            where: { id: scheduleId },
-            data: { webhookToken: newToken },
-        });
+        await scheduleRepository.update(scheduleId, { webhookToken: newToken });
 
         return newToken;
     }
@@ -840,7 +697,6 @@ export class ScheduleService {
     // =============================================
 
     private formatSchedule(schedule: any): Schedule {
-        // Build GitHub config if present
         const githubInputs = schedule.githubInputs
             ? this.parseJSON<Record<string, string>>(schedule.githubInputs, {})
             : undefined;
@@ -872,14 +728,11 @@ export class ScheduleService {
             createdAt: schedule.createdAt,
             updatedAt: schedule.updatedAt,
             runs: schedule.runs?.map((r: any) => this.formatRun(r)),
-            // Parameter system
             parameters: this.parseJSON<ScheduleParameterDefinition[]>(schedule.parameters, []),
             defaultExecutionConfig: schedule.defaultExecutionConfig
                 ? this.parseJSON<ScheduleExecutionConfig>(schedule.defaultExecutionConfig, {})
                 : undefined,
-            // Execution target
             executionTarget: (schedule.executionTarget || 'local') as ScheduleExecutionTarget,
-            // GitHub Actions configuration
             githubConfig,
         };
     }
@@ -901,7 +754,6 @@ export class ScheduleService {
             completedAt: run.completedAt,
             createdAt: run.createdAt,
             testResults: run.testResults?.map((tr: any) => this.formatTestResult(tr)),
-            // Parameter system
             parameterValues: run.parameterValues
                 ? this.parseJSON<ScheduleParameterValues>(run.parameterValues, {})
                 : undefined,
@@ -909,7 +761,6 @@ export class ScheduleService {
                 ? this.parseJSON<ScheduleExecutionConfig>(run.executionConfig, {})
                 : undefined,
             triggeredBy: run.triggeredByUser,
-            // GitHub Actions tracking
             githubRunId: run.githubRunId ? Number(run.githubRunId) : undefined,
             githubRunUrl: run.githubRunUrl,
         };

@@ -16,7 +16,7 @@ import {
     TestStatus,
     ArtifactRef,
 } from '../execution/types';
-import { prisma } from '../../db/prisma';
+import { executionStepRepository, executionRepository, executionLogRepository } from '../../db/repositories/mongo';
 import { logger } from '../../utils/logger';
 
 const STORAGE_PATH = path.resolve(process.env.STORAGE_PATH || './storage');
@@ -60,21 +60,18 @@ export class ResultManager implements IResultManager {
 
         // Save to database if execution exists
         try {
-            await prisma.executionStep.create({
-                data: {
-                    id: resultId,
-                    executionId: result.runId,
-                    stepNumber: 0,  // Single result
-                    action: 'test',
-                    description: result.testName,
-                    selector: result.testFile,
-                    status: result.status,
-                    duration: result.duration,
-                    error: result.error?.message,
-                    screenshot: result.error?.screenshot,
-                    startedAt: result.startedAt,
-                    finishedAt: result.completedAt,
-                },
+            await executionStepRepository.create({
+                executionId: result.runId,
+                stepNumber: 0,  // Single result
+                action: 'test',
+                description: result.testName,
+                selector: result.testFile,
+                status: result.status as any,
+                duration: result.duration,
+                error: result.error?.message,
+                screenshot: result.error?.screenshot,
+                startedAt: result.startedAt,
+                finishedAt: result.completedAt,
             });
         } catch (error: any) {
             // If execution doesn't exist, log but don't fail
@@ -102,9 +99,7 @@ export class ResultManager implements IResultManager {
 
         // Try database
         try {
-            const dbResult = await prisma.executionStep.findUnique({
-                where: { id: resultId },
-            });
+            const dbResult = await executionStepRepository.findById(resultId);
 
             if (dbResult) {
                 const result = this.mapDbResultToTestResult(dbResult);
@@ -127,10 +122,7 @@ export class ResultManager implements IResultManager {
 
         // Try database
         try {
-            const dbResults = await prisma.executionStep.findMany({
-                where: { executionId: runId },
-                orderBy: { stepNumber: 'asc' },
-            });
+            const dbResults = await executionStepRepository.findByExecutionId(runId);
 
             for (const dbResult of dbResults) {
                 results.push(this.mapDbResultToTestResult(dbResult));
@@ -164,10 +156,7 @@ export class ResultManager implements IResultManager {
 
         // Try database
         try {
-            const dbResults = await prisma.executionStep.findMany({
-                where: { selector: testFile },
-                orderBy: { finishedAt: 'desc' },
-            });
+            const dbResults = await executionStepRepository.findBySelector(testFile);
 
             for (const dbResult of dbResults) {
                 const result = this.mapDbResultToTestResult(dbResult);
@@ -255,16 +244,14 @@ export class ResultManager implements IResultManager {
         if (results.length === 0) {
             // Try to get from database execution
             try {
-                const execution = await prisma.execution.findUnique({
-                    where: { id: runId },
-                    include: {
-                        logs: true,
-                        steps: true,
-                    },
-                });
+                const execution = await executionRepository.findById(runId);
 
                 if (execution) {
-                    return this.mapExecutionToSummary(execution);
+                    const [logs, steps] = await Promise.all([
+                        executionLogRepository.findByExecutionId(runId),
+                        executionStepRepository.findByExecutionId(runId),
+                    ]);
+                    return this.mapExecutionToSummary({ ...execution, logs, steps });
                 }
             } catch (error) {
                 logger.warn(`Failed to get run summary from database: ${runId}`);

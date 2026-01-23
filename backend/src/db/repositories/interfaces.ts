@@ -1,6 +1,6 @@
 // Database Repository Interfaces
-// These interfaces define the contract for database operations,
-// allowing easy switching between Prisma/SQL and MongoDB
+// These interfaces define the contract for database operations
+// Currently using MongoDB as the database backend
 
 import {
     ObjectRepository,
@@ -65,7 +65,7 @@ export interface IPageObjectRepo {
 // DATABASE ADAPTER TYPE
 // ============================================
 
-export type DatabaseType = 'prisma';
+export type DatabaseType = 'mongodb';
 
 export interface DatabaseConfig {
     type: DatabaseType;

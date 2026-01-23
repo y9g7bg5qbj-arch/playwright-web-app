@@ -365,7 +365,7 @@ function setupCoordinatorListeners(
     io.to(`session:${sessionId}`).emit('shard:completed', {
       sessionId,
       shardId,
-      results: results.map((r) => ({
+      results: results.map((r: { testId: string; testName: string; status: string; duration: number }) => ({
         testId: r.testId,
         testName: r.testName,
         status: r.status,

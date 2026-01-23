@@ -26,28 +26,28 @@ export class SignUpPage {
   }
 
   async fillRegistrationForm(firstName: string, lastName: string, email: string, password: string) {
-    await test.step('Fill SignUpPage.firstNameInput', async () => { await signUpPage.firstNameInput.fill(firstName); });
-    await test.step('Fill SignUpPage.lastNameInput', async () => { await signUpPage.lastNameInput.fill(lastName); });
-    await test.step('Fill SignUpPage.emailInput', async () => { await signUpPage.emailInput.fill(email); });
-    await test.step('Fill SignUpPage.passwordInput', async () => { await signUpPage.passwordInput.fill(password); });
-    await test.step('Fill SignUpPage.confirmPasswordInput', async () => { await signUpPage.confirmPasswordInput.fill(password); });
+    await test.step('Fill SignUpPage.firstNameInput', async () => { await this.firstNameInput.fill(firstName); });
+    await test.step('Fill SignUpPage.lastNameInput', async () => { await this.lastNameInput.fill(lastName); });
+    await test.step('Fill SignUpPage.emailInput', async () => { await this.emailInput.fill(email); });
+    await test.step('Fill SignUpPage.passwordInput', async () => { await this.passwordInput.fill(password); });
+    await test.step('Fill SignUpPage.confirmPasswordInput', async () => { await this.confirmPasswordInput.fill(password); });
   }
 
   async acceptTerms() {
-    await test.step('Check SignUpPage.termsCheckbox', async () => { await signUpPage.termsCheckbox.check(); });
+    await test.step('Check SignUpPage.termsCheckbox', async () => { await this.termsCheckbox.check(); });
   }
 
   async submitForm() {
-    await test.step('Click SignUpPage.submitBtn', async () => { await signUpPage.submitBtn.click(); });
+    await test.step('Click SignUpPage.submitBtn', async () => { await this.submitBtn.click(); });
   }
 
   async register(firstName: string, lastName: string, email: string, password: string) {
-    await test.step('Fill SignUpPage.firstNameInput', async () => { await signUpPage.firstNameInput.fill(firstName); });
-    await test.step('Fill SignUpPage.lastNameInput', async () => { await signUpPage.lastNameInput.fill(lastName); });
-    await test.step('Fill SignUpPage.emailInput', async () => { await signUpPage.emailInput.fill(email); });
-    await test.step('Fill SignUpPage.passwordInput', async () => { await signUpPage.passwordInput.fill(password); });
-    await test.step('Fill SignUpPage.confirmPasswordInput', async () => { await signUpPage.confirmPasswordInput.fill(password); });
-    await test.step('Check SignUpPage.termsCheckbox', async () => { await signUpPage.termsCheckbox.check(); });
-    await test.step('Click SignUpPage.submitBtn', async () => { await signUpPage.submitBtn.click(); });
+    await test.step('Fill SignUpPage.firstNameInput', async () => { await this.firstNameInput.fill(firstName); });
+    await test.step('Fill SignUpPage.lastNameInput', async () => { await this.lastNameInput.fill(lastName); });
+    await test.step('Fill SignUpPage.emailInput', async () => { await this.emailInput.fill(email); });
+    await test.step('Fill SignUpPage.passwordInput', async () => { await this.passwordInput.fill(password); });
+    await test.step('Fill SignUpPage.confirmPasswordInput', async () => { await this.confirmPasswordInput.fill(password); });
+    await test.step('Check SignUpPage.termsCheckbox', async () => { await this.termsCheckbox.check(); });
+    await test.step('Click SignUpPage.submitBtn', async () => { await this.submitBtn.click(); });
   }
 }

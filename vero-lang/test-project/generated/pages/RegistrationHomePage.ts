@@ -16,15 +16,15 @@ export class RegistrationHomePage {
   }
 
   async navigateToSignUp() {
-    await test.step('Click RegistrationHomePage.signUpButton', async () => { await registrationHomePage.signUpButton.click(); });
+    await test.step('Click RegistrationHomePage.signUpButton', async () => { await this.signUpButton.click(); });
   }
 
   async navigateToLogin() {
-    await test.step('Click RegistrationHomePage.loginLink', async () => { await registrationHomePage.loginLink.click(); });
+    await test.step('Click RegistrationHomePage.loginLink', async () => { await this.loginLink.click(); });
   }
 
   async search(query: string) {
-    await test.step('Fill RegistrationHomePage.searchInput', async () => { await registrationHomePage.searchInput.fill(query); });
+    await test.step('Fill RegistrationHomePage.searchInput', async () => { await this.searchInput.fill(query); });
     await test.step('Press Enter', async () => { await page.keyboard.press('Enter'); });
   }
 }

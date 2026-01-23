@@ -296,7 +296,7 @@ test.describe('Folder-Based Environment System', () => {
     await editor.click();
     await page.keyboard.press('End');
     await page.keyboard.press('Enter');
-    await page.keyboard.type('SCENARIO "Complete workflow test"');
+    await page.keyboard.type('SCENARIO CompleteWorkflowTest');
     await page.keyboard.press('Enter');
     await page.keyboard.type('  navigate to "https://example.com"');
     await page.keyboard.press('Enter');

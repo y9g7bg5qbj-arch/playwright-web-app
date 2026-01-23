@@ -3,28 +3,28 @@
 
 FEATURE ParallelDemo {
 
-    SCENARIO "Playwright Homepage Check" @parallel {
+    SCENARIO PlaywrightHomepageCheck @parallel {
         OPEN "https://playwright.dev"
         WAIT 1 SECONDS
         VERIFY "Playwright" IS VISIBLE
         LOG "Scenario 1 completed"
     }
 
-    SCENARIO "GitHub Homepage Check" @parallel {
+    SCENARIO GithubHomepageCheck @parallel {
         OPEN "https://github.com"
         WAIT 1 SECONDS
         VERIFY "GitHub" IS VISIBLE
         LOG "Scenario 2 completed"
     }
 
-    SCENARIO "Google Homepage Check" @parallel {
+    SCENARIO GoogleHomepageCheck @parallel {
         OPEN "https://google.com"
         WAIT 1 SECONDS
         VERIFY "Google" IS VISIBLE
         LOG "Scenario 3 completed"
     }
 
-    SCENARIO "Example Homepage Check" @parallel {
+    SCENARIO ExampleHomepageCheck @parallel {
         OPEN "https://example.com"
         WAIT 1 SECONDS
         VERIFY "Example Domain" IS VISIBLE

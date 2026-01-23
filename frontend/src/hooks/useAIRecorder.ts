@@ -70,6 +70,17 @@ export interface CapturedAction {
   screenshot?: string;
 }
 
+// Run state for live execution preview
+export interface RunState {
+  isRunning: boolean;
+  testCaseId: string | null;
+  runningStepId: string | null;
+  currentStepNumber: number;
+  totalSteps: number;
+  screenshot: string | null;
+  currentUrl: string | null;
+}
+
 interface UseAIRecorderReturn {
   // State
   session: SessionState;
@@ -89,6 +100,8 @@ interface UseAIRecorderReturn {
   }) => Promise<void>;
   cancelSession: () => Promise<void>;
   refreshProgress: () => Promise<void>;
+  loadSession: (sessionId: string) => Promise<void>;
+  listSessions: () => Promise<{ id: string; name: string; status: string; createdAt: string }[]>;
 
   // Recovery (Stuck State)
   resumeWithHint: (testCaseId: string, stepId: string, hint: string) => void;
@@ -113,6 +126,13 @@ interface UseAIRecorderReturn {
     willMerge: boolean;
   }>;
   approveTestCase: (testCaseId: string, targetPath: string, options?: { merge?: boolean; overwrite?: boolean }) => Promise<string>;
+
+  // Run Test
+  runTestCase: (testCaseId: string) => void;
+  runTestCaseToStep: (testCaseId: string, stepNumber: number) => void;
+  runSingleStep: (testCaseId: string, stepId: string) => void;
+  stopRun: () => void;
+  run: RunState;
 
   // Reset
   reset: () => void;
@@ -143,6 +163,17 @@ export function useAIRecorder(): UseAIRecorderReturn {
   });
 
   const [capturedActions, setCapturedActions] = useState<CapturedAction[]>([]);
+
+  // Run state for live execution preview
+  const [run, setRun] = useState<RunState>({
+    isRunning: false,
+    testCaseId: null,
+    runningStepId: null,
+    currentStepNumber: 0,
+    totalSteps: 0,
+    screenshot: null,
+    currentUrl: null,
+  });
 
   const sessionIdRef = useRef<string | null>(null);
 
@@ -279,11 +310,11 @@ export function useAIRecorder(): UseAIRecorderReturn {
           testCases: prev.testCases.map((tc) =>
             tc.id === data.testCaseId
               ? {
-                  ...tc,
-                  steps: tc.steps.map((s) =>
-                    s.stepId === data.stepId ? { ...s, status: 'running' as const } : s
-                  ),
-                }
+                ...tc,
+                steps: tc.steps.map((s) =>
+                  s.stepId === data.stepId ? { ...s, status: 'running' as const } : s
+                ),
+              }
               : tc
           ),
         }));
@@ -303,11 +334,11 @@ export function useAIRecorder(): UseAIRecorderReturn {
           testCases: prev.testCases.map((tc) =>
             tc.id === data.testCaseId
               ? {
-                  ...tc,
-                  steps: tc.steps.map((s) =>
-                    s.stepId === data.stepId ? { ...s, retryCount: data.attempt } : s
-                  ),
-                }
+                ...tc,
+                steps: tc.steps.map((s) =>
+                  s.stepId === data.stepId ? { ...s, retryCount: data.attempt } : s
+                ),
+              }
               : tc
           ),
         }));
@@ -329,19 +360,19 @@ export function useAIRecorder(): UseAIRecorderReturn {
           testCases: prev.testCases.map((tc) =>
             tc.id === data.testCaseId
               ? {
-                  ...tc,
-                  steps: tc.steps.map((s) =>
-                    s.stepId === data.stepId
-                      ? {
-                          ...s,
-                          status: data.success ? ('success' as const) : ('stuck' as const),
-                          veroCode: data.veroCode || s.veroCode,
-                          retryCount: data.retryCount,
-                          error: data.error,
-                        }
-                      : s
-                  ),
-                }
+                ...tc,
+                steps: tc.steps.map((s) =>
+                  s.stepId === data.stepId
+                    ? {
+                      ...s,
+                      status: data.success ? ('success' as const) : ('stuck' as const),
+                      veroCode: data.veroCode || s.veroCode,
+                      retryCount: data.retryCount,
+                      error: data.error,
+                    }
+                    : s
+                ),
+              }
               : tc
           ),
         }));
@@ -366,22 +397,22 @@ export function useAIRecorder(): UseAIRecorderReturn {
           testCases: prev.testCases.map((tc) =>
             tc.id === data.testCaseId
               ? {
-                  ...tc,
-                  status: 'stuck' as const,
-                  stuckAtStep: data.stepNumber,
-                  steps: tc.steps.map((s) =>
-                    s.stepId === data.stepId
-                      ? {
-                          ...s,
-                          status: 'stuck' as const,
-                          retryCount: data.retryCount,
-                          error: data.error,
-                          screenshot: data.screenshot,
-                          suggestions: data.suggestions,
-                        }
-                      : s
-                  ),
-                }
+                ...tc,
+                status: 'stuck' as const,
+                stuckAtStep: data.stepNumber,
+                steps: tc.steps.map((s) =>
+                  s.stepId === data.stepId
+                    ? {
+                      ...s,
+                      status: 'stuck' as const,
+                      retryCount: data.retryCount,
+                      error: data.error,
+                      screenshot: data.screenshot,
+                      suggestions: data.suggestions,
+                    }
+                    : s
+                ),
+              }
               : tc
           ),
         }));
@@ -402,22 +433,22 @@ export function useAIRecorder(): UseAIRecorderReturn {
           testCases: prev.testCases.map((tc) =>
             tc.id === data.testCaseId
               ? {
-                  ...tc,
-                  status: 'partially_complete' as const,
-                  stuckAtStep: undefined,
-                  steps: tc.steps.map((s) =>
-                    s.stepId === data.stepId
-                      ? {
-                          ...s,
-                          status: 'resolved' as const,
-                          veroCode: data.veroCode,
-                          screenshot: data.screenshot,
-                          error: undefined,
-                          suggestions: undefined,
-                        }
-                      : s
-                  ),
-                }
+                ...tc,
+                status: 'partially_complete' as const,
+                stuckAtStep: undefined,
+                steps: tc.steps.map((s) =>
+                  s.stepId === data.stepId
+                    ? {
+                      ...s,
+                      status: 'resolved' as const,
+                      veroCode: data.veroCode,
+                      screenshot: data.screenshot,
+                      error: undefined,
+                      suggestions: undefined,
+                    }
+                    : s
+                ),
+              }
               : tc
           ),
         }));
@@ -436,20 +467,20 @@ export function useAIRecorder(): UseAIRecorderReturn {
           testCases: prev.testCases.map((tc) =>
             tc.id === data.testCaseId
               ? {
-                  ...tc,
-                  status: 'partially_complete' as const,
-                  stuckAtStep: undefined,
-                  steps: tc.steps.map((s) =>
-                    s.stepId === data.stepId
-                      ? {
-                          ...s,
-                          status: 'skipped' as const,
-                          error: undefined,
-                          suggestions: undefined,
-                        }
-                      : s
-                  ),
-                }
+                ...tc,
+                status: 'partially_complete' as const,
+                stuckAtStep: undefined,
+                steps: tc.steps.map((s) =>
+                  s.stepId === data.stepId
+                    ? {
+                      ...s,
+                      status: 'skipped' as const,
+                      error: undefined,
+                      suggestions: undefined,
+                    }
+                    : s
+                ),
+              }
               : tc
           ),
         }));
@@ -469,21 +500,21 @@ export function useAIRecorder(): UseAIRecorderReturn {
           testCases: prev.testCases.map((tc) =>
             tc.id === data.testCaseId
               ? {
-                  ...tc,
-                  status: 'partially_complete' as const,
-                  stuckAtStep: undefined,
-                  steps: tc.steps.map((s) =>
-                    s.stepId === data.stepId
-                      ? {
-                          ...s,
-                          status: 'captured' as const,
-                          veroCode: data.veroCode,
-                          error: undefined,
-                          suggestions: undefined,
-                        }
-                      : s
-                  ),
-                }
+                ...tc,
+                status: 'partially_complete' as const,
+                stuckAtStep: undefined,
+                steps: tc.steps.map((s) =>
+                  s.stepId === data.stepId
+                    ? {
+                      ...s,
+                      status: 'captured' as const,
+                      veroCode: data.veroCode,
+                      error: undefined,
+                      suggestions: undefined,
+                    }
+                    : s
+                ),
+              }
               : tc
           ),
         }));
@@ -542,6 +573,92 @@ export function useAIRecorder(): UseAIRecorderReturn {
       }
     };
 
+    // Run test case events
+    const handleRunStarted = (data: {
+      sessionId: string;
+      testCaseId: string;
+      totalSteps: number;
+    }) => {
+      if (data.sessionId === session.sessionId) {
+        setRun({
+          isRunning: true,
+          testCaseId: data.testCaseId,
+          runningStepId: null,
+          currentStepNumber: 0,
+          totalSteps: data.totalSteps,
+          screenshot: null,
+          currentUrl: null,
+        });
+      }
+    };
+
+    const handleRunStep = (data: {
+      sessionId: string;
+      testCaseId: string;
+      stepId: string;
+      stepNumber: number;
+      description: string;
+      status: string;
+      screenshot?: string;
+      url?: string;
+      error?: string;
+    }) => {
+      if (data.sessionId === session.sessionId) {
+        setRun((prev) => ({
+          ...prev,
+          runningStepId: data.stepId,
+          currentStepNumber: data.stepNumber,
+          screenshot: data.screenshot || prev.screenshot,
+          currentUrl: data.url || prev.currentUrl,
+        }));
+      }
+    };
+
+    const handleRunScreenshot = (data: {
+      sessionId: string;
+      testCaseId: string;
+      stepNumber: number;
+      screenshot: string;
+      url: string;
+    }) => {
+      if (data.sessionId === session.sessionId) {
+        setRun((prev) => ({
+          ...prev,
+          screenshot: data.screenshot,
+          currentUrl: data.url,
+        }));
+      }
+    };
+
+    const handleRunComplete = (data: {
+      sessionId: string;
+      testCaseId: string;
+      stepsCompleted: number;
+      totalSteps: number;
+      success: boolean;
+    }) => {
+      if (data.sessionId === session.sessionId) {
+        setRun((prev) => ({
+          ...prev,
+          isRunning: false,
+          runningStepId: null,
+        }));
+      }
+    };
+
+    const handleRunError = (data: {
+      sessionId: string;
+      testCaseId: string;
+      error: string;
+    }) => {
+      if (data.sessionId === session.sessionId) {
+        setRun((prev) => ({
+          ...prev,
+          isRunning: false,
+        }));
+      }
+    };
+
     // Register event listeners
     aiSocket.on('aiRecorder:session:started', handleSessionStarted);
     aiSocket.on('aiRecorder:session:completed', handleSessionCompleted);
@@ -562,6 +679,13 @@ export function useAIRecorder(): UseAIRecorderReturn {
     aiSocket.on('aiRecorder:capture:started', handleCaptureStarted);
     aiSocket.on('aiRecorder:capture:action', handleCaptureAction);
     aiSocket.on('aiRecorder:capture:stopped', handleCaptureStopped);
+    // Run events
+    aiSocket.on('aiRecorder:run:started', handleRunStarted);
+    aiSocket.on('aiRecorder:run:step', handleRunStep);
+    aiSocket.on('aiRecorder:run:screenshot', handleRunScreenshot);
+    aiSocket.on('aiRecorder:run:complete', handleRunComplete);
+    aiSocket.on('aiRecorder:run:error', handleRunError);
+    aiSocket.on('aiRecorder:run:stopped', () => handleRunError({ sessionId: session.sessionId || '', testCaseId: '', error: 'Stopped' }));
 
     return () => {
       aiSocket.off('aiRecorder:session:started', handleSessionStarted);
@@ -583,6 +707,13 @@ export function useAIRecorder(): UseAIRecorderReturn {
       aiSocket.off('aiRecorder:capture:started', handleCaptureStarted);
       aiSocket.off('aiRecorder:capture:action', handleCaptureAction);
       aiSocket.off('aiRecorder:capture:stopped', handleCaptureStopped);
+      // Run events
+      aiSocket.off('aiRecorder:run:started', handleRunStarted);
+      aiSocket.off('aiRecorder:run:step', handleRunStep);
+      aiSocket.off('aiRecorder:run:screenshot', handleRunScreenshot);
+      aiSocket.off('aiRecorder:run:complete', handleRunComplete);
+      aiSocket.off('aiRecorder:run:error', handleRunError);
+      aiSocket.off('aiRecorder:run:stopped', handleRunError);
 
       // Unsubscribe from session
       if (sessionIdRef.current) {
@@ -612,6 +743,15 @@ export function useAIRecorder(): UseAIRecorderReturn {
     ) => {
       try {
         setSession((prev) => ({ ...prev, status: 'pending', error: null }));
+
+        // Check if AI Recorder is available (Stagehand compatibility)
+        const health = await aiRecorderApi.checkHealth();
+        if (!health.available) {
+          throw new Error(
+            `AI Recorder is unavailable: ${health.stagehandError || 'Unknown error'}. ` +
+            `Alternative: Use the vero-agent path (${health.alternativePath}) for AI test generation.`
+          );
+        }
 
         // Create session
         const sessionId = await aiRecorderApi.createSession({
@@ -700,6 +840,56 @@ export function useAIRecorder(): UseAIRecorderReturn {
       setSession((prev) => ({ ...prev, error: error.message }));
     }
   }, [session.sessionId]);
+
+  // Load an existing session by ID
+  const loadSession = useCallback(async (sessionId: string) => {
+    try {
+      const progress = await aiRecorderApi.getSessionProgress(sessionId);
+
+      // Subscribe to WebSocket updates for this session
+      if (socket) {
+        (socket as any).emit('aiRecorder:subscribe', { sessionId });
+      }
+      sessionIdRef.current = sessionId;
+
+      setSession({
+        sessionId,
+        status: progress.status as any,
+        totalTests: progress.totalTests,
+        completedTests: progress.completedTests,
+        failedTests: progress.failedTests,
+        testCases: progress.testCases.map((tc) => ({
+          id: tc.id,
+          name: tc.name,
+          status: tc.status as any,
+          steps: tc.steps.map((s) => ({
+            stepId: s.id,
+            stepNumber: s.stepNumber,
+            description: s.description,
+            status: s.status as any,
+            veroCode: s.veroCode,
+            retryCount: s.retryCount,
+          })),
+        })),
+        error: null,
+      });
+    } catch (error: any) {
+      setSession((prev) => ({ ...prev, error: error.message }));
+      throw error;
+    }
+  }, [socket]);
+
+  // List all available sessions
+  const listSessions = useCallback(async () => {
+    const sessions = await aiRecorderApi.listSessions();
+    return sessions.map((s) => ({
+      id: s.id,
+      name: s.testCases?.[0]?.name || `Session ${s.id.slice(0, 8)}...`,
+      status: s.status,
+      createdAt: s.createdAt,
+      testCount: s._count?.testCases || s.testCases?.length || 0,
+    }));
+  }, []);
 
   // ----------------------------------------
   // Recovery Actions (Stuck State)
@@ -861,6 +1051,53 @@ export function useAIRecorder(): UseAIRecorderReturn {
     return aiRecorderApi.previewTestCase(testCaseId, targetPath);
   }, []);
 
+  // Run a test case with live browser preview
+  const runTestCase = useCallback(
+    (testCaseId: string) => {
+      if (!socket || !session.sessionId) return;
+
+      (socket as any).emit('aiRecorder:runTestCase', {
+        sessionId: session.sessionId,
+        testCaseId,
+      });
+    },
+    [socket, session.sessionId]
+  );
+
+  const runTestCaseToStep = useCallback(
+    (testCaseId: string, stepNumber: number) => {
+      if (!socket || !session.sessionId) return;
+
+      (socket as any).emit('aiRecorder:runToStep', {
+        sessionId: session.sessionId,
+        testCaseId,
+        targetStepNumber: stepNumber,
+      });
+    },
+    [socket, session.sessionId]
+  );
+
+  const runSingleStep = useCallback(
+    (testCaseId: string, stepId: string) => {
+      if (!socket || !session.sessionId) return;
+
+      (socket as any).emit('aiRecorder:runSingleStep', {
+        sessionId: session.sessionId,
+        testCaseId,
+        stepId,
+      });
+    },
+    [socket, session.sessionId]
+  );
+
+  const stopRun = useCallback(() => {
+    if (!socket || !session.sessionId) return;
+
+    (socket as any).emit('aiRecorder:stopRun', {
+      sessionId: session.sessionId,
+    });
+  }, [socket, session.sessionId]);
+
   const reset = useCallback(() => {
     if (socket && sessionIdRef.current) {
       (socket as any).emit('aiRecorder:unsubscribe', { sessionId: sessionIdRef.current });
@@ -893,6 +1130,8 @@ export function useAIRecorder(): UseAIRecorderReturn {
     createAndStart,
     cancelSession,
     refreshProgress,
+    loadSession,
+    listSessions,
 
     // Recovery (Stuck State)
     resumeWithHint,
@@ -911,6 +1150,13 @@ export function useAIRecorder(): UseAIRecorderReturn {
     deleteStep,
     previewTestCase,
     approveTestCase,
+
+    // Run Test
+    runTestCase,
+    runTestCaseToStep,
+    runSingleStep,
+    stopRun,
+    run,
 
     // Reset
     reset,

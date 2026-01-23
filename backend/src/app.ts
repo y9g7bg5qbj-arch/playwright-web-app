@@ -26,13 +26,13 @@ import previewRoutes from './routes/preview.routes';
 import applicationRoutes from './routes/application.routes';
 import { runConfigurationRoutes } from './routes/runConfiguration.routes';
 import { githubRoutes } from './routes/github.routes';
-import copilotRoutes from './routes/copilot.routes';
 import aiSettingsRoutes from './routes/ai-settings.routes';
 import aiRecorderRoutes from './routes/ai-recorder.routes';
 import sandboxRoutes from './routes/sandbox.routes';
 import pullRequestRoutes from './routes/pullRequest.routes';
 import dataStorageRoutes from './routes/data-storage.routes';
 import testDataMongoRoutes from './routes/test-data-mongo.routes';
+import settingsRoutes from './routes/settings.routes';
 import { connectMongoDB } from './db/mongodb';
 
 export function createApp() {
@@ -122,11 +122,11 @@ export function createApp() {
   app.use('/api/projects', applicationRoutes);
   app.use('/api', runConfigurationRoutes);
   app.use('/api/github', githubRoutes);
-  app.use('/api/copilot', copilotRoutes);
   app.use('/api/ai-settings', aiSettingsRoutes);
   app.use('/api/ai-recorder', aiRecorderRoutes);
   app.use('/api/data-storage', dataStorageRoutes); // Data storage configuration
   app.use('/api/test-data-mongo', testDataMongoRoutes); // MongoDB test data routes
+  app.use('/api/settings', settingsRoutes); // Application settings including DB config
   app.use('/api', sandboxRoutes); // Sandbox collaboration routes
   app.use('/api', pullRequestRoutes); // Pull request routes
 

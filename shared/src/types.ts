@@ -268,7 +268,20 @@ export type ServerToClientEvents = {
   'recording:ready': (data: { testFlowId: string; executionId: string }) => void;
   'recording:complete': (data: { testFlowId: string; executionId: string; success: boolean; code?: string; message?: string }) => void;
   'execution:log': (data: { executionId: string; message: string; level: 'info' | 'warn' | 'error' }) => void;
-  'execution:complete': (data: { executionId: string; exitCode: number; duration: number; traceUrl?: string }) => void;
+  'execution:complete': (data: {
+    executionId: string;
+    exitCode: number;
+    duration: number;
+    traceUrl?: string;
+    scenarios?: Array<{
+      id: string;
+      name: string;
+      status: string;
+      duration?: number;
+      error?: string;
+      steps?: unknown[];
+    }>;
+  }) => void;
   'execution:screenshot': (data: { executionId: string; stepNumber: number; imageData: string }) => void;
   'agent:status': (data: { agentId: string; status: AgentStatus }) => void;
   'error': (data: { message: string; executionId?: string }) => void;

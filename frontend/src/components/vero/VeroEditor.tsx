@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import Editor, { OnMount, Monaco } from '@monaco-editor/react';
 import * as monacoEditor from 'monaco-editor';
-import { registerVeroLanguage, registerVeroCompletionProvider, parseVeroCode, VeroCodeItem } from './veroLanguage';
+import { registerVeroLanguage, registerVeroCompletionProvider, registerVeroLSPProviders, parseVeroCode, VeroCodeItem } from './veroLanguage';
 import { Circle } from 'lucide-react';
 import { useEditorErrors } from '../../errors/useEditorErrors';
 import { ErrorPanel } from '../../errors/ErrorPanel';
@@ -70,6 +70,8 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         }
     }, [initialValue]);
 
+    // State for Monaco instance (needed for error validation hook - use state not ref to trigger re-render)
+    const [monacoInstance, setMonacoInstance] = useState<Monaco | null>(null);
     // State for Monaco model (needed for error validation hook)
     const [editorModel, setEditorModel] = useState<monacoEditor.editor.ITextModel | null>(null);
 
@@ -79,7 +81,7 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         warnings,
         stats,
         isValidating,
-    } = useEditorErrors(monacoRef.current, editorModel, {
+    } = useEditorErrors(monacoInstance, editorModel, {
         debounceMs: 500,
         enableValidation: true,
         token,
@@ -127,6 +129,7 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         monacoRef.current = monaco;
         registerVeroLanguage(monaco);
         registerVeroCompletionProvider(monaco);
+        registerVeroLSPProviders(monaco);  // Register LSP features: hover, definition, references, outline, folding
     }, []);
 
     // Setup editor after mount
@@ -134,7 +137,8 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         editorRef.current = editor;
         monacoRef.current = monaco;
 
-        // Set the editor model for error validation
+        // Set monaco instance and editor model for error validation (use state to trigger re-render)
+        setMonacoInstance(monaco);
         const model = editor.getModel();
         if (model) {
             setEditorModel(model);

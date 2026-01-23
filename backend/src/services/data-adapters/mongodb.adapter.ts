@@ -240,7 +240,13 @@ export class MongoDBAdapter implements DataAdapter {
 
     return {
       id: result.insertedId.toString(),
-      ...doc,
+      applicationId: doc.applicationId,
+      name: doc.name,
+      pageObject: doc.pageObject,
+      description: doc.description,
+      columns: doc.columns,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
     };
   }
 
@@ -331,7 +337,12 @@ export class MongoDBAdapter implements DataAdapter {
 
     return {
       id: result.insertedId.toString(),
-      ...doc,
+      sheetId: doc.sheetId,
+      scenarioId: doc.scenarioId,
+      data: doc.data,
+      enabled: doc.enabled,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
     };
   }
 
@@ -407,7 +418,12 @@ export class MongoDBAdapter implements DataAdapter {
 
     return docs.map((doc, index) => ({
       id: result.insertedIds[index].toString(),
-      ...doc,
+      sheetId: doc.sheetId,
+      scenarioId: doc.scenarioId,
+      data: doc.data,
+      enabled: doc.enabled,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
     }));
   }
 

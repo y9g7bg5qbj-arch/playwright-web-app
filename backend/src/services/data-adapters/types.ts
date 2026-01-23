@@ -2,8 +2,7 @@
  * Data Adapter Types
  *
  * Defines the interface for pluggable data storage backends.
- * Allows users to configure MongoDB, PostgreSQL, MySQL, etc.
- * instead of the default SQLite storage.
+ * Supports MongoDB (default), PostgreSQL, MySQL, etc.
  */
 
 // ============================================
@@ -130,7 +129,7 @@ export interface ConnectionTestResult {
  * DataAdapter Interface
  *
  * All data storage backends must implement this interface.
- * This allows swapping between SQLite, MongoDB, PostgreSQL, etc.
+ * This allows swapping between MongoDB, PostgreSQL, MySQL, etc.
  */
 export interface DataAdapter {
   // ============================================
@@ -272,7 +271,7 @@ export interface DataAdapter {
 // ============================================
 
 export interface AdapterConfig {
-  provider: 'sqlite' | 'mongodb' | 'postgresql' | 'mysql';
+  provider: 'mongodb' | 'postgresql' | 'mysql';
   connectionString?: string;
   host?: string;
   port?: number;
@@ -289,18 +288,11 @@ export interface AdapterConfig {
 
 export const SUPPORTED_PROVIDERS = [
   {
-    id: 'sqlite',
-    name: 'SQLite (Default)',
-    description: 'Built-in local database, no setup required',
-    icon: 'database',
-    requiresConfig: false,
-  },
-  {
     id: 'mongodb',
-    name: 'MongoDB',
+    name: 'MongoDB (Default)',
     description: 'Document database for flexible test data',
     icon: 'leaf',
-    requiresConfig: true,
+    requiresConfig: false,
     defaultPort: 27017,
   },
   {

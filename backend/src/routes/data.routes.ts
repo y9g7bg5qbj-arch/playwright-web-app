@@ -6,7 +6,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { prisma } from '../db/prisma';
+import { dataTableRepository, dataRowRepository } from '../db/repositories/mongo';
 import { TestDataClassGenerator, generateTestDataCode } from '../codegen/testDataClassGenerator';
 
 const router = Router();
@@ -23,23 +23,23 @@ router.get('/workflow/:workflowId', async (req: Request, res: Response) => {
     try {
         const { workflowId } = req.params;
 
-        const tables = await prisma.dataTable.findMany({
-            where: { workflowId },
-            include: {
-                _count: {
-                    select: { rows: true }
-                }
-            },
-            orderBy: { createdAt: 'asc' }
-        });
+        const tables = await dataTableRepository.findByWorkflowId(workflowId);
+
+        // Get row counts for each table
+        const tablesWithCounts = await Promise.all(
+            tables.map(async (t) => {
+                const rows = await dataRowRepository.findByTableId(t.id);
+                return {
+                    ...t,
+                    columns: t.columns, // Already an object in MongoDB
+                    rowCount: rows.length
+                };
+            })
+        );
 
         res.json({
             success: true,
-            tables: tables.map(t => ({
-                ...t,
-                columns: JSON.parse(t.columns),
-                rowCount: t._count.rows
-            }))
+            tables: tablesWithCounts
         });
     } catch (error) {
         console.error('Error fetching data tables:', error);
@@ -58,14 +58,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
 
-        const table = await prisma.dataTable.findUnique({
-            where: { id },
-            include: {
-                rows: {
-                    orderBy: { order: 'asc' }
-                }
-            }
-        });
+        const table = await dataTableRepository.findById(id);
 
         if (!table) {
             return res.status(404).json({
@@ -74,14 +67,16 @@ router.get('/:id', async (req: Request, res: Response) => {
             });
         }
 
+        const rows = await dataRowRepository.findByTableId(id);
+
         res.json({
             success: true,
             table: {
                 ...table,
-                columns: JSON.parse(table.columns),
-                rows: table.rows.map(r => ({
+                columns: table.columns, // Already an object in MongoDB
+                rows: rows.map(r => ({
                     ...r,
-                    data: JSON.parse(r.data)
+                    data: r.data // Already an object in MongoDB
                 }))
             }
         });
@@ -109,33 +104,31 @@ router.post('/', async (req: Request, res: Response) => {
             });
         }
 
-        const table = await prisma.dataTable.create({
-            data: {
-                workflowId,
-                name,
-                description: description || null,
-                columns: JSON.stringify(columns || [])
-            }
+        // Check for duplicate name
+        const existing = await dataTableRepository.findByWorkflowIdAndName(workflowId, name);
+        if (existing) {
+            return res.status(409).json({
+                success: false,
+                error: `A table named "${name}" already exists in this workflow`
+            });
+        }
+
+        const table = await dataTableRepository.create({
+            workflowId,
+            name,
+            description: description || undefined,
+            columns: columns || []
         });
 
         res.status(201).json({
             success: true,
             table: {
                 ...table,
-                columns: JSON.parse(table.columns)
+                columns: table.columns
             }
         });
     } catch (error: any) {
         console.error('Error creating data table:', error);
-
-        // Handle unique constraint violation
-        if (error.code === 'P2002') {
-            return res.status(409).json({
-                success: false,
-                error: `A table named "${req.body.name}" already exists in this workflow`
-            });
-        }
-
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'
@@ -155,18 +148,22 @@ router.put('/:id', async (req: Request, res: Response) => {
         const updateData: any = {};
         if (name !== undefined) updateData.name = name;
         if (description !== undefined) updateData.description = description;
-        if (columns !== undefined) updateData.columns = JSON.stringify(columns);
+        if (columns !== undefined) updateData.columns = columns;
 
-        const table = await prisma.dataTable.update({
-            where: { id },
-            data: updateData
-        });
+        const table = await dataTableRepository.update(id, updateData);
+
+        if (!table) {
+            return res.status(404).json({
+                success: false,
+                error: 'Data table not found'
+            });
+        }
 
         res.json({
             success: true,
             table: {
                 ...table,
-                columns: JSON.parse(table.columns)
+                columns: table.columns
             }
         });
     } catch (error) {
@@ -186,9 +183,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
 
-        await prisma.dataTable.delete({
-            where: { id }
-        });
+        await dataTableRepository.delete(id);
 
         res.json({ success: true });
     } catch (error) {
@@ -214,25 +209,19 @@ router.post('/:tableId/rows', async (req: Request, res: Response) => {
         const { data } = req.body;
 
         // Get max order for this table
-        const maxOrderRow = await prisma.dataRow.findFirst({
-            where: { tableId },
-            orderBy: { order: 'desc' },
-            select: { order: true }
-        });
+        const maxOrderRow = await dataRowRepository.findFirstByTableIdDesc(tableId);
 
-        const row = await prisma.dataRow.create({
-            data: {
-                tableId,
-                data: JSON.stringify(data || {}),
-                order: (maxOrderRow?.order ?? -1) + 1
-            }
+        const row = await dataRowRepository.create({
+            tableId,
+            data: data || {},
+            order: (maxOrderRow?.order ?? -1) + 1
         });
 
         res.status(201).json({
             success: true,
             row: {
                 ...row,
-                data: JSON.parse(row.data)
+                data: row.data
             }
         });
     } catch (error) {
@@ -254,19 +243,23 @@ router.put('/:tableId/rows/:rowId', async (req: Request, res: Response) => {
         const { data, order } = req.body;
 
         const updateData: any = {};
-        if (data !== undefined) updateData.data = JSON.stringify(data);
+        if (data !== undefined) updateData.data = data;
         if (order !== undefined) updateData.order = order;
 
-        const row = await prisma.dataRow.update({
-            where: { id: rowId },
-            data: updateData
-        });
+        const row = await dataRowRepository.update(rowId, updateData);
+
+        if (!row) {
+            return res.status(404).json({
+                success: false,
+                error: 'Data row not found'
+            });
+        }
 
         res.json({
             success: true,
             row: {
                 ...row,
-                data: JSON.parse(row.data)
+                data: row.data
             }
         });
     } catch (error) {
@@ -286,9 +279,7 @@ router.delete('/:tableId/rows/:rowId', async (req: Request, res: Response) => {
     try {
         const { rowId } = req.params;
 
-        await prisma.dataRow.delete({
-            where: { id: rowId }
-        });
+        await dataRowRepository.delete(rowId);
 
         res.json({ success: true });
     } catch (error) {
@@ -317,25 +308,21 @@ router.post('/:tableId/rows/bulk', async (req: Request, res: Response) => {
         }
 
         // Get max order for this table
-        const maxOrderRow = await prisma.dataRow.findFirst({
-            where: { tableId },
-            orderBy: { order: 'desc' },
-            select: { order: true }
-        });
+        const maxOrderRow = await dataRowRepository.findFirstByTableIdDesc(tableId);
 
         let currentOrder = (maxOrderRow?.order ?? -1) + 1;
 
-        const createdRows = await prisma.dataRow.createMany({
-            data: rows.map((rowData: any) => ({
-                tableId,
-                data: JSON.stringify(rowData),
-                order: currentOrder++
-            }))
-        });
+        const rowsToCreate = rows.map((rowData: any) => ({
+            tableId,
+            data: rowData,
+            order: currentOrder++
+        }));
+
+        const count = await dataRowRepository.createMany(rowsToCreate);
 
         res.status(201).json({
             success: true,
-            count: createdRows.count
+            count
         });
     } catch (error) {
         console.error('Error bulk creating rows:', error);
@@ -354,19 +341,7 @@ router.get('/by-name/:workflowId/:tableName', async (req: Request, res: Response
     try {
         const { workflowId, tableName } = req.params;
 
-        const table = await prisma.dataTable.findUnique({
-            where: {
-                workflowId_name: {
-                    workflowId,
-                    name: tableName
-                }
-            },
-            include: {
-                rows: {
-                    orderBy: { order: 'asc' }
-                }
-            }
-        });
+        const table = await dataTableRepository.findByWorkflowIdAndName(workflowId, tableName);
 
         if (!table) {
             return res.status(404).json({
@@ -375,9 +350,11 @@ router.get('/by-name/:workflowId/:tableName', async (req: Request, res: Response
             });
         }
 
+        const rows = await dataRowRepository.findByTableId(table.id);
+
         // Return data in a format ready for test iteration
-        const columns = JSON.parse(table.columns);
-        const data = table.rows.map(r => JSON.parse(r.data));
+        const columns = table.columns;
+        const data = rows.map(r => r.data);
 
         res.json({
             success: true,

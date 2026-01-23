@@ -96,8 +96,30 @@ export interface SessionProgress {
 }
 
 // ============================================
+// Types for Health Check
+// ============================================
+
+export interface AIRecorderHealth {
+  available: boolean;
+  stagehandAvailable: boolean;
+  stagehandError: string | null;
+  nodeVersion: string;
+  alternativePath: string | null;
+  message: string;
+}
+
+// ============================================
 // API Functions
 // ============================================
+
+/**
+ * Check AI Recorder availability (Stagehand compatibility)
+ */
+export async function checkHealth(): Promise<AIRecorderHealth> {
+  const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '/api';
+  const response = await fetch(`${API_BASE_URL}/ai-recorder/health`);
+  return response.json();
+}
 
 /**
  * Import test cases from Excel file

@@ -3,11 +3,29 @@ import {
     Play, Upload, FileText, ChevronDown, ChevronRight,
     Plus, RefreshCw, Check, X, Trash2, Edit3, ExternalLink,
     Loader2, AlertCircle, CheckCircle, RotateCcw, Eye,
-    AlertTriangle, SkipForward, Video, StopCircle
+    AlertTriangle, SkipForward, Video, StopCircle, History,
+    FastForward, Square
 } from 'lucide-react';
 import { useAIRecorder, TestCaseInput } from '@/hooks/useAIRecorder';
+import { checkHealth as checkAIRecorderHealth } from '@/api/aiRecorder';
 import { AIStudioChat } from './AIStudioChat';
 import './AITestRecorderPanel.css';
+
+// API for vero-agent (alternative to Stagehand-based AI Recorder)
+const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '/api';
+
+async function generateViaVeroAgent(steps: string, featureName: string, scenarioName: string): Promise<{ veroCode: string }> {
+    const response = await fetch(`${API_BASE_URL}/vero/agent/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ steps, feature_name: featureName, scenario_name: scenarioName }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to generate test');
+    }
+    return { veroCode: data.veroCode };
+}
 
 interface Environment {
     name: string;
@@ -20,6 +38,8 @@ interface AITestRecorderPanelProps {
     onClose?: () => void;
     onTestApproved?: (testId: string, veroCode: string, filePath: string) => void;
     projectPath?: string;
+    /** Session ID to auto-load when specified (from ReviewSidePanel) */
+    selectedSessionId?: string | null;
 }
 
 const ENVIRONMENTS: Environment[] = [
@@ -29,7 +49,7 @@ const ENVIRONMENTS: Environment[] = [
     { name: 'Local', color: '#a0a0a0', baseUrl: 'http://localhost:3000', value: 'local' },
 ];
 
-export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, projectPath }: AITestRecorderPanelProps) {
+export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, projectPath, selectedSessionId }: AITestRecorderPanelProps) {
     const {
         session,
         capture,
@@ -42,6 +62,8 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
         createAndStart,
         cancelSession,
         refreshProgress,
+        loadSession,
+        listSessions,
         // Recovery (Stuck State)
         resumeWithHint,
         skipStep,
@@ -56,6 +78,12 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
         addStep,
         deleteStep,
         approveTestCase,
+        // Run Test
+        runTestCase,
+        runTestCaseToStep,
+        runSingleStep,
+        stopRun,
+        run,
         reset,
     } = useAIRecorder();
 
@@ -107,6 +135,11 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
     const [editingStepId, setEditingStepId] = useState<string | null>(null);
     const [editingCode, setEditingCode] = useState('');
 
+    // Sessions list state
+    const [showSessionsDropdown, setShowSessionsDropdown] = useState(false);
+    const [availableSessions, setAvailableSessions] = useState<{ id: string; name: string; status: string; createdAt: string }[]>([]);
+    const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+
     // Quick Create state
     const [qcTestName, setQcTestName] = useState('');
     const [qcSteps, setQcSteps] = useState('');
@@ -118,6 +151,29 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // Step selection state for debugger-style execution
+    const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null);
+
+    // Handle step checkbox click - cascade selection (select all steps up to clicked)
+    const handleStepSelect = useCallback((testCaseId: string, stepNumber: number) => {
+        const test = session.testCases.find(tc => tc.id === testCaseId);
+        if (!test) return;
+
+        // If clicking same step, deselect all
+        if (selectedStepIndex === stepNumber) {
+            setSelectedStepIndex(null);
+        } else {
+            // Select up to this step (cascade selection)
+            setSelectedStepIndex(stepNumber);
+        }
+    }, [session.testCases, selectedStepIndex]);
+
+    // Check if a step should be selected (cascade: all steps <= selectedStepIndex)
+    const isStepSelected = useCallback((stepNumber: number): boolean => {
+        if (selectedStepIndex === null) return false;
+        return stepNumber <= selectedStepIndex;
+    }, [selectedStepIndex]);
+
     useEffect(() => {
         setBrowserUrl(`${selectedEnv.baseUrl}/login`);
     }, [selectedEnv]);
@@ -128,6 +184,45 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
             setExpandedTestId(session.testCases[0].id);
         }
     }, [session.testCases, expandedTestId]);
+
+    // Auto-load session when selectedSessionId prop changes (from ReviewSidePanel)
+    useEffect(() => {
+        if (selectedSessionId && selectedSessionId !== session.sessionId) {
+            loadSession(selectedSessionId);
+        }
+    }, [selectedSessionId, session.sessionId, loadSession]);
+
+    // Load sessions list when dropdown is opened
+    const handleShowSessions = useCallback(async () => {
+        console.log('handleShowSessions called, showSessionsDropdown:', showSessionsDropdown);
+        if (showSessionsDropdown) {
+            setShowSessionsDropdown(false);
+            return;
+        }
+        setIsLoadingSessions(true);
+        try {
+            const sessions = await listSessions();
+            console.log('Loaded sessions:', sessions);
+            setAvailableSessions(sessions);
+            setShowSessionsDropdown(true);
+        } catch (error) {
+            console.error('Failed to load sessions:', error);
+            alert('Failed to load sessions: ' + (error as Error).message);
+        } finally {
+            setIsLoadingSessions(false);
+        }
+    }, [showSessionsDropdown, listSessions]);
+
+    // Handle loading a specific session
+    const handleLoadSession = useCallback(async (sessionId: string) => {
+        try {
+            await loadSession(sessionId);
+            setShowSessionsDropdown(false);
+        } catch (error) {
+            console.error('Failed to load session:', error);
+            alert('Failed to load session');
+        }
+    }, [loadSession]);
 
     // Handle file import
     const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -166,19 +261,44 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
         }
     };
 
+    // State for generated Vero code (when using vero-agent fallback)
+    const [generatedVeroCode, setGeneratedVeroCode] = useState<string | null>(null);
+
     // Generate test from quick create
     const handleQuickCreate = useCallback(async () => {
         if (!qcSteps.trim()) return;
 
+        const testName = qcTestName.trim() || 'New Test Case';
         const lines = qcSteps.split('\n').filter(l => l.trim());
-        const testCase: TestCaseInput = {
-            name: qcTestName.trim() || 'New Test Case',
-            steps: lines.map(l => l.trim()),
-            targetUrl: selectedEnv.baseUrl,
-        };
 
         try {
             setIsCreating(true);
+
+            // Check if AI Recorder (Stagehand) is available
+            const health = await checkAIRecorderHealth();
+
+            if (!health.available) {
+                // Use vero-agent path as fallback
+                console.log('Using vero-agent fallback for test generation');
+                const result = await generateViaVeroAgent(
+                    lines.join('\n'),
+                    testName.replace(/\s+/g, ''),
+                    testName
+                );
+                setGeneratedVeroCode(result.veroCode);
+                setShowQuickCreate(false);
+                setQcTestName('');
+                setQcSteps('');
+                return;
+            }
+
+            // Stagehand is available, use the full AI Recorder flow
+            const testCase: TestCaseInput = {
+                name: testName,
+                steps: lines.map(l => l.trim()),
+                targetUrl: selectedEnv.baseUrl,
+            };
+
             await createAndStart([testCase], {
                 environment: selectedEnv.value,
                 baseUrl: selectedEnv.baseUrl,
@@ -299,6 +419,77 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                     Quick Create
                 </button>
 
+                {/* Sessions History Dropdown */}
+                <div className="sessions-dropdown-container" style={{ position: 'relative' }}>
+                    <button
+                        className="btn btn-secondary"
+                        onClick={handleShowSessions}
+                        disabled={isLoadingSessions}
+                    >
+                        {isLoadingSessions ? <Loader2 size={16} className="spin" /> : <History size={16} />}
+                        Sessions
+                        <ChevronDown size={14} />
+                    </button>
+
+                    {showSessionsDropdown && (
+                        <div className="sessions-dropdown" style={{
+                            position: 'absolute',
+                            top: '100%',
+                            left: 0,
+                            marginTop: '4px',
+                            background: '#161b22',
+                            border: '1px solid #30363d',
+                            borderRadius: '8px',
+                            minWidth: '300px',
+                            maxHeight: '400px',
+                            overflow: 'auto',
+                            zIndex: 100,
+                            boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
+                        }}>
+                            <div style={{ padding: '8px 12px', borderBottom: '1px solid #30363d', color: '#8b949e', fontSize: '12px' }}>
+                                Recent Sessions
+                            </div>
+                            {availableSessions.length === 0 ? (
+                                <div style={{ padding: '16px', color: '#6e7681', textAlign: 'center' }}>
+                                    No sessions found
+                                </div>
+                            ) : (
+                                availableSessions.map((s) => (
+                                    <div
+                                        key={s.id}
+                                        onClick={() => handleLoadSession(s.id)}
+                                        style={{
+                                            padding: '10px 12px',
+                                            cursor: 'pointer',
+                                            borderBottom: '1px solid #21262d',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                        }}
+                                        className="session-item"
+                                        onMouseEnter={(e) => (e.currentTarget.style.background = '#21262d')}
+                                        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                                    >
+                                        <div>
+                                            <div style={{ color: '#c9d1d9', fontWeight: 500 }}>{s.name}</div>
+                                            <div style={{ color: '#6e7681', fontSize: '11px' }}>
+                                                {new Date(s.createdAt).toLocaleString()}
+                                            </div>
+                                        </div>
+                                        <span className={`status-chip chip-${s.status}`} style={{ fontSize: '10px', padding: '2px 8px' }}>
+                                            {s.status === 'human_review' && <Eye size={10} />}
+                                            {s.status === 'completed' && <Check size={10} />}
+                                            {s.status === 'failed' && <X size={10} />}
+                                            {s.status === 'processing' && <Loader2 size={10} className="spin" />}
+                                            {s.status.replace(/_/g, ' ')}
+                                        </span>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    )}
+                </div>
+
                 {session.sessionId && (
                     <button
                         className="btn btn-secondary"
@@ -372,6 +563,71 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                             readOnly
                         />
                     </div>
+
+                    {/* Execution Controls Toolbar */}
+                    {session.testCases.length > 0 && (
+                        <div className="execution-controls">
+                            <button
+                                className="exec-btn exec-run-all"
+                                onClick={() => {
+                                    const firstTest = session.testCases[0];
+                                    if (firstTest) runTestCase(firstTest.id);
+                                }}
+                                disabled={run.isRunning || session.testCases.length === 0}
+                                title="Run all steps (Ctrl+Enter)"
+                            >
+                                <Play size={14} />
+                                <span>Run All</span>
+                            </button>
+                            <button
+                                className="exec-btn exec-run-selected"
+                                onClick={() => {
+                                    const firstTest = session.testCases[0];
+                                    if (firstTest && selectedStepIndex) {
+                                        runTestCaseToStep(firstTest.id, selectedStepIndex);
+                                    }
+                                }}
+                                disabled={run.isRunning || selectedStepIndex === null}
+                                title={selectedStepIndex ? `Run steps 1-${selectedStepIndex} (F5)` : 'Select steps first'}
+                            >
+                                <FastForward size={14} />
+                                <span>Run to Step {selectedStepIndex || '?'}</span>
+                            </button>
+                            <button
+                                className="exec-btn exec-step"
+                                onClick={() => {
+                                    const firstTest = session.testCases[0];
+                                    if (firstTest) {
+                                        // If a step is selected, run that specific step.
+                                        // Otherwise, try to find the next pending step.
+                                        const stepToRun = selectedStepIndex
+                                            ? firstTest.steps.find(s => s.stepNumber === selectedStepIndex)
+                                            : firstTest.steps.find(s => s.status !== 'success');
+
+                                        if (stepToRun) {
+                                            runSingleStep(firstTest.id, stepToRun.stepId);
+                                        }
+                                    }
+                                }}
+                                disabled={run.isRunning}
+                                title="Execute next or selected step (F10)"
+                            >
+                                <SkipForward size={14} />
+                                <span>Step</span>
+                            </button>
+                            {run.isRunning && (
+                                <button
+                                    className="exec-btn exec-stop"
+                                    onClick={() => stopRun()}
+                                    title="Stop execution (Escape)"
+                                >
+                                    <Square size={14} />
+                                    <span>Stop</span>
+                                </button>
+                            )}
+                        </div>
+                    )}
+
                     <div className="browser-viewport">
                         {/* Capture Mode Overlay */}
                         {capture.isCapturing && (
@@ -435,6 +691,26 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                             </div>
                         )}
 
+                        {/* Live run preview with screenshot streaming */}
+                        {run.isRunning && run.screenshot && (
+                            <div className="run-preview-overlay">
+                                <div className="run-preview-content">
+                                    <div className="run-header">
+                                        <Loader2 size={16} className="spin" />
+                                        <span>Running Step {run.currentStepNumber} / {run.totalSteps}</span>
+                                    </div>
+                                    <img
+                                        src={`data:image/png;base64,${run.screenshot}`}
+                                        alt="Live browser preview"
+                                        className="run-screenshot"
+                                    />
+                                    {run.currentUrl && (
+                                        <div className="run-url">{run.currentUrl}</div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Human review message */}
                         {isComplete && (
                             <div className="review-overlay">
@@ -486,11 +762,25 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                                     className={`test-card ${expandedTestId === test.id ? 'expanded' : ''}`}
                                 >
                                     <div className="test-card-header">
-                                        <div
-                                            className="test-card-info"
-                                            onClick={() => setExpandedTestId(expandedTestId === test.id ? null : test.id)}
-                                        >
-                                            <div className="test-card-name">{test.name}</div>
+                                        <div className="test-card-info">
+                                            <div
+                                                className="test-card-name"
+                                                onClick={() => setExpandedTestId(expandedTestId === test.id ? null : test.id)}
+                                            >
+                                                {test.name}
+                                            </div>
+                                            <button
+                                                className="btn btn-sm btn-run"
+                                                onClick={() => runTestCase(test.id)}
+                                                disabled={run.isRunning || test.steps.length === 0}
+                                                title="Run all steps in browser"
+                                            >
+                                                {run.isRunning && run.testCaseId === test.id ? (
+                                                    <><Loader2 size={14} className="spin" /> Running...</>
+                                                ) : (
+                                                    <><Play size={14} /> Run</>
+                                                )}
+                                            </button>
                                         </div>
                                         <span className={`status-chip chip-${test.status}`}>
                                             {test.status === 'complete' && <Check size={12} />}
@@ -515,8 +805,18 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                                         <>
                                             <div className="test-steps">
                                                 {test.steps.map((step) => (
-                                                    <div key={step.stepId} className={`step-item step-${step.status}`}>
+                                                    <div
+                                                        key={step.stepId}
+                                                        className={`step-item step-${step.status} ${isStepSelected(step.stepNumber) ? 'step-selected' : ''} ${run.runningStepId === step.stepId ? 'step-executing' : ''}`}
+                                                    >
                                                         <div className="step-header">
+                                                            <input
+                                                                type="checkbox"
+                                                                className="step-checkbox"
+                                                                checked={isStepSelected(step.stepNumber)}
+                                                                onChange={() => handleStepSelect(test.id, step.stepNumber)}
+                                                                title={`Select steps 1-${step.stepNumber} for execution`}
+                                                            />
                                                             <span className="step-num">{step.stepNumber}</span>
                                                             {getStatusIcon(step.status, step.retryCount)}
                                                         </div>
@@ -675,6 +975,33 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                         <div className="session-error">
                             <AlertCircle size={16} />
                             {session.error}
+                        </div>
+                    )}
+
+                    {/* Generated Vero Code (from vero-agent fallback) */}
+                    {generatedVeroCode && (
+                        <div className="generated-vero-panel">
+                            <div className="generated-vero-header">
+                                <h4><CheckCircle size={16} className="success" /> Generated Vero Code</h4>
+                                <div className="generated-vero-actions">
+                                    <button
+                                        className="btn btn-sm btn-primary"
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(generatedVeroCode);
+                                            alert('Copied to clipboard!');
+                                        }}
+                                    >
+                                        Copy
+                                    </button>
+                                    <button
+                                        className="btn btn-sm"
+                                        onClick={() => setGeneratedVeroCode(null)}
+                                    >
+                                        <X size={14} /> Clear
+                                    </button>
+                                </div>
+                            </div>
+                            <pre className="generated-vero-code">{generatedVeroCode}</pre>
                         </div>
                     )}
                 </div>

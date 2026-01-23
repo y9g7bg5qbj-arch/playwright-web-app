@@ -20,8 +20,14 @@ declaration
 
 // ==================== PAGE DECLARATION ====================
 
+// PAGE LoginPage ("/login", "/signin", "/auth/*") { ... }
 pageDeclaration
-    : PAGE IDENTIFIER LBRACE pageBody RBRACE
+    : PAGE IDENTIFIER urlPatterns? LBRACE pageBody RBRACE
+    ;
+
+// URL patterns: ("/login", "/signin")
+urlPatterns
+    : LPAREN STRING_LITERAL (COMMA STRING_LITERAL)* RPAREN
     ;
 
 pageBody
@@ -33,9 +39,30 @@ pageMember
     | actionDeclaration
     ;
 
-// Field: field name = "selector"
+// Field declarations with selector types:
+// FIELD loginButton = testid "login-btn"
+// FIELD username = label "Username"
+// FIELD submitBtn = role "button" name "Submit"
+// FIELD oldStyle = "css-selector"  (legacy support)
 fieldDeclaration
-    : FIELD IDENTIFIER EQUALS STRING_LITERAL
+    : FIELD IDENTIFIER EQUALS selectorType STRING_LITERAL (NAME STRING_LITERAL)?
+    | FIELD IDENTIFIER EQUALS STRING_LITERAL  // Legacy: just quoted selector
+    ;
+
+// Selector types: testid, role, label, placeholder, text, alt, title, css, xpath
+selectorType
+    : TESTID
+    | ROLE
+    | LABEL
+    | PLACEHOLDER
+    | TEXT
+    | ALT
+    | TITLE
+    | CSS
+    | XPATH
+    | BUTTON    // Shorthand for role "button"
+    | LINK      // Shorthand for role "link"
+    | CHECKBOX  // Shorthand for role "checkbox"
     ;
 
 // Action: actionName with param1, param2 { ... }
@@ -81,9 +108,9 @@ hookDeclaration
     : (BEFORE | AFTER) (EACH | ALL) LBRACE statement* RBRACE
     ;
 
-// Scenario: @skip scenario "name" @tag1 @tag2 { ... }
+// Scenario: @skip scenario ScenarioName @tag1 @tag2 { ... }
 scenarioDeclaration
-    : scenarioAnnotation* SCENARIO STRING_LITERAL tag* LBRACE statement* RBRACE
+    : scenarioAnnotation* SCENARIO IDENTIFIER tag* LBRACE statement* RBRACE
     ;
 
 // Special test annotations that affect test behavior
@@ -175,7 +202,128 @@ statement
     | controlFlowStatement
     | variableDeclaration
     | dataQueryStatement
+    | utilityStatement
     | returnStatement
+    ;
+
+// ==================== UTILITY STATEMENTS ====================
+
+utilityStatement
+    : utilityAssignment
+    ;
+
+// Variable assignment with utility expression: TEXT result = TRIM $input
+utilityAssignment
+    : variableType IDENTIFIER EQUALS utilityExpression
+    ;
+
+// Utility expressions (verb-first English style)
+utilityExpression
+    : trimExpression
+    | convertExpression
+    | extractExpression
+    | replaceExpression
+    | splitExpression
+    | joinExpression
+    | lengthExpression
+    | padExpression
+    | addDateExpression
+    | subtractDateExpression
+    | formatExpression
+    | datePartExpression
+    | roundExpression
+    | absoluteExpression
+    | generateExpression
+    | randomExpression
+    | todayExpression
+    | nowExpression
+    | chainedExpression           // For THEN chaining
+    | expression                   // Fallback to regular expression
+    ;
+
+// String utilities
+trimExpression
+    : TRIM expression
+    ;
+
+convertExpression
+    : CONVERT expression TO (UPPERCASE | LOWERCASE | NUMBER | TEXT)
+    ;
+
+extractExpression
+    : EXTRACT expression FROM expression TO expression
+    ;
+
+replaceExpression
+    : REPLACE_ expression STRING_LITERAL WITH STRING_LITERAL
+    ;
+
+splitExpression
+    : SPLIT expression BY STRING_LITERAL
+    ;
+
+joinExpression
+    : JOIN_ expression WITH STRING_LITERAL
+    ;
+
+lengthExpression
+    : LENGTH OF expression
+    ;
+
+padExpression
+    : PAD expression TO expression WITH STRING_LITERAL
+    ;
+
+// Date utilities
+todayExpression
+    : TODAY
+    ;
+
+nowExpression
+    : NOW
+    ;
+
+addDateExpression
+    : ADD expression dateUnit TO expression
+    ;
+
+subtractDateExpression
+    : SUBTRACT expression dateUnit FROM expression
+    ;
+
+dateUnit
+    : DAY | DAYS | MONTH | MONTHS | YEAR | YEARS
+    ;
+
+formatExpression
+    : FORMAT expression AS (STRING_LITERAL | CURRENCY STRING_LITERAL? | PERCENT)
+    ;
+
+datePartExpression
+    : (YEAR | MONTH | DAY) OF expression
+    ;
+
+// Number utilities
+roundExpression
+    : ROUND expression (TO expression DECIMALS | UP | DOWN)?
+    ;
+
+absoluteExpression
+    : ABSOLUTE expression
+    ;
+
+// Generate utilities
+generateExpression
+    : GENERATE (STRING_LITERAL | UUID)
+    ;
+
+randomExpression
+    : RANDOM NUMBER FROM expression TO expression
+    ;
+
+// Chained expressions with THEN
+chainedExpression
+    : utilityExpression THEN utilityExpression
     ;
 
 // ==================== ACTIONS ====================
@@ -191,7 +339,7 @@ actionStatement
     | pressAction
     | scrollAction
     | waitAction
-    | doAction
+    | performAction
     | refreshAction
     | clearAction
     | screenshotAction
@@ -253,9 +401,9 @@ waitAction
     : WAIT (expression (SECONDS | MILLISECONDS) | FOR selectorExpression)
     ;
 
-// do PageName.actionName with arg1, arg2
-doAction
-    : DO pageMethodReference (WITH argumentList)?
+// perform PageName.actionName with arg1, arg2
+performAction
+    : PERFORM pageMethodReference (WITH argumentList)?
     ;
 
 // refresh
@@ -389,6 +537,54 @@ returnStatement
 // ==================== DATA QUERIES (VDQL) ====================
 
 dataQueryStatement
+    : rowStatement
+    | rowsStatement
+    | columnAccessStatement
+    | countStatement
+    | legacyDataQueryStatement    // Legacy DATA/LIST syntax for backwards compatibility
+    ;
+
+// ROW (single row) - Project-scoped by default
+// ROW user = Users WHERE state = "CA"
+// ROW user = FIRST Users WHERE role = "admin"
+// ROW user = RANDOM Users WHERE active = true
+// ROW user = ProjectB.Users WHERE id = 1  (cross-project)
+rowStatement
+    : ROW IDENTIFIER EQUALS rowModifier? simpleTableReference dataWhereClause? orderByClause?
+    ;
+
+rowModifier
+    : RANDOM
+    | FIRST
+    | LAST
+    ;
+
+// ROWS (multiple rows) - Project-scoped by default
+// ROWS users = Users WHERE state = "CA"
+// ROWS users = Users WHERE active = true ORDER BY name ASC LIMIT 10
+rowsStatement
+    : ROWS IDENTIFIER EQUALS simpleTableReference dataWhereClause? orderByClause? limitClause? offsetClause?
+    ;
+
+// Column access: emails = Users.email WHERE active = true
+// states = DISTINCT Users.state
+columnAccessStatement
+    : IDENTIFIER EQUALS DISTINCT? simpleTableReference DOT IDENTIFIER dataWhereClause?
+    ;
+
+// Count: NUMBER count = COUNT Users WHERE state = "CA"
+countStatement
+    : NUMBER IDENTIFIER EQUALS COUNT simpleTableReference dataWhereClause?
+    ;
+
+// Project-scoped table reference (no TestData prefix needed)
+simpleTableReference
+    : IDENTIFIER                      // Users (current project)
+    | IDENTIFIER DOT IDENTIFIER       // ProjectName.Users (cross-project)
+    ;
+
+// Legacy DATA/LIST syntax for backwards compatibility
+legacyDataQueryStatement
     : dataResultType IDENTIFIER EQUALS dataQuery
     ;
 
@@ -396,7 +592,7 @@ dataResultType
     : DATA      // Single row object
     | LIST      // Multiple rows or column values
     | TEXT      // Single text value
-    | NUMBER    // Single number value
+    | NUMBER    // Single number value (also used in countStatement)
     | FLAG      // Single boolean value
     ;
 
@@ -602,7 +798,7 @@ HOVER       : H O V E R ;
 PRESS       : P R E S S ;
 SCROLL      : S C R O L L ;
 WAIT        : W A I T ;
-DO          : D O ;
+PERFORM     : P E R F O R M ;
 REFRESH     : R E F R E S H ;
 CLEAR       : C L E A R ;
 TAKE        : T A K E ;
@@ -658,7 +854,8 @@ AVERAGE     : A V E R A G E ;
 MIN         : M I N ;
 MAX         : M A X ;
 DISTINCT    : D I S T I N C T ;
-ROWS        : R O W S ;
+ROWS        : R O W S ;  // Multiple rows query (must be before ROW for lexer matching)
+ROW         : R O W ;    // Single row query
 COLUMNS     : C O L U M N S ;
 HEADERS     : H E A D E R S ;
 OF          : O F ;
@@ -676,6 +873,52 @@ AGO         : A G O ;
 // Time units
 SECONDS     : S E C O N D S ;
 MILLISECONDS: M I L L I S E C O N D S ;
+
+// Utility functions - String operations
+TRIM        : T R I M ;
+CONVERT     : C O N V E R T ;
+UPPERCASE   : U P P E R C A S E ;
+LOWERCASE   : L O W E R C A S E ;
+EXTRACT     : E X T R A C T ;
+REPLACE_    : R E P L A C E ;  // Underscore to avoid conflict with potential reserved word
+SPLIT       : S P L I T ;
+JOIN_       : J O I N ;        // Underscore to avoid conflict with SQL JOIN
+LENGTH      : L E N G T H ;
+PAD         : P A D ;
+THEN        : T H E N ;
+
+// Utility functions - Date operations
+NOW         : N O W ;
+ADD         : A D D ;
+SUBTRACT    : S U B T R A C T ;
+DAY         : D A Y ;
+MONTH       : M O N T H ;
+YEAR        : Y E A R ;
+FORMAT      : F O R M A T ;
+
+// Utility functions - Number operations
+ROUND       : R O U N D ;
+DECIMALS    : D E C I M A L S ;
+ABSOLUTE    : A B S O L U T E ;
+CURRENCY    : C U R R E N C Y ;
+PERCENT     : P E R C E N T ;
+
+// Utility functions - Generate operations
+GENERATE    : G E N E R A T E ;
+UUID        : U U I D ;
+
+// Selector types (for PAGE FIELD definitions)
+TESTID      : T E S T I D ;
+ROLE        : R O L E ;
+LABEL       : L A B E L ;
+PLACEHOLDER : P L A C E H O L D E R ;
+ALT         : A L T ;
+CSS         : C S S ;
+XPATH       : X P A T H ;
+BUTTON      : B U T T O N ;
+LINK        : L I N K ;
+CHECKBOX    : C H E C K B O X ;
+NAME        : N A M E ;
 
 // Directions
 UP          : U P ;

@@ -8,12 +8,19 @@ export const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
 
   database: {
-    type: 'prisma' as const,
-    url: process.env.DATABASE_URL || 'file:./dev.db',
+    type: 'mongodb' as const,
+    url: process.env.MONGODB_URI || 'mongodb://localhost:27017/vero_ide',
   },
 
   jwt: {
-    secret: process.env.JWT_SECRET || 'change-this-secret-key',
+    secret: (() => {
+      const secret = process.env.JWT_SECRET;
+      if (!secret) {
+        console.warn('⚠️  JWT_SECRET not set - using insecure default (development only)');
+        return 'dev-only-insecure-key-do-not-use-in-production';
+      }
+      return secret;
+    })(),
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   },
 

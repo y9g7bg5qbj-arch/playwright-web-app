@@ -9,7 +9,6 @@
 export * from './types';
 
 // Adapters
-export { SQLiteAdapter } from './sqlite.adapter';
 export { MongoDBAdapter, MongoDBAdapterConfig } from './mongodb.adapter';
 
 // Factory

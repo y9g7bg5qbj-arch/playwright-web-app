@@ -10,7 +10,7 @@
 
 import { Server, Socket } from 'socket.io';
 import { aiRecorderService } from '../services/aiRecorder.service';
-import { prisma } from '../db/prisma';
+import { aiSettingsRepository } from '../db/repositories/mongo';
 import { logger } from '../utils/logger';
 
 interface AuthSocket extends Socket {
@@ -21,9 +21,7 @@ interface AuthSocket extends Socket {
  * Get AI settings for a user
  */
 async function getAISettings(userId: string) {
-  const settings = await prisma.aISettings.findUnique({
-    where: { userId },
-  });
+  const settings = await aiSettingsRepository.findByUserId(userId);
 
   if (!settings) {
     throw new Error('AI settings not configured. Please configure in Settings > AI.');
@@ -37,17 +35,23 @@ async function getAISettings(userId: string) {
     case 'gemini':
       if (!settings.geminiApiKey) throw new Error('Gemini API key not configured');
       apiKey = settings.geminiApiKey;
-      modelName = settings.geminiModel || 'gemini-2.5-pro-preview-03-25';
+      // Format: "provider/model" (e.g., "google/gemini-2.0-flash")
+      const geminiModel = settings.geminiModel || 'gemini-2.0-flash';
+      modelName = geminiModel.startsWith('google/') ? geminiModel : `google/${geminiModel}`;
       break;
     case 'openai':
       if (!settings.openaiApiKey) throw new Error('OpenAI API key not configured');
       apiKey = settings.openaiApiKey;
-      modelName = settings.openaiModel || 'gpt-4o';
+      // Format: "provider/model" (e.g., "openai/gpt-4o")
+      const openaiModel = settings.openaiModel || 'gpt-4o';
+      modelName = openaiModel.startsWith('openai/') ? openaiModel : `openai/${openaiModel}`;
       break;
     case 'anthropic':
       if (!settings.anthropicApiKey) throw new Error('Anthropic API key not configured');
       apiKey = settings.anthropicApiKey;
-      modelName = settings.anthropicModel || 'claude-sonnet-4-20250514';
+      // Format: "provider/model" (e.g., "anthropic/claude-sonnet-4-20250514")
+      const anthropicModel = settings.anthropicModel || 'claude-sonnet-4-20250514';
+      modelName = anthropicModel.startsWith('anthropic/') ? anthropicModel : `anthropic/${anthropicModel}`;
       break;
     default:
       throw new Error(`Unknown AI provider: ${settings.provider}`);
@@ -300,6 +304,114 @@ export function setupAIRecorderHandlers(socket: AuthSocket, io: Server) {
       });
     } catch (error: any) {
       logger.error('AI Recorder: Failed to replay step:', error);
+      socket.emit('aiRecorder:error', { error: error.message, ...data });
+    }
+  });
+
+  // Run all steps in a test case with live browser preview
+  // Uses direct Playwright execution (no AI required) for generated Vero code
+  socket.on('aiRecorder:runTestCase', async (data: {
+    sessionId: string;
+    testCaseId: string;
+  }) => {
+    if (!userId) {
+      socket.emit('aiRecorder:error', { error: 'Not authenticated' });
+      return;
+    }
+
+    try {
+      logger.info('AI Recorder: Running test case directly with Playwright', data);
+
+      // Run the test case directly using Playwright (no AI needed)
+      const result = await aiRecorderService.runVeroTestCaseDirectly(
+        data.sessionId,
+        data.testCaseId
+      );
+
+      // Final result is also sent via run:complete event
+      socket.emit('aiRecorder:run:result', {
+        sessionId: data.sessionId,
+        testCaseId: data.testCaseId,
+        success: result.success,
+        stepsCompleted: result.stepsCompleted,
+        error: result.error,
+      });
+    } catch (error: any) {
+      logger.error('AI Recorder: Failed to run test case:', error);
+      socket.emit('aiRecorder:error', { error: error.message, ...data });
+    }
+  });
+
+  // Run test case to specific step (Debugger)
+  socket.on('aiRecorder:runToStep', async (data: {
+    sessionId: string;
+    testCaseId: string;
+    targetStepNumber: number;
+  }) => {
+    if (!userId) {
+      socket.emit('aiRecorder:error', { error: 'Not authenticated' });
+      return;
+    }
+
+    try {
+      logger.info('AI Recorder: Running test case to step', data);
+
+      const result = await aiRecorderService.runVeroTestCaseToStep(
+        data.sessionId,
+        data.testCaseId,
+        data.targetStepNumber
+      );
+
+      // Final result sent via run:complete
+      socket.emit('aiRecorder:run:result', {
+        sessionId: data.sessionId,
+        testCaseId: data.testCaseId,
+        success: result.success,
+        stepsCompleted: result.stepsCompleted,
+        error: result.error,
+      });
+    } catch (error: any) {
+      logger.error('AI Recorder: Failed to run to step:', error);
+      socket.emit('aiRecorder:error', { error: error.message, ...data });
+    }
+  });
+
+  // Run single step (Debugger "Step Over")
+  socket.on('aiRecorder:runSingleStep', async (data: {
+    sessionId: string;
+    testCaseId: string;
+    stepId: string;
+  }) => {
+    if (!userId) {
+      socket.emit('aiRecorder:error', { error: 'Not authenticated' });
+      return;
+    }
+
+    try {
+      logger.info('AI Recorder: Running single step', data);
+
+      const result = await aiRecorderService.runVeroStepDirectly(
+        data.sessionId,
+        data.testCaseId,
+        data.stepId
+      );
+
+      if (!result.success) {
+        socket.emit('aiRecorder:error', { error: result.error, ...data });
+      }
+    } catch (error: any) {
+      logger.error('AI Recorder: Failed to run single step:', error);
+      socket.emit('aiRecorder:error', { error: error.message, ...data });
+    }
+  });
+
+  // Stop execution/debug session
+  socket.on('aiRecorder:stopRun', async (data: { sessionId: string }) => {
+    try {
+      logger.info('AI Recorder: Stopping run/debug session', data);
+      await aiRecorderService.stopDebugSession(data.sessionId);
+      socket.emit('aiRecorder:run:stopped', { sessionId: data.sessionId });
+    } catch (error: any) {
       socket.emit('aiRecorder:error', { error: error.message, ...data });
     }
   });

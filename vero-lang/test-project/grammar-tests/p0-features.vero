@@ -3,7 +3,7 @@
 # Feature with @serial annotation - tests run sequentially
 @serial
 FEATURE SerialLoginTests {
-    SCENARIO "first login test" @smoke {
+    SCENARIO FirstLoginTest @smoke {
         open "https://example.com/login"
         fill "Email" with "user1@test.com"
         click "Login"
@@ -11,7 +11,7 @@ FEATURE SerialLoginTests {
         verify title equals "Dashboard"
     }
 
-    SCENARIO "second login test" {
+    SCENARIO SecondLoginTest {
         open "https://example.com/login"
         fill "Email" with "user2@test.com"
         click "Login"
@@ -23,7 +23,7 @@ FEATURE SerialLoginTests {
 # Feature with @skip annotation - entire feature skipped
 @skip
 FEATURE SkippedFeature {
-    SCENARIO "this test will be skipped" {
+    SCENARIO ThisTestWillBeSkipped {
         open "https://example.com"
     }
 }
@@ -31,7 +31,7 @@ FEATURE SkippedFeature {
 # Feature with @only annotation - only this feature runs
 @only
 FEATURE FocusedFeature {
-    SCENARIO "this runs" {
+    SCENARIO ThisRuns {
         open "https://example.com"
     }
 }
@@ -40,21 +40,21 @@ FEATURE FocusedFeature {
 FEATURE TestAnnotations {
     # @skip - this scenario is skipped
     @skip
-    SCENARIO "skipped test" {
+    SCENARIO SkippedTest {
         open "https://example.com"
         # This never runs
     }
 
     # @only - run only this test
     @only
-    SCENARIO "focused test" @smoke @regression {
+    SCENARIO FocusedTest @smoke @regression {
         open "https://example.com"
         verify "Welcome" is visible
     }
 
     # @slow - triple the timeout
     @slow
-    SCENARIO "slow test" {
+    SCENARIO SlowTest {
         open "https://example.com/large-page"
         wait 5 seconds
         verify "Loaded" is visible
@@ -62,7 +62,7 @@ FEATURE TestAnnotations {
 
     # @fixme - mark as known issue
     @fixme
-    SCENARIO "known issue test" {
+    SCENARIO KnownIssueTest {
         open "https://example.com/buggy"
         # Known to fail, marked as fixme
     }
@@ -70,20 +70,20 @@ FEATURE TestAnnotations {
 
 # Feature testing URL and Title assertions
 FEATURE UrlTitleAssertions {
-    SCENARIO "verify url patterns" {
+    SCENARIO VerifyUrlPatterns {
         open "https://example.com/dashboard/users"
         verify url contains "/dashboard"
         verify url equals "https://example.com/dashboard/users"
         verify url matches ".*dashboard.*"
     }
 
-    SCENARIO "verify title patterns" {
+    SCENARIO VerifyTitlePatterns {
         open "https://example.com"
         verify title equals "Example Domain"
         verify title contains "Example"
     }
 
-    SCENARIO "verify element has properties" {
+    SCENARIO VerifyElementHasProperties {
         open "https://example.com/form"
         verify "#email" has value "test@example.com"
         verify ".items" has count 5
@@ -93,14 +93,14 @@ FEATURE UrlTitleAssertions {
 
 # Feature testing file upload
 FEATURE FileUpload {
-    SCENARIO "single file upload" {
+    SCENARIO SingleFileUpload {
         open "https://example.com/upload"
         upload "test-files/document.pdf" to "#fileInput"
         click "Submit"
         verify "Upload successful" is visible
     }
 
-    SCENARIO "multiple file upload" {
+    SCENARIO MultipleFileUpload {
         open "https://example.com/gallery"
         upload "images/photo1.jpg", "images/photo2.jpg", "images/photo3.jpg" to "#multiUpload"
         click "Upload All"

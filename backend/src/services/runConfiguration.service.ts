@@ -1,4 +1,16 @@
-import { prisma } from '../db/prisma';
+/**
+ * Run Configuration Service
+ * NOW USES MONGODB INSTEAD OF PRISMA
+ */
+
+import {
+  workflowRepository,
+  runConfigurationRepository,
+  executionEnvironmentRepository,
+  remoteRunnerRepository,
+  storedCredentialRepository,
+  testFlowRepository
+} from '../db/repositories/mongo';
 import { NotFoundError, ForbiddenError } from '../utils/errors';
 import type {
   RunConfiguration,
@@ -29,9 +41,7 @@ import type {
 export class RunConfigurationService {
   // Verify workflow belongs to user
   private async verifyWorkflowAccess(userId: string, workflowId: string): Promise<void> {
-    const workflow = await prisma.workflow.findUnique({
-      where: { id: workflowId },
-    });
+    const workflow = await workflowRepository.findById(workflowId);
 
     if (!workflow) {
       throw new NotFoundError('Workflow not found');
@@ -49,26 +59,26 @@ export class RunConfigurationService {
   async findAllConfigurations(userId: string, workflowId: string): Promise<RunConfiguration[]> {
     await this.verifyWorkflowAccess(userId, workflowId);
 
-    const configs = await prisma.runConfiguration.findMany({
-      where: { workflowId },
-      include: {
-        environment: true,
-        remoteRunner: true,
-      },
-      orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
-    });
+    const configs = await runConfigurationRepository.findByWorkflowId(workflowId);
 
-    return configs.map(this.formatConfiguration);
+    // Get environments and runners for each config
+    const enrichedConfigs = await Promise.all(
+      configs.map(async (config) => {
+        const environment = config.environmentId
+          ? await executionEnvironmentRepository.findById(config.environmentId)
+          : null;
+        const remoteRunner = config.localConfig
+          ? null
+          : null; // Remote runner lookup if needed
+        return { ...config, environment, remoteRunner };
+      })
+    );
+
+    return enrichedConfigs.map(this.formatConfiguration);
   }
 
   async findConfigurationById(userId: string, configId: string): Promise<RunConfiguration> {
-    const config = await prisma.runConfiguration.findUnique({
-      where: { id: configId },
-      include: {
-        environment: true,
-        remoteRunner: true,
-      },
-    });
+    const config = await runConfigurationRepository.findById(configId);
 
     if (!config) {
       throw new NotFoundError('Run configuration not found');
@@ -76,7 +86,11 @@ export class RunConfigurationService {
 
     await this.verifyWorkflowAccess(userId, config.workflowId);
 
-    return this.formatConfiguration(config);
+    const environment = config.environmentId
+      ? await executionEnvironmentRepository.findById(config.environmentId)
+      : null;
+
+    return this.formatConfiguration({ ...config, environment });
   }
 
   async createConfiguration(
@@ -88,59 +102,46 @@ export class RunConfigurationService {
 
     // If this is set as default, unset other defaults
     if (data.isDefault) {
-      await prisma.runConfiguration.updateMany({
-        where: { workflowId, isDefault: true },
-        data: { isDefault: false },
-      });
+      const configs = await runConfigurationRepository.findByWorkflowId(workflowId);
+      for (const config of configs.filter(c => c.isDefault)) {
+        await runConfigurationRepository.update(config.id, { isDefault: false });
+      }
     }
 
-    const config = await prisma.runConfiguration.create({
-      data: {
-        workflowId,
-        name: data.name,
-        description: data.description,
-        isDefault: data.isDefault ?? false,
-        tags: JSON.stringify(data.tags ?? []),
-        tagMode: data.tagMode ?? 'any',
-        excludeTags: JSON.stringify(data.excludeTags ?? []),
-        testFlowIds: JSON.stringify(data.testFlowIds ?? []),
-        grep: data.grep,
-        environmentId: data.environmentId,
-        target: data.target ?? 'local',
-        // Target-specific configs
-        localConfig: data.localConfig ? JSON.stringify(data.localConfig) : null,
-        dockerConfig: data.dockerConfig ? JSON.stringify(data.dockerConfig) : null,
-        githubActionsConfig: data.githubActionsConfig ? JSON.stringify(data.githubActionsConfig) : null,
-        // Legacy remote runner support
-        remoteRunnerId: data.remoteRunnerId,
-        // Browser settings
-        browser: data.browser ?? 'chromium',
-        browserChannel: data.browserChannel,
-        headless: data.headless ?? true,
-        viewport: JSON.stringify(data.viewport ?? { width: 1280, height: 720 }),
-        // Parallel execution (legacy, prefer target-specific configs)
-        workers: data.workers ?? 1,
-        shardCount: data.shardCount ?? 1,
-        // Retry & Timeout
-        retries: data.retries ?? 0,
-        timeout: data.timeout ?? 30000,
-        // Artifacts
-        tracing: data.tracing ?? 'on-failure',
-        screenshot: data.screenshot ?? 'on-failure',
-        video: data.video ?? 'off',
-        // Advanced Config (JSON: fullyParallel, forbidOnly, maxFailures, etc.)
-        advancedConfig: data.advancedConfig ? JSON.stringify(data.advancedConfig) : '{}',
-        // GitHub Actions specific
-        githubRepository: data.githubRepository,
-        githubWorkflowPath: data.githubWorkflowPath,
-      },
-      include: {
-        environment: true,
-        remoteRunner: true,
-      },
+    const config = await runConfigurationRepository.create({
+      workflowId,
+      name: data.name,
+      description: data.description,
+      isDefault: data.isDefault ?? false,
+      tags: data.tags ?? [],
+      tagMode: data.tagMode ?? 'any',
+      excludeTags: data.excludeTags ?? [],
+      testFlowIds: data.testFlowIds ?? [],
+      grep: data.grep,
+      environmentId: data.environmentId,
+      target: data.target ?? 'local',
+      localConfig: data.localConfig ? JSON.stringify(data.localConfig) : undefined,
+      dockerConfig: data.dockerConfig ? JSON.stringify(data.dockerConfig) : undefined,
+      githubActionsConfig: data.githubActionsConfig ? JSON.stringify(data.githubActionsConfig) : undefined,
+      browser: data.browser ?? 'chromium',
+      browserChannel: data.browserChannel,
+      headless: data.headless ?? true,
+      viewport: JSON.stringify(data.viewport ?? { width: 1280, height: 720 }),
+      workers: data.workers ?? 1,
+      shardCount: data.shardCount ?? 1,
+      retries: data.retries ?? 0,
+      timeout: data.timeout ?? 30000,
+      tracing: data.tracing ?? 'on-failure',
+      screenshot: data.screenshot ?? 'on-failure',
+      video: data.video ?? 'off',
+      advancedConfig: data.advancedConfig ? JSON.stringify(data.advancedConfig) : undefined,
     });
 
-    return this.formatConfiguration(config);
+    const environment = config.environmentId
+      ? await executionEnvironmentRepository.findById(config.environmentId)
+      : null;
+
+    return this.formatConfiguration({ ...config, environment });
   }
 
   async updateConfiguration(
@@ -148,9 +149,7 @@ export class RunConfigurationService {
     configId: string,
     data: RunConfigurationUpdate
   ): Promise<RunConfiguration> {
-    const existing = await prisma.runConfiguration.findUnique({
-      where: { id: configId },
-    });
+    const existing = await runConfigurationRepository.findById(configId);
 
     if (!existing) {
       throw new NotFoundError('Run configuration not found');
@@ -160,66 +159,54 @@ export class RunConfigurationService {
 
     // If this is set as default, unset other defaults
     if (data.isDefault) {
-      await prisma.runConfiguration.updateMany({
-        where: { workflowId: existing.workflowId, isDefault: true, id: { not: configId } },
-        data: { isDefault: false },
-      });
+      const configs = await runConfigurationRepository.findByWorkflowId(existing.workflowId);
+      for (const config of configs.filter(c => c.isDefault && c.id !== configId)) {
+        await runConfigurationRepository.update(config.id, { isDefault: false });
+      }
     }
 
     const updateData: any = {};
     if (data.name !== undefined) updateData.name = data.name;
     if (data.description !== undefined) updateData.description = data.description;
     if (data.isDefault !== undefined) updateData.isDefault = data.isDefault;
-    if (data.tags !== undefined) updateData.tags = JSON.stringify(data.tags);
+    if (data.tags !== undefined) updateData.tags = data.tags;
     if (data.tagMode !== undefined) updateData.tagMode = data.tagMode;
-    if (data.excludeTags !== undefined) updateData.excludeTags = JSON.stringify(data.excludeTags);
-    if (data.testFlowIds !== undefined) updateData.testFlowIds = JSON.stringify(data.testFlowIds);
+    if (data.excludeTags !== undefined) updateData.excludeTags = data.excludeTags;
+    if (data.testFlowIds !== undefined) updateData.testFlowIds = data.testFlowIds;
     if (data.grep !== undefined) updateData.grep = data.grep;
     if (data.environmentId !== undefined) updateData.environmentId = data.environmentId;
     if (data.target !== undefined) updateData.target = data.target;
-    // Target-specific configs
     if (data.localConfig !== undefined) updateData.localConfig = data.localConfig ? JSON.stringify(data.localConfig) : null;
     if (data.dockerConfig !== undefined) updateData.dockerConfig = data.dockerConfig ? JSON.stringify(data.dockerConfig) : null;
     if (data.githubActionsConfig !== undefined) updateData.githubActionsConfig = data.githubActionsConfig ? JSON.stringify(data.githubActionsConfig) : null;
-    // Legacy
-    if (data.remoteRunnerId !== undefined) updateData.remoteRunnerId = data.remoteRunnerId;
-    // Browser settings
     if (data.browser !== undefined) updateData.browser = data.browser;
     if (data.browserChannel !== undefined) updateData.browserChannel = data.browserChannel;
     if (data.headless !== undefined) updateData.headless = data.headless;
     if (data.viewport !== undefined) updateData.viewport = JSON.stringify(data.viewport);
-    // Parallel execution (legacy)
     if (data.workers !== undefined) updateData.workers = data.workers;
     if (data.shardCount !== undefined) updateData.shardCount = data.shardCount;
-    // Retry & Timeout
     if (data.retries !== undefined) updateData.retries = data.retries;
     if (data.timeout !== undefined) updateData.timeout = data.timeout;
-    // Artifacts
     if (data.tracing !== undefined) updateData.tracing = data.tracing;
     if (data.screenshot !== undefined) updateData.screenshot = data.screenshot;
     if (data.video !== undefined) updateData.video = data.video;
-    // Advanced Config
-    if (data.advancedConfig !== undefined) updateData.advancedConfig = data.advancedConfig ? JSON.stringify(data.advancedConfig) : '{}';
-    // GitHub Actions specific
-    if (data.githubRepository !== undefined) updateData.githubRepository = data.githubRepository;
-    if (data.githubWorkflowPath !== undefined) updateData.githubWorkflowPath = data.githubWorkflowPath;
+    if (data.advancedConfig !== undefined) updateData.advancedConfig = data.advancedConfig ? JSON.stringify(data.advancedConfig) : null;
 
-    const config = await prisma.runConfiguration.update({
-      where: { id: configId },
-      data: updateData,
-      include: {
-        environment: true,
-        remoteRunner: true,
-      },
-    });
+    const config = await runConfigurationRepository.update(configId, updateData);
 
-    return this.formatConfiguration(config);
+    if (!config) {
+      throw new NotFoundError('Run configuration not found');
+    }
+
+    const environment = config.environmentId
+      ? await executionEnvironmentRepository.findById(config.environmentId)
+      : null;
+
+    return this.formatConfiguration({ ...config, environment });
   }
 
   async deleteConfiguration(userId: string, configId: string): Promise<void> {
-    const existing = await prisma.runConfiguration.findUnique({
-      where: { id: configId },
-    });
+    const existing = await runConfigurationRepository.findById(configId);
 
     if (!existing) {
       throw new NotFoundError('Run configuration not found');
@@ -227,9 +214,7 @@ export class RunConfigurationService {
 
     await this.verifyWorkflowAccess(userId, existing.workflowId);
 
-    await prisma.runConfiguration.delete({
-      where: { id: configId },
-    });
+    await runConfigurationRepository.delete(configId);
   }
 
   async duplicateConfiguration(
@@ -243,42 +228,28 @@ export class RunConfigurationService {
       name: newName,
       description: existing.description,
       isDefault: false,
-      // Test Filters
       tags: existing.tags,
       tagMode: existing.tagMode,
       excludeTags: existing.excludeTags,
       testFlowIds: existing.testFlowIds,
       grep: existing.grep,
-      // Environment
       environmentId: existing.environmentId,
-      // Execution Target
       target: existing.target,
-      // Target-specific configs
       localConfig: existing.localConfig,
       dockerConfig: existing.dockerConfig,
       githubActionsConfig: existing.githubActionsConfig,
-      // Legacy
-      remoteRunnerId: existing.remoteRunnerId,
-      // Browser Settings
       browser: existing.browser,
       browserChannel: existing.browserChannel,
       headless: existing.headless,
       viewport: existing.viewport,
-      // Parallel Execution (legacy)
       workers: existing.workers,
       shardCount: existing.shardCount,
-      // Retry & Timeout
       retries: existing.retries,
       timeout: existing.timeout,
-      // Artifacts
       tracing: existing.tracing,
       screenshot: existing.screenshot,
       video: existing.video,
-      // Advanced Config
       advancedConfig: existing.advancedConfig,
-      // GitHub Actions specific
-      githubRepository: existing.githubRepository,
-      githubWorkflowPath: existing.githubWorkflowPath,
     });
   }
 
@@ -289,46 +260,33 @@ export class RunConfigurationService {
       name: config.name,
       description: config.description ?? undefined,
       isDefault: config.isDefault,
-      // Test Filters
-      tags: JSON.parse(config.tags),
+      tags: Array.isArray(config.tags) ? config.tags : JSON.parse(config.tags || '[]'),
       tagMode: config.tagMode as 'any' | 'all',
-      excludeTags: JSON.parse(config.excludeTags),
-      testFlowIds: JSON.parse(config.testFlowIds),
+      excludeTags: Array.isArray(config.excludeTags) ? config.excludeTags : JSON.parse(config.excludeTags || '[]'),
+      testFlowIds: Array.isArray(config.testFlowIds) ? config.testFlowIds : JSON.parse(config.testFlowIds || '[]'),
       grep: config.grep ?? undefined,
-      // Environment
       environmentId: config.environmentId ?? undefined,
       environment: config.environment ? this.formatEnvironment(config.environment) : undefined,
-      // Execution Target
       target: config.target as ExecutionTarget,
-      // Target-specific configs
-      localConfig: config.localConfig ? JSON.parse(config.localConfig) as LocalExecutionConfig : undefined,
-      dockerConfig: config.dockerConfig ? JSON.parse(config.dockerConfig) as DockerExecutionConfig : undefined,
-      githubActionsConfig: config.githubActionsConfig ? JSON.parse(config.githubActionsConfig) as GitHubActionsConfig : undefined,
-      // Legacy
+      localConfig: config.localConfig ? (typeof config.localConfig === 'string' ? JSON.parse(config.localConfig) : config.localConfig) as LocalExecutionConfig : undefined,
+      dockerConfig: config.dockerConfig ? (typeof config.dockerConfig === 'string' ? JSON.parse(config.dockerConfig) : config.dockerConfig) as DockerExecutionConfig : undefined,
+      githubActionsConfig: config.githubActionsConfig ? (typeof config.githubActionsConfig === 'string' ? JSON.parse(config.githubActionsConfig) : config.githubActionsConfig) as GitHubActionsConfig : undefined,
       remoteRunnerId: config.remoteRunnerId ?? undefined,
       remoteRunner: config.remoteRunner ? this.formatRunner(config.remoteRunner) : undefined,
-      // Browser Settings
       browser: config.browser as BrowserType,
       browserChannel: config.browserChannel as BrowserChannel | undefined,
       headless: config.headless,
-      viewport: JSON.parse(config.viewport) as Viewport,
-      // Parallel Execution (legacy)
+      viewport: (typeof config.viewport === 'string' ? JSON.parse(config.viewport) : config.viewport) as Viewport,
       workers: config.workers,
       shardCount: config.shardCount,
-      // Retry & Timeout
       retries: config.retries,
       timeout: config.timeout,
-      // Artifacts
       tracing: config.tracing as ArtifactMode,
       screenshot: config.screenshot as ArtifactMode,
       video: config.video as ArtifactMode,
-      // Advanced Config
-      advancedConfig: config.advancedConfig ? JSON.parse(config.advancedConfig) : undefined,
-      // GitHub Actions specific
-      githubRepository: config.githubRepository ?? undefined,
-      githubWorkflowPath: config.githubWorkflowPath ?? undefined,
-      createdAt: config.createdAt.toISOString(),
-      updatedAt: config.updatedAt.toISOString(),
+      advancedConfig: config.advancedConfig ? (typeof config.advancedConfig === 'string' ? JSON.parse(config.advancedConfig) : config.advancedConfig) : undefined,
+      createdAt: config.createdAt?.toISOString?.() || config.createdAt,
+      updatedAt: config.updatedAt?.toISOString?.() || config.updatedAt,
     };
   }
 
@@ -339,18 +297,13 @@ export class RunConfigurationService {
   async findAllEnvironments(userId: string, workflowId: string): Promise<ExecutionEnvironment[]> {
     await this.verifyWorkflowAccess(userId, workflowId);
 
-    const envs = await prisma.executionEnvironment.findMany({
-      where: { workflowId },
-      orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
-    });
+    const envs = await executionEnvironmentRepository.findByWorkflowId(workflowId);
 
     return envs.map(this.formatEnvironment);
   }
 
   async findEnvironmentById(userId: string, envId: string): Promise<ExecutionEnvironment> {
-    const env = await prisma.executionEnvironment.findUnique({
-      where: { id: envId },
-    });
+    const env = await executionEnvironmentRepository.findById(envId);
 
     if (!env) {
       throw new NotFoundError('Environment not found');
@@ -370,22 +323,17 @@ export class RunConfigurationService {
 
     // If this is set as default, unset other defaults
     if (data.isDefault) {
-      await prisma.executionEnvironment.updateMany({
-        where: { workflowId, isDefault: true },
-        data: { isDefault: false },
-      });
+      await executionEnvironmentRepository.updateManyByWorkflowId(workflowId, { isDefault: false });
     }
 
-    const env = await prisma.executionEnvironment.create({
-      data: {
-        workflowId,
-        name: data.name,
-        slug: data.slug,
-        baseUrl: data.baseUrl,
-        description: data.description,
-        variables: JSON.stringify(data.variables ?? {}),
-        isDefault: data.isDefault ?? false,
-      },
+    const env = await executionEnvironmentRepository.create({
+      workflowId,
+      name: data.name,
+      slug: data.slug,
+      baseUrl: data.baseUrl,
+      description: data.description,
+      variables: JSON.stringify(data.variables ?? {}),
+      isDefault: data.isDefault ?? false,
     });
 
     return this.formatEnvironment(env);
@@ -396,9 +344,7 @@ export class RunConfigurationService {
     envId: string,
     data: ExecutionEnvironmentUpdate
   ): Promise<ExecutionEnvironment> {
-    const existing = await prisma.executionEnvironment.findUnique({
-      where: { id: envId },
-    });
+    const existing = await executionEnvironmentRepository.findById(envId);
 
     if (!existing) {
       throw new NotFoundError('Environment not found');
@@ -408,10 +354,10 @@ export class RunConfigurationService {
 
     // If this is set as default, unset other defaults
     if (data.isDefault) {
-      await prisma.executionEnvironment.updateMany({
-        where: { workflowId: existing.workflowId, isDefault: true, id: { not: envId } },
-        data: { isDefault: false },
-      });
+      const envs = await executionEnvironmentRepository.findByWorkflowId(existing.workflowId);
+      for (const env of envs.filter(e => e.isDefault && e.id !== envId)) {
+        await executionEnvironmentRepository.update(env.id, { isDefault: false });
+      }
     }
 
     const updateData: any = {};
@@ -422,18 +368,17 @@ export class RunConfigurationService {
     if (data.variables !== undefined) updateData.variables = JSON.stringify(data.variables);
     if (data.isDefault !== undefined) updateData.isDefault = data.isDefault;
 
-    const env = await prisma.executionEnvironment.update({
-      where: { id: envId },
-      data: updateData,
-    });
+    const env = await executionEnvironmentRepository.update(envId, updateData);
+
+    if (!env) {
+      throw new NotFoundError('Environment not found');
+    }
 
     return this.formatEnvironment(env);
   }
 
   async deleteEnvironment(userId: string, envId: string): Promise<void> {
-    const existing = await prisma.executionEnvironment.findUnique({
-      where: { id: envId },
-    });
+    const existing = await executionEnvironmentRepository.findById(envId);
 
     if (!existing) {
       throw new NotFoundError('Environment not found');
@@ -441,9 +386,7 @@ export class RunConfigurationService {
 
     await this.verifyWorkflowAccess(userId, existing.workflowId);
 
-    await prisma.executionEnvironment.delete({
-      where: { id: envId },
-    });
+    await executionEnvironmentRepository.delete(envId);
   }
 
   private formatEnvironment(env: any): ExecutionEnvironment {
@@ -454,10 +397,10 @@ export class RunConfigurationService {
       slug: env.slug,
       baseUrl: env.baseUrl,
       description: env.description ?? undefined,
-      variables: JSON.parse(env.variables),
+      variables: typeof env.variables === 'string' ? JSON.parse(env.variables) : env.variables,
       isDefault: env.isDefault,
-      createdAt: env.createdAt.toISOString(),
-      updatedAt: env.updatedAt.toISOString(),
+      createdAt: env.createdAt?.toISOString?.() || env.createdAt,
+      updatedAt: env.updatedAt?.toISOString?.() || env.updatedAt,
     };
   }
 
@@ -468,18 +411,13 @@ export class RunConfigurationService {
   async findAllRunners(userId: string, workflowId: string): Promise<RemoteRunner[]> {
     await this.verifyWorkflowAccess(userId, workflowId);
 
-    const runners = await prisma.remoteRunner.findMany({
-      where: { workflowId },
-      orderBy: [{ isHealthy: 'desc' }, { name: 'asc' }],
-    });
+    const runners = await remoteRunnerRepository.findByWorkflowId(workflowId);
 
     return runners.map(this.formatRunner);
   }
 
   async findRunnerById(userId: string, runnerId: string): Promise<RemoteRunner> {
-    const runner = await prisma.remoteRunner.findUnique({
-      where: { id: runnerId },
-    });
+    const runner = await remoteRunnerRepository.findById(runnerId);
 
     if (!runner) {
       throw new NotFoundError('Remote runner not found');
@@ -497,18 +435,16 @@ export class RunConfigurationService {
   ): Promise<RemoteRunner> {
     await this.verifyWorkflowAccess(userId, workflowId);
 
-    const runner = await prisma.remoteRunner.create({
-      data: {
-        workflowId,
-        name: data.name,
-        host: data.host,
-        port: data.port ?? 22,
-        authType: data.authType ?? 'ssh-key',
-        credentialId: data.credentialId,
-        dockerImage: data.dockerImage,
-        maxWorkers: data.maxWorkers ?? 4,
-        isHealthy: true,
-      },
+    const runner = await remoteRunnerRepository.create({
+      workflowId,
+      name: data.name,
+      host: data.host,
+      port: data.port ?? 22,
+      authType: data.authType ?? 'ssh-key',
+      credentialId: data.credentialId,
+      dockerImage: data.dockerImage,
+      maxWorkers: data.maxWorkers ?? 4,
+      isHealthy: true,
     });
 
     return this.formatRunner(runner);
@@ -519,9 +455,7 @@ export class RunConfigurationService {
     runnerId: string,
     data: RemoteRunnerUpdate
   ): Promise<RemoteRunner> {
-    const existing = await prisma.remoteRunner.findUnique({
-      where: { id: runnerId },
-    });
+    const existing = await remoteRunnerRepository.findById(runnerId);
 
     if (!existing) {
       throw new NotFoundError('Remote runner not found');
@@ -538,18 +472,17 @@ export class RunConfigurationService {
     if (data.dockerImage !== undefined) updateData.dockerImage = data.dockerImage;
     if (data.maxWorkers !== undefined) updateData.maxWorkers = data.maxWorkers;
 
-    const runner = await prisma.remoteRunner.update({
-      where: { id: runnerId },
-      data: updateData,
-    });
+    const runner = await remoteRunnerRepository.update(runnerId, updateData);
+
+    if (!runner) {
+      throw new NotFoundError('Remote runner not found');
+    }
 
     return this.formatRunner(runner);
   }
 
   async deleteRunner(userId: string, runnerId: string): Promise<void> {
-    const existing = await prisma.remoteRunner.findUnique({
-      where: { id: runnerId },
-    });
+    const existing = await remoteRunnerRepository.findById(runnerId);
 
     if (!existing) {
       throw new NotFoundError('Remote runner not found');
@@ -557,26 +490,20 @@ export class RunConfigurationService {
 
     await this.verifyWorkflowAccess(userId, existing.workflowId);
 
-    await prisma.remoteRunner.delete({
-      where: { id: runnerId },
-    });
+    await remoteRunnerRepository.delete(runnerId);
   }
 
   async pingRunner(userId: string, runnerId: string): Promise<{ healthy: boolean; message?: string }> {
     const runner = await this.findRunnerById(userId, runnerId);
 
-    // TODO: Implement actual health check (SSH connection, Docker ping, etc.)
-    // For now, just simulate
+    // TODO: Implement actual health check
     const isHealthy = true;
     const message = isHealthy ? 'Connection successful' : 'Failed to connect';
 
-    await prisma.remoteRunner.update({
-      where: { id: runnerId },
-      data: {
-        isHealthy,
-        lastPingAt: new Date(),
-        errorMessage: isHealthy ? null : message,
-      },
+    await remoteRunnerRepository.update(runnerId, {
+      isHealthy,
+      lastPingAt: new Date(),
+      errorMessage: isHealthy ? undefined : message,
     });
 
     return { healthy: isHealthy, message };
@@ -594,10 +521,10 @@ export class RunConfigurationService {
       dockerImage: runner.dockerImage ?? undefined,
       maxWorkers: runner.maxWorkers,
       isHealthy: runner.isHealthy,
-      lastPingAt: runner.lastPingAt?.toISOString() ?? undefined,
+      lastPingAt: runner.lastPingAt?.toISOString?.() ?? undefined,
       errorMessage: runner.errorMessage ?? undefined,
-      createdAt: runner.createdAt.toISOString(),
-      updatedAt: runner.updatedAt.toISOString(),
+      createdAt: runner.createdAt?.toISOString?.() || runner.createdAt,
+      updatedAt: runner.updatedAt?.toISOString?.() || runner.updatedAt,
     };
   }
 
@@ -608,10 +535,7 @@ export class RunConfigurationService {
   async findAllCredentials(userId: string, workflowId: string): Promise<StoredCredential[]> {
     await this.verifyWorkflowAccess(userId, workflowId);
 
-    const credentials = await prisma.storedCredential.findMany({
-      where: { workflowId },
-      orderBy: { name: 'asc' },
-    });
+    const credentials = await storedCredentialRepository.findByWorkflowId(workflowId);
 
     return credentials.map(this.formatCredential);
   }
@@ -626,22 +550,18 @@ export class RunConfigurationService {
     // TODO: Encrypt the value before storing
     const encryptedValue = Buffer.from(data.value).toString('base64');
 
-    const credential = await prisma.storedCredential.create({
-      data: {
-        workflowId,
-        name: data.name,
-        type: data.type,
-        encryptedValue,
-      },
+    const credential = await storedCredentialRepository.create({
+      workflowId,
+      name: data.name,
+      type: data.type,
+      encryptedValue,
     });
 
     return this.formatCredential(credential);
   }
 
   async deleteCredential(userId: string, credentialId: string): Promise<void> {
-    const existing = await prisma.storedCredential.findUnique({
-      where: { id: credentialId },
-    });
+    const existing = await storedCredentialRepository.findById(credentialId);
 
     if (!existing) {
       throw new NotFoundError('Credential not found');
@@ -649,9 +569,7 @@ export class RunConfigurationService {
 
     await this.verifyWorkflowAccess(userId, existing.workflowId);
 
-    await prisma.storedCredential.delete({
-      where: { id: credentialId },
-    });
+    await storedCredentialRepository.delete(credentialId);
   }
 
   private formatCredential(credential: any): StoredCredential {
@@ -660,8 +578,8 @@ export class RunConfigurationService {
       workflowId: credential.workflowId,
       name: credential.name,
       type: credential.type as 'ssh-key' | 'token' | 'basic' | 'docker-registry',
-      createdAt: credential.createdAt.toISOString(),
-      updatedAt: credential.updatedAt.toISOString(),
+      createdAt: credential.createdAt?.toISOString?.() || credential.createdAt,
+      updatedAt: credential.updatedAt?.toISOString?.() || credential.updatedAt,
     };
   }
 
@@ -672,36 +590,31 @@ export class RunConfigurationService {
   async getAllTags(userId: string, workflowId: string): Promise<string[]> {
     await this.verifyWorkflowAccess(userId, workflowId);
 
-    const flows = await prisma.testFlow.findMany({
-      where: { workflowId },
-      select: { tags: true },
-    });
+    const flows = await testFlowRepository.findByWorkflowId(workflowId);
 
     const allTags = new Set<string>();
     for (const flow of flows) {
-      const tags = JSON.parse(flow.tags) as string[];
-      tags.forEach((tag) => allTags.add(tag));
+      const tags = flow.tags || [];
+      tags.forEach((tag: string) => allTags.add(tag));
     }
 
     return Array.from(allTags).sort();
   }
 
   async updateTestFlowTags(userId: string, flowId: string, tags: string[]): Promise<string[]> {
-    const flow = await prisma.testFlow.findUnique({
-      where: { id: flowId },
-      include: { workflow: true },
-    });
+    const flow = await testFlowRepository.findById(flowId);
 
     if (!flow) {
       throw new NotFoundError('Test flow not found');
     }
 
-    await this.verifyWorkflowAccess(userId, flow.workflowId);
+    const workflow = await workflowRepository.findById(flow.workflowId);
 
-    await prisma.testFlow.update({
-      where: { id: flowId },
-      data: { tags: JSON.stringify(tags) },
-    });
+    if (!workflow || workflow.userId !== userId) {
+      throw new ForbiddenError('Access denied');
+    }
+
+    await testFlowRepository.update(flowId, { tags });
 
     return tags;
   }
@@ -717,10 +630,7 @@ export class RunConfigurationService {
   ): Promise<string[]> {
     await this.verifyWorkflowAccess(userId, workflowId);
 
-    let flows = await prisma.testFlow.findMany({
-      where: { workflowId },
-      select: { id: true, tags: true },
-    });
+    let flows = await testFlowRepository.findByWorkflowId(workflowId);
 
     // If specific flows are selected, filter to just those
     if (config.testFlowIds.length > 0) {
@@ -730,7 +640,7 @@ export class RunConfigurationService {
     // Filter by tags
     if (config.tags.length > 0) {
       flows = flows.filter((flow) => {
-        const flowTags = JSON.parse(flow.tags) as string[];
+        const flowTags = flow.tags || [];
         if (config.tagMode === 'all') {
           return config.tags.every((tag) => flowTags.includes(tag));
         } else {
@@ -742,7 +652,7 @@ export class RunConfigurationService {
     // Exclude by tags
     if (config.excludeTags.length > 0) {
       flows = flows.filter((flow) => {
-        const flowTags = JSON.parse(flow.tags) as string[];
+        const flowTags = flow.tags || [];
         return !config.excludeTags.some((tag) => flowTags.includes(tag));
       });
     }

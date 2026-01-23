@@ -2,17 +2,28 @@
  * AI Settings Routes
  *
  * Manage user AI provider configuration for Copilot
+ * NOW USES MONGODB INSTEAD OF PRISMA
  */
 
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { aiSettingsRepository } from '../db/repositories/mongo';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // All routes require authentication
 router.use(authenticateToken);
+
+// Default settings for new users
+const DEFAULT_AI_SETTINGS = {
+  provider: 'gemini' as const,
+  geminiModel: 'google/gemini-2.0-flash',
+  openaiModel: 'openai/gpt-4o',
+  anthropicModel: 'anthropic/claude-sonnet-4-20250514',
+  stagehandHeadless: true,
+  stagehandDebug: false,
+  useBrowserbase: false,
+};
 
 /**
  * GET /api/ai-settings
@@ -23,24 +34,11 @@ router.get('/', async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
     const userId = authReq.userId!;
 
-    let settings = await prisma.aISettings.findUnique({
-      where: { userId },
-    });
+    let settings = await aiSettingsRepository.findByUserId(userId);
 
     // Create default settings if none exist
     if (!settings) {
-      settings = await prisma.aISettings.create({
-        data: {
-          userId,
-          provider: 'gemini',
-          geminiModel: 'gemini-2.5-pro-preview-03-25',
-          openaiModel: 'gpt-4o',
-          anthropicModel: 'claude-sonnet-4-20250514',
-          stagehandHeadless: true,
-          stagehandDebug: false,
-          useBrowserbase: false,
-        },
-      });
+      settings = await aiSettingsRepository.upsert(userId, DEFAULT_AI_SETTINGS);
     }
 
     // Mask API keys for security (only show last 4 chars)
@@ -112,14 +110,7 @@ router.put('/', async (req: Request, res: Response) => {
       updateData.browserbaseApiKey = browserbaseApiKey;
     }
 
-    const settings = await prisma.aISettings.upsert({
-      where: { userId },
-      update: updateData,
-      create: {
-        userId,
-        ...updateData,
-      },
-    });
+    const settings = await aiSettingsRepository.upsert(userId, updateData);
 
     // Mask API keys in response
     const maskedSettings = {
@@ -151,9 +142,7 @@ router.post('/test', async (req: Request, res: Response) => {
     const userId = authReq.userId!;
     const { provider } = req.body;
 
-    const settings = await prisma.aISettings.findUnique({
-      where: { userId },
-    });
+    const settings = await aiSettingsRepository.findByUserId(userId);
 
     if (!settings) {
       return res.status(400).json({ error: 'AI settings not configured' });
@@ -259,10 +248,7 @@ router.delete('/key/:provider', async (req: Request, res: Response) => {
         return res.status(400).json({ error: `Unknown provider: ${provider}` });
     }
 
-    await prisma.aISettings.update({
-      where: { userId },
-      data: updateData,
-    });
+    await aiSettingsRepository.upsert(userId, updateData);
 
     res.json({ success: true, message: `${provider} API key deleted` });
   } catch (error: any) {

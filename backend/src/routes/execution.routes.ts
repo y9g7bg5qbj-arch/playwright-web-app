@@ -424,6 +424,7 @@ router.get('/local/trace', async (req, res, next) => {
     }
 
     // Removed: [LOCAL-TRACE] Serving trace
+    const tracePath = (latestTrace as { path: string; mtime: Date }).path;
 
     // Send with CORS headers for trace.playwright.dev
     res.setHeader('Content-Type', 'application/zip');
@@ -432,7 +433,7 @@ router.get('/local/trace', async (req, res, next) => {
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-    res.sendFile(latestTrace.path, (err) => {
+    res.sendFile(tracePath, (err) => {
       if (err) {
         // Removed: [LOCAL-TRACE] Error sending file
         if (!res.headersSent) {

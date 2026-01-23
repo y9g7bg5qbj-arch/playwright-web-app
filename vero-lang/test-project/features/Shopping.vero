@@ -4,58 +4,58 @@ FEATURE Shopping {
     USE ProductPage
     USE CartPage
     USE CheckoutPage
-    
+
     BEFORE EACH {
         OPEN "https://shop.example.com/products/laptop"
     }
-    
-    SCENARIO "User can add product to cart" @smoke {
+
+    SCENARIO UserCanAddProductToCart @smoke {
         VERIFY ProductPage.productTitle IS VISIBLE
         VERIFY ProductPage.addToCartBtn IS ENABLED
-        DO ProductPage.addToCart
+        PERFORM ProductPage.addToCart
         WAIT 500 MILLISECONDS
         VERIFY ProductPage.cartBadge IS VISIBLE
     }
-    
-    SCENARIO "User can add multiple quantities" @regression {
-        DO ProductPage.addToCartWithQuantity WITH "3"
+
+    SCENARIO UserCanAddMultipleQuantities @regression {
+        PERFORM ProductPage.addToCartWithQuantity WITH "3"
         WAIT 1 SECONDS
         VERIFY ProductPage.cartBadge IS VISIBLE
         LOG "Added 3 items to cart"
     }
-    
-    SCENARIO "User can complete checkout" @smoke @e2e {
-        DO ProductPage.addToCart
+
+    SCENARIO UserCanCompleteCheckout @smoke @e2e {
+        PERFORM ProductPage.addToCart
         OPEN "https://shop.example.com/cart"
         VERIFY CartPage.cartItems IS VISIBLE
         VERIFY CartPage.cartTotal IS NOT EMPTY
-        DO CartPage.proceedToCheckout
-        DO CheckoutPage.fillShippingInfo WITH "buyer@test.com", "123 Main St", "New York", "10001"
-        DO CheckoutPage.fillPaymentInfo WITH "4111111111111111", "12/25", "123"
-        DO CheckoutPage.placeOrder
+        PERFORM CartPage.proceedToCheckout
+        PERFORM CheckoutPage.fillShippingInfo WITH "buyer@test.com", "123 Main St", "New York", "10001"
+        PERFORM CheckoutPage.fillPaymentInfo WITH "4111111111111111", "12/25", "123"
+        PERFORM CheckoutPage.placeOrder
         WAIT 3 SECONDS
         VERIFY CheckoutPage.orderConfirmation IS VISIBLE
         TAKE SCREENSHOT "order_complete.png"
     }
-    
-    SCENARIO "Promo code applies discount" @regression {
-        DO ProductPage.addToCart
+
+    SCENARIO PromoCodeAppliesDiscount @regression {
+        PERFORM ProductPage.addToCart
         OPEN "https://shop.example.com/cart"
-        DO CartPage.applyPromoCode WITH "SAVE20"
+        PERFORM CartPage.applyPromoCode WITH "SAVE20"
         WAIT 1 SECONDS
         VERIFY CartPage.promoSuccessMsg IS VISIBLE
         VERIFY CartPage.promoErrorMsg IS HIDDEN
     }
-    
-    SCENARIO "Invalid promo code shows error" @negative {
-        DO ProductPage.addToCart
+
+    SCENARIO InvalidPromoCodeShowsError @negative {
+        PERFORM ProductPage.addToCart
         OPEN "https://shop.example.com/cart"
-        DO CartPage.applyPromoCode WITH "INVALIDCODE"
+        PERFORM CartPage.applyPromoCode WITH "INVALIDCODE"
         VERIFY CartPage.promoErrorMsg IS VISIBLE
         VERIFY CartPage.promoSuccessMsg IS NOT VISIBLE
     }
-    
-    SCENARIO "Empty cart displays message" @edge {
+
+    SCENARIO EmptyCartDisplaysMessage @edge {
         OPEN "https://shop.example.com/cart"
         VERIFY CartPage.emptyCartMessage IS VISIBLE
         VERIFY CartPage.checkoutBtn IS DISABLED

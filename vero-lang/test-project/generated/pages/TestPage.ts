@@ -20,8 +20,8 @@ export class TestPage {
   }
 
   async fillAndSubmit(inputValue: string) {
-    await test.step('Fill TestPage.inputField', async () => { await testPage.inputField.fill(inputValue); });
-    await test.step('Click TestPage.submitBtn', async () => { await testPage.submitBtn.click(); });
+    await test.step('Fill TestPage.inputField', async () => { await this.inputField.fill(inputValue); });
+    await test.step('Click TestPage.submitBtn', async () => { await this.submitBtn.click(); });
     await test.step('Wait 1 seconds', async () => { await page.waitForTimeout(1000); });
   }
 }

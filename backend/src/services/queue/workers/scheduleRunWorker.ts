@@ -5,7 +5,7 @@
  */
 
 import { logger } from '../../../utils/logger';
-import { prisma } from '../../../db/prisma';
+import { scheduleRepository, scheduleRunRepository } from '../../../db/repositories/mongo';
 import { auditService } from '../../audit.service';
 import { notificationService, NotificationConfig, ScheduleRunInfo } from '../../notification.service';
 import { executionEngine } from '../../execution';
@@ -22,12 +22,9 @@ export async function processScheduleRunJob(job: QueueJob<ScheduleRunJobData>): 
   logger.info(`Processing schedule run job: ${job.id} (run: ${runId})`);
 
   // Update run status to running
-  await prisma.scheduleRun.update({
-    where: { id: runId },
-    data: {
-      status: 'running',
-      startedAt: new Date(),
-    },
+  await scheduleRunRepository.update(runId, {
+    status: 'running',
+    startedAt: new Date(),
   });
 
   // Audit log
@@ -39,9 +36,7 @@ export async function processScheduleRunJob(job: QueueJob<ScheduleRunJobData>): 
 
   try {
     // Get schedule details
-    const schedule = await prisma.schedule.findUnique({
-      where: { id: scheduleId },
-    });
+    const schedule = await scheduleRepository.findById(scheduleId);
 
     if (!schedule) {
       throw new Error(`Schedule ${scheduleId} not found`);
@@ -63,13 +58,10 @@ export async function processScheduleRunJob(job: QueueJob<ScheduleRunJobData>): 
     logger.error(`Schedule run ${runId} failed:`, error);
 
     // Update run with failure
-    await prisma.scheduleRun.update({
-      where: { id: runId },
-      data: {
-        status: 'failed',
-        completedAt: new Date(),
-        errorMessage: error.message,
-      },
+    await scheduleRunRepository.update(runId, {
+      status: 'failed',
+      completedAt: new Date(),
+      errorMessage: error.message,
     });
 
     // Audit log failure
@@ -79,9 +71,7 @@ export async function processScheduleRunJob(job: QueueJob<ScheduleRunJobData>): 
 
     // Try to send failure notifications
     try {
-      const schedule = await prisma.schedule.findUnique({
-        where: { id: scheduleId },
-      });
+      const schedule = await scheduleRepository.findById(scheduleId);
 
       if (schedule?.notificationConfig) {
         const notificationConfig = JSON.parse(schedule.notificationConfig);
@@ -169,14 +159,11 @@ async function executeViaGitHubActions(
 
   // Update the run to indicate it was dispatched to GitHub
   // Note: The actual completion will be handled by GitHub webhooks
-  await prisma.scheduleRun.update({
-    where: { id: runId },
-    data: {
-      status: 'running',
-      // We don't have the run ID yet - it will be updated by webhooks
-      // For now, store the repo info in the error message field as metadata
-      errorMessage: null,
-    },
+  await scheduleRunRepository.update(runId, {
+    status: 'running',
+    // We don't have the run ID yet - it will be updated by webhooks
+    // For now, store the repo info in the error message field as metadata
+    errorMessage: undefined,
   });
 
   // Try to get the latest workflow run to link it
@@ -193,12 +180,9 @@ async function executeViaGitHubActions(
 
     if (runs.length > 0) {
       const latestRun = runs[0];
-      await prisma.scheduleRun.update({
-        where: { id: runId },
-        data: {
-          githubRunId: BigInt(latestRun.id),
-          githubRunUrl: latestRun.html_url,
-        },
+      await scheduleRunRepository.update(runId, {
+        githubRunId: String(latestRun.id),
+        githubRunUrl: latestRun.html_url,
       });
       logger.info(`Linked schedule run ${runId} to GitHub Actions run ${latestRun.id}`);
     }
@@ -209,12 +193,9 @@ async function executeViaGitHubActions(
 
   // Update schedule's last run time and calculate next run
   const nextRunAt = calculateNextRunTime(schedule.cronExpression, schedule.timezone);
-  await prisma.schedule.update({
-    where: { id: schedule.id },
-    data: {
-      lastRunAt: new Date(),
-      nextRunAt,
-    },
+  await scheduleRepository.update(schedule.id, {
+    lastRunAt: new Date(),
+    nextRunAt: nextRunAt || undefined,
   });
 
   // Audit log
@@ -275,28 +256,22 @@ async function executeLocally(
   const skippedCount = testResult.status === 'skipped' ? 1 : 0;
 
   // Update run with results
-  await prisma.scheduleRun.update({
-    where: { id: runId },
-    data: {
-      status,
-      testCount,
-      passedCount,
-      failedCount,
-      skippedCount,
-      durationMs,
-      completedAt: new Date(),
-      errorMessage: testResult.error?.message,
-    },
+  await scheduleRunRepository.update(runId, {
+    status,
+    testCount,
+    passedCount,
+    failedCount,
+    skippedCount,
+    durationMs,
+    completedAt: new Date(),
+    errorMessage: testResult.error?.message,
   });
 
   // Update schedule's last run time and calculate next run
   const nextRunAt = calculateNextRunTime(schedule.cronExpression, schedule.timezone);
-  await prisma.schedule.update({
-    where: { id: schedule.id },
-    data: {
-      lastRunAt: new Date(),
-      nextRunAt,
-    },
+  await scheduleRepository.update(schedule.id, {
+    lastRunAt: new Date(),
+    nextRunAt: nextRunAt || undefined,
   });
 
   // Audit log completion

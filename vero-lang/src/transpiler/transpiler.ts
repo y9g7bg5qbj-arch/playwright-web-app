@@ -6,7 +6,16 @@ import {
     DataQueryStatement, DataQuery, TableQuery, AggregationQuery,
     DataCondition, DataComparison,
     FixtureNode,
-    UploadStatement, VerifyUrlStatement, VerifyTitleStatement, VerifyHasStatement
+    UploadStatement, VerifyUrlStatement, VerifyTitleStatement, VerifyHasStatement,
+    // New ROW/ROWS syntax types
+    RowStatement, RowsStatement, ColumnAccessStatement, CountStatement, SimpleTableReference,
+    // Utility function types
+    UtilityAssignmentStatement, UtilityExpressionNode,
+    TrimExpression, ConvertExpression, ExtractExpression, ReplaceExpression,
+    SplitExpression, JoinExpression, LengthExpression, PadExpression,
+    TodayExpression, NowExpression, AddDateExpression, SubtractDateExpression,
+    FormatExpression, DatePartExpression, RoundExpression, AbsoluteExpression,
+    GenerateExpression, RandomNumberExpression, ChainedExpression
 } from '../parser/ast.js';
 
 export interface TranspileOptions {
@@ -95,6 +104,16 @@ export class Transpiler {
                     this.usedTables.add((stmt as LoadStatement).tableName);
                 } else if (stmt.type === 'ForEach') {
                     collectFromStatements((stmt as ForEachStatement).statements);
+                }
+                // New ROW/ROWS syntax
+                else if (stmt.type === 'Row') {
+                    this.usedTables.add((stmt as RowStatement).tableRef.tableName);
+                } else if (stmt.type === 'Rows') {
+                    this.usedTables.add((stmt as RowsStatement).tableRef.tableName);
+                } else if (stmt.type === 'ColumnAccess') {
+                    this.usedTables.add((stmt as ColumnAccessStatement).tableRef.tableName);
+                } else if (stmt.type === 'Count') {
+                    this.usedTables.add((stmt as CountStatement).tableRef.tableName);
                 }
             }
         };
@@ -346,6 +365,39 @@ export class Transpiler {
 
     // ==================== FEATURE TRANSPILATION ====================
 
+    /**
+     * Check if a feature uses any utility functions
+     */
+    private usesUtilityFunctions(feature: FeatureNode): boolean {
+        let hasUtils = false;
+
+        const checkStatements = (statements: StatementNode[]): void => {
+            for (const stmt of statements) {
+                if (stmt.type === 'UtilityAssignment') {
+                    hasUtils = true;
+                    return;
+                }
+                if (stmt.type === 'ForEach') {
+                    checkStatements((stmt as ForEachStatement).statements);
+                }
+            }
+        };
+
+        // Check hooks
+        for (const hook of feature.hooks) {
+            checkStatements(hook.statements);
+            if (hasUtils) return true;
+        }
+
+        // Check scenarios
+        for (const scenario of feature.scenarios) {
+            checkStatements(scenario.statements);
+            if (hasUtils) return true;
+        }
+
+        return hasUtils;
+    }
+
     private transpileFeature(feature: FeatureNode, allFixtures: FixtureNode[] = []): string {
         const lines: string[] = [];
 
@@ -359,6 +411,9 @@ export class Transpiler {
         // Check if feature uses any fixtures
         const usesFixtures = (feature.fixtures || []).length > 0;
 
+        // Check if feature uses utility functions
+        const hasUtilityFunctions = this.usesUtilityFunctions(feature);
+
         // Imports - use fixtures test if fixtures are used
         if (usesFixtures) {
             lines.push("import { test, expect } from '../fixtures';");
@@ -367,6 +422,11 @@ export class Transpiler {
         }
         for (const usedPage of feature.uses) {
             lines.push(`import { ${usedPage} } from '../${this.options.pageObjectDir}/${usedPage}';`);
+        }
+
+        // Add VeroUtils imports if utility functions are used
+        if (hasUtilityFunctions) {
+            lines.push("import { veroString, veroDate, veroNumber, veroConvert, veroGenerate } from '../runtime/VeroUtils';");
         }
 
         // Add debug helper when debug mode is enabled
@@ -515,7 +575,8 @@ export class Transpiler {
         const lines: string[] = [];
 
         const tags = scenario.tags.map(t => `@${t}`).join(' ');
-        const testName = tags ? `${scenario.name} ${tags}` : scenario.name;
+        const readableName = this.toReadableTestName(scenario.name);
+        const testName = tags ? `${readableName} ${tags}` : readableName;
 
         // Determine test modifier based on annotations
         const annotations = scenario.annotations || [];
@@ -640,7 +701,7 @@ export class Transpiler {
             case 'Verify':
                 return this.transpileVerify(statement.target, statement.condition, uses, currentPage);
 
-            case 'Do':
+            case 'Perform':
                 return this.transpileDoAction(statement.action, uses, currentPage);
 
             case 'Refresh':
@@ -685,8 +746,297 @@ export class Transpiler {
             case 'VerifyHas':
                 return this.transpileVerifyHasStatement(statement as VerifyHasStatement, uses, currentPage);
 
+            // New ROW/ROWS syntax
+            case 'Row':
+                return this.transpileRowStatement(statement as RowStatement);
+
+            case 'Rows':
+                return this.transpileRowsStatement(statement as RowsStatement);
+
+            case 'ColumnAccess':
+                return this.transpileColumnAccessStatement(statement as ColumnAccessStatement);
+
+            case 'Count':
+                return this.transpileCountStatement(statement as CountStatement);
+
+            case 'UtilityAssignment':
+                return this.transpileUtilityAssignment(statement as UtilityAssignmentStatement);
+
             default:
                 return `// Unknown statement type`;
+        }
+    }
+
+    // ==================== UTILITY FUNCTION TRANSPILATION ====================
+
+    /**
+     * Transpile utility assignment: TEXT result = TRIM $input
+     * Generates: const result = veroString.trim(input);
+     */
+    private transpileUtilityAssignment(stmt: UtilityAssignmentStatement): string {
+        const exprCode = this.transpileUtilityExpression(stmt.expression);
+        return `const ${stmt.variableName} = ${exprCode};`;
+    }
+
+    /**
+     * Transpile a utility expression to JavaScript
+     */
+    private transpileUtilityExpression(expr: UtilityExpressionNode): string {
+        // Check the expression type
+        if (!expr || typeof expr !== 'object') {
+            return 'null';
+        }
+
+        switch (expr.type) {
+            case 'Trim':
+                return this.transpileTrimExpression(expr as TrimExpression);
+
+            case 'Convert':
+                return this.transpileConvertExpression(expr as ConvertExpression);
+
+            case 'Extract':
+                return this.transpileExtractExpression(expr as ExtractExpression);
+
+            case 'Replace':
+                return this.transpileReplaceExpression(expr as ReplaceExpression);
+
+            case 'Split':
+                return this.transpileSplitExpression(expr as SplitExpression);
+
+            case 'Join':
+                return this.transpileJoinExpression(expr as JoinExpression);
+
+            case 'Length':
+                return this.transpileLengthExpression(expr as LengthExpression);
+
+            case 'Pad':
+                return this.transpilePadExpression(expr as PadExpression);
+
+            case 'Today':
+                return 'veroDate.today()';
+
+            case 'Now':
+                return 'veroDate.now()';
+
+            case 'AddDate':
+                return this.transpileAddDateExpression(expr as AddDateExpression);
+
+            case 'SubtractDate':
+                return this.transpileSubtractDateExpression(expr as SubtractDateExpression);
+
+            case 'Format':
+                return this.transpileFormatExpression(expr as FormatExpression);
+
+            case 'DatePart':
+                return this.transpileDatePartExpression(expr as DatePartExpression);
+
+            case 'Round':
+                return this.transpileRoundExpression(expr as RoundExpression);
+
+            case 'Absolute':
+                return this.transpileAbsoluteExpression(expr as AbsoluteExpression);
+
+            case 'Generate':
+                return this.transpileGenerateExpression(expr as GenerateExpression);
+
+            case 'RandomNumber':
+                return this.transpileRandomNumberExpression(expr as RandomNumberExpression);
+
+            case 'Chained':
+                return this.transpileChainedExpression(expr as ChainedExpression);
+
+            // Fallback to regular expression types
+            case 'StringLiteral':
+            case 'NumberLiteral':
+            case 'BooleanLiteral':
+            case 'VariableReference':
+            case 'EnvVarReference':
+                return this.transpileExpression(expr as ExpressionNode);
+
+            default:
+                return 'null';
+        }
+    }
+
+    private transpileTrimExpression(expr: TrimExpression): string {
+        return `veroString.trim(${this.transpileExpression(expr.value)})`;
+    }
+
+    private transpileConvertExpression(expr: ConvertExpression): string {
+        const value = this.transpileExpression(expr.value);
+        switch (expr.targetType) {
+            case 'UPPERCASE': return `veroString.uppercase(${value})`;
+            case 'LOWERCASE': return `veroString.lowercase(${value})`;
+            case 'NUMBER': return `veroConvert.toNumber(${value})`;
+            case 'TEXT': return `veroConvert.toString(${value})`;
+            default: return value;
+        }
+    }
+
+    private transpileExtractExpression(expr: ExtractExpression): string {
+        const value = this.transpileExpression(expr.value);
+        const start = this.transpileExpression(expr.start);
+        const end = this.transpileExpression(expr.end);
+        return `veroString.substring(${value}, ${start}, ${end})`;
+    }
+
+    private transpileReplaceExpression(expr: ReplaceExpression): string {
+        const value = this.transpileExpression(expr.value);
+        return `veroString.replace(${value}, '${this.escapeString(expr.search)}', '${this.escapeString(expr.replacement)}')`;
+    }
+
+    private transpileSplitExpression(expr: SplitExpression): string {
+        return `veroString.split(${this.transpileExpression(expr.value)}, '${this.escapeString(expr.delimiter)}')`;
+    }
+
+    private transpileJoinExpression(expr: JoinExpression): string {
+        return `veroString.join(${this.transpileExpression(expr.value)}, '${this.escapeString(expr.delimiter)}')`;
+    }
+
+    private transpileLengthExpression(expr: LengthExpression): string {
+        return `veroString.length(${this.transpileExpression(expr.value)})`;
+    }
+
+    private transpilePadExpression(expr: PadExpression): string {
+        const value = this.transpileExpression(expr.value);
+        const length = this.transpileExpression(expr.length);
+        return `veroString.padStart(${value}, ${length}, '${this.escapeString(expr.padChar)}')`;
+    }
+
+    private static readonly DATE_UNIT_METHODS: Record<string, { add: string; subtract: string }> = {
+        'DAY': { add: 'addDays', subtract: 'subtractDays' },
+        'DAYS': { add: 'addDays', subtract: 'subtractDays' },
+        'MONTH': { add: 'addMonths', subtract: 'subtractMonths' },
+        'MONTHS': { add: 'addMonths', subtract: 'subtractMonths' },
+        'YEAR': { add: 'addYears', subtract: 'subtractYears' },
+        'YEARS': { add: 'addYears', subtract: 'subtractYears' }
+    };
+
+    private transpileAddDateExpression(expr: AddDateExpression): string {
+        const amount = this.transpileExpression(expr.amount);
+        const date = this.transpileDateOrExpression(expr.date);
+        const method = Transpiler.DATE_UNIT_METHODS[expr.unit]?.add || 'addDays';
+        return `veroDate.${method}(${date}, ${amount})`;
+    }
+
+    private transpileSubtractDateExpression(expr: SubtractDateExpression): string {
+        const amount = this.transpileExpression(expr.amount);
+        const date = this.transpileDateOrExpression(expr.date);
+        const method = Transpiler.DATE_UNIT_METHODS[expr.unit]?.subtract || 'subtractDays';
+        return `veroDate.${method}(${date}, ${amount})`;
+    }
+
+    private transpileDateOrExpression(expr: ExpressionNode | TodayExpression | NowExpression): string {
+        if (expr.type === 'Today') return 'veroDate.today()';
+        if (expr.type === 'Now') return 'veroDate.now()';
+        return this.transpileExpression(expr as ExpressionNode);
+    }
+
+    private transpileFormatExpression(expr: FormatExpression): string {
+        const value = this.transpileExpression(expr.value);
+        switch (expr.formatType) {
+            case 'pattern': return `veroDate.formatDate(${value}, '${this.escapeString(expr.pattern || '')}')`;
+            case 'currency': return `veroNumber.formatCurrency(${value}, '${expr.currency || 'USD'}')`;
+            case 'percent': return `veroNumber.formatPercent(${value})`;
+            default: return value;
+        }
+    }
+
+    private static readonly DATE_PART_METHODS: Record<string, string> = {
+        'YEAR': 'year', 'MONTH': 'month', 'DAY': 'day'
+    };
+
+    private transpileDatePartExpression(expr: DatePartExpression): string {
+        const method = Transpiler.DATE_PART_METHODS[expr.part] || 'year';
+        return `veroDate.${method}(${this.transpileExpression(expr.date)})`;
+    }
+
+    private transpileRoundExpression(expr: RoundExpression): string {
+        const value = this.transpileExpression(expr.value);
+        if (expr.direction === 'UP') return `veroNumber.ceiling(${value})`;
+        if (expr.direction === 'DOWN') return `veroNumber.floor(${value})`;
+        if (expr.decimals) return `veroNumber.round(${value}, ${this.transpileExpression(expr.decimals)})`;
+        return `veroNumber.round(${value})`;
+    }
+
+    private transpileAbsoluteExpression(expr: AbsoluteExpression): string {
+        return `veroNumber.abs(${this.transpileExpression(expr.value)})`;
+    }
+
+    private transpileGenerateExpression(expr: GenerateExpression): string {
+        if (expr.pattern === 'UUID') return 'veroGenerate.uuid()';
+        return `veroGenerate.fromRegex('${this.escapeString(expr.pattern as string)}')`;
+    }
+
+    private transpileRandomNumberExpression(expr: RandomNumberExpression): string {
+        const min = this.transpileExpression(expr.min);
+        const max = this.transpileExpression(expr.max);
+        return `veroGenerate.randomInt(${min}, ${max})`;
+    }
+
+    private transpileChainedExpression(expr: ChainedExpression): string {
+        const first = this.transpileUtilityExpression(expr.first);
+        return this.transpileChainedSecond(expr.second, first);
+    }
+
+    private transpileChainedSecond(expr: UtilityExpressionNode, input: string): string {
+        switch (expr.type) {
+            case 'Trim':
+                return `veroString.trim(${input})`;
+
+            case 'Convert': {
+                const e = expr as ConvertExpression;
+                switch (e.targetType) {
+                    case 'UPPERCASE': return `veroString.uppercase(${input})`;
+                    case 'LOWERCASE': return `veroString.lowercase(${input})`;
+                    case 'NUMBER': return `veroConvert.toNumber(${input})`;
+                    case 'TEXT': return `veroConvert.toString(${input})`;
+                    default: return input;
+                }
+            }
+
+            case 'Replace': {
+                const e = expr as ReplaceExpression;
+                return `veroString.replace(${input}, '${this.escapeString(e.search)}', '${this.escapeString(e.replacement)}')`;
+            }
+
+            case 'Split': {
+                const e = expr as SplitExpression;
+                return `veroString.split(${input}, '${this.escapeString(e.delimiter)}')`;
+            }
+
+            case 'Length':
+                return `veroString.length(${input})`;
+
+            case 'Round': {
+                const e = expr as RoundExpression;
+                if (e.direction === 'UP') return `veroNumber.ceiling(${input})`;
+                if (e.direction === 'DOWN') return `veroNumber.floor(${input})`;
+                if (e.decimals) return `veroNumber.round(${input}, ${this.transpileExpression(e.decimals)})`;
+                return `veroNumber.round(${input})`;
+            }
+
+            case 'Absolute':
+                return `veroNumber.abs(${input})`;
+
+            case 'Format': {
+                const e = expr as FormatExpression;
+                switch (e.formatType) {
+                    case 'pattern': return `veroDate.formatDate(${input}, '${this.escapeString(e.pattern || '')}')`;
+                    case 'currency': return `veroNumber.formatCurrency(${input}, '${e.currency || 'USD'}')`;
+                    case 'percent': return `veroNumber.formatPercent(${input})`;
+                    default: return input;
+                }
+            }
+
+            case 'Chained': {
+                const e = expr as ChainedExpression;
+                const firstResult = this.transpileChainedSecond(e.first, input);
+                return this.transpileChainedSecond(e.second, firstResult);
+            }
+
+            default:
+                return input;
         }
     }
 
@@ -790,6 +1140,270 @@ export class Transpiler {
         lines.push(this.line('}'));
 
         return lines.join('\n');
+    }
+
+    // ==================== ROW/ROWS TRANSPILATION ====================
+
+    /**
+     * Transpile ROW statement: ROW user = Users WHERE state = "CA"
+     * Generates code that fetches the row and resolves any reference columns
+     */
+    private transpileRowStatement(statement: RowStatement): string {
+        const { variableName, modifier, tableRef, where, orderBy } = statement;
+        const tableName = this.getTableAccessor(tableRef);
+        const dataClass = tableRef.projectName ? `${tableRef.projectName}Data` : 'Data';
+        const filterVar = '_item';
+        const rawVar = `_raw_${variableName}`;
+
+        const lines: string[] = [];
+
+        if (modifier === 'RANDOM') {
+            // RANDOM: filter, then pick random
+            if (where) {
+                const filterCode = this.transpileDataConditionForFilter(where, filterVar);
+                lines.push(`const _filtered = ${tableName}.filter(${filterVar} => ${filterCode});`);
+                lines.push(`const ${rawVar} = _filtered[Math.floor(Math.random() * _filtered.length)];`);
+            } else {
+                lines.push(`const ${rawVar} = ${tableName}[Math.floor(Math.random() * ${tableName}.length)];`);
+            }
+            lines.push(`if (!${rawVar}) throw new Error('No matching row found in ${tableRef.tableName}');`);
+            // Resolve references
+            lines.push(`const ${variableName} = ${dataClass}.resolveReferences('${tableRef.tableName}', ${rawVar});`);
+            return lines.join('\n' + '  '.repeat(this.indent));
+        }
+
+        if (modifier === 'FIRST' || modifier === 'LAST') {
+            // FIRST/LAST: sort (if orderBy), then pick first/last
+            let sortedRef = tableName;
+            if (orderBy && orderBy.length > 0) {
+                const sortCode = this.generateSortCode(orderBy);
+                lines.push(`const _sorted = [...${tableName}].sort(${sortCode});`);
+                sortedRef = '_sorted';
+            }
+
+            if (where) {
+                const filterCode = this.transpileDataConditionForFilter(where, filterVar);
+                lines.push(`const _filtered = ${sortedRef}.filter(${filterVar} => ${filterCode});`);
+                if (modifier === 'FIRST') {
+                    lines.push(`const ${rawVar} = _filtered[0];`);
+                } else {
+                    lines.push(`const ${rawVar} = _filtered[_filtered.length - 1];`);
+                }
+            } else {
+                if (modifier === 'FIRST') {
+                    lines.push(`const ${rawVar} = ${sortedRef}[0];`);
+                } else {
+                    lines.push(`const ${rawVar} = ${sortedRef}[${sortedRef}.length - 1];`);
+                }
+            }
+            lines.push(`if (!${rawVar}) throw new Error('No matching row found in ${tableRef.tableName}');`);
+            // Resolve references
+            lines.push(`const ${variableName} = ${dataClass}.resolveReferences('${tableRef.tableName}', ${rawVar});`);
+            return lines.join('\n' + '  '.repeat(this.indent));
+        }
+
+        // Default: find first matching
+        if (where) {
+            const filterCode = this.transpileDataConditionForFilter(where, filterVar);
+            lines.push(`const ${rawVar} = ${tableName}.find(${filterVar} => ${filterCode});`);
+        } else {
+            lines.push(`const ${rawVar} = ${tableName}[0];`);
+        }
+        lines.push(`if (!${rawVar}) throw new Error('No matching row found in ${tableRef.tableName}');`);
+        // Resolve references
+        lines.push(`const ${variableName} = ${dataClass}.resolveReferences('${tableRef.tableName}', ${rawVar});`);
+        return lines.join('\n' + '  '.repeat(this.indent));
+    }
+
+    /**
+     * Transpile ROWS statement: ROWS users = Users WHERE state = "CA" ORDER BY name LIMIT 10
+     * Generates code that fetches the rows and resolves any reference columns
+     */
+    private transpileRowsStatement(statement: RowsStatement): string {
+        const { variableName, tableRef, where, orderBy, limit, offset } = statement;
+        const tableName = this.getTableAccessor(tableRef);
+        const dataClass = tableRef.projectName ? `${tableRef.projectName}Data` : 'Data';
+        const filterVar = '_item';
+        const rawVar = `_raw_${variableName}`;
+
+        const parts: string[] = [tableName];
+
+        // Add filter if WHERE clause exists
+        if (where) {
+            const filterCode = this.transpileDataConditionForFilter(where, filterVar);
+            parts.push(`.filter(${filterVar} => ${filterCode})`);
+        }
+
+        // Add sort if ORDER BY clause exists
+        if (orderBy && orderBy.length > 0) {
+            const sortCode = this.generateSortCode(orderBy);
+            parts.push(`.sort(${sortCode})`);
+        }
+
+        // Add slice for LIMIT/OFFSET
+        if (limit !== undefined || offset !== undefined) {
+            const start = offset ?? 0;
+            if (limit !== undefined) {
+                parts.push(`.slice(${start}, ${start + limit})`);
+            } else {
+                parts.push(`.slice(${start})`);
+            }
+        }
+
+        const lines: string[] = [];
+        lines.push(`const ${rawVar} = ${parts.join('')};`);
+        // Resolve references for all rows
+        lines.push(`const ${variableName} = ${dataClass}.resolveReferencesMany('${tableRef.tableName}', ${rawVar});`);
+        return lines.join('\n' + '  '.repeat(this.indent));
+    }
+
+    /**
+     * Transpile column access: emails = Users.email WHERE active = true
+     * Generates: const emails = Data.Users.filter(...).map(u => u.email);
+     */
+    private transpileColumnAccessStatement(statement: ColumnAccessStatement): string {
+        const { variableName, distinct, tableRef, column, where } = statement;
+        const tableName = this.getTableAccessor(tableRef);
+        const filterVar = '_item';
+
+        const parts: string[] = [tableName];
+
+        // Add filter if WHERE clause exists
+        if (where) {
+            const filterCode = this.transpileDataConditionForFilter(where, filterVar);
+            parts.push(`.filter(${filterVar} => ${filterCode})`);
+        }
+
+        // Map to column
+        parts.push(`.map(${filterVar} => ${filterVar}.${column})`);
+
+        // Add distinct if specified
+        if (distinct) {
+            parts.push('.filter((v, i, a) => a.indexOf(v) === i)');
+        }
+
+        return `const ${variableName} = ${parts.join('')};`;
+    }
+
+    /**
+     * Transpile COUNT statement: NUMBER count = COUNT Users WHERE state = "CA"
+     * Generates: const count = Data.Users.filter(...).length;
+     */
+    private transpileCountStatement(statement: CountStatement): string {
+        const { variableName, tableRef, where } = statement;
+        const tableName = this.getTableAccessor(tableRef);
+        const filterVar = '_item';
+
+        if (where) {
+            const filterCode = this.transpileDataConditionForFilter(where, filterVar);
+            return `const ${variableName} = ${tableName}.filter(${filterVar} => ${filterCode}).length;`;
+        }
+
+        return `const ${variableName} = ${tableName}.length;`;
+    }
+
+    /**
+     * Get the accessor string for a table reference (project-scoped)
+     * Users -> Data.Users
+     * ProjectB.Users -> ProjectBData.Users
+     */
+    private getTableAccessor(tableRef: SimpleTableReference): string {
+        if (tableRef.projectName) {
+            return `${tableRef.projectName}Data.${tableRef.tableName}`;
+        }
+        return `Data.${tableRef.tableName}`;
+    }
+
+    /**
+     * Transpile a data condition to inline JavaScript filter expression
+     */
+    private transpileDataConditionForFilter(condition: DataCondition, itemVar: string): string {
+        switch (condition.type) {
+            case 'And':
+                return `(${this.transpileDataConditionForFilter(condition.left, itemVar)} && ${this.transpileDataConditionForFilter(condition.right, itemVar)})`;
+            case 'Or':
+                return `(${this.transpileDataConditionForFilter(condition.left, itemVar)} || ${this.transpileDataConditionForFilter(condition.right, itemVar)})`;
+            case 'Not':
+                return `!(${this.transpileDataConditionForFilter(condition.condition, itemVar)})`;
+            case 'Comparison':
+                return this.transpileDataComparisonForFilter(condition, itemVar);
+            default:
+                return 'true';
+        }
+    }
+
+    /**
+     * Transpile a data comparison to inline JavaScript expression
+     */
+    private transpileDataComparisonForFilter(comparison: DataComparison, itemVar: string): string {
+        const { column, operator, value, values } = comparison;
+        const colAccess = `${itemVar}.${column}`;
+
+        // Handle null/empty checks
+        if (operator === 'IS_NULL') {
+            return `${colAccess} === null || ${colAccess} === undefined`;
+        }
+        if (operator === 'IS_EMPTY') {
+            return `${colAccess} === '' || ${colAccess} === null || ${colAccess} === undefined`;
+        }
+        if (operator === 'IS_NOT_EMPTY') {
+            return `${colAccess} !== '' && ${colAccess} !== null && ${colAccess} !== undefined`;
+        }
+
+        // Handle IN/NOT IN
+        if (operator === 'IN' && values) {
+            const valuesCode = values.map(v => this.transpileExpression(v)).join(', ');
+            return `[${valuesCode}].includes(${colAccess})`;
+        }
+        if (operator === 'NOT_IN' && values) {
+            const valuesCode = values.map(v => this.transpileExpression(v)).join(', ');
+            return `![${valuesCode}].includes(${colAccess})`;
+        }
+
+        // Handle text operators
+        const valueCode = value ? this.transpileExpression(value) : 'null';
+
+        switch (operator) {
+            case 'CONTAINS':
+                return `String(${colAccess}).includes(${valueCode})`;
+            case 'STARTS_WITH':
+                return `String(${colAccess}).startsWith(${valueCode})`;
+            case 'ENDS_WITH':
+                return `String(${colAccess}).endsWith(${valueCode})`;
+            case 'MATCHES':
+                return `new RegExp(${valueCode}).test(String(${colAccess}))`;
+            case '==':
+                return `${colAccess} === ${valueCode}`;
+            case '!=':
+                return `${colAccess} !== ${valueCode}`;
+            case '>':
+                return `${colAccess} > ${valueCode}`;
+            case '<':
+                return `${colAccess} < ${valueCode}`;
+            case '>=':
+                return `${colAccess} >= ${valueCode}`;
+            case '<=':
+                return `${colAccess} <= ${valueCode}`;
+            default:
+                return `${colAccess} === ${valueCode}`;
+        }
+    }
+
+    /**
+     * Generate a sort comparator function for ORDER BY clauses
+     */
+    private generateSortCode(orderBy: { column: string; direction: 'ASC' | 'DESC' }[]): string {
+        const comparisons = orderBy.map(o => {
+            const dir = o.direction === 'DESC' ? -1 : 1;
+            return `((a.${o.column} < b.${o.column}) ? ${-dir} : ((a.${o.column} > b.${o.column}) ? ${dir} : 0))`;
+        });
+
+        if (comparisons.length === 1) {
+            return `(a, b) => ${comparisons[0]}`;
+        }
+
+        // Chain multiple comparisons
+        return `(a, b) => ${comparisons.join(' || ')}`;
     }
 
     // ==================== VDQL (Data Query) TRANSPILATION ====================
@@ -1028,22 +1642,24 @@ export class Transpiler {
         currentPage?: string
     ): string {
         const args = action.arguments.map(a => this.transpileExpression(a)).join(', ');
+        const readableActionName = this.toReadableTestName(action.action);
 
         if (action.page) {
+            const readablePageName = this.toReadableTestName(action.page);
             // If we're inside a page action and referencing the same page, use 'this'
             if (currentPage && action.page === currentPage) {
-                return `await this.${action.action}(${args});`;
+                return `await test.step('${readableActionName}', async () => { await this.${action.action}(${args}); });`;
             }
             const varName = this.camelCase(action.page);
-            return `await ${varName}.${action.action}(${args});`;
+            return `await test.step('${readablePageName}: ${readableActionName}', async () => { await ${varName}.${action.action}(${args}); });`;
         }
 
         // If no page specified but we're inside a page action, use 'this'
         if (currentPage) {
-            return `await this.${action.action}(${args});`;
+            return `await test.step('${readableActionName}', async () => { await this.${action.action}(${args}); });`;
         }
 
-        return `await ${action.action}(${args});`;
+        return `await test.step('${readableActionName}', async () => { await ${action.action}(${args}); });`;
     }
 
     // ==================== HELPER METHODS ====================
@@ -1164,6 +1780,18 @@ export class Transpiler {
 
     private line(content: string): string {
         return '  '.repeat(this.indent) + content;
+    }
+
+    /**
+     * Convert PascalCase/camelCase identifier to readable test name.
+     * e.g., "LoginWithValidCredentials" → "Login With Valid Credentials"
+     */
+    private toReadableTestName(identifier: string): string {
+        return identifier
+            .replace(/([a-z])([A-Z])/g, '$1 $2')  // Insert space before uppercase letters
+            .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')  // Handle acronyms
+            .replace(/_/g, ' ')  // Replace underscores with spaces
+            .trim();
     }
 
     // ==================== DEBUG MODE ====================

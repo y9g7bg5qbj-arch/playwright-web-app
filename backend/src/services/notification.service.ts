@@ -1,9 +1,10 @@
 /**
  * Notification Service
+ * NOW USES MONGODB INSTEAD OF PRISMA
  * Handles email (SendGrid) and Slack webhook notifications
  */
 
-import { prisma } from '../db/prisma';
+import { notificationHistoryRepository } from '../db/repositories/mongo';
 import { logger } from '../utils/logger';
 import { auditService } from './audit.service';
 
@@ -147,16 +148,14 @@ class NotificationService {
     const content = this.buildEmailContent(runInfo);
 
     // Create notification history record
-    const notification = await prisma.notificationHistory.create({
-      data: {
-        scheduleId: runInfo.scheduleId,
-        runId: runInfo.runId,
-        type: 'email',
-        recipient,
-        subject,
-        content,
-        status: 'pending',
-      },
+    const notification = await notificationHistoryRepository.create({
+      scheduleId: runInfo.scheduleId,
+      runId: runInfo.runId,
+      type: 'email',
+      recipient,
+      subject,
+      content,
+      status: 'pending',
     });
 
     try {
@@ -234,16 +233,14 @@ class NotificationService {
     const payload = this.buildSlackPayload(runInfo, config.channel);
 
     // Create notification history record
-    const notification = await prisma.notificationHistory.create({
-      data: {
-        scheduleId: runInfo.scheduleId,
-        runId: runInfo.runId,
-        type: 'slack',
-        recipient: config.webhookUrl,
-        subject: `Schedule Run: ${runInfo.scheduleName}`,
-        content: JSON.stringify(payload),
-        status: 'pending',
-      },
+    const notification = await notificationHistoryRepository.create({
+      scheduleId: runInfo.scheduleId,
+      runId: runInfo.runId,
+      type: 'slack',
+      recipient: config.webhookUrl,
+      subject: `Schedule Run: ${runInfo.scheduleName}`,
+      content: JSON.stringify(payload),
+      status: 'pending',
     });
 
     try {
@@ -297,16 +294,14 @@ class NotificationService {
     const payload = this.buildWebhookPayload(runInfo);
 
     // Create notification history record
-    const notification = await prisma.notificationHistory.create({
-      data: {
-        scheduleId: runInfo.scheduleId,
-        runId: runInfo.runId,
-        type: 'webhook',
-        recipient: config.url,
-        subject: `Schedule Run: ${runInfo.scheduleName}`,
-        content: JSON.stringify(payload),
-        status: 'pending',
-      },
+    const notification = await notificationHistoryRepository.create({
+      scheduleId: runInfo.scheduleId,
+      runId: runInfo.runId,
+      type: 'webhook',
+      recipient: config.url,
+      subject: `Schedule Run: ${runInfo.scheduleName}`,
+      content: JSON.stringify(payload),
+      status: 'pending',
     });
 
     try {
@@ -364,13 +359,10 @@ class NotificationService {
     status: NotificationStatus,
     errorMessage?: string
   ): Promise<void> {
-    await prisma.notificationHistory.update({
-      where: { id },
-      data: {
-        status,
-        errorMessage,
-        sentAt: status === 'sent' ? new Date() : undefined,
-      },
+    await notificationHistoryRepository.update(id, {
+      status,
+      errorMessage,
+      sentAt: status === 'sent' ? new Date() : undefined,
     });
   }
 
@@ -570,30 +562,21 @@ class NotificationService {
    * Get notification history for a schedule
    */
   async getScheduleNotifications(scheduleId: string, limit: number = 50) {
-    return prisma.notificationHistory.findMany({
-      where: { scheduleId },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    });
+    return notificationHistoryRepository.findByScheduleId(scheduleId, limit);
   }
 
   /**
    * Get notification history for a run
    */
   async getRunNotifications(runId: string) {
-    return prisma.notificationHistory.findMany({
-      where: { runId },
-      orderBy: { createdAt: 'desc' },
-    });
+    return notificationHistoryRepository.findByRunId(runId);
   }
 
   /**
    * Retry a failed notification
    */
   async retryNotification(notificationId: string): Promise<NotificationResult> {
-    const notification = await prisma.notificationHistory.findUnique({
-      where: { id: notificationId },
-    });
+    const notification = await notificationHistoryRepository.findById(notificationId);
 
     if (!notification) {
       throw new Error('Notification not found');
@@ -606,16 +589,16 @@ class NotificationService {
     // Re-send based on type
     // This would require reconstructing the run info which we don't have stored
     // For now, just mark as pending and log
-    await prisma.notificationHistory.update({
-      where: { id: notificationId },
-      data: { status: 'pending', errorMessage: null },
+    await notificationHistoryRepository.update(notificationId, {
+      status: 'pending',
+      errorMessage: undefined,
     });
 
     logger.info(`Notification ${notificationId} marked for retry`);
 
     return {
       id: notificationId,
-      type: notification.type as NotificationType,
+      type: notification.type,
       status: 'pending',
       recipient: notification.recipient,
     };

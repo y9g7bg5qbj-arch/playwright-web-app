@@ -2,7 +2,7 @@
  * Data Adapters Service
  *
  * Provides database connection testing and adapter management
- * for multiple database providers (SQLite, MongoDB, PostgreSQL, MySQL).
+ * for multiple database providers (MongoDB, PostgreSQL, MySQL).
  */
 
 import { MongoClient } from 'mongodb';
@@ -10,16 +10,10 @@ import { MongoClient } from 'mongodb';
 // Supported database providers
 export const SUPPORTED_PROVIDERS = [
   {
-    id: 'sqlite',
-    name: 'SQLite',
-    description: 'Built-in local database',
-    requiresConfig: false,
-  },
-  {
     id: 'mongodb',
-    name: 'MongoDB',
+    name: 'MongoDB (Default)',
     description: 'Document database (supports Atlas)',
-    requiresConfig: true,
+    requiresConfig: false,
     defaultPort: 27017,
   },
   {
@@ -39,7 +33,7 @@ export const SUPPORTED_PROVIDERS = [
 ];
 
 interface DataStorageConfig {
-  provider: 'sqlite' | 'mongodb' | 'postgresql' | 'mysql';
+  provider: 'mongodb' | 'postgresql' | 'mysql';
   connectionString?: string | null;
   host?: string | null;
   port?: number | null;
@@ -71,9 +65,6 @@ export async function testConnection(config: DataStorageConfig): Promise<Connect
 
   try {
     switch (config.provider) {
-      case 'sqlite':
-        return testSQLiteConnection();
-
       case 'mongodb':
         return await testMongoDBConnection(config);
 
@@ -84,10 +75,8 @@ export async function testConnection(config: DataStorageConfig): Promise<Connect
         return await testMySQLConnection(config);
 
       default:
-        return {
-          success: false,
-          error: `Unsupported provider: ${config.provider}`,
-        };
+        // Default to MongoDB
+        return await testMongoDBConnection(config);
     }
   } catch (error: any) {
     return {
@@ -95,19 +84,6 @@ export async function testConnection(config: DataStorageConfig): Promise<Connect
       error: error.message || 'Connection failed',
     };
   }
-}
-
-/**
- * Test SQLite connection (always succeeds as it's built-in)
- */
-function testSQLiteConnection(): ConnectionTestResult {
-  return {
-    success: true,
-    latency: 0,
-    serverInfo: {
-      version: 'Built-in SQLite',
-    },
-  };
 }
 
 /**
@@ -161,8 +137,8 @@ async function testMongoDBConnection(config: DataStorageConfig): Promise<Connect
 
     // Get server info
     const adminDb = client.db('admin');
-    const serverInfo = await adminDb.command({ serverStatus: 1 }).catch(() => ({}));
-    const buildInfo = await adminDb.command({ buildInfo: 1 }).catch(() => ({}));
+    const serverInfo = await adminDb.command({ serverStatus: 1 }).catch(() => ({} as Record<string, unknown>));
+    const buildInfo = await adminDb.command({ buildInfo: 1 }).catch(() => ({} as Record<string, unknown>));
 
     const latency = Date.now() - startTime;
 
@@ -170,8 +146,8 @@ async function testMongoDBConnection(config: DataStorageConfig): Promise<Connect
       success: true,
       latency,
       serverInfo: {
-        version: buildInfo.version || 'Unknown',
-        host: serverInfo.host,
+        version: (buildInfo as Record<string, unknown>).version as string || 'Unknown',
+        host: (serverInfo as Record<string, unknown>).host as string,
       },
     };
   } catch (error: any) {
@@ -200,6 +176,7 @@ async function testPostgreSQLConnection(config: DataStorageConfig): Promise<Conn
 
     // Try to dynamically import pg
     try {
+      // @ts-expect-error - pg may not be installed
       const pg = await import('pg').catch(() => null);
 
       if (!pg) {
@@ -258,6 +235,7 @@ async function testMySQLConnection(config: DataStorageConfig): Promise<Connectio
   try {
     // MySQL requires the 'mysql2' package
     try {
+      // @ts-expect-error - mysql2 may not be installed
       const mysql = await import('mysql2/promise').catch(() => null);
 
       if (!mysql) {

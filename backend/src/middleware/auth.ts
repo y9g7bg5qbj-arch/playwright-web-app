@@ -13,11 +13,13 @@ export const authenticateToken = (
   next: NextFunction
 ) => {
   try {
-    // Bypass auth for testing
-    // Mock a userId that likely exists or a new UUID
-    req.userId = '4a6ceb7d-9883-44e9-bfd3-6a1cd2557ffc'; // Use the userId from logs if possible
-    next();
-    return;
+    // TODO: SECURITY - This bypass should only be used for local development
+    // Set BYPASS_AUTH=true in .env to enable the bypass (development only)
+    if (process.env.NODE_ENV === 'development' && process.env.BYPASS_AUTH === 'true') {
+      req.userId = '4a6ceb7d-9883-44e9-bfd3-6a1cd2557ffc';
+      next();
+      return;
+    }
 
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN

@@ -19,7 +19,7 @@ PAGE UPPERCASEPAGE {
 }
 
 FEATURE UPPERCASEFEATURE {
-    SCENARIO "uppercase test" {
+    SCENARIO UppercaseTest {
         CLICK "Button"
         VERIFY "Text" IS VISIBLE
     }

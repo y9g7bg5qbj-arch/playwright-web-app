@@ -28,19 +28,19 @@ export class CheckoutPage {
   }
 
   async fillShippingInfo(email: string, address: string, city: string, zip: string) {
-    await test.step('Fill CheckoutPage.emailInput', async () => { await checkoutPage.emailInput.fill(email); });
-    await test.step('Fill CheckoutPage.addressInput', async () => { await checkoutPage.addressInput.fill(address); });
-    await test.step('Fill CheckoutPage.cityInput', async () => { await checkoutPage.cityInput.fill(city); });
-    await test.step('Fill CheckoutPage.zipInput', async () => { await checkoutPage.zipInput.fill(zip); });
+    await test.step('Fill CheckoutPage.emailInput', async () => { await this.emailInput.fill(email); });
+    await test.step('Fill CheckoutPage.addressInput', async () => { await this.addressInput.fill(address); });
+    await test.step('Fill CheckoutPage.cityInput', async () => { await this.cityInput.fill(city); });
+    await test.step('Fill CheckoutPage.zipInput', async () => { await this.zipInput.fill(zip); });
   }
 
   async fillPaymentInfo(cardNumber: string, expiry: string, cvv: string) {
-    await test.step('Fill CheckoutPage.cardNumberInput', async () => { await checkoutPage.cardNumberInput.fill(cardNumber); });
-    await test.step('Fill CheckoutPage.expiryInput', async () => { await checkoutPage.expiryInput.fill(expiry); });
-    await test.step('Fill CheckoutPage.cvvInput', async () => { await checkoutPage.cvvInput.fill(cvv); });
+    await test.step('Fill CheckoutPage.cardNumberInput', async () => { await this.cardNumberInput.fill(cardNumber); });
+    await test.step('Fill CheckoutPage.expiryInput', async () => { await this.expiryInput.fill(expiry); });
+    await test.step('Fill CheckoutPage.cvvInput', async () => { await this.cvvInput.fill(cvv); });
   }
 
   async placeOrder() {
-    await test.step('Click CheckoutPage.placeOrderBtn', async () => { await checkoutPage.placeOrderBtn.click(); });
+    await test.step('Click CheckoutPage.placeOrderBtn', async () => { await this.placeOrderBtn.click(); });
   }
 }

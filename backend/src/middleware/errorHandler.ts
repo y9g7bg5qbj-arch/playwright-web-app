@@ -22,8 +22,8 @@ export const errorHandler = (
     });
   }
 
-  // Handle Prisma errors
-  if (error.name === 'PrismaClientKnownRequestError') {
+  // Handle MongoDB errors
+  if (error.name === 'MongoServerError' || error.name === 'MongoError') {
     return res.status(400).json({
       success: false,
       error: 'Database error',

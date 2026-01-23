@@ -1,10 +1,9 @@
 // Repository Service
 // Business logic for Object Repository CRUD operations
-// Uses abstract repository interfaces for database-agnostic operations
+// Uses MongoDB repositories for database operations
 
-import { getObjectRepositoryRepo, getPageObjectRepo } from '../db/repositories/factory';
 import { NotFoundError, ForbiddenError } from '../utils/errors';
-import { prisma } from '../db/prisma';
+import { workflowRepository, objectRepositoryRepository, pageObjectRepository } from '../db/repositories/mongo';
 import {
     ObjectRepository,
     ObjectRepositoryUpdate,
@@ -17,8 +16,8 @@ import {
 } from '@playwright-web-app/shared';
 
 export class RepositoryService {
-    private objectRepoRepo = getObjectRepositoryRepo();
-    private pageObjectRepo = getPageObjectRepo();
+    private objectRepoRepo = objectRepositoryRepository;
+    private pageObjectRepo = pageObjectRepository;
 
     // ============================================
     // OBJECT REPOSITORY OPERATIONS
@@ -190,9 +189,7 @@ export class RepositoryService {
      * Verify that a workflow belongs to the user
      */
     private async verifyWorkflowAccess(userId: string, workflowId: string): Promise<void> {
-        const workflow = await prisma.workflow.findUnique({
-            where: { id: workflowId },
-        });
+        const workflow = await workflowRepository.findById(workflowId);
 
         if (!workflow) {
             throw new NotFoundError('Workflow not found');

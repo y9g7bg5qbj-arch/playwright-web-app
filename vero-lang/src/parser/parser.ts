@@ -7,11 +7,30 @@ import {
     FixtureNode, FixtureUseNode, FixtureOptionNode, FixtureOptionValue,
     FeatureAnnotation, ScenarioAnnotation,
     VerifyUrlStatement, VerifyTitleStatement, VerifyHasStatement, UploadStatement,
-    HasCondition, HasCountCondition, HasValueCondition, HasAttributeCondition,
-    HasTextCondition, ContainsTextCondition, HasClassCondition,
+    HasCondition,
     RightClickStatement, DoubleClickStatement, ForceClickStatement, DragStatement, CoordinateTarget,
-    EnvVarReference
+    RowStatement, RowsStatement, ColumnAccessStatement, CountStatement,
+    SimpleTableReference, DataCondition, OrderByClause,
+    AndCondition, OrCondition, NotCondition, DataComparison, ComparisonOperator, TextOperator,
+    UtilityAssignmentStatement, UtilityExpressionNode, DateUnit,
+    TrimExpression, ConvertExpression, ExtractExpression, ReplaceExpression,
+    SplitExpression, JoinExpression, LengthExpression, PadExpression,
+    TodayExpression, NowExpression, AddDateExpression, SubtractDateExpression,
+    FormatExpression, DatePartExpression, RoundExpression, AbsoluteExpression,
+    GenerateExpression, RandomNumberExpression, ChainedExpression
 } from './ast.js';
+
+const UTILITY_KEYWORDS = new Set([
+    TokenType.TRIM, TokenType.CONVERT, TokenType.EXTRACT, TokenType.REPLACE,
+    TokenType.SPLIT, TokenType.JOIN, TokenType.LENGTH, TokenType.PAD,
+    TokenType.TODAY, TokenType.NOW, TokenType.ADD, TokenType.SUBTRACT,
+    TokenType.FORMAT, TokenType.YEAR, TokenType.MONTH, TokenType.DAY,
+    TokenType.ROUND, TokenType.ABSOLUTE, TokenType.GENERATE, TokenType.RANDOM,
+]);
+
+const VARIABLE_TYPES = new Set([
+    TokenType.TEXT, TokenType.NUMBER, TokenType.FLAG, TokenType.LIST,
+]);
 
 export class Parser {
     private tokens: Token[];
@@ -391,7 +410,7 @@ export class Parser {
         }
 
         this.consume(TokenType.SCENARIO, "Expected 'SCENARIO'");
-        const name = this.consume(TokenType.STRING, "Expected scenario name").value;
+        const name = this.consume(TokenType.IDENTIFIER, "Expected scenario name").value;
 
         // Parse tags: @smoke @regression (user-defined tags)
         const tags: string[] = [];
@@ -534,9 +553,9 @@ export class Parser {
             return { type: 'Verify', target, condition, line };
         }
 
-        if (this.match(TokenType.DO)) {
+        if (this.match(TokenType.PERFORM)) {
             const action = this.parseActionCall();
-            return { type: 'Do', action, line };
+            return { type: 'Perform', action, line };
         }
 
         if (this.match(TokenType.WAIT)) {
@@ -631,9 +650,245 @@ export class Parser {
             return this.parseForEachStatement(line);
         }
 
+        // ROW user = Users WHERE state = "CA"
+        // ROW user = FIRST/LAST/RANDOM Users WHERE ...
+        if (this.match(TokenType.ROW)) {
+            return this.parseRowStatement(line);
+        }
+
+        // ROWS users = Users WHERE state = "CA" ORDER BY name LIMIT 10
+        if (this.match(TokenType.ROWS)) {
+            return this.parseRowsStatement(line);
+        }
+
+        // NUMBER count = COUNT Users WHERE state = "CA"
+        if (this.check(TokenType.NUMBER) && this.lookahead(2)?.type === TokenType.COUNT) {
+            return this.parseCountStatement(line);
+        }
+
+        // Utility function assignments: TEXT result = TRIM $input
+        // Check for variable type followed by identifier and equals, then utility keyword
+        if (this.isUtilityAssignment()) {
+            return this.parseUtilityAssignment(line);
+        }
+
         this.error(`Unexpected statement: ${this.peek().value}`);
         this.advance();
         return null;
+    }
+
+    private isUtilityAssignment(): boolean {
+        if (!VARIABLE_TYPES.has(this.peek().type)) return false;
+
+        const identifierToken = this.lookahead(1);
+        const equalsToken = this.lookahead(2);
+        const utilityToken = this.lookahead(3);
+
+        if (!identifierToken || identifierToken.type !== TokenType.IDENTIFIER) return false;
+        if (!equalsToken || equalsToken.type !== TokenType.EQUALS_SIGN) return false;
+        if (!utilityToken) return false;
+
+        return UTILITY_KEYWORDS.has(utilityToken.type);
+    }
+
+    private parseUtilityAssignment(line: number): UtilityAssignmentStatement {
+        const varType = this.advance().type as 'TEXT' | 'NUMBER' | 'FLAG' | 'LIST';
+        const variableName = this.consume(TokenType.IDENTIFIER, "Expected variable name").value;
+        this.consume(TokenType.EQUALS_SIGN, "Expected '='");
+
+        const expression = this.parseUtilityExpression();
+
+        return { type: 'UtilityAssignment', varType, variableName, expression, line };
+    }
+
+    private parseUtilityExpression(): UtilityExpressionNode {
+        let expr = this.parsePrimaryUtilityExpression();
+
+        while (this.match(TokenType.THEN)) {
+            const second = this.parsePrimaryUtilityExpression();
+            expr = { type: 'Chained', first: expr, second } as ChainedExpression;
+        }
+
+        return expr;
+    }
+
+    private parsePrimaryUtilityExpression(): UtilityExpressionNode {
+        if (this.match(TokenType.TRIM)) {
+            return { type: 'Trim', value: this.parseExpression() } as TrimExpression;
+        }
+
+        if (this.match(TokenType.CONVERT)) {
+            const value = this.parseExpression();
+            this.consume(TokenType.TO, "Expected 'TO'");
+
+            let targetType: ConvertExpression['targetType'] = 'TEXT';
+            if (this.match(TokenType.UPPERCASE)) targetType = 'UPPERCASE';
+            else if (this.match(TokenType.LOWERCASE)) targetType = 'LOWERCASE';
+            else if (this.match(TokenType.NUMBER)) targetType = 'NUMBER';
+            else if (this.match(TokenType.TEXT)) targetType = 'TEXT';
+            else this.error("Expected 'UPPERCASE', 'LOWERCASE', 'NUMBER', or 'TEXT'");
+
+            return { type: 'Convert', value, targetType } as ConvertExpression;
+        }
+
+        if (this.match(TokenType.EXTRACT)) {
+            const value = this.parseExpression();
+            this.consume(TokenType.FROM, "Expected 'FROM'");
+            const start = this.parseExpression();
+            this.consume(TokenType.TO, "Expected 'TO'");
+            const end = this.parseExpression();
+            return { type: 'Extract', value, start, end } as ExtractExpression;
+        }
+
+        if (this.match(TokenType.REPLACE)) {
+            const value = this.parseExpression();
+            const search = this.consume(TokenType.STRING, "Expected search string").value;
+            this.consume(TokenType.WITH, "Expected 'WITH'");
+            const replacement = this.consume(TokenType.STRING, "Expected replacement string").value;
+            return { type: 'Replace', value, search, replacement } as ReplaceExpression;
+        }
+
+        if (this.match(TokenType.SPLIT)) {
+            const value = this.parseExpression();
+            this.consume(TokenType.BY, "Expected 'BY'");
+            const delimiter = this.consume(TokenType.STRING, "Expected delimiter string").value;
+            return { type: 'Split', value, delimiter } as SplitExpression;
+        }
+
+        if (this.match(TokenType.JOIN)) {
+            const value = this.parseExpression();
+            this.consume(TokenType.WITH, "Expected 'WITH'");
+            const delimiter = this.consume(TokenType.STRING, "Expected delimiter string").value;
+            return { type: 'Join', value, delimiter } as JoinExpression;
+        }
+
+        if (this.match(TokenType.LENGTH)) {
+            this.consume(TokenType.OF, "Expected 'OF'");
+            return { type: 'Length', value: this.parseExpression() } as LengthExpression;
+        }
+
+        if (this.match(TokenType.PAD)) {
+            const value = this.parseExpression();
+            this.consume(TokenType.TO, "Expected 'TO'");
+            const length = this.parseExpression();
+            this.consume(TokenType.WITH, "Expected 'WITH'");
+            const padChar = this.consume(TokenType.STRING, "Expected pad character").value;
+            return { type: 'Pad', value, length, padChar } as PadExpression;
+        }
+
+        if (this.match(TokenType.TODAY)) {
+            return { type: 'Today' } as TodayExpression;
+        }
+
+        if (this.match(TokenType.NOW)) {
+            return { type: 'Now' } as NowExpression;
+        }
+
+        if (this.match(TokenType.ADD)) {
+            const amount = this.parseExpression();
+            const unit = this.parseDateUnit();
+            this.consume(TokenType.TO, "Expected 'TO'");
+            const date = this.parseDateOrExpression();
+            return { type: 'AddDate', amount, unit, date } as AddDateExpression;
+        }
+
+        if (this.match(TokenType.SUBTRACT)) {
+            const amount = this.parseExpression();
+            const unit = this.parseDateUnit();
+            this.consume(TokenType.FROM, "Expected 'FROM'");
+            const date = this.parseDateOrExpression();
+            return { type: 'SubtractDate', amount, unit, date } as SubtractDateExpression;
+        }
+
+        if (this.match(TokenType.FORMAT)) {
+            const value = this.parseExpression();
+            this.consume(TokenType.AS, "Expected 'AS'");
+
+            if (this.match(TokenType.CURRENCY)) {
+                const currency = this.check(TokenType.STRING) ? this.advance().value : 'USD';
+                return { type: 'Format', value, formatType: 'currency', currency } as FormatExpression;
+            }
+
+            if (this.match(TokenType.PERCENT)) {
+                return { type: 'Format', value, formatType: 'percent' } as FormatExpression;
+            }
+
+            const pattern = this.consume(TokenType.STRING, "Expected format pattern").value;
+            return { type: 'Format', value, formatType: 'pattern', pattern } as FormatExpression;
+        }
+
+        if (this.check(TokenType.YEAR) || this.check(TokenType.MONTH) || this.check(TokenType.DAY)) {
+            const partToken = this.advance();
+            let part: DatePartExpression['part'];
+            if (partToken.type === TokenType.YEAR) part = 'YEAR';
+            else if (partToken.type === TokenType.MONTH) part = 'MONTH';
+            else part = 'DAY';
+
+            this.consume(TokenType.OF, "Expected 'OF'");
+            return { type: 'DatePart', part, date: this.parseExpression() } as DatePartExpression;
+        }
+
+        if (this.match(TokenType.ROUND)) {
+            const value = this.parseExpression();
+
+            if (this.match(TokenType.UP)) {
+                return { type: 'Round', value, direction: 'UP' } as RoundExpression;
+            }
+            if (this.match(TokenType.DOWN)) {
+                return { type: 'Round', value, direction: 'DOWN' } as RoundExpression;
+            }
+            if (this.match(TokenType.TO)) {
+                const decimals = this.parseExpression();
+                this.consume(TokenType.DECIMALS, "Expected 'DECIMALS'");
+                return { type: 'Round', value, decimals } as RoundExpression;
+            }
+            return { type: 'Round', value } as RoundExpression;
+        }
+
+        if (this.match(TokenType.ABSOLUTE)) {
+            return { type: 'Absolute', value: this.parseExpression() } as AbsoluteExpression;
+        }
+
+        if (this.match(TokenType.GENERATE)) {
+            if (this.match(TokenType.UUID)) {
+                return { type: 'Generate', pattern: 'UUID' } as GenerateExpression;
+            }
+            const pattern = this.consume(TokenType.STRING, "Expected regex pattern or UUID").value;
+            return { type: 'Generate', pattern } as GenerateExpression;
+        }
+
+        if (this.match(TokenType.RANDOM)) {
+            this.consume(TokenType.NUMBER, "Expected 'NUMBER'");
+            this.consume(TokenType.FROM, "Expected 'FROM'");
+            const min = this.parseExpression();
+            this.consume(TokenType.TO, "Expected 'TO'");
+            const max = this.parseExpression();
+            return { type: 'RandomNumber', min, max } as RandomNumberExpression;
+        }
+
+        return this.parseExpression();
+    }
+
+    private parseDateUnit(): DateUnit {
+        if (this.match(TokenType.DAY)) return 'DAY';
+        if (this.match(TokenType.DAYS_UNIT)) return 'DAYS';
+        if (this.match(TokenType.MONTH)) return 'MONTH';
+        if (this.match(TokenType.MONTHS_UNIT)) return 'MONTHS';
+        if (this.match(TokenType.YEAR)) return 'YEAR';
+        if (this.match(TokenType.YEARS_UNIT)) return 'YEARS';
+
+        this.error("Expected date unit (DAY, DAYS, MONTH, MONTHS, YEAR, YEARS)");
+        return 'DAYS';
+    }
+
+    private parseDateOrExpression(): ExpressionNode | TodayExpression | NowExpression {
+        if (this.match(TokenType.TODAY)) {
+            return { type: 'Today' } as TodayExpression;
+        }
+        if (this.match(TokenType.NOW)) {
+            return { type: 'Now' } as NowExpression;
+        }
+        return this.parseExpression();
     }
 
     private parseLoadStatement(line: number): LoadStatement {
@@ -746,6 +1001,258 @@ export class Parser {
             statements,
             line
         };
+    }
+
+    // ==================== ROW/ROWS STATEMENT PARSING ====================
+
+    private parseRowStatement(line: number): RowStatement {
+        const variableName = this.consume(TokenType.IDENTIFIER, "Expected variable name after 'ROW'").value;
+        this.consume(TokenType.EQUALS_SIGN, "Expected '='");
+
+        // Check for optional modifier: FIRST, LAST, RANDOM
+        let modifier: RowStatement['modifier'];
+        if (this.match(TokenType.FIRST)) {
+            modifier = 'FIRST';
+        } else if (this.match(TokenType.LAST)) {
+            modifier = 'LAST';
+        } else if (this.match(TokenType.RANDOM)) {
+            modifier = 'RANDOM';
+        }
+
+        // Parse table reference
+        const tableRef = this.parseSimpleTableReference();
+
+        // Optional WHERE clause
+        let where: DataCondition | undefined;
+        if (this.match(TokenType.WHERE)) {
+            where = this.parseDataCondition();
+        }
+
+        // Optional ORDER BY clause
+        let orderBy: OrderByClause[] | undefined;
+        if (this.match(TokenType.ORDER)) {
+            orderBy = this.parseOrderByClause();
+        }
+
+        return { type: 'Row', variableName, modifier, tableRef, where, orderBy, line };
+    }
+
+    private parseRowsStatement(line: number): RowsStatement {
+        const variableName = this.consume(TokenType.IDENTIFIER, "Expected variable name after 'ROWS'").value;
+        this.consume(TokenType.EQUALS_SIGN, "Expected '='");
+
+        // Parse table reference
+        const tableRef = this.parseSimpleTableReference();
+
+        // Optional WHERE clause
+        let where: DataCondition | undefined;
+        if (this.match(TokenType.WHERE)) {
+            where = this.parseDataCondition();
+        }
+
+        // Optional ORDER BY clause
+        let orderBy: OrderByClause[] | undefined;
+        if (this.match(TokenType.ORDER)) {
+            orderBy = this.parseOrderByClause();
+        }
+
+        // Optional LIMIT
+        let limit: number | undefined;
+        if (this.match(TokenType.LIMIT)) {
+            limit = parseInt(this.consume(TokenType.NUMBER_LITERAL, "Expected number after 'LIMIT'").value, 10);
+        }
+
+        // Optional OFFSET
+        let offset: number | undefined;
+        if (this.match(TokenType.OFFSET)) {
+            offset = parseInt(this.consume(TokenType.NUMBER_LITERAL, "Expected number after 'OFFSET'").value, 10);
+        }
+
+        return { type: 'Rows', variableName, tableRef, where, orderBy, limit, offset, line };
+    }
+
+    private parseCountStatement(line: number): CountStatement {
+        this.consume(TokenType.NUMBER, "Expected 'NUMBER'");
+        const variableName = this.consume(TokenType.IDENTIFIER, "Expected variable name").value;
+        this.consume(TokenType.EQUALS_SIGN, "Expected '='");
+        this.consume(TokenType.COUNT, "Expected 'COUNT'");
+
+        // Parse table reference
+        const tableRef = this.parseSimpleTableReference();
+
+        // Optional WHERE clause
+        let where: DataCondition | undefined;
+        if (this.match(TokenType.WHERE)) {
+            where = this.parseDataCondition();
+        }
+
+        return { type: 'Count', variableName, tableRef, where, line };
+    }
+
+    private parseSimpleTableReference(): SimpleTableReference {
+        const first = this.consume(TokenType.IDENTIFIER, "Expected table name").value;
+
+        // Check for cross-project reference: ProjectName.TableName
+        if (this.check(TokenType.DOT) && this.lookahead(1)?.type === TokenType.IDENTIFIER) {
+            this.advance();
+            const tableName = this.consume(TokenType.IDENTIFIER, "Expected table name after '.'").value;
+            return { type: 'SimpleTableReference', tableName, projectName: first };
+        }
+
+        return { type: 'SimpleTableReference', tableName: first };
+    }
+
+    private parseOrderByClause(): OrderByClause[] {
+        this.consume(TokenType.BY, "Expected 'BY' after 'ORDER'");
+
+        const clauses: OrderByClause[] = [];
+
+        do {
+            const column = this.consume(TokenType.IDENTIFIER, "Expected column name").value;
+            let direction: 'ASC' | 'DESC' = 'ASC'; // default to ASC
+
+            if (this.match(TokenType.ASC)) {
+                direction = 'ASC';
+            } else if (this.match(TokenType.DESC)) {
+                direction = 'DESC';
+            }
+
+            clauses.push({ column, direction });
+        } while (this.match(TokenType.COMMA));
+
+        return clauses;
+    }
+
+    private parseDataCondition(): DataCondition {
+        return this.parseOrCondition();
+    }
+
+    private parseOrCondition(): DataCondition {
+        let left = this.parseAndCondition();
+
+        while (this.match(TokenType.OR)) {
+            const right = this.parseAndCondition();
+            left = { type: 'Or', left, right } as OrCondition;
+        }
+
+        return left;
+    }
+
+    private parseAndCondition(): DataCondition {
+        let left = this.parseNotCondition();
+
+        while (this.match(TokenType.AND)) {
+            const right = this.parseNotCondition();
+            left = { type: 'And', left, right } as AndCondition;
+        }
+
+        return left;
+    }
+
+    private parseNotCondition(): DataCondition {
+        if (this.match(TokenType.NOT)) {
+            const condition = this.parseNotCondition();
+            return { type: 'Not', condition } as NotCondition;
+        }
+
+        return this.parsePrimaryCondition();
+    }
+
+    private parsePrimaryCondition(): DataCondition {
+        // Parenthesized condition
+        if (this.match(TokenType.LPAREN)) {
+            const condition = this.parseDataCondition();
+            this.consume(TokenType.RPAREN, "Expected ')'");
+            return condition;
+        }
+
+        // Simple comparison: column operator value
+        const column = this.consume(TokenType.IDENTIFIER, "Expected column name").value;
+
+        // Check for IN operator
+        if (this.match(TokenType.IN)) {
+            this.consume(TokenType.LBRACKET, "Expected '['");
+            const values: ExpressionNode[] = [];
+            values.push(this.parseExpression());
+            while (this.match(TokenType.COMMA)) {
+                values.push(this.parseExpression());
+            }
+            this.consume(TokenType.RBRACKET, "Expected ']'");
+            return { type: 'Comparison', column, operator: 'IN', values } as DataComparison;
+        }
+
+        // Check for NOT IN operator (handled separately since NOT is consumed in parseNotCondition)
+        // This case handles: column NOT IN [...]
+        // The NOT before column is handled by parseNotCondition
+
+        // Check for IS (EMPTY/NULL)
+        if (this.match(TokenType.IS)) {
+            if (this.match(TokenType.NOT)) {
+                if (this.match(TokenType.EMPTY)) {
+                    return { type: 'Comparison', column, operator: 'IS_NOT_EMPTY' } as DataComparison;
+                }
+            }
+            if (this.match(TokenType.EMPTY)) {
+                return { type: 'Comparison', column, operator: 'IS_EMPTY' } as DataComparison;
+            }
+            if (this.match(TokenType.NULL)) {
+                return { type: 'Comparison', column, operator: 'IS_NULL' } as DataComparison;
+            }
+            this.error("Expected 'EMPTY' or 'NULL' after 'IS'");
+        }
+
+        // Check for text operators: CONTAINS, STARTS WITH, ENDS WITH, MATCHES
+        if (this.match(TokenType.CONTAINS)) {
+            const value = this.parseExpression();
+            return { type: 'Comparison', column, operator: 'CONTAINS' as TextOperator, value } as DataComparison;
+        }
+
+        if (this.check(TokenType.STARTS)) {
+            this.advance(); // STARTS
+            this.consume(TokenType.WITH, "Expected 'WITH' after 'STARTS'");
+            const value = this.parseExpression();
+            return { type: 'Comparison', column, operator: 'STARTS_WITH' as TextOperator, value } as DataComparison;
+        }
+
+        if (this.check(TokenType.ENDS)) {
+            this.advance(); // ENDS
+            this.consume(TokenType.WITH, "Expected 'WITH' after 'ENDS'");
+            const value = this.parseExpression();
+            return { type: 'Comparison', column, operator: 'ENDS_WITH' as TextOperator, value } as DataComparison;
+        }
+
+        if (this.match(TokenType.MATCHES)) {
+            const value = this.parseExpression();
+            return { type: 'Comparison', column, operator: 'MATCHES' as TextOperator, value } as DataComparison;
+        }
+
+        // Comparison operators: =, !=, >, <, >=, <=
+        let operator: ComparisonOperator;
+        if (this.match(TokenType.EQUALS_SIGN)) {
+            operator = '==';
+        } else if (this.check(TokenType.IDENTIFIER) && this.peek().value === '!=') {
+            this.advance();
+            operator = '!=';
+        } else if (this.check(TokenType.IDENTIFIER) && this.peek().value === '>') {
+            this.advance();
+            operator = '>';
+        } else if (this.check(TokenType.IDENTIFIER) && this.peek().value === '<') {
+            this.advance();
+            operator = '<';
+        } else if (this.check(TokenType.IDENTIFIER) && this.peek().value === '>=') {
+            this.advance();
+            operator = '>=';
+        } else if (this.check(TokenType.IDENTIFIER) && this.peek().value === '<=') {
+            this.advance();
+            operator = '<=';
+        } else {
+            // Default to == if no operator found
+            this.error("Expected comparison operator");
+            operator = '==';
+        }
+
+        const value = this.parseExpression();
+        return { type: 'Comparison', column, operator, value } as DataComparison;
     }
 
     private parseVerifyCondition(): VerifyCondition {
@@ -937,6 +1444,10 @@ export class Parser {
 
     private previous(): Token {
         return this.tokens[this.pos - 1];
+    }
+
+    private lookahead(n: number): Token | undefined {
+        return this.tokens[this.pos + n];
     }
 
     private advance(): Token {

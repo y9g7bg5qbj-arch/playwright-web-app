@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+// @ts-expect-error - supertest types not installed
 import request from 'supertest';
 import express, { Express } from 'express';
 import veroRoutes from '../routes/vero.routes';
@@ -16,25 +17,23 @@ vi.mock('../middleware/auth', () => ({
   AuthRequest: {} as any,
 }));
 
-// Mock prisma
-vi.mock('../db/prisma', () => ({
-  prisma: {
-    testFlow: {
-      findUnique: vi.fn(),
-      findFirst: vi.fn(),
-      update: vi.fn(),
-    },
-    workflow: {
-      findUnique: vi.fn(),
-    },
-    execution: {
-      create: vi.fn(),
-      update: vi.fn(),
-      findMany: vi.fn(),
-    },
-    user: {
-      findUnique: vi.fn().mockResolvedValue({ id: 'test-user-123' }),
-    },
+// Mock MongoDB repositories
+vi.mock('../db/repositories/mongo', () => ({
+  testFlowRepository: {
+    findById: vi.fn(),
+    findFirst: vi.fn(),
+    update: vi.fn(),
+  },
+  workflowRepository: {
+    findById: vi.fn(),
+  },
+  executionRepository: {
+    create: vi.fn(),
+    update: vi.fn(),
+    findMany: vi.fn(),
+  },
+  userRepository: {
+    findById: vi.fn().mockResolvedValue({ id: 'test-user-123' }),
   },
 }));
 

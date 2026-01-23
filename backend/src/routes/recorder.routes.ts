@@ -268,7 +268,7 @@ router.post('/import', authenticateToken, async (req: AuthRequest, res, next) =>
     }
 
     const recordingId = testFlowId || `import-${Date.now()}`;
-    const userId = req.user?.userId || 'unknown';
+    const userId = req.userId || 'unknown';
 
     // Store the imported recording
     const recording = {
@@ -399,7 +399,7 @@ router.post('/convert', authenticateToken, async (req: AuthRequest, res, next) =
  */
 router.get('/imports', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
-    const userId = req.user?.userId;
+    const userId = req.userId;
     const recordings = Array.from(importedRecordings.values())
       .filter(r => r.userId === userId || !userId)
       .map(r => ({

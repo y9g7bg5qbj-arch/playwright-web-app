@@ -1,0 +1,474 @@
+# ============================================================
+# VERO LANGUAGE - COMPLETE SYNTAX REFERENCE
+# ============================================================
+# This file demonstrates ALL valid Vero syntax constructs
+# for Page Objects, Features, Scenarios, and Actions.
+# ============================================================
+
+
+# ============================================================
+# SECTION 1: PAGE OBJECT MODEL (Pages)
+# ============================================================
+# Pages define reusable UI element selectors and actions.
+
+PAGE LoginPage {
+    # --------------------------------------------------------
+    # FIELDS: Define UI element selectors
+    # Syntax: FIELD name = "selector-text"
+    # --------------------------------------------------------
+    
+    FIELD usernameInput = "Username"
+    FIELD passwordInput = "Password"
+    FIELD loginButton = "Login"
+    FIELD rememberMeCheckbox = "Remember me"
+    FIELD forgotPasswordLink = "Forgot password?"
+    FIELD errorMessage = "Invalid credentials"
+    FIELD logo = "Company Logo"
+    
+    # --------------------------------------------------------
+    # VARIABLES: Define reusable values within the page
+    # Types: TEXT, NUMBER, FLAG (boolean), LIST
+    # --------------------------------------------------------
+    
+    TEXT defaultUsername = "admin"
+    TEXT defaultPassword = "password123"
+    NUMBER maxLoginAttempts = 3
+    FLAG isRememberMeEnabled = true
+    
+    # --------------------------------------------------------
+    # ACTIONS: Define reusable action sequences
+    # --------------------------------------------------------
+    
+    login WITH username, password {
+        FILL usernameInput WITH username
+        FILL passwordInput WITH password
+        CLICK loginButton
+    }
+    
+    loginWithDefaults {
+        FILL usernameInput WITH defaultUsername
+        FILL passwordInput WITH defaultPassword
+        CLICK loginButton
+    }
+}
+
+
+PAGE DashboardPage {
+    FIELD welcomeMessage = "Welcome"
+    FIELD userMenu = "User Menu"
+    FIELD logoutButton = "Logout"
+    FIELD settingsLink = "Settings"
+    FIELD notificationBell = "Notifications"
+    FIELD searchBox = "Search"
+    FIELD sidebarToggle = "Toggle Sidebar"
+    
+    TEXT pageTitle = "Dashboard"
+    
+    logout {
+        CLICK userMenu
+        CLICK logoutButton
+    }
+    
+    search WITH query {
+        FILL searchBox WITH query
+        PRESS "Enter"
+    }
+}
+
+
+PAGE ProductPage {
+    FIELD productName = "Product Name"
+    FIELD productPrice = "Price"
+    FIELD addToCartButton = "Add to Cart"
+    FIELD quantityInput = "Quantity"
+    FIELD colorDropdown = "Color"
+    FIELD sizeDropdown = "Size"
+    FIELD productImage = "Product Image"
+    FIELD reviewsSection = "Reviews"
+    
+    NUMBER defaultQuantity = 1
+    
+    addToCart {
+        CLICK addToCartButton
+    }
+    
+    addToCartWithQuantity WITH qty {
+        FILL quantityInput WITH qty
+        CLICK addToCartButton
+    }
+}
+
+
+# ============================================================
+# SECTION 2: FIXTURES (Test Setup/Teardown)
+# ============================================================
+
+FIXTURE authenticatedUser {
+    SCOPE test
+    
+    OPTION userRole DEFAULT "user"
+    OPTION timeout DEFAULT 30000
+    
+    SETUP {
+        OPEN "https://example.com/login"
+        PERFORM LoginPage.login WITH "testuser", "testpass"
+        WAIT 2 SECONDS
+    }
+    
+    TEARDOWN {
+        PERFORM DashboardPage.logout
+    }
+}
+
+
+FIXTURE cleanDatabase {
+    SCOPE worker
+    AUTO
+    
+    SETUP {
+        LOG "Setting up test database..."
+    }
+    
+    TEARDOWN {
+        LOG "Cleaning up test database..."
+    }
+}
+
+
+# ============================================================
+# SECTION 3: FEATURES AND SCENARIOS
+# ============================================================
+
+@serial
+FEATURE UserAuthentication {
+    USE LoginPage
+    USE DashboardPage
+    
+    WITH FIXTURE cleanDatabase
+    
+    BEFORE ALL {
+        LOG "Starting User Authentication tests"
+        OPEN "https://example.com"
+    }
+    
+    BEFORE EACH {
+        OPEN "https://example.com/login"
+        WAIT 1 SECONDS
+    }
+    
+    AFTER EACH {
+        TAKE SCREENSHOT
+    }
+    
+    AFTER ALL {
+        LOG "Completed User Authentication tests"
+    }
+    
+    SCENARIO UserCanLoginWithValidCredentials @smoke @critical {
+        # FILL action: Enter text into input fields
+        FILL LoginPage.usernameInput WITH "validuser"
+        FILL LoginPage.passwordInput WITH "validpass123"
+        
+        # CLICK action: Click on elements
+        CLICK LoginPage.loginButton
+        
+        # WAIT action: Wait for conditions
+        WAIT 2 SECONDS
+        
+        # VERIFY action: Assert element states
+        VERIFY DashboardPage.welcomeMessage IS VISIBLE
+        VERIFY LoginPage.errorMessage IS NOT VISIBLE
+    }
+    
+    @slow
+    SCENARIO UserSeesErrorWithInvalidCredentials @negative {
+        FILL LoginPage.usernameInput WITH "invaliduser"
+        FILL LoginPage.passwordInput WITH "wrongpassword"
+        CLICK LoginPage.loginButton
+        
+        WAIT 500 MILLISECONDS
+        
+        VERIFY LoginPage.errorMessage IS VISIBLE
+        VERIFY DashboardPage.welcomeMessage IS NOT VISIBLE
+    }
+    
+    @skip
+    SCENARIO RememberMeFunctionality @regression {
+        FILL LoginPage.usernameInput WITH "testuser"
+        FILL LoginPage.passwordInput WITH "testpass"
+        
+        # CHECK action: Check checkboxes
+        CHECK LoginPage.rememberMeCheckbox
+        
+        CLICK LoginPage.loginButton
+        WAIT 2 SECONDS
+        
+        VERIFY LoginPage.rememberMeCheckbox IS CHECKED
+    }
+    
+    SCENARIO UserCanUsePageActions {
+        # PERFORM action: Call page-defined actions
+        PERFORM LoginPage.login WITH "testuser", "testpass"
+        
+        WAIT 2 SECONDS
+        
+        VERIFY DashboardPage.welcomeMessage IS VISIBLE
+        
+        PERFORM DashboardPage.logout
+        
+        VERIFY LoginPage.loginButton IS VISIBLE
+    }
+}
+
+
+FEATURE ProductCatalog {
+    USE ProductPage
+    USE DashboardPage
+    
+    BEFORE EACH {
+        OPEN "https://example.com/products"
+    }
+    
+    SCENARIO UserCanAddProductToCart @e2e {
+        # HOVER action: Mouse hover
+        HOVER ProductPage.productImage
+        
+        # FILL can be used for dropdowns/selects too
+        FILL ProductPage.colorDropdown WITH "Blue"
+        FILL ProductPage.sizeDropdown WITH "Large"
+        
+        PERFORM ProductPage.addToCartWithQuantity WITH 2
+        
+        VERIFY ProductPage.productName HAS TEXT "Sample Product"
+    }
+    
+    SCENARIO UserCanSearchForProducts @searchtest {
+        PERFORM DashboardPage.search WITH "laptop"
+        
+        WAIT 1 SECONDS
+        
+        # VERIFY URL: Check URL contains value
+        VERIFY URL CONTAINS "search=laptop"
+        
+        # VERIFY TITLE: Check page title
+        VERIFY TITLE CONTAINS "Search Results"
+    }
+    
+    SCENARIO ProductPageHasCorrectElementCount @validation {
+        # VERIFY HAS COUNT: Check number of elements
+        VERIFY ProductPage.reviewsSection HAS COUNT 5
+        
+        # VERIFY HAS VALUE: Check input value
+        VERIFY ProductPage.quantityInput HAS VALUE "1"
+        
+        # VERIFY HAS ATTRIBUTE: Check element attributes
+        VERIFY ProductPage.productImage HAS ATTRIBUTE "alt" EQUAL "Product Photo"
+        
+        # VERIFY HAS CLASS: Check CSS class
+        VERIFY ProductPage.addToCartButton HAS CLASS "btn-primary"
+    }
+}
+
+
+FEATURE AdvancedActions {
+    USE LoginPage
+    USE DashboardPage
+    USE ProductPage
+    
+    SCENARIO DemonstratesAllClickVariants @clicktest {
+        # Standard click
+        CLICK LoginPage.loginButton
+        
+        # Right-click (context menu)
+        RIGHT CLICK ProductPage.productImage
+        
+        # Double-click
+        DOUBLE CLICK ProductPage.productName
+        
+        # Force click (bypasses visibility checks)
+        FORCE CLICK LoginPage.logo
+    }
+    
+    SCENARIO DemonstratesDragAndDrop @dragtest {
+        # Drag element to another element
+        DRAG "Draggable Item" TO "Drop Zone"
+        
+        # Drag element to coordinates
+        DRAG ProductPage.productImage TO x=300 y=400
+    }
+    
+    SCENARIO DemonstratesKeyboardActions @keyboard {
+        FILL LoginPage.usernameInput WITH "test"
+        
+        # PRESS action: Keyboard keys
+        PRESS "Tab"
+        PRESS "Enter"
+        PRESS "Escape"
+        PRESS "Control+A"
+        PRESS "Shift+Tab"
+    }
+    
+    SCENARIO DemonstratesScreenshots @screenshottest {
+        # Full page screenshot
+        TAKE SCREENSHOT
+        
+        # Screenshot with custom name
+        TAKE SCREENSHOT AS "before-login"
+        
+        # Element screenshot (requires Page.field reference)
+        TAKE SCREENSHOT OF LoginPage.loginButton AS "login-button"
+    }
+    
+    SCENARIO DemonstratesFileUpload @filetest {
+        # Single file upload
+        UPLOAD "test-file.pdf" TO LoginPage.usernameInput
+        
+        # Multiple file upload
+        UPLOAD "image1.jpg", "image2.jpg", "image3.jpg" TO LoginPage.passwordInput
+    }
+    
+    SCENARIO DemonstratesWaitVariations @waitest {
+        # Wait fixed seconds
+        WAIT 2 SECONDS
+        
+        # Wait milliseconds
+        WAIT 500 MILLISECONDS
+        
+        # Simple wait (default)
+        WAIT
+    }
+    
+    SCENARIO DemonstratesLogging @logtest {
+        LOG "Starting test execution"
+        LOG "Current user: testuser"
+        LOG "Test environment: staging"
+    }
+    
+    SCENARIO DemonstratesPageRefresh @navtest {
+        OPEN "https://example.com/dashboard"
+        WAIT 1 SECONDS
+        
+        # REFRESH action
+        REFRESH
+        
+        WAIT 2 SECONDS
+        VERIFY DashboardPage.welcomeMessage IS VISIBLE
+    }
+}
+
+
+FEATURE DataDrivenTesting {
+    USE LoginPage
+    USE DashboardPage
+    
+    SCENARIO TestWithLoadedData @datatest {
+        # LOAD: Load data from a data table
+        # Syntax: LOAD variable FROM "TableName" WHERE field = value
+        
+        LOAD testUser FROM "Users" WHERE status = "active"
+        LOAD productData FROM "Products" WHERE category = "electronics"
+        
+        # Use loaded data with FOR EACH loop
+        FOR EACH user IN testUser {
+            PERFORM LoginPage.login WITH user.username, user.password
+            VERIFY DashboardPage.welcomeMessage IS VISIBLE
+            PERFORM DashboardPage.logout
+        }
+    }
+    
+    SCENARIO TestWithEnvironmentVariables @envtest {
+        # Environment variables use {{variableName}} syntax
+        FILL LoginPage.usernameInput WITH {{TEST_USERNAME}}
+        FILL LoginPage.passwordInput WITH {{TEST_PASSWORD}}
+        CLICK LoginPage.loginButton
+        
+        OPEN {{BASE_URL}}
+    }
+}
+
+
+FEATURE VerificationExamples {
+    USE LoginPage
+    USE DashboardPage
+    
+    SCENARIO AllVerifyVariations @verifytest {
+        # Element visibility states
+        VERIFY LoginPage.loginButton IS VISIBLE
+        VERIFY LoginPage.errorMessage IS NOT VISIBLE
+        VERIFY LoginPage.loginButton IS HIDDEN
+        VERIFY LoginPage.loginButton IS NOT HIDDEN
+        
+        # Element enabled/disabled states
+        VERIFY LoginPage.loginButton IS ENABLED
+        VERIFY LoginPage.usernameInput IS NOT DISABLED
+        
+        # Checkbox states
+        VERIFY LoginPage.rememberMeCheckbox IS CHECKED
+        VERIFY LoginPage.rememberMeCheckbox IS NOT CHECKED
+        
+        # Focus states
+        VERIFY LoginPage.usernameInput IS FOCUSED
+        VERIFY LoginPage.passwordInput IS NOT FOCUSED
+        
+        # Empty states
+        VERIFY LoginPage.usernameInput IS EMPTY
+        VERIFY LoginPage.usernameInput IS NOT EMPTY
+        
+        # URL assertions
+        VERIFY URL CONTAINS "/login"
+        VERIFY URL EQUAL "https://example.com/login"
+        VERIFY URL MATCHES "/login.*"
+        
+        # Title assertions
+        VERIFY TITLE CONTAINS "Login"
+        VERIFY TITLE EQUAL "Login - Example App"
+        
+        # Element count
+        VERIFY ELEMENT COUNT OF LoginPage.usernameInput IS 1
+        
+        # Has assertions
+        VERIFY LoginPage.usernameInput HAS VALUE "testuser"
+        VERIFY LoginPage.loginButton HAS TEXT "Sign In"
+        VERIFY LoginPage.loginButton HAS CLASS "btn-primary"
+        VERIFY LoginPage.logo HAS ATTRIBUTE "src" EQUAL "/images/logo.png"
+        VERIFY LoginPage.usernameInput HAS COUNT 1
+        
+        # Contains text
+        VERIFY LoginPage.errorMessage CONTAINS TEXT "Invalid"
+    }
+}
+
+
+# ============================================================
+# SECTION 4: FEATURE WITH ALL ANNOTATIONS
+# ============================================================
+
+@skip
+FEATURE AnnotationDemo {
+    USE LoginPage
+    
+    @skip
+    SCENARIO SkippedTest {
+        LOG "This test is skipped"
+    }
+    
+    @only
+    SCENARIO OnlyThisTestRuns {
+        LOG "This is the only test that runs"
+    }
+    
+    @slow
+    SCENARIO SlowTestWithExtendedTimeout {
+        LOG "This test has extended timeout"
+        WAIT 10 SECONDS
+    }
+    
+    @fixme
+    SCENARIO TestThatNeedsFixing {
+        LOG "This test is marked as needs fixing"
+    }
+    
+    SCENARIO MultitaggedTest @smoke @regression @api @e2e {
+        LOG "This test has multiple tags"
+    }
+}

@@ -18,6 +18,7 @@ export function RegisterPage() {
 
     try {
       await register(email, password, name);
+      // Redirect to workspace after registration
       navigate('/');
     } catch (err: any) {
       setError(err.message || 'Registration failed');

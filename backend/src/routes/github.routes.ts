@@ -1594,36 +1594,25 @@ async function handleWorkflowRunCompleted(workflowRun: any, repository: any): Pr
 
   try {
     // Find if we have a tracked run for this workflow
-    const { prisma } = await import('../db/prisma');
+    const { githubWorkflowRunRepository, executionRepository } = await import('../db/repositories/mongo');
 
-    const trackedRun = await prisma.gitHubWorkflowRun.findFirst({
-      where: {
-        runId: BigInt(runId),
-        repoFullName,
-      },
-    });
+    const trackedRun = await githubWorkflowRunRepository.findByRunIdAndRepo(BigInt(runId), repoFullName);
 
     if (trackedRun) {
       // Update the tracked run with completion status
-      await prisma.gitHubWorkflowRun.update({
-        where: { id: trackedRun.id },
-        data: {
-          status: workflowRun.status,
-          conclusion: workflowRun.conclusion,
-          completedAt: workflowRun.updated_at ? new Date(workflowRun.updated_at) : new Date(),
-        },
+      await githubWorkflowRunRepository.update(trackedRun.id, {
+        status: workflowRun.status,
+        conclusion: workflowRun.conclusion,
+        completedAt: workflowRun.updated_at ? new Date(workflowRun.updated_at) : new Date(),
       });
 
       logger.info(`Updated tracked workflow run ${trackedRun.id} with status: ${workflowRun.conclusion}`);
 
       // If this run is linked to a Vero execution, update that too
       if (trackedRun.executionId) {
-        await prisma.execution.update({
-          where: { id: trackedRun.executionId },
-          data: {
-            status: workflowRun.conclusion === 'success' ? 'passed' : 'failed',
-            finishedAt: new Date(),
-          },
+        await executionRepository.update(trackedRun.executionId, {
+          status: workflowRun.conclusion === 'success' ? 'passed' : 'failed',
+          finishedAt: new Date(),
         });
       }
     }
@@ -1642,23 +1631,15 @@ async function handleWorkflowRunProgress(workflowRun: any, repository: any, acti
   const runId = workflowRun.id;
 
   try {
-    const { prisma } = await import('../db/prisma');
+    const { githubWorkflowRunRepository } = await import('../db/repositories/mongo');
 
     // Update status if we're tracking this run
-    const trackedRun = await prisma.gitHubWorkflowRun.findFirst({
-      where: {
-        runId: BigInt(runId),
-        repoFullName,
-      },
-    });
+    const trackedRun = await githubWorkflowRunRepository.findByRunIdAndRepo(BigInt(runId), repoFullName);
 
     if (trackedRun) {
-      await prisma.gitHubWorkflowRun.update({
-        where: { id: trackedRun.id },
-        data: {
-          status: action === 'in_progress' ? 'in_progress' : 'queued',
-          startedAt: action === 'in_progress' ? new Date() : undefined,
-        },
+      await githubWorkflowRunRepository.update(trackedRun.id, {
+        status: action === 'in_progress' ? 'in_progress' : 'queued',
+        startedAt: action === 'in_progress' ? new Date() : undefined,
       });
 
       logger.info(`Updated tracked workflow run ${trackedRun.id} status to: ${action}`);

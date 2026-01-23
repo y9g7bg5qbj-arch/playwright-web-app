@@ -1,5 +1,6 @@
 /**
  * Environment Service
+ * NOW USES MONGODB INSTEAD OF PRISMA
  *
  * Manages environment variables and global variables with Postman-style
  * precedence (Runtime > Environment > Global).
@@ -7,7 +8,11 @@
  * Supports {{variable}} syntax for runtime resolution.
  */
 
-import { prisma } from '../db/prisma';
+import {
+  userEnvironmentRepository,
+  environmentVariableRepository,
+  globalVariableRepository
+} from '../db/repositories/mongo';
 
 // ============================================
 // TYPES
@@ -58,9 +63,7 @@ export class EnvironmentService {
         };
 
         // 1. Load global variables (lowest precedence)
-        const globalVars = await prisma.globalVariable.findMany({
-            where: { userId }
-        });
+        const globalVars = await globalVariableRepository.findByUserId(userId);
 
         for (const v of globalVars) {
             const value = this.parseValue(v.value, v.type);
@@ -69,15 +72,11 @@ export class EnvironmentService {
         }
 
         // 2. Load active environment variables (override global)
-        const activeEnv = await prisma.environment.findFirst({
-            where: { userId, isActive: true },
-            include: {
-                variables: true
-            }
-        });
+        const activeEnv = await userEnvironmentRepository.findActiveByUserId(userId);
 
         if (activeEnv) {
-            for (const v of activeEnv.variables) {
+            const envVars = await environmentVariableRepository.findByEnvironmentId(activeEnv.id);
+            for (const v of envVars) {
                 const value = this.parseValue(v.value, v.type);
                 result.variables[v.key] = value;
                 result.sources[v.key] = 'environment';
@@ -145,39 +144,28 @@ export class EnvironmentService {
      */
     async setActiveEnvironment(userId: string, envId: string): Promise<void> {
         // Deactivate all environments for the user
-        await prisma.environment.updateMany({
-            where: { userId },
-            data: { isActive: false }
-        });
+        await userEnvironmentRepository.deactivateAll(userId);
 
         // Activate the specified environment
-        await prisma.environment.update({
-            where: { id: envId },
-            data: { isActive: true }
-        });
+        await userEnvironmentRepository.update(envId, { isActive: true });
     }
 
     /**
      * Get the active environment for a user
      */
     async getActiveEnvironment(userId: string): Promise<EnvironmentInfo | null> {
-        const env = await prisma.environment.findFirst({
-            where: { userId, isActive: true },
-            include: {
-                _count: {
-                    select: { variables: true }
-                }
-            }
-        });
+        const env = await userEnvironmentRepository.findActiveByUserId(userId);
 
         if (!env) return null;
+
+        const variableCount = await environmentVariableRepository.countByEnvironmentId(env.id);
 
         return {
             id: env.id,
             name: env.name,
-            description: env.description || undefined,
+            description: env.description,
             isActive: true,
-            variableCount: env._count.variables
+            variableCount
         };
     }
 
@@ -185,23 +173,21 @@ export class EnvironmentService {
      * List all environments for a user
      */
     async listEnvironments(userId: string): Promise<EnvironmentInfo[]> {
-        const envs = await prisma.environment.findMany({
-            where: { userId },
-            include: {
-                _count: {
-                    select: { variables: true }
-                }
-            },
-            orderBy: { name: 'asc' }
-        });
+        const envs = await userEnvironmentRepository.findByUserId(userId);
 
-        return envs.map(env => ({
-            id: env.id,
-            name: env.name,
-            description: env.description || undefined,
-            isActive: env.isActive,
-            variableCount: env._count.variables
-        }));
+        const results: EnvironmentInfo[] = [];
+        for (const env of envs) {
+            const variableCount = await environmentVariableRepository.countByEnvironmentId(env.id);
+            results.push({
+                id: env.id,
+                name: env.name,
+                description: env.description,
+                isActive: env.isActive,
+                variableCount
+            });
+        }
+
+        return results;
     }
 
     /**
@@ -220,40 +206,31 @@ export class EnvironmentService {
 
         // If setting as active, deactivate others first
         if (setActive) {
-            await prisma.environment.updateMany({
-                where: { userId },
-                data: { isActive: false }
-            });
+            await userEnvironmentRepository.deactivateAll(userId);
         }
 
-        const env = await prisma.environment.create({
-            data: {
-                userId,
-                name,
-                description,
-                isActive: setActive,
-                variables: {
-                    create: variables.map(v => ({
-                        key: v.key,
-                        value: v.value,
-                        type: v.type || 'string',
-                        sensitive: v.sensitive || false
-                    }))
-                }
-            },
-            include: {
-                _count: {
-                    select: { variables: true }
-                }
-            }
+        const env = await userEnvironmentRepository.create({
+            userId,
+            name,
+            description,
+            isActive: setActive
         });
+
+        // Create variables
+        for (const v of variables) {
+            await environmentVariableRepository.upsert(env.id, v.key, {
+                value: v.value,
+                type: v.type || 'string',
+                sensitive: v.sensitive || false
+            });
+        }
 
         return {
             id: env.id,
             name: env.name,
-            description: env.description || undefined,
+            description: env.description,
             isActive: env.isActive,
-            variableCount: env._count.variables
+            variableCount: variables.length
         };
     }
 
@@ -267,22 +244,20 @@ export class EnvironmentService {
             description?: string;
         }
     ): Promise<EnvironmentInfo> {
-        const env = await prisma.environment.update({
-            where: { id: envId },
-            data: updates,
-            include: {
-                _count: {
-                    select: { variables: true }
-                }
-            }
-        });
+        const env = await userEnvironmentRepository.update(envId, updates);
+
+        if (!env) {
+            throw new Error('Environment not found');
+        }
+
+        const variableCount = await environmentVariableRepository.countByEnvironmentId(env.id);
 
         return {
             id: env.id,
             name: env.name,
-            description: env.description || undefined,
+            description: env.description,
             isActive: env.isActive,
-            variableCount: env._count.variables
+            variableCount
         };
     }
 
@@ -290,26 +265,24 @@ export class EnvironmentService {
      * Delete an environment
      */
     async deleteEnvironment(envId: string): Promise<void> {
-        await prisma.environment.delete({
-            where: { id: envId }
-        });
+        // Delete variables first
+        await environmentVariableRepository.deleteByEnvironmentId(envId);
+        // Delete environment
+        await userEnvironmentRepository.delete(envId);
     }
 
     /**
      * Get environment variables
      */
     async getEnvironmentVariables(envId: string): Promise<Variable[]> {
-        const vars = await prisma.environmentVariable.findMany({
-            where: { environmentId: envId },
-            orderBy: { key: 'asc' }
-        });
+        const vars = await environmentVariableRepository.findByEnvironmentId(envId);
 
         return vars.map(v => ({
             key: v.key,
             value: v.sensitive ? '********' : this.parseValue(v.value, v.type),
             type: v.type as Variable['type'],
             sensitive: v.sensitive,
-            description: v.description || undefined,
+            description: v.description,
             source: 'environment' as const
         }));
     }
@@ -329,27 +302,11 @@ export class EnvironmentService {
     ): Promise<void> {
         const { type = 'string', sensitive = false, description } = options || {};
 
-        await prisma.environmentVariable.upsert({
-            where: {
-                environmentId_key: {
-                    environmentId: envId,
-                    key
-                }
-            },
-            create: {
-                environmentId: envId,
-                key,
-                value,
-                type,
-                sensitive,
-                description
-            },
-            update: {
-                value,
-                type,
-                sensitive,
-                description
-            }
+        await environmentVariableRepository.upsert(envId, key, {
+            value,
+            type,
+            sensitive,
+            description
         });
     }
 
@@ -357,31 +314,21 @@ export class EnvironmentService {
      * Delete an environment variable
      */
     async deleteEnvironmentVariable(envId: string, key: string): Promise<void> {
-        await prisma.environmentVariable.delete({
-            where: {
-                environmentId_key: {
-                    environmentId: envId,
-                    key
-                }
-            }
-        });
+        await environmentVariableRepository.delete(envId, key);
     }
 
     /**
      * Get global variables for a user
      */
     async getGlobalVariables(userId: string): Promise<Variable[]> {
-        const vars = await prisma.globalVariable.findMany({
-            where: { userId },
-            orderBy: { key: 'asc' }
-        });
+        const vars = await globalVariableRepository.findByUserId(userId);
 
         return vars.map(v => ({
             key: v.key,
             value: v.sensitive ? '********' : this.parseValue(v.value, v.type),
             type: v.type as Variable['type'],
             sensitive: v.sensitive,
-            description: v.description || undefined,
+            description: v.description,
             source: 'global' as const
         }));
     }
@@ -401,27 +348,11 @@ export class EnvironmentService {
     ): Promise<void> {
         const { type = 'string', sensitive = false, description } = options || {};
 
-        await prisma.globalVariable.upsert({
-            where: {
-                userId_key: {
-                    userId,
-                    key
-                }
-            },
-            create: {
-                userId,
-                key,
-                value,
-                type,
-                sensitive,
-                description
-            },
-            update: {
-                value,
-                type,
-                sensitive,
-                description
-            }
+        await globalVariableRepository.upsert(userId, key, {
+            value,
+            type,
+            sensitive,
+            description
         });
     }
 
@@ -429,14 +360,7 @@ export class EnvironmentService {
      * Delete a global variable
      */
     async deleteGlobalVariable(userId: string, key: string): Promise<void> {
-        await prisma.globalVariable.delete({
-            where: {
-                userId_key: {
-                    userId,
-                    key
-                }
-            }
-        });
+        await globalVariableRepository.delete(userId, key);
     }
 
     /**
@@ -448,24 +372,14 @@ export class EnvironmentService {
         source: 'global' | 'environment'
     ): Promise<string | null> {
         if (source === 'global') {
-            const v = await prisma.globalVariable.findUnique({
-                where: {
-                    userId_key: { userId, key }
-                }
-            });
+            const v = await globalVariableRepository.findByKey(userId, key);
             return v?.value ?? null;
         } else {
-            const activeEnv = await prisma.environment.findFirst({
-                where: { userId, isActive: true }
-            });
+            const activeEnv = await userEnvironmentRepository.findActiveByUserId(userId);
 
             if (!activeEnv) return null;
 
-            const v = await prisma.environmentVariable.findUnique({
-                where: {
-                    environmentId_key: { environmentId: activeEnv.id, key }
-                }
-            });
+            const v = await environmentVariableRepository.findByKey(activeEnv.id, key);
             return v?.value ?? null;
         }
     }
@@ -474,44 +388,37 @@ export class EnvironmentService {
      * Clone an environment
      */
     async cloneEnvironment(envId: string, newName: string): Promise<EnvironmentInfo> {
-        const original = await prisma.environment.findUnique({
-            where: { id: envId },
-            include: { variables: true }
-        });
+        const original = await userEnvironmentRepository.findById(envId);
 
         if (!original) {
             throw new Error('Environment not found');
         }
 
-        const cloned = await prisma.environment.create({
-            data: {
-                userId: original.userId,
-                name: newName,
-                description: `Clone of ${original.name}`,
-                isActive: false,
-                variables: {
-                    create: original.variables.map(v => ({
-                        key: v.key,
-                        value: v.value,
-                        type: v.type,
-                        sensitive: v.sensitive,
-                        description: v.description
-                    }))
-                }
-            },
-            include: {
-                _count: {
-                    select: { variables: true }
-                }
-            }
+        const originalVars = await environmentVariableRepository.findByEnvironmentId(envId);
+
+        const cloned = await userEnvironmentRepository.create({
+            userId: original.userId,
+            name: newName,
+            description: `Clone of ${original.name}`,
+            isActive: false
         });
+
+        // Clone variables
+        for (const v of originalVars) {
+            await environmentVariableRepository.upsert(cloned.id, v.key, {
+                value: v.value,
+                type: v.type,
+                sensitive: v.sensitive,
+                description: v.description
+            });
+        }
 
         return {
             id: cloned.id,
             name: cloned.name,
-            description: cloned.description || undefined,
+            description: cloned.description,
             isActive: cloned.isActive,
-            variableCount: cloned._count.variables
+            variableCount: originalVars.length
         };
     }
 

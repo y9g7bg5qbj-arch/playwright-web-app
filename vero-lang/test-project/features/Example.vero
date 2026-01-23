@@ -3,31 +3,31 @@
 FEATURE Example {
     USE HomePage
 
-    SCENARIO "Parallel Test 1" @parallel {
+    SCENARIO ParallelTest1 @parallel {
         OPEN "https://example.com/"
         WAIT 3 SECONDS
         LOG "scenario 1 step"
     }
 
-    SCENARIO "Parallel Test 2" @parallel {
+    SCENARIO ParallelTest2 @parallel {
         OPEN "https://example.com/"
         WAIT 3 SECONDS
         LOG "scenario 2 step"
     }
 
-    SCENARIO "Parallel Test 3" @parallel {
+    SCENARIO ParallelTest3 @parallel {
         OPEN "https://example.com/"
         WAIT 3 SECONDS
         LOG "scenario 3 step"
     }
 
-    SCENARIO "Parallel Test 4" @parallel {
+    SCENARIO ParallelTest4 @parallel {
         OPEN "https://example.com/"
         WAIT 3 SECONDS
         LOG "scenario 4 step"
     }
 
-    SCENARIO "Example Navigation Test" @smoke {
+    SCENARIO ExampleNavigationTest @smoke {
         OPEN "https://example.com/"
         CLICK HomePage.learnMore
         CLICK HomePage.aclick

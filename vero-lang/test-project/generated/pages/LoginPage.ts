@@ -14,8 +14,8 @@ export class LoginPage {
   }
 
   async login(email: string, password: string) {
-    await test.step('Fill LoginPage.emailInput', async () => { await loginPage.emailInput.fill(email); });
-    await test.step('Fill LoginPage.passwordInput', async () => { await loginPage.passwordInput.fill(password); });
-    await test.step('Click LoginPage.submitBtn', async () => { await loginPage.submitBtn.click(); });
+    await test.step('Fill LoginPage.emailInput', async () => { await this.emailInput.fill(email); });
+    await test.step('Fill LoginPage.passwordInput', async () => { await this.passwordInput.fill(password); });
+    await test.step('Click LoginPage.submitBtn', async () => { await this.submitBtn.click(); });
   }
 }

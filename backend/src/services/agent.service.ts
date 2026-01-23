@@ -1,7 +1,12 @@
+/**
+ * Agent Service
+ * NOW USES MONGODB INSTEAD OF PRISMA
+ */
+
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { prisma } from '../db/prisma';
+import { agentRepository } from '../db/repositories/mongo';
 import { config } from '../config';
 import { NotFoundError } from '../utils/errors';
 
@@ -49,13 +54,11 @@ export class AgentService {
     const randomToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = await bcrypt.hash(randomToken, SALT_ROUNDS);
 
-    const agent = await prisma.agent.create({
-      data: {
-        userId,
-        name,
-        tokenHash,
-        status: 'offline',
-      },
+    const agent = await agentRepository.create({
+      userId,
+      name,
+      tokenHash,
+      status: 'offline',
     });
 
     const jwtToken = jwt.sign({ agentId: agent.id }, config.jwt.secret, {
@@ -69,16 +72,11 @@ export class AgentService {
   }
 
   async listAgents(userId: string) {
-    return prisma.agent.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-    });
+    return agentRepository.findByUserId(userId);
   }
 
   async getAgent(agentId: string) {
-    const agent = await prisma.agent.findUnique({
-      where: { id: agentId },
-    });
+    const agent = await agentRepository.findById(agentId);
 
     if (!agent) {
       throw new NotFoundError('Agent not found');
@@ -88,29 +86,20 @@ export class AgentService {
   }
 
   async deleteAgent(agentId: string, userId: string) {
-    const agent = await prisma.agent.findFirst({
-      where: {
-        id: agentId,
-        userId,
-      },
-    });
+    const agents = await agentRepository.findByUserId(userId);
+    const agent = agents.find(a => a.id === agentId);
 
     if (!agent) {
       throw new NotFoundError('Agent not found');
     }
 
-    await prisma.agent.delete({
-      where: { id: agentId },
-    });
+    await agentRepository.delete(agentId);
   }
 
   async updateAgentStatus(agentId: string, status: string) {
-    await prisma.agent.update({
-      where: { id: agentId },
-      data: {
-        status,
-        lastSeenAt: new Date(),
-      },
+    await agentRepository.update(agentId, {
+      status: status as 'online' | 'offline' | 'busy',
+      lastSeenAt: new Date(),
     });
   }
 

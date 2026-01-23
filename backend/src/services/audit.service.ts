@@ -1,9 +1,10 @@
 /**
  * Audit Service
  * Track changes to schedules, configurations, and executions
+ * NOW USES MONGODB INSTEAD OF PRISMA
  */
 
-import { prisma } from '../db/prisma';
+import { auditLogRepository } from '../db/repositories/mongo';
 import { logger } from '../utils/logger';
 
 export type AuditEntityType = 'schedule' | 'execution' | 'notification' | 'queue' | 'github_webhook';
@@ -58,15 +59,13 @@ class AuditService {
    */
   async log(input: AuditLogCreateInput): Promise<AuditLogEntry> {
     try {
-      const entry = await prisma.auditLog.create({
-        data: {
-          userId: input.userId || null,
-          entityType: input.entityType,
-          entityId: input.entityId,
-          action: input.action,
-          changes: input.changes ? JSON.stringify(input.changes) : null,
-          metadata: input.metadata ? JSON.stringify(input.metadata) : null,
-        },
+      const entry = await auditLogRepository.create({
+        userId: input.userId || undefined,
+        entityType: input.entityType,
+        entityId: input.entityId,
+        action: input.action,
+        changes: input.changes ? JSON.stringify(input.changes) : undefined,
+        metadata: input.metadata ? JSON.stringify(input.metadata) : undefined,
       });
 
       logger.debug(`Audit log created: ${input.action} on ${input.entityType}/${input.entityId}`);
@@ -175,39 +174,18 @@ class AuditService {
     entries: AuditLogEntry[];
     total: number;
   }> {
-    const where: Record<string, unknown> = {};
-
-    if (query.userId) {
-      where.userId = query.userId;
-    }
-    if (query.entityType) {
-      where.entityType = query.entityType;
-    }
-    if (query.entityId) {
-      where.entityId = query.entityId;
-    }
-    if (query.action) {
-      where.action = query.action;
-    }
-    if (query.startDate || query.endDate) {
-      where.createdAt = {};
-      if (query.startDate) {
-        (where.createdAt as Record<string, Date>).gte = query.startDate;
-      }
-      if (query.endDate) {
-        (where.createdAt as Record<string, Date>).lte = query.endDate;
-      }
-    }
-
-    const [entries, total] = await Promise.all([
-      prisma.auditLog.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: query.limit || 50,
-        skip: query.offset || 0,
-      }),
-      prisma.auditLog.count({ where }),
-    ]);
+    const { entries, total } = await auditLogRepository.query(
+      {
+        userId: query.userId,
+        entityType: query.entityType,
+        entityId: query.entityId,
+        action: query.action,
+        startDate: query.startDate,
+        endDate: query.endDate,
+      },
+      query.limit || 50,
+      query.offset || 0
+    );
 
     return {
       entries: entries.map(e => this.formatEntry(e)),
@@ -223,12 +201,7 @@ class AuditService {
     entityId: string,
     limit: number = 50
   ): Promise<AuditLogEntry[]> {
-    const entries = await prisma.auditLog.findMany({
-      where: { entityType, entityId },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    });
-
+    const entries = await auditLogRepository.findByEntity(entityType, entityId, limit);
     return entries.map(e => this.formatEntry(e));
   }
 
@@ -236,12 +209,7 @@ class AuditService {
    * Get recent audit logs for a user
    */
   async getUserLogs(userId: string, limit: number = 50): Promise<AuditLogEntry[]> {
-    const entries = await prisma.auditLog.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    });
-
+    const entries = await auditLogRepository.findByUserId(userId, limit);
     return entries.map(e => this.formatEntry(e));
   }
 
@@ -252,14 +220,10 @@ class AuditService {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
 
-    const result = await prisma.auditLog.deleteMany({
-      where: {
-        createdAt: { lt: cutoffDate },
-      },
-    });
+    const count = await auditLogRepository.deleteOlderThan(cutoffDate);
 
-    logger.info(`Cleaned up ${result.count} audit logs older than ${daysToKeep} days`);
-    return result.count;
+    logger.info(`Cleaned up ${count} audit logs older than ${daysToKeep} days`);
+    return count;
   }
 
   /**
@@ -268,7 +232,7 @@ class AuditService {
   private formatEntry(entry: any): AuditLogEntry {
     return {
       id: entry.id,
-      userId: entry.userId,
+      userId: entry.userId || null,
       entityType: entry.entityType as AuditEntityType,
       entityId: entry.entityId,
       action: entry.action as AuditAction,

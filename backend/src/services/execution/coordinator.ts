@@ -62,7 +62,7 @@ export interface CoordinatorEvents {
 export class TestCoordinator extends EventEmitter {
   private workers: Map<string, Worker> = new Map();
   private sessions: Map<string, ExecutionSession> = new Map();
-  private heartbeatIntervals: Map<string, NodeJS.Timer> = new Map();
+  private heartbeatIntervals: Map<string, ReturnType<typeof setInterval>> = new Map();
   private readonly HEARTBEAT_INTERVAL = 30000; // 30 seconds
   private readonly HEARTBEAT_TIMEOUT = 90000; // 90 seconds
 

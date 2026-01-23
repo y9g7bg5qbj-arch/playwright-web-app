@@ -13,42 +13,42 @@ FEATURE UserRegistration {
         TAKE SCREENSHOT
     }
     
-    SCENARIO "User can navigate to sign up page" @smoke {
-        DO HomePage.navigateToSignUp
+    SCENARIO UserCanNavigateToSignUpPage @smoke {
+        PERFORM HomePage.navigateToSignUp
         VERIFY SignUpPage.firstNameInput IS VISIBLE
         VERIFY SignUpPage.submitBtn IS VISIBLE
     }
     
-    SCENARIO "User can complete registration" @smoke @critical {
-        DO HomePage.navigateToSignUp
-        DO SignUpPage.register WITH "John", "Doe", "john.doe@example.com", "SecurePass123!"
+    SCENARIO UserCanCompleteRegistration @smoke @critical {
+        PERFORM HomePage.navigateToSignUp
+        PERFORM SignUpPage.register WITH "John", "Doe", "john.doe@example.com", "SecurePass123!"
         WAIT 2 SECONDS
         VERIFY DashboardPage.welcomeMessage IS VISIBLE
     }
     
-    SCENARIO "Registration fails without accepting terms" @regression {
-        DO HomePage.navigateToSignUp
-        DO SignUpPage.fillRegistrationForm WITH "Jane", "Smith", "jane@example.com", "Password123!"
-        DO SignUpPage.submitForm
+    SCENARIO RegistrationFailsWithoutAcceptingTerms @regression {
+        PERFORM HomePage.navigateToSignUp
+        PERFORM SignUpPage.fillRegistrationForm WITH "Jane", "Smith", "jane@example.com", "Password123!"
+        PERFORM SignUpPage.submitForm
         VERIFY SignUpPage.errorMessage IS VISIBLE
         VERIFY DashboardPage.welcomeMessage IS NOT VISIBLE
     }
     
-    SCENARIO "Password fields must match" @validation {
-        DO HomePage.navigateToSignUp
+    SCENARIO PasswordFieldsMustMatch @validation {
+        PERFORM HomePage.navigateToSignUp
         FILL SignUpPage.emailInput WITH "test@example.com"
         FILL SignUpPage.passwordInput WITH "Password123"
         FILL SignUpPage.confirmPasswordInput WITH "DifferentPassword"
-        DO SignUpPage.submitForm
+        PERFORM SignUpPage.submitForm
         VERIFY SignUpPage.errorMessage IS VISIBLE
     }
     
-    SCENARIO "User can logout after registration" @regression {
-        DO HomePage.navigateToSignUp
-        DO SignUpPage.register WITH "Alice", "Wonder", "alice@example.com", "AlicePass123!"
+    SCENARIO UserCanLogoutAfterRegistration @regression {
+        PERFORM HomePage.navigateToSignUp
+        PERFORM SignUpPage.register WITH "Alice", "Wonder", "alice@example.com", "AlicePass123!"
         WAIT 1 SECONDS
         VERIFY DashboardPage.welcomeMessage IS VISIBLE
-        DO DashboardPage.logout
+        PERFORM DashboardPage.logout
         VERIFY HomePage.signUpButton IS VISIBLE
     }
 }

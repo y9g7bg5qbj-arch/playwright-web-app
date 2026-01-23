@@ -1,0 +1,100 @@
+# ComprehensivePage - Complete Page Object demonstrating supported Vero field and action syntax
+
+PAGE ComprehensivePage {
+    # =====================================================
+    # FIELD DEFINITIONS - Various selector strategies
+    # =====================================================
+
+    # Text selectors - matches visible text on page
+    FIELD welcomeMessage = "Welcome to Our Site"
+    FIELD pageTitle = "Dashboard"
+
+    # CSS Selectors - ID, class, attributes
+    FIELD emailInput = "#email"
+    FIELD passwordInput = "#password"
+    FIELD submitButton = ".submit-btn"
+    FIELD loginForm = "[data-form=login]"
+    FIELD firstMenuItem = ".menu-item:first-child"
+    FIELD activeTab = ".tab.active"
+    FIELD errorMessage = ".form-group.error > .error-text"
+    FIELD searchInput = "[name=search]"
+    FIELD fileUpload = "[type=file]"
+    FIELD dataTestIdButton = "[data-testid=submit-btn]"
+    FIELD ariaLabelButton = "[aria-label=Close]"
+    FIELD loginButton = "[data-testid=login]"
+
+    # XPath selectors
+    FIELD dynamicRow = "//table[@id='results']//tr[contains(@class, 'highlight')]"
+
+    # Form elements
+    FIELD usernameField = "#username"
+    FIELD rememberMeCheckbox = "#remember-me"
+    FIELD countrySelect = "#country"
+    FIELD termsCheckbox = "#accept-terms"
+
+    # Navigation elements
+    FIELD homeLink = "a[href='/']"
+    FIELD dashboardLink = ".nav-link.dashboard"
+    FIELD logoutButton = "[aria-label=Logout]"
+
+    # Content elements
+    FIELD loadingSpinner = ".loading-spinner"
+    FIELD successAlert = ".alert-success"
+    FIELD errorBanner = ".alert-danger"
+    FIELD itemCount = ".item-count"
+    FIELD dataTable = "#data-table"
+    FIELD tableRows = "#data-table tbody tr"
+
+    # =====================================================
+    # ACTION DEFINITIONS - Reusable procedures
+    # =====================================================
+
+    verifyPageLoaded {
+        VERIFY ComprehensivePage.welcomeMessage IS VISIBLE
+        VERIFY ComprehensivePage.loadingSpinner IS NOT VISIBLE
+    }
+
+    login WITH username, password {
+        FILL ComprehensivePage.usernameField WITH username
+        FILL ComprehensivePage.passwordInput WITH password
+        CLICK ComprehensivePage.submitButton
+        WAIT 1 SECONDS
+        VERIFY ComprehensivePage.errorMessage IS NOT VISIBLE
+    }
+
+    performSearch WITH query {
+        FILL ComprehensivePage.searchInput WITH query
+        PRESS "Enter"
+        WAIT 2 SECONDS
+    }
+
+    logout {
+        CLICK ComprehensivePage.logoutButton
+        VERIFY ComprehensivePage.loginButton IS VISIBLE
+    }
+}
+
+PAGE ModalPage {
+    FIELD modalContainer = ".modal"
+    FIELD modalTitle = ".modal-title"
+    FIELD closeButton = ".modal .close-btn"
+    FIELD confirmButton = ".modal .btn-confirm"
+    FIELD inputField = ".modal input[type=text]"
+
+    confirmModal {
+        WAIT 1 SECONDS
+        CLICK ModalPage.confirmButton
+    }
+
+    dismissModal {
+        WAIT 1 SECONDS
+        CLICK ModalPage.closeButton
+        WAIT 500 MILLISECONDS
+    }
+
+    fillAndConfirm WITH inputValue {
+        WAIT 1 SECONDS
+        FILL ModalPage.inputField WITH inputValue
+        CLICK ModalPage.confirmButton
+    }
+}

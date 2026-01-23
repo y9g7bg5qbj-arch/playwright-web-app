@@ -4,7 +4,9 @@ import type { ClientToServerEvents, ServerToClientEvents } from '@playwright-web
 import { apiClient } from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
 
+// WebSocket URL - in dev connects directly to backend, in prod uses same origin
 const WS_URL = (import.meta as any).env?.VITE_WS_URL || 'http://localhost:3000';
+const isDev = import.meta.env?.DEV || (typeof window !== 'undefined' && window.location.hostname === 'localhost');
 
 export function useWebSocket() {
   const [socket, setSocket] = useState<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
@@ -18,8 +20,6 @@ export function useWebSocket() {
 
   useEffect(() => {
     // Dev mode: connect even without token
-    const isDev = import.meta.env?.DEV || window.location.hostname === 'localhost';
-
     if (!token && !isDev) {
       // Production: require auth
       setSocket(null);
@@ -28,7 +28,7 @@ export function useWebSocket() {
     }
 
     const newSocket = io(WS_URL, {
-      auth: { token: token || 'dev-mode' },
+      auth: { token: token || '' }, // Empty token triggers dev mode on backend
       transports: ['websocket', 'polling'],
     });
 

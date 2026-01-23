@@ -2,16 +2,15 @@
  * Data Storage Settings Routes
  *
  * Manage per-application database configuration for test data.
- * Allows users to configure MongoDB, PostgreSQL, MySQL instead of default SQLite.
+ * Supports MongoDB (default), PostgreSQL, MySQL.
  */
 
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { testConnection, clearAdapterCache, SUPPORTED_PROVIDERS } from '../services/data-adapters';
+import { applicationRepository, dataStorageConfigRepository } from '../db/repositories/mongo';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // All routes require authentication
 router.use(authenticateToken);
@@ -41,26 +40,19 @@ router.get('/:applicationId', async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
     const userId = authReq.userId!;
 
-    const application = await prisma.application.findFirst({
-      where: {
-        id: applicationId,
-        userId,
-      },
-    });
+    const application = await applicationRepository.findByIdAndUserId(applicationId, userId);
 
     if (!application) {
       return res.status(404).json({ error: 'Application not found' });
     }
 
-    let config = await prisma.dataStorageConfig.findUnique({
-      where: { applicationId },
-    });
+    let config = await dataStorageConfigRepository.findByApplicationId(applicationId);
 
     // Return default config if none exists
     if (!config) {
       return res.json({
         applicationId,
-        provider: 'sqlite',
+        provider: 'mongodb',
         isActive: true,
         isDefault: true,
       });
@@ -96,12 +88,7 @@ router.put('/:applicationId', async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
     const userId = authReq.userId!;
 
-    const application = await prisma.application.findFirst({
-      where: {
-        id: applicationId,
-        userId,
-      },
-    });
+    const application = await applicationRepository.findByIdAndUserId(applicationId, userId);
 
     if (!application) {
       return res.status(404).json({ error: 'Application not found' });
@@ -142,15 +129,11 @@ router.put('/:applicationId', async (req: Request, res: Response) => {
       updateData.connectionString = connectionString;
     }
 
-    const config = await prisma.dataStorageConfig.upsert({
-      where: { applicationId },
-      update: updateData,
-      create: {
-        applicationId,
-        provider: provider || 'sqlite',
-        ...updateData,
-      },
-    });
+    const config = await dataStorageConfigRepository.upsert(
+      applicationId,
+      updateData,
+      { provider: provider || 'mongodb', ...updateData }
+    );
 
     // Clear cached adapter so next request uses new config
     await clearAdapterCache(applicationId);
@@ -185,12 +168,7 @@ router.post('/:applicationId/test', async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
     const userId = authReq.userId!;
 
-    const application = await prisma.application.findFirst({
-      where: {
-        id: applicationId,
-        userId,
-      },
-    });
+    const application = await applicationRepository.findByIdAndUserId(applicationId, userId);
 
     if (!application) {
       return res.status(404).json({ error: 'Application not found' });
@@ -225,13 +203,11 @@ router.post('/:applicationId/test', async (req: Request, res: Response) => {
         options,
       };
     } else {
-      const existingConfig = await prisma.dataStorageConfig.findUnique({
-        where: { applicationId },
-      });
+      const existingConfig = await dataStorageConfigRepository.findByApplicationId(applicationId);
 
       if (!existingConfig) {
-        // Test SQLite (default)
-        testConfig = { provider: 'sqlite' };
+        // Test MongoDB (default)
+        testConfig = { provider: 'mongodb' };
       } else {
         testConfig = existingConfig;
       }
@@ -241,13 +217,10 @@ router.post('/:applicationId/test', async (req: Request, res: Response) => {
     const result = await testConnection(testConfig);
 
     // Update last tested info
-    if (testConfig.provider !== 'sqlite') {
-      await prisma.dataStorageConfig.update({
-        where: { applicationId },
-        data: {
-          lastTestedAt: new Date(),
-          lastError: result.success ? null : result.error,
-        },
+    if (testConfig.provider) {
+      await dataStorageConfigRepository.update(applicationId, {
+        lastTestedAt: new Date(),
+        lastError: result.success ? undefined : result.error,
       }).catch(() => {
         // Ignore if config doesn't exist yet
       });
@@ -268,7 +241,7 @@ router.post('/:applicationId/test', async (req: Request, res: Response) => {
 
 /**
  * DELETE /api/data-storage/:applicationId
- * Reset to default SQLite storage
+ * Reset to default MongoDB storage
  */
 router.delete('/:applicationId', async (req: Request, res: Response) => {
   try {
@@ -278,21 +251,14 @@ router.delete('/:applicationId', async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
     const userId = authReq.userId!;
 
-    const application = await prisma.application.findFirst({
-      where: {
-        id: applicationId,
-        userId,
-      },
-    });
+    const application = await applicationRepository.findByIdAndUserId(applicationId, userId);
 
     if (!application) {
       return res.status(404).json({ error: 'Application not found' });
     }
 
-    // Delete the config (reverts to SQLite default)
-    await prisma.dataStorageConfig.delete({
-      where: { applicationId },
-    }).catch(() => {
+    // Delete the config (reverts to MongoDB default)
+    await dataStorageConfigRepository.delete(applicationId).catch(() => {
       // Ignore if config doesn't exist
     });
 
@@ -301,7 +267,7 @@ router.delete('/:applicationId', async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      message: 'Data storage configuration reset to default (SQLite)',
+      message: 'Data storage configuration reset to default (MongoDB)',
     });
   } catch (error: any) {
     console.error('Error resetting data storage config:', error);

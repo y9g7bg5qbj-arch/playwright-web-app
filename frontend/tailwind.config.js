@@ -1,4 +1,3 @@
-/** @type {import('tailwindcss').Config} */
 export default {
   content: [
     "./index.html",
@@ -7,93 +6,74 @@ export default {
   theme: {
     extend: {
       colors: {
-        // GitHub-inspired dark theme
+        // Premium Dark Theme (Zinc-based)
         dark: {
-          bg: '#0d1117',
-          card: '#161b22',
-          elevated: '#21262d',
-          canvas: '#010409',
+          bg: 'var(--bg-primary)',
+          card: 'var(--bg-secondary)',
+          elevated: 'var(--bg-elevated)',
+          canvas: 'var(--bg-canvas)',
+          overlay: 'var(--bg-overlay)',
+        },
+        brand: {
+          primary: 'var(--brand-primary)',
+          secondary: 'var(--brand-secondary)',
         },
         border: {
-          default: '#30363d',
-          muted: '#21262d',
-          subtle: '#1b1f24',
+          default: 'var(--border-default)',
+          muted: 'var(--border-subtle)',
+          emphasis: 'var(--border-emphasis)',
+          active: 'var(--border-active)',
         },
         text: {
-          primary: '#e6edf3',
-          secondary: '#8b949e',
-          muted: '#6e7681',
-          link: '#58a6ff',
-        },
-        accent: {
-          blue: '#58a6ff',
-          green: '#3fb950',
-          red: '#f85149',
-          yellow: '#d29922',
-          purple: '#a371f7',
-          orange: '#db6d28',
+          primary: 'var(--text-primary)',
+          secondary: 'var(--text-secondary)',
+          muted: 'var(--text-muted)',
+          inverted: 'var(--text-inverted)',
         },
         status: {
-          success: '#238636',
-          'success-emphasis': '#2ea043',
-          danger: '#da3633',
-          'danger-emphasis': '#f85149',
-          warning: '#9e6a03',
-          'warning-emphasis': '#d29922',
+          success: 'var(--status-success)',
+          warning: 'var(--status-warning)',
+          danger: 'var(--status-danger)',
+          info: 'var(--status-info)',
         },
-        // Keep legacy primary colors for backward compatibility
-        primary: {
-          50: '#eff6ff',
-          100: '#dbeafe',
-          200: '#bfdbfe',
-          300: '#93c5fd',
-          400: '#60a5fa',
-          500: '#3b82f6',
-          600: '#2563eb',
-          700: '#1d4ed8',
-          800: '#1e40af',
-          900: '#1e3a8a',
+        // Legacy support (mapped to new palette)
+        accent: {
+          blue: 'var(--brand-primary)',
+          purple: 'var(--brand-secondary)',
         },
       },
       fontFamily: {
-        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
-        mono: ['Fira Code', 'JetBrains Mono', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
+        sans: ['var(--font-sans)'],
+        mono: ['var(--font-mono)'],
       },
       fontSize: {
+        'xxs': ['11px', { lineHeight: '14px', letterSpacing: '0.02em' }],
         'xs': ['12px', { lineHeight: '16px' }],
-        'sm': ['14px', { lineHeight: '20px' }],
-        'base': ['16px', { lineHeight: '24px' }],
-        'lg': ['18px', { lineHeight: '28px' }],
-        'xl': ['20px', { lineHeight: '28px' }],
+        'sm': ['13px', { lineHeight: '20px' }], // Slightly smaller default
+        'base': ['14px', { lineHeight: '24px' }],
+        'lg': ['16px', { lineHeight: '24px' }],
+        'xl': ['18px', { lineHeight: '28px' }],
         '2xl': ['24px', { lineHeight: '32px' }],
-        '3xl': ['30px', { lineHeight: '36px' }],
-      },
-      spacing: {
-        '18': '4.5rem',
-        '88': '22rem',
-        '128': '32rem',
       },
       borderRadius: {
         'sm': '4px',
         'DEFAULT': '6px',
         'md': '8px',
-        'lg': '12px',
-        'xl': '16px',
+        'lg': '10px',
+        'xl': '14px',
       },
       boxShadow: {
-        'sm': '0 1px 2px rgba(0, 0, 0, 0.3)',
-        'DEFAULT': '0 2px 4px rgba(0, 0, 0, 0.4)',
-        'md': '0 4px 8px rgba(0, 0, 0, 0.4)',
-        'lg': '0 8px 16px rgba(0, 0, 0, 0.4)',
-        'xl': '0 12px 24px rgba(0, 0, 0, 0.5)',
-        'glow-blue': '0 0 20px rgba(88, 166, 255, 0.3)',
-        'glow-green': '0 0 20px rgba(63, 185, 80, 0.3)',
+        'sm': '0 1px 2px rgba(0, 0, 0, 0.4)',
+        'md': '0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.3)',
+        'lg': '0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3)',
+        'glow': 'var(--brand-glow)',
+        'glass': '0 8px 32px 0 rgba(0, 0, 0, 0.37)',
       },
       animation: {
-        'fade-in': 'fadeIn 0.2s ease-out',
-        'slide-up': 'slideUp 0.2s ease-out',
-        'slide-down': 'slideDown 0.2s ease-out',
-        'pulse-subtle': 'pulseSubtle 2s ease-in-out infinite',
+        'fade-in': 'fadeIn 150ms var(--ease-out)',
+        'slide-up': 'slideUp 200ms var(--ease-out)',
+        'scale-in': 'scaleIn 150ms var(--ease-out)',
+        'pulse-subtle': 'pulseSubtle 3s ease-in-out infinite',
       },
       keyframes: {
         fadeIn: {
@@ -101,16 +81,16 @@ export default {
           '100%': { opacity: '1' },
         },
         slideUp: {
-          '0%': { opacity: '0', transform: 'translateY(10px)' },
+          '0%': { opacity: '0', transform: 'translateY(8px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
-        slideDown: {
-          '0%': { opacity: '0', transform: 'translateY(-10px)' },
-          '100%': { opacity: '1', transform: 'translateY(0)' },
+        scaleIn: {
+          '0%': { opacity: '0', transform: 'scale(0.95)' },
+          '100%': { opacity: '1', transform: 'scale(1)' },
         },
         pulseSubtle: {
           '0%, 100%': { opacity: '1' },
-          '50%': { opacity: '0.7' },
+          '50%': { opacity: '0.8' },
         },
       },
     },

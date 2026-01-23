@@ -1,4 +1,5 @@
-// Program is the root node
+// ==================== PROGRAM STRUCTURE ====================
+
 export interface ProgramNode {
     type: 'Program';
     pages: PageNode[];
@@ -6,7 +7,6 @@ export interface ProgramNode {
     fixtures: FixtureNode[];
 }
 
-// PAGE LoginPage { ... }
 export interface PageNode {
     type: 'Page';
     name: string;
@@ -16,73 +16,6 @@ export interface PageNode {
     line: number;
 }
 
-// Feature annotations
-export type FeatureAnnotation = 'serial' | 'skip' | 'only';
-
-// FEATURE Login { ... }
-export interface FeatureNode {
-    type: 'Feature';
-    name: string;
-    annotations: FeatureAnnotation[];  // @serial, @skip, @only
-    uses: string[];           // USE statements
-    fixtures: FixtureUseNode[];  // WITH FIXTURE statements
-    hooks: HookNode[];        // BEFORE/AFTER hooks
-    scenarios: ScenarioNode[];
-    line: number;
-}
-
-// ==================== FIXTURE TYPES ====================
-
-// FIXTURE authenticatedUser { ... }
-export interface FixtureNode {
-    type: 'Fixture';
-    name: string;
-    parameters: string[];     // Parameters for parameterized fixtures
-    scope: 'test' | 'worker'; // test = per-test, worker = shared across tests
-    dependencies: string[];   // DEPENDS ON page, context
-    auto: boolean;            // AUTO flag - runs for all tests
-    options: FixtureOptionNode[];  // OPTION name DEFAULT value
-    setup: StatementNode[];   // SETUP block
-    teardown: StatementNode[]; // TEARDOWN block
-    line: number;
-}
-
-// OPTION name DEFAULT "value"
-export interface FixtureOptionNode {
-    type: 'FixtureOption';
-    name: string;
-    defaultValue: ExpressionNode;
-    line: number;
-}
-
-// WITH FIXTURE authenticatedUser { role = "admin" }
-export interface FixtureUseNode {
-    type: 'FixtureUse';
-    fixtureName: string;
-    options: FixtureOptionValue[];  // { role = "admin", count = 5 }
-    line: number;
-}
-
-// Option value in fixture use: role = "admin"
-export interface FixtureOptionValue {
-    name: string;
-    value: ExpressionNode;
-}
-
-// Scenario annotations that affect test behavior
-export type ScenarioAnnotation = 'skip' | 'only' | 'slow' | 'fixme';
-
-// SCENARIO "test name" @tag { ... }
-export interface ScenarioNode {
-    type: 'Scenario';
-    name: string;
-    annotations: ScenarioAnnotation[];  // @skip, @only, @slow, @fixme
-    tags: string[];
-    statements: StatementNode[];
-    line: number;
-}
-
-// FIELD emailInput = TEXTBOX "Email"
 export interface FieldNode {
     type: 'Field';
     name: string;
@@ -92,11 +25,10 @@ export interface FieldNode {
 
 export interface SelectorNode {
     type: 'Selector';
-    selectorType: 'auto';  // Transpiler auto-detects based on string content
+    selectorType: 'auto';
     value: string;
 }
 
-// TEXT defaultEmail = "test@example.com"
 export interface VariableNode {
     type: 'Variable';
     varType: 'TEXT' | 'NUMBER' | 'FLAG' | 'LIST';
@@ -105,7 +37,6 @@ export interface VariableNode {
     line: number;
 }
 
-// login WITH email, password { ... }
 export interface ActionDefinitionNode {
     type: 'ActionDefinition';
     name: string;
@@ -115,7 +46,31 @@ export interface ActionDefinitionNode {
     line: number;
 }
 
-// BEFORE EACH { ... }
+// ==================== FEATURES AND SCENARIOS ====================
+
+export type FeatureAnnotation = 'serial' | 'skip' | 'only';
+export type ScenarioAnnotation = 'skip' | 'only' | 'slow' | 'fixme';
+
+export interface FeatureNode {
+    type: 'Feature';
+    name: string;
+    annotations: FeatureAnnotation[];
+    uses: string[];
+    fixtures: FixtureUseNode[];
+    hooks: HookNode[];
+    scenarios: ScenarioNode[];
+    line: number;
+}
+
+export interface ScenarioNode {
+    type: 'Scenario';
+    name: string;
+    annotations: ScenarioAnnotation[];
+    tags: string[];
+    statements: StatementNode[];
+    line: number;
+}
+
 export interface HookNode {
     type: 'Hook';
     hookType: 'BEFORE_ALL' | 'BEFORE_EACH' | 'AFTER_ALL' | 'AFTER_EACH';
@@ -123,7 +78,42 @@ export interface HookNode {
     line: number;
 }
 
-// All possible statement types
+// ==================== FIXTURES ====================
+
+export interface FixtureNode {
+    type: 'Fixture';
+    name: string;
+    parameters: string[];
+    scope: 'test' | 'worker';
+    dependencies: string[];
+    auto: boolean;
+    options: FixtureOptionNode[];
+    setup: StatementNode[];
+    teardown: StatementNode[];
+    line: number;
+}
+
+export interface FixtureOptionNode {
+    type: 'FixtureOption';
+    name: string;
+    defaultValue: ExpressionNode;
+    line: number;
+}
+
+export interface FixtureUseNode {
+    type: 'FixtureUse';
+    fixtureName: string;
+    options: FixtureOptionValue[];
+    line: number;
+}
+
+export interface FixtureOptionValue {
+    name: string;
+    value: ExpressionNode;
+}
+
+// ==================== STATEMENTS ====================
+
 export type StatementNode =
     | ClickStatement
     | RightClickStatement
@@ -136,7 +126,7 @@ export type StatementNode =
     | VerifyUrlStatement
     | VerifyTitleStatement
     | VerifyHasStatement
-    | DoStatement
+    | PerformStatement
     | WaitStatement
     | RefreshStatement
     | CheckStatement
@@ -147,7 +137,14 @@ export type StatementNode =
     | UploadStatement
     | LoadStatement
     | ForEachStatement
-    | DataQueryStatement;
+    | DataQueryStatement
+    | RowStatement
+    | RowsStatement
+    | ColumnAccessStatement
+    | CountStatement
+    | UtilityAssignmentStatement;
+
+// Action Statements
 
 export interface ClickStatement {
     type: 'Click';
@@ -155,35 +152,30 @@ export interface ClickStatement {
     line: number;
 }
 
-// RIGHT CLICK "Element"
 export interface RightClickStatement {
     type: 'RightClick';
     target: TargetNode;
     line: number;
 }
 
-// DOUBLE CLICK "Element"
 export interface DoubleClickStatement {
     type: 'DoubleClick';
     target: TargetNode;
     line: number;
 }
 
-// FORCE CLICK "Element"
 export interface ForceClickStatement {
     type: 'ForceClick';
     target: TargetNode;
     line: number;
 }
 
-// Coordinate target for DRAG operations
 export interface CoordinateTarget {
     type: 'Coordinate';
     x: number;
     y: number;
 }
 
-// DRAG "Source" TO "Target" or DRAG "Element" TO x=100 y=200
 export interface DragStatement {
     type: 'Drag';
     source: TargetNode;
@@ -201,44 +193,6 @@ export interface FillStatement {
 export interface OpenStatement {
     type: 'Open';
     url: ExpressionNode;
-    line: number;
-}
-
-export interface VerifyStatement {
-    type: 'Verify';
-    target: TargetNode | ExpressionNode;
-    condition: VerifyCondition;
-    line: number;
-}
-
-export interface VerifyCondition {
-    type: 'Condition';
-    operator: 'IS' | 'IS_NOT' | 'CONTAINS' | 'NOT_CONTAINS';
-    value?: 'VISIBLE' | 'HIDDEN' | 'ENABLED' | 'DISABLED' | 'CHECKED' | 'FOCUSED' | 'EMPTY' | ExpressionNode;
-}
-
-export interface DoStatement {
-    type: 'Do';
-    action: ActionCallNode;
-    line: number;
-}
-
-export interface ActionCallNode {
-    type: 'ActionCall';
-    page?: string;        // LoginPage
-    action: string;       // login
-    arguments: ExpressionNode[];
-}
-
-export interface WaitStatement {
-    type: 'Wait';
-    duration?: number;
-    unit?: 'seconds' | 'milliseconds';
-    line: number;
-}
-
-export interface RefreshStatement {
-    type: 'Refresh';
     line: number;
 }
 
@@ -260,6 +214,18 @@ export interface PressStatement {
     line: number;
 }
 
+export interface WaitStatement {
+    type: 'Wait';
+    duration?: number;
+    unit?: 'seconds' | 'milliseconds';
+    line: number;
+}
+
+export interface RefreshStatement {
+    type: 'Refresh';
+    line: number;
+}
+
 export interface LogStatement {
     type: 'Log';
     message: ExpressionNode;
@@ -268,20 +234,46 @@ export interface LogStatement {
 
 export interface TakeScreenshotStatement {
     type: 'TakeScreenshot';
-    target?: TargetNode;    // If specified, screenshot of element; otherwise full page
+    target?: TargetNode;
     filename?: string;
     line: number;
 }
 
-// upload "file.pdf" to "#fileInput"
 export interface UploadStatement {
     type: 'Upload';
-    files: ExpressionNode[];   // Array of file paths
+    files: ExpressionNode[];
     target: TargetNode;
     line: number;
 }
 
-// verify url contains "/dashboard"
+export interface PerformStatement {
+    type: 'Perform';
+    action: ActionCallNode;
+    line: number;
+}
+
+export interface ActionCallNode {
+    type: 'ActionCall';
+    page?: string;
+    action: string;
+    arguments: ExpressionNode[];
+}
+
+// ==================== ASSERTIONS ====================
+
+export interface VerifyStatement {
+    type: 'Verify';
+    target: TargetNode | ExpressionNode;
+    condition: VerifyCondition;
+    line: number;
+}
+
+export interface VerifyCondition {
+    type: 'Condition';
+    operator: 'IS' | 'IS_NOT' | 'CONTAINS' | 'NOT_CONTAINS';
+    value?: 'VISIBLE' | 'HIDDEN' | 'ENABLED' | 'DISABLED' | 'CHECKED' | 'FOCUSED' | 'EMPTY' | ExpressionNode;
+}
+
 export interface VerifyUrlStatement {
     type: 'VerifyUrl';
     condition: 'contains' | 'equals' | 'matches';
@@ -289,7 +281,6 @@ export interface VerifyUrlStatement {
     line: number;
 }
 
-// verify title equals "Dashboard"
 export interface VerifyTitleStatement {
     type: 'VerifyTitle';
     condition: 'contains' | 'equals';
@@ -297,7 +288,6 @@ export interface VerifyTitleStatement {
     line: number;
 }
 
-// verify "#items" has count 5
 export interface VerifyHasStatement {
     type: 'VerifyHas';
     target: TargetNode;
@@ -329,48 +319,87 @@ export interface HasAttributeCondition {
     value: ExpressionNode;
 }
 
-// assert "element" has text "expected"
 export interface HasTextCondition {
     type: 'HasText';
     text: ExpressionNode;
 }
 
-// assert "element" contains text "expected"
 export interface ContainsTextCondition {
     type: 'ContainsText';
     text: ExpressionNode;
 }
 
-// assert "element" has class "active"
 export interface HasClassCondition {
     type: 'HasClass';
     className: ExpressionNode;
 }
 
-// LOAD $users FROM "users" WHERE enabled = true
+// ==================== DATA QUERIES ====================
+
 export interface LoadStatement {
     type: 'Load';
-    variable: string;         // The variable name (without $)
-    tableName: string;        // The data table name
-    projectName?: string;     // Optional project name for cross-project references (ProjectName.TableName)
+    variable: string;
+    tableName: string;
+    projectName?: string;
     whereClause?: WhereClause;
     line: number;
 }
 
-// FOR EACH $user IN $users { ... }
 export interface ForEachStatement {
     type: 'ForEach';
-    itemVariable: string;     // The iteration variable (without $)
-    collectionVariable: string; // The collection to iterate (without $)
+    itemVariable: string;
+    collectionVariable: string;
     statements: StatementNode[];
     line: number;
 }
 
-// ==================== VDQL (Data Query) Types ====================
+export interface RowStatement {
+    type: 'Row';
+    variableName: string;
+    modifier?: 'FIRST' | 'LAST' | 'RANDOM';
+    tableRef: SimpleTableReference;
+    where?: DataCondition;
+    orderBy?: OrderByClause[];
+    line: number;
+}
 
-// data admin = TestData.Users where role == "admin"
-// list emails = TestData.Users.email
-// number count = count TestData.Users
+export interface RowsStatement {
+    type: 'Rows';
+    variableName: string;
+    tableRef: SimpleTableReference;
+    where?: DataCondition;
+    orderBy?: OrderByClause[];
+    limit?: number;
+    offset?: number;
+    line: number;
+}
+
+export interface ColumnAccessStatement {
+    type: 'ColumnAccess';
+    variableName: string;
+    distinct?: boolean;
+    tableRef: SimpleTableReference;
+    column: string;
+    where?: DataCondition;
+    line: number;
+}
+
+export interface CountStatement {
+    type: 'Count';
+    variableName: string;
+    tableRef: SimpleTableReference;
+    where?: DataCondition;
+    line: number;
+}
+
+export interface SimpleTableReference {
+    type: 'SimpleTableReference';
+    tableName: string;
+    projectName?: string;
+}
+
+// Legacy VDQL types
+
 export interface DataQueryStatement {
     type: 'DataQuery';
     resultType: 'DATA' | 'LIST' | 'TEXT' | 'NUMBER' | 'FLAG';
@@ -381,12 +410,11 @@ export interface DataQueryStatement {
 
 export type DataQuery = TableQuery | AggregationQuery;
 
-// Table queries: TestData.Users where role == "admin" order by name limit 10
 export interface TableQuery {
     type: 'TableQuery';
-    position?: 'first' | 'last' | 'random';      // first/last/random TestData.Users
+    position?: 'first' | 'last' | 'random';
     tableRef: TableReference;
-    columns?: string[];           // For multi-column selection .(email, name)
+    columns?: string[];
     where?: DataCondition;
     orderBy?: OrderByClause[];
     limit?: number;
@@ -394,29 +422,28 @@ export interface TableQuery {
     defaultValue?: ExpressionNode;
 }
 
-// Table reference: TestData.Users, TestData.Users.email, TestData.Users[1].email, TestData.Users[5..10]
 export interface TableReference {
     type: 'TableReference';
-    tableName: string;            // "Users"
-    column?: string;              // "email" (for column access)
-    rowIndex?: ExpressionNode;    // For TestData.Users[1]
-    rangeStart?: ExpressionNode;  // For TestData.Users[5..10]
-    rangeEnd?: ExpressionNode;    // For TestData.Users[5..10]
-    cellRow?: ExpressionNode;     // For cell [row, col]
+    tableName: string;
+    column?: string;
+    rowIndex?: ExpressionNode;
+    rangeStart?: ExpressionNode;
+    rangeEnd?: ExpressionNode;
+    cellRow?: ExpressionNode;
     cellCol?: ExpressionNode;
 }
 
-// Aggregation queries: count, sum, average, min, max, distinct
 export interface AggregationQuery {
     type: 'AggregationQuery';
     function: 'COUNT' | 'SUM' | 'AVERAGE' | 'MIN' | 'MAX' | 'DISTINCT' | 'ROWS' | 'COLUMNS' | 'HEADERS';
     tableRef: TableReference;
-    column?: string;              // For sum/avg/min/max on specific column
-    distinct?: boolean;           // count distinct
+    column?: string;
+    distinct?: boolean;
     where?: DataCondition;
 }
 
-// WHERE clause conditions (supports AND, OR, NOT, parentheses)
+// Data Conditions
+
 export type DataCondition =
     | AndCondition
     | OrCondition
@@ -440,43 +467,38 @@ export interface NotCondition {
     condition: DataCondition;
 }
 
-// Individual comparisons: email == "admin@test.com", status != "deleted"
 export interface DataComparison {
     type: 'Comparison';
     column: string;
     operator: ComparisonOperator | TextOperator | 'IN' | 'NOT_IN' | 'IS_EMPTY' | 'IS_NOT_EMPTY' | 'IS_NULL';
     value?: ExpressionNode;
-    values?: ExpressionNode[];    // For IN/NOT IN clauses
+    values?: ExpressionNode[];
 }
 
 export type ComparisonOperator = '==' | '!=' | '>' | '<' | '>=' | '<=';
 export type TextOperator = 'CONTAINS' | 'STARTS_WITH' | 'ENDS_WITH' | 'MATCHES';
 
-// ORDER BY clause
 export interface OrderByClause {
     column: string;
     direction: 'ASC' | 'DESC';
 }
 
-// ==================== Legacy WHERE clause (for LoadStatement) ====================
-
-// WHERE clause for filtering data
 export interface WhereClause {
-    field: string;            // Column name
+    field: string;
     operator: '=' | '!=' | '>' | '<' | '>=' | '<=';
-    value: ExpressionNode;    // The value to compare against
+    value: ExpressionNode;
 }
 
-// Target can be PageName.fieldName or just fieldName
+// ==================== TARGETS AND EXPRESSIONS ====================
+
 export interface TargetNode {
     type: 'Target';
     page?: string;
     field?: string;
     selector?: SelectorNode;
-    text?: string;  // For "Dashboard" IS VISIBLE
+    text?: string;
 }
 
-// Expression types
 export type ExpressionNode =
     | StringLiteral
     | NumberLiteral
@@ -505,14 +527,170 @@ export interface VariableReference {
     name: string;
 }
 
-/**
- * Environment variable reference: {{variableName}}
- * Postman-style syntax for referencing environment variables
- */
 export interface EnvVarReference {
     type: 'EnvVarReference';
-    name: string;  // The variable name (without {{ }})
+    name: string;
 }
+
+// ==================== UTILITY FUNCTIONS ====================
+
+export interface UtilityAssignmentStatement {
+    type: 'UtilityAssignment';
+    varType: 'TEXT' | 'NUMBER' | 'FLAG' | 'LIST';
+    variableName: string;
+    expression: UtilityExpressionNode;
+    line: number;
+}
+
+export type UtilityExpressionNode =
+    | TrimExpression
+    | ConvertExpression
+    | ExtractExpression
+    | ReplaceExpression
+    | SplitExpression
+    | JoinExpression
+    | LengthExpression
+    | PadExpression
+    | TodayExpression
+    | NowExpression
+    | AddDateExpression
+    | SubtractDateExpression
+    | FormatExpression
+    | DatePartExpression
+    | RoundExpression
+    | AbsoluteExpression
+    | GenerateExpression
+    | RandomNumberExpression
+    | ChainedExpression
+    | ExpressionNode;
+
+// String Utilities
+
+export interface TrimExpression {
+    type: 'Trim';
+    value: ExpressionNode;
+}
+
+export interface ConvertExpression {
+    type: 'Convert';
+    value: ExpressionNode;
+    targetType: 'UPPERCASE' | 'LOWERCASE' | 'NUMBER' | 'TEXT';
+}
+
+export interface ExtractExpression {
+    type: 'Extract';
+    value: ExpressionNode;
+    start: ExpressionNode;
+    end: ExpressionNode;
+}
+
+export interface ReplaceExpression {
+    type: 'Replace';
+    value: ExpressionNode;
+    search: string;
+    replacement: string;
+}
+
+export interface SplitExpression {
+    type: 'Split';
+    value: ExpressionNode;
+    delimiter: string;
+}
+
+export interface JoinExpression {
+    type: 'Join';
+    value: ExpressionNode;
+    delimiter: string;
+}
+
+export interface LengthExpression {
+    type: 'Length';
+    value: ExpressionNode;
+}
+
+export interface PadExpression {
+    type: 'Pad';
+    value: ExpressionNode;
+    length: ExpressionNode;
+    padChar: string;
+}
+
+// Date Utilities
+
+export interface TodayExpression {
+    type: 'Today';
+}
+
+export interface NowExpression {
+    type: 'Now';
+}
+
+export interface AddDateExpression {
+    type: 'AddDate';
+    amount: ExpressionNode;
+    unit: DateUnit;
+    date: ExpressionNode | TodayExpression | NowExpression;
+}
+
+export interface SubtractDateExpression {
+    type: 'SubtractDate';
+    amount: ExpressionNode;
+    unit: DateUnit;
+    date: ExpressionNode | TodayExpression | NowExpression;
+}
+
+export type DateUnit = 'DAY' | 'DAYS' | 'MONTH' | 'MONTHS' | 'YEAR' | 'YEARS';
+
+export interface FormatExpression {
+    type: 'Format';
+    value: ExpressionNode;
+    formatType: 'pattern' | 'currency' | 'percent';
+    pattern?: string;
+    currency?: string;
+}
+
+export interface DatePartExpression {
+    type: 'DatePart';
+    part: 'YEAR' | 'MONTH' | 'DAY';
+    date: ExpressionNode;
+}
+
+// Number Utilities
+
+export interface RoundExpression {
+    type: 'Round';
+    value: ExpressionNode;
+    decimals?: ExpressionNode;
+    direction?: 'UP' | 'DOWN';
+}
+
+export interface AbsoluteExpression {
+    type: 'Absolute';
+    value: ExpressionNode;
+}
+
+// Generate Utilities
+
+export interface GenerateExpression {
+    type: 'Generate';
+    pattern: string | 'UUID';
+}
+
+export interface RandomNumberExpression {
+    type: 'RandomNumber';
+    min: ExpressionNode;
+    max: ExpressionNode;
+}
+
+// Chained Expression
+
+export interface ChainedExpression {
+    type: 'Chained';
+    first: UtilityExpressionNode;
+    second: UtilityExpressionNode;
+}
+
+// ==================== ERRORS ====================
 
 export interface ParseError {
     message: string;

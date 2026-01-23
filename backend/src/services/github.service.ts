@@ -1,15 +1,22 @@
 /**
  * GitHub Integration Service
- * Handles GitHub API interactions for workflow execution
+ * NOW USES MONGODB INSTEAD OF PRISMA
  */
 
-import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
-
-const prisma = new PrismaClient();
+import {
+  githubIntegrationRepository,
+  githubRepositoryConfigRepository,
+  githubWorkflowRunRepository,
+  githubWorkflowJobRepository
+} from '../db/repositories/mongo';
 
 // Encryption key from environment (should be 32 bytes for AES-256)
-const ENCRYPTION_KEY = process.env.GITHUB_TOKEN_ENCRYPTION_KEY || 'default-key-change-in-production!';
+const ENCRYPTION_KEY = process.env.GITHUB_TOKEN_ENCRYPTION_KEY;
+
+if (!ENCRYPTION_KEY) {
+  console.warn('⚠️  GITHUB_TOKEN_ENCRYPTION_KEY not set - GitHub token encryption disabled');
+}
 
 interface GitHubUser {
   login: string;
@@ -77,8 +84,12 @@ interface GitHubArtifact {
   archive_download_url: string;
 }
 
-// Encryption utilities
+// Encryption utilities - only encrypt if key is configured
 function encrypt(text: string): string {
+  if (!ENCRYPTION_KEY) {
+    // Return with prefix to indicate unencrypted (for development)
+    return 'UNENC:' + Buffer.from(text).toString('base64');
+  }
   const iv = crypto.randomBytes(16);
   const key = crypto.scryptSync(ENCRYPTION_KEY, 'salt', 32);
   const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
@@ -88,6 +99,13 @@ function encrypt(text: string): string {
 }
 
 function decrypt(encryptedText: string): string {
+  // Handle unencrypted tokens (development mode)
+  if (encryptedText.startsWith('UNENC:')) {
+    return Buffer.from(encryptedText.slice(6), 'base64').toString('utf8');
+  }
+  if (!ENCRYPTION_KEY) {
+    throw new Error('Cannot decrypt: GITHUB_TOKEN_ENCRYPTION_KEY not configured');
+  }
   const [ivHex, encrypted] = encryptedText.split(':');
   const iv = Buffer.from(ivHex, 'hex');
   const key = crypto.scryptSync(ENCRYPTION_KEY, 'salt', 32);
@@ -136,25 +154,13 @@ class GitHubService {
   ) {
     const encryptedToken = encrypt(token);
 
-    return prisma.gitHubIntegration.upsert({
-      where: { userId },
-      create: {
-        userId,
-        accessToken: encryptedToken,
-        tokenType,
-        login: user.login,
-        avatarUrl: user.avatar_url,
-        isValid: true,
-        lastValidatedAt: new Date(),
-      },
-      update: {
-        accessToken: encryptedToken,
-        tokenType,
-        login: user.login,
-        avatarUrl: user.avatar_url,
-        isValid: true,
-        lastValidatedAt: new Date(),
-      },
+    return githubIntegrationRepository.upsert(userId, {
+      accessToken: encryptedToken,
+      tokenType,
+      login: user.login,
+      avatarUrl: user.avatar_url,
+      isValid: true,
+      lastValidatedAt: new Date(),
     });
   }
 
@@ -162,10 +168,7 @@ class GitHubService {
    * Get user's GitHub integration
    */
   async getIntegration(userId: string) {
-    const integration = await prisma.gitHubIntegration.findUnique({
-      where: { userId },
-      include: { repositories: true },
-    });
+    const integration = await githubIntegrationRepository.findByUserId(userId);
 
     if (integration) {
       // Don't send the encrypted token to the frontend
@@ -180,9 +183,7 @@ class GitHubService {
    * Get decrypted token for API calls
    */
   private async getToken(userId: string): Promise<string | null> {
-    const integration = await prisma.gitHubIntegration.findUnique({
-      where: { userId },
-    });
+    const integration = await githubIntegrationRepository.findByUserId(userId);
 
     if (!integration) return null;
 
@@ -197,9 +198,7 @@ class GitHubService {
    * Delete GitHub integration
    */
   async deleteIntegration(userId: string) {
-    return prisma.gitHubIntegration.delete({
-      where: { userId },
-    });
+    return githubIntegrationRepository.delete(userId);
   }
 
   /**
@@ -511,34 +510,19 @@ class GitHubService {
     defaultBranch: string,
     workflowPath: string
   ) {
-    const integration = await prisma.gitHubIntegration.findUnique({
-      where: { userId },
-    });
+    const integration = await githubIntegrationRepository.findByUserId(userId);
 
     if (!integration) {
       throw new Error('GitHub not connected');
     }
 
-    return prisma.gitHubRepositoryConfig.upsert({
-      where: {
-        workflowId_repoFullName: { workflowId, repoFullName },
-      },
-      create: {
-        integrationId: integration.id,
-        workflowId,
-        repoFullName,
-        repoId,
-        defaultBranch,
-        workflowPath,
-        isActive: true,
-        lastSyncedAt: new Date(),
-      },
-      update: {
-        defaultBranch,
-        workflowPath,
-        isActive: true,
-        lastSyncedAt: new Date(),
-      },
+    return githubRepositoryConfigRepository.upsert(workflowId, repoFullName, {
+      integrationId: integration.id,
+      repoId,
+      defaultBranch,
+      workflowPath,
+      isActive: true,
+      lastSyncedAt: new Date(),
     });
   }
 
@@ -546,9 +530,7 @@ class GitHubService {
    * Get repository config for a workflow
    */
   async getRepositoryConfig(workflowId: string) {
-    return prisma.gitHubRepositoryConfig.findFirst({
-      where: { workflowId, isActive: true },
-    });
+    return githubRepositoryConfigRepository.findByWorkflowId(workflowId);
   }
 
   /**
@@ -561,30 +543,22 @@ class GitHubService {
     repoFullName: string,
     configSnapshot?: string
   ) {
-    return prisma.gitHubWorkflowRun.upsert({
-      where: { runId: BigInt(run.id) },
-      create: {
-        workflowId,
-        executionId,
-        runId: BigInt(run.id),
-        runNumber: run.run_number,
-        repoFullName,
-        status: run.status,
-        conclusion: run.conclusion,
-        htmlUrl: run.html_url,
-        event: run.event,
-        headBranch: run.head_branch,
-        headSha: run.head_sha,
-        configSnapshot,
-        artifactsUrl: run.artifacts_url,
-        logsUrl: run.logs_url,
-        startedAt: run.created_at ? new Date(run.created_at) : null,
-      },
-      update: {
-        status: run.status,
-        conclusion: run.conclusion,
-        completedAt: run.status === 'completed' ? new Date() : null,
-      },
+    return githubWorkflowRunRepository.upsert(String(run.id), {
+      workflowId,
+      executionId: executionId || undefined,
+      runNumber: run.run_number,
+      repoFullName,
+      status: run.status,
+      conclusion: run.conclusion || undefined,
+      htmlUrl: run.html_url,
+      event: run.event,
+      headBranch: run.head_branch,
+      headSha: run.head_sha,
+      configSnapshot,
+      artifactsUrl: run.artifacts_url,
+      logsUrl: run.logs_url,
+      startedAt: run.created_at ? new Date(run.created_at) : undefined,
+      completedAt: run.status === 'completed' ? new Date() : undefined,
     });
   }
 
@@ -593,25 +567,15 @@ class GitHubService {
    */
   async updateWorkflowJobs(runDbId: string, jobs: GitHubJob[]) {
     for (const job of jobs) {
-      await prisma.gitHubWorkflowJob.upsert({
-        where: { jobId: BigInt(job.id) },
-        create: {
-          runDbId,
-          jobId: BigInt(job.id),
-          name: job.name,
-          status: job.status,
-          conclusion: job.conclusion,
-          htmlUrl: job.html_url,
-          runnerName: job.runner_name,
-          startedAt: job.started_at ? new Date(job.started_at) : null,
-          completedAt: job.completed_at ? new Date(job.completed_at) : null,
-        },
-        update: {
-          status: job.status,
-          conclusion: job.conclusion,
-          runnerName: job.runner_name,
-          completedAt: job.completed_at ? new Date(job.completed_at) : null,
-        },
+      await githubWorkflowJobRepository.upsert(String(job.id), {
+        runDbId,
+        name: job.name,
+        status: job.status,
+        conclusion: job.conclusion || undefined,
+        htmlUrl: job.html_url,
+        runnerName: job.runner_name || undefined,
+        startedAt: job.started_at ? new Date(job.started_at) : undefined,
+        completedAt: job.completed_at ? new Date(job.completed_at) : undefined,
       });
     }
   }
@@ -620,12 +584,17 @@ class GitHubService {
    * Get tracked workflow runs for a Vero workflow
    */
   async getTrackedRuns(workflowId: string, limit = 20) {
-    return prisma.gitHubWorkflowRun.findMany({
-      where: { workflowId },
-      include: { jobs: true },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    });
+    const runs = await githubWorkflowRunRepository.findByWorkflowId(workflowId, limit);
+
+    // Add jobs to each run
+    const runsWithJobs = await Promise.all(
+      runs.map(async (run) => {
+        const jobs = await githubWorkflowJobRepository.findByRunDbId(run.id);
+        return { ...run, jobs };
+      })
+    );
+
+    return runsWithJobs;
   }
 
   /**

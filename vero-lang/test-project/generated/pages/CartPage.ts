@@ -28,15 +28,15 @@ export class CartPage {
   }
 
   async proceedToCheckout() {
-    await test.step('Click CartPage.checkoutBtn', async () => { await cartPage.checkoutBtn.click(); });
+    await test.step('Click CartPage.checkoutBtn', async () => { await this.checkoutBtn.click(); });
   }
 
   async removeFirstItem() {
-    await test.step('Click CartPage.removeItemBtn', async () => { await cartPage.removeItemBtn.click(); });
+    await test.step('Click CartPage.removeItemBtn', async () => { await this.removeItemBtn.click(); });
   }
 
   async applyPromoCode(code: string) {
-    await test.step('Fill CartPage.applyPromoInput', async () => { await cartPage.applyPromoInput.fill(code); });
-    await test.step('Click CartPage.applyPromoBtn', async () => { await cartPage.applyPromoBtn.click(); });
+    await test.step('Fill CartPage.applyPromoInput', async () => { await this.applyPromoInput.fill(code); });
+    await test.step('Click CartPage.applyPromoBtn', async () => { await this.applyPromoBtn.click(); });
   }
 }

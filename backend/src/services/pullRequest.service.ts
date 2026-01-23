@@ -1,6 +1,21 @@
-import { prisma } from '../db/prisma';
-import { gitService, GitDiffResult, GitFileDiff } from './git.service';
+/**
+ * Pull Request Service
+ * NOW USES MONGODB INSTEAD OF PRISMA
+ */
+
 import * as path from 'path';
+import {
+  pullRequestRepository,
+  pullRequestReviewRepository,
+  pullRequestCommentRepository,
+  pullRequestFileRepository,
+  projectSettingsRepository,
+  sandboxRepository,
+  userRepository,
+  projectRepository,
+  applicationRepository
+} from '../db/repositories/mongo';
+import { gitService, GitDiffResult, GitFileDiff } from './git.service';
 
 const VERO_PROJECTS_BASE = process.env.VERO_PROJECTS_PATH || path.join(process.cwd(), 'vero-projects');
 
@@ -77,13 +92,7 @@ export class PullRequestService {
    */
   async create(userId: string, sandboxId: string, input: CreatePullRequestInput): Promise<PullRequestWithDetails> {
     // Get sandbox details
-    const sandbox = await prisma.sandbox.findUnique({
-      where: { id: sandboxId },
-      include: {
-        project: { include: { application: true } },
-        owner: { select: { id: true, name: true, email: true } },
-      },
-    });
+    const sandbox = await sandboxRepository.findById(sandboxId);
 
     if (!sandbox) {
       throw new Error('Sandbox not found');
@@ -98,100 +107,88 @@ export class PullRequestService {
       throw new Error('Cannot create PR from archived or merged sandbox');
     }
 
-    // Check if there's already an open PR for this sandbox
-    const existingPR = await prisma.pullRequest.findFirst({
-      where: {
-        sandboxId,
-        status: { in: ['draft', 'open'] },
-      },
-    });
+    // Get owner and project details
+    const [owner, project] = await Promise.all([
+      userRepository.findById(sandbox.ownerId),
+      projectRepository.findById(sandbox.projectId),
+    ]);
 
-    if (existingPR) {
+    if (!owner || !project) {
+      throw new Error('Owner or project not found');
+    }
+
+    const application = await applicationRepository.findById(project.applicationId);
+    if (!application) {
+      throw new Error('Application not found');
+    }
+
+    // Check if there's already an open PR for this sandbox
+    const existingPRs = await pullRequestRepository.findOpenBySandboxId(sandboxId);
+    if (existingPRs.length > 0) {
       throw new Error('A pull request already exists for this sandbox');
     }
 
     // Get next PR number for this project
-    const lastPR = await prisma.pullRequest.findFirst({
-      where: { projectId: sandbox.projectId },
-      orderBy: { number: 'desc' },
-    });
-    const prNumber = (lastPR?.number || 0) + 1;
+    const prNumber = await pullRequestRepository.getNextPRNumber(project.id);
 
     const targetBranch = input.targetBranch || 'dev';
 
     // Get the project path and diff summary
-    const projectPath = sandbox.project.veroPath ||
-      path.join(VERO_PROJECTS_BASE, sandbox.project.application.id, sandbox.project.id);
+    const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
 
     let diffResult: GitDiffResult;
     try {
-      diffResult = await gitService.getDiffSummary(projectPath, targetBranch, sandbox.gitBranch);
+      diffResult = await gitService.getDiffSummary(projectPath, targetBranch, sandbox.folderPath);
     } catch (error) {
       diffResult = { files: [], totalAdditions: 0, totalDeletions: 0 };
     }
 
-    // Create pull request with file changes
-    const pullRequest = await prisma.pullRequest.create({
-      data: {
-        number: prNumber,
-        title: input.title,
-        description: input.description,
-        authorId: userId,
-        sandboxId,
-        projectId: sandbox.projectId,
-        targetBranch,
-        status: 'draft',
-        changedFiles: {
-          create: diffResult.files.map(f => ({
-            filePath: f.filePath,
-            changeType: f.changeType,
-            additions: f.additions,
-            deletions: f.deletions,
-          })),
-        },
-      },
-      include: {
-        author: { select: { id: true, name: true, email: true } },
-        sandbox: { select: { name: true } },
-        mergedBy: { select: { id: true, name: true } },
-        _count: { select: { reviews: true, comments: true, changedFiles: true } },
-      },
+    // Create pull request
+    const pullRequest = await pullRequestRepository.create({
+      number: prNumber,
+      title: input.title,
+      description: input.description,
+      authorId: userId,
+      sandboxId,
+      projectId: sandbox.projectId,
+      targetBranch,
+      status: 'draft',
     });
 
-    // Get approval counts
-    const reviews = await prisma.pullRequestReview.groupBy({
-      by: ['status'],
-      where: { pullRequestId: pullRequest.id },
-      _count: true,
-    });
-
-    const approvalCount = reviews.find(r => r.status === 'approved')?._count || 0;
-    const changesRequestedCount = reviews.find(r => r.status === 'changes_requested')?._count || 0;
+    // Create file change records
+    if (diffResult.files.length > 0) {
+      await pullRequestFileRepository.createMany(pullRequest.id, diffResult.files.map(f => ({
+        filePath: f.filePath,
+        changeType: f.changeType as 'added' | 'modified' | 'deleted',
+        additions: f.additions,
+        deletions: f.deletions,
+      })));
+    }
 
     return {
       id: pullRequest.id,
       number: pullRequest.number,
       title: pullRequest.title,
-      description: pullRequest.description,
+      description: pullRequest.description || null,
       authorId: pullRequest.authorId,
-      authorName: pullRequest.author.name,
-      authorEmail: pullRequest.author.email,
+      authorName: owner.name || null,
+      authorEmail: owner.email,
       sandboxId: pullRequest.sandboxId,
-      sandboxName: pullRequest.sandbox.name,
+      sandboxName: sandbox.name,
       projectId: pullRequest.projectId,
       targetBranch: pullRequest.targetBranch,
       status: pullRequest.status,
       createdAt: pullRequest.createdAt,
       updatedAt: pullRequest.updatedAt,
-      mergedAt: pullRequest.mergedAt,
-      mergedById: pullRequest.mergedById,
-      mergedByName: pullRequest.mergedBy?.name || null,
-      closedAt: pullRequest.closedAt,
-      reviewCount: pullRequest._count.reviews,
-      approvalCount,
-      changesRequestedCount,
-      commentCount: pullRequest._count.comments,
-      fileCount: pullRequest._count.changedFiles,
+      mergedAt: pullRequest.mergedAt || null,
+      mergedById: pullRequest.mergedById || null,
+      mergedByName: null,
+      closedAt: pullRequest.closedAt || null,
+      reviewCount: 0,
+      approvalCount: 0,
+      changesRequestedCount: 0,
+      commentCount: 0,
+      fileCount: diffResult.files.length,
     };
   }
 
@@ -199,99 +196,96 @@ export class PullRequestService {
    * List pull requests for a project
    */
   async listByProject(projectId: string, status?: string): Promise<PullRequestWithDetails[]> {
-    const where = {
-      projectId,
-      ...(status ? { status } : {}),
-    };
+    const pullRequests = await pullRequestRepository.findByProjectId(projectId, status);
 
-    const pullRequests = await prisma.pullRequest.findMany({
-      where,
-      include: {
-        author: { select: { id: true, name: true, email: true } },
-        sandbox: { select: { name: true } },
-        mergedBy: { select: { id: true, name: true } },
-        _count: { select: { reviews: true, comments: true, changedFiles: true } },
-        reviews: { select: { status: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const results: PullRequestWithDetails[] = [];
+    for (const pr of pullRequests) {
+      const [author, sandbox, mergedBy, reviews, comments, files] = await Promise.all([
+        userRepository.findById(pr.authorId),
+        sandboxRepository.findById(pr.sandboxId),
+        pr.mergedById ? userRepository.findById(pr.mergedById) : null,
+        pullRequestReviewRepository.findByPullRequestId(pr.id),
+        pullRequestCommentRepository.countByPullRequestId(pr.id),
+        pullRequestFileRepository.countByPullRequestId(pr.id),
+      ]);
 
-    return pullRequests.map(pr => {
-      const approvalCount = pr.reviews.filter(r => r.status === 'approved').length;
-      const changesRequestedCount = pr.reviews.filter(r => r.status === 'changes_requested').length;
+      const approvalCount = reviews.filter(r => r.status === 'approved').length;
+      const changesRequestedCount = reviews.filter(r => r.status === 'changes_requested').length;
 
-      return {
+      results.push({
         id: pr.id,
         number: pr.number,
         title: pr.title,
-        description: pr.description,
+        description: pr.description || null,
         authorId: pr.authorId,
-        authorName: pr.author.name,
-        authorEmail: pr.author.email,
+        authorName: author?.name || null,
+        authorEmail: author?.email || 'unknown',
         sandboxId: pr.sandboxId,
-        sandboxName: pr.sandbox.name,
+        sandboxName: sandbox?.name || 'unknown',
         projectId: pr.projectId,
         targetBranch: pr.targetBranch,
         status: pr.status,
         createdAt: pr.createdAt,
         updatedAt: pr.updatedAt,
-        mergedAt: pr.mergedAt,
-        mergedById: pr.mergedById,
-        mergedByName: pr.mergedBy?.name || null,
-        closedAt: pr.closedAt,
-        reviewCount: pr._count.reviews,
+        mergedAt: pr.mergedAt || null,
+        mergedById: pr.mergedById || null,
+        mergedByName: mergedBy?.name || null,
+        closedAt: pr.closedAt || null,
+        reviewCount: reviews.length,
         approvalCount,
         changesRequestedCount,
-        commentCount: pr._count.comments,
-        fileCount: pr._count.changedFiles,
-      };
-    });
+        commentCount: comments,
+        fileCount: files,
+      });
+    }
+
+    return results;
   }
 
   /**
    * Get pull request by ID with full details
    */
   async getById(pullRequestId: string): Promise<PullRequestWithDetails | null> {
-    const pr = await prisma.pullRequest.findUnique({
-      where: { id: pullRequestId },
-      include: {
-        author: { select: { id: true, name: true, email: true } },
-        sandbox: { select: { name: true } },
-        mergedBy: { select: { id: true, name: true } },
-        _count: { select: { reviews: true, comments: true, changedFiles: true } },
-        reviews: { select: { status: true } },
-      },
-    });
+    const pr = await pullRequestRepository.findById(pullRequestId);
 
     if (!pr) return null;
 
-    const approvalCount = pr.reviews.filter(r => r.status === 'approved').length;
-    const changesRequestedCount = pr.reviews.filter(r => r.status === 'changes_requested').length;
+    const [author, sandbox, mergedBy, reviews, comments, files] = await Promise.all([
+      userRepository.findById(pr.authorId),
+      sandboxRepository.findById(pr.sandboxId),
+      pr.mergedById ? userRepository.findById(pr.mergedById) : null,
+      pullRequestReviewRepository.findByPullRequestId(pr.id),
+      pullRequestCommentRepository.countByPullRequestId(pr.id),
+      pullRequestFileRepository.countByPullRequestId(pr.id),
+    ]);
+
+    const approvalCount = reviews.filter(r => r.status === 'approved').length;
+    const changesRequestedCount = reviews.filter(r => r.status === 'changes_requested').length;
 
     return {
       id: pr.id,
       number: pr.number,
       title: pr.title,
-      description: pr.description,
+      description: pr.description || null,
       authorId: pr.authorId,
-      authorName: pr.author.name,
-      authorEmail: pr.author.email,
+      authorName: author?.name || null,
+      authorEmail: author?.email || 'unknown',
       sandboxId: pr.sandboxId,
-      sandboxName: pr.sandbox.name,
+      sandboxName: sandbox?.name || 'unknown',
       projectId: pr.projectId,
       targetBranch: pr.targetBranch,
       status: pr.status,
       createdAt: pr.createdAt,
       updatedAt: pr.updatedAt,
-      mergedAt: pr.mergedAt,
-      mergedById: pr.mergedById,
-      mergedByName: pr.mergedBy?.name || null,
-      closedAt: pr.closedAt,
-      reviewCount: pr._count.reviews,
+      mergedAt: pr.mergedAt || null,
+      mergedById: pr.mergedById || null,
+      mergedByName: mergedBy?.name || null,
+      closedAt: pr.closedAt || null,
+      reviewCount: reviews.length,
       approvalCount,
       changesRequestedCount,
-      commentCount: pr._count.comments,
-      fileCount: pr._count.changedFiles,
+      commentCount: comments,
+      fileCount: files,
     };
   }
 
@@ -299,9 +293,7 @@ export class PullRequestService {
    * Mark PR as ready for review (draft -> open)
    */
   async openForReview(pullRequestId: string, userId: string): Promise<PullRequestWithDetails> {
-    const pr = await prisma.pullRequest.findUnique({
-      where: { id: pullRequestId },
-    });
+    const pr = await pullRequestRepository.findById(pullRequestId);
 
     if (!pr) {
       throw new Error('Pull request not found');
@@ -315,10 +307,7 @@ export class PullRequestService {
       throw new Error('Only draft PRs can be opened for review');
     }
 
-    await prisma.pullRequest.update({
-      where: { id: pullRequestId },
-      data: { status: 'open' },
-    });
+    await pullRequestRepository.update(pullRequestId, { status: 'open' });
 
     return this.getById(pullRequestId) as Promise<PullRequestWithDetails>;
   }
@@ -327,9 +316,7 @@ export class PullRequestService {
    * Update PR title/description
    */
   async update(pullRequestId: string, userId: string, data: { title?: string; description?: string }): Promise<PullRequestWithDetails> {
-    const pr = await prisma.pullRequest.findUnique({
-      where: { id: pullRequestId },
-    });
+    const pr = await pullRequestRepository.findById(pullRequestId);
 
     if (!pr) {
       throw new Error('Pull request not found');
@@ -343,12 +330,9 @@ export class PullRequestService {
       throw new Error('Cannot update a merged or closed PR');
     }
 
-    await prisma.pullRequest.update({
-      where: { id: pullRequestId },
-      data: {
-        title: data.title,
-        description: data.description,
-      },
+    await pullRequestRepository.update(pullRequestId, {
+      title: data.title,
+      description: data.description,
     });
 
     return this.getById(pullRequestId) as Promise<PullRequestWithDetails>;
@@ -358,9 +342,7 @@ export class PullRequestService {
    * Close a PR without merging
    */
   async close(pullRequestId: string, userId: string): Promise<void> {
-    const pr = await prisma.pullRequest.findUnique({
-      where: { id: pullRequestId },
-    });
+    const pr = await pullRequestRepository.findById(pullRequestId);
 
     if (!pr) {
       throw new Error('Pull request not found');
@@ -368,18 +350,15 @@ export class PullRequestService {
 
     // Author or admin can close
     if (pr.authorId !== userId) {
-      const user = await prisma.user.findUnique({ where: { id: userId } });
+      const user = await userRepository.findById(userId);
       if (user?.role !== 'admin' && user?.role !== 'qa_lead') {
         throw new Error('Only the author or admin can close a PR');
       }
     }
 
-    await prisma.pullRequest.update({
-      where: { id: pullRequestId },
-      data: {
-        status: 'closed',
-        closedAt: new Date(),
-      },
+    await pullRequestRepository.update(pullRequestId, {
+      status: 'closed',
+      closedAt: new Date(),
     });
   }
 
@@ -387,10 +366,7 @@ export class PullRequestService {
    * Submit a review on a PR
    */
   async submitReview(pullRequestId: string, userId: string, input: SubmitReviewInput): Promise<PRReviewWithUser> {
-    const pr = await prisma.pullRequest.findUnique({
-      where: { id: pullRequestId },
-      include: { project: { include: { application: { include: { members: true } } } } },
-    });
+    const pr = await pullRequestRepository.findById(pullRequestId);
 
     if (!pr) {
       throw new Error('Pull request not found');
@@ -401,15 +377,13 @@ export class PullRequestService {
     }
 
     // Check if user can review (not author, has reviewer permissions)
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const user = await userRepository.findById(userId);
     if (!user) {
       throw new Error('User not found');
     }
 
     // Get project settings
-    const settings = await prisma.projectSettings.findUnique({
-      where: { projectId: pr.projectId },
-    });
+    const settings = await projectSettingsRepository.findByProjectId(pr.projectId);
 
     // Check self-approval
     if (pr.authorId === userId && !settings?.allowSelfApproval) {
@@ -425,54 +399,29 @@ export class PullRequestService {
     }
 
     // Create or update review
-    const review = await prisma.pullRequestReview.upsert({
-      where: {
-        pullRequestId_reviewerId: {
-          pullRequestId,
-          reviewerId: userId,
-        },
-      },
-      create: {
-        pullRequestId,
-        reviewerId: userId,
-        status: input.status,
-        comment: input.comment,
-      },
-      update: {
-        status: input.status,
-        comment: input.comment,
-      },
-      include: {
-        reviewer: { select: { id: true, name: true, email: true } },
-      },
+    const review = await pullRequestReviewRepository.upsert(pullRequestId, userId, {
+      status: input.status,
+      comment: input.comment,
     });
 
     // Check if PR should be marked as approved
     const requiredApprovals = settings?.requiredApprovals || 1;
-    const approvals = await prisma.pullRequestReview.count({
-      where: { pullRequestId, status: 'approved' },
-    });
+    const approvals = await pullRequestReviewRepository.countByStatus(pullRequestId, 'approved');
 
     if (approvals >= requiredApprovals) {
-      await prisma.pullRequest.update({
-        where: { id: pullRequestId },
-        data: { status: 'approved' },
-      });
+      await pullRequestRepository.update(pullRequestId, { status: 'approved' });
     } else if (input.status === 'changes_requested') {
       // Reset to open if changes requested
-      await prisma.pullRequest.update({
-        where: { id: pullRequestId },
-        data: { status: 'open' },
-      });
+      await pullRequestRepository.update(pullRequestId, { status: 'open' });
     }
 
     return {
       id: review.id,
       reviewerId: review.reviewerId,
-      reviewerName: review.reviewer.name,
-      reviewerEmail: review.reviewer.email,
+      reviewerName: user.name || null,
+      reviewerEmail: user.email,
       status: review.status,
-      comment: review.comment,
+      comment: review.comment || null,
       createdAt: review.createdAt,
       updatedAt: review.updatedAt,
     };
@@ -482,59 +431,58 @@ export class PullRequestService {
    * Get reviews for a PR
    */
   async getReviews(pullRequestId: string): Promise<PRReviewWithUser[]> {
-    const reviews = await prisma.pullRequestReview.findMany({
-      where: { pullRequestId },
-      include: {
-        reviewer: { select: { id: true, name: true, email: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const reviews = await pullRequestReviewRepository.findByPullRequestId(pullRequestId);
 
-    return reviews.map(r => ({
-      id: r.id,
-      reviewerId: r.reviewerId,
-      reviewerName: r.reviewer.name,
-      reviewerEmail: r.reviewer.email,
-      status: r.status,
-      comment: r.comment,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-    }));
+    const results: PRReviewWithUser[] = [];
+    for (const review of reviews) {
+      const reviewer = await userRepository.findById(review.reviewerId);
+      results.push({
+        id: review.id,
+        reviewerId: review.reviewerId,
+        reviewerName: reviewer?.name || null,
+        reviewerEmail: reviewer?.email || 'unknown',
+        status: review.status,
+        comment: review.comment || null,
+        createdAt: review.createdAt,
+        updatedAt: review.updatedAt,
+      });
+    }
+
+    return results;
   }
 
   /**
    * Add a comment to a PR
    */
   async addComment(pullRequestId: string, userId: string, input: AddCommentInput): Promise<PRCommentWithUser> {
-    const pr = await prisma.pullRequest.findUnique({
-      where: { id: pullRequestId },
-    });
+    const pr = await pullRequestRepository.findById(pullRequestId);
 
     if (!pr) {
       throw new Error('Pull request not found');
     }
 
-    const comment = await prisma.pullRequestComment.create({
-      data: {
-        pullRequestId,
-        authorId: userId,
-        body: input.body,
-        filePath: input.filePath,
-        lineNumber: input.lineNumber,
-      },
-      include: {
-        author: { select: { id: true, name: true, email: true } },
-      },
+    const user = await userRepository.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const comment = await pullRequestCommentRepository.create({
+      pullRequestId,
+      authorId: userId,
+      body: input.body,
+      filePath: input.filePath,
+      lineNumber: input.lineNumber,
+      resolved: false,
     });
 
     return {
       id: comment.id,
       authorId: comment.authorId,
-      authorName: comment.author.name,
-      authorEmail: comment.author.email,
+      authorName: user.name || null,
+      authorEmail: user.email,
       body: comment.body,
-      filePath: comment.filePath,
-      lineNumber: comment.lineNumber,
+      filePath: comment.filePath || null,
+      lineNumber: comment.lineNumber || null,
       resolved: comment.resolved,
       createdAt: comment.createdAt,
       updatedAt: comment.updatedAt,
@@ -545,35 +493,33 @@ export class PullRequestService {
    * Get comments for a PR
    */
   async getComments(pullRequestId: string): Promise<PRCommentWithUser[]> {
-    const comments = await prisma.pullRequestComment.findMany({
-      where: { pullRequestId },
-      include: {
-        author: { select: { id: true, name: true, email: true } },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+    const comments = await pullRequestCommentRepository.findByPullRequestId(pullRequestId);
 
-    return comments.map(c => ({
-      id: c.id,
-      authorId: c.authorId,
-      authorName: c.author.name,
-      authorEmail: c.author.email,
-      body: c.body,
-      filePath: c.filePath,
-      lineNumber: c.lineNumber,
-      resolved: c.resolved,
-      createdAt: c.createdAt,
-      updatedAt: c.updatedAt,
-    }));
+    const results: PRCommentWithUser[] = [];
+    for (const comment of comments) {
+      const author = await userRepository.findById(comment.authorId);
+      results.push({
+        id: comment.id,
+        authorId: comment.authorId,
+        authorName: author?.name || null,
+        authorEmail: author?.email || 'unknown',
+        body: comment.body,
+        filePath: comment.filePath || null,
+        lineNumber: comment.lineNumber || null,
+        resolved: comment.resolved,
+        createdAt: comment.createdAt,
+        updatedAt: comment.updatedAt,
+      });
+    }
+
+    return results;
   }
 
   /**
    * Delete a comment
    */
   async deleteComment(commentId: string, userId: string): Promise<void> {
-    const comment = await prisma.pullRequestComment.findUnique({
-      where: { id: commentId },
-    });
+    const comment = await pullRequestCommentRepository.findById(commentId);
 
     if (!comment) {
       throw new Error('Comment not found');
@@ -583,97 +529,111 @@ export class PullRequestService {
       throw new Error('Only the author can delete a comment');
     }
 
-    await prisma.pullRequestComment.delete({ where: { id: commentId } });
+    await pullRequestCommentRepository.delete(commentId);
   }
 
   /**
    * Get diff for a PR
    */
   async getDiff(pullRequestId: string): Promise<GitDiffResult> {
-    const pr = await prisma.pullRequest.findUnique({
-      where: { id: pullRequestId },
-      include: {
-        sandbox: {
-          include: { project: { include: { application: true } } },
-        },
-      },
-    });
+    const pr = await pullRequestRepository.findById(pullRequestId);
 
     if (!pr) {
       throw new Error('Pull request not found');
     }
 
-    const projectPath = pr.sandbox.project.veroPath ||
-      path.join(VERO_PROJECTS_BASE, pr.sandbox.project.application.id, pr.sandbox.project.id);
+    const sandbox = await sandboxRepository.findById(pr.sandboxId);
+    if (!sandbox) {
+      throw new Error('Sandbox not found');
+    }
 
-    return gitService.getDiffSummary(projectPath, pr.targetBranch, pr.sandbox.gitBranch);
+    const project = await projectRepository.findById(sandbox.projectId);
+    if (!project) {
+      throw new Error('Project not found');
+    }
+
+    const application = await applicationRepository.findById(project.applicationId);
+    if (!application) {
+      throw new Error('Application not found');
+    }
+
+    const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
+
+    return gitService.getDiffSummary(projectPath, pr.targetBranch, sandbox.folderPath);
   }
 
   /**
    * Get detailed diff for a specific file in a PR
    */
   async getFileDiff(pullRequestId: string, filePath: string): Promise<GitFileDiff> {
-    const pr = await prisma.pullRequest.findUnique({
-      where: { id: pullRequestId },
-      include: {
-        sandbox: {
-          include: { project: { include: { application: true } } },
-        },
-      },
-    });
+    const pr = await pullRequestRepository.findById(pullRequestId);
 
     if (!pr) {
       throw new Error('Pull request not found');
     }
 
-    const projectPath = pr.sandbox.project.veroPath ||
-      path.join(VERO_PROJECTS_BASE, pr.sandbox.project.application.id, pr.sandbox.project.id);
+    const sandbox = await sandboxRepository.findById(pr.sandboxId);
+    if (!sandbox) {
+      throw new Error('Sandbox not found');
+    }
 
-    return gitService.getFileDiff(projectPath, pr.targetBranch, pr.sandbox.gitBranch, filePath);
+    const project = await projectRepository.findById(sandbox.projectId);
+    if (!project) {
+      throw new Error('Project not found');
+    }
+
+    const application = await applicationRepository.findById(project.applicationId);
+    if (!application) {
+      throw new Error('Application not found');
+    }
+
+    const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
+
+    return gitService.getFileDiff(projectPath, pr.targetBranch, sandbox.folderPath, filePath);
   }
 
   /**
    * Get all file diffs for a PR
    */
   async getAllFileDiffs(pullRequestId: string): Promise<GitFileDiff[]> {
-    const pr = await prisma.pullRequest.findUnique({
-      where: { id: pullRequestId },
-      include: {
-        sandbox: {
-          include: { project: { include: { application: true } } },
-        },
-      },
-    });
+    const pr = await pullRequestRepository.findById(pullRequestId);
 
     if (!pr) {
       throw new Error('Pull request not found');
     }
 
-    const projectPath = pr.sandbox.project.veroPath ||
-      path.join(VERO_PROJECTS_BASE, pr.sandbox.project.application.id, pr.sandbox.project.id);
+    const sandbox = await sandboxRepository.findById(pr.sandboxId);
+    if (!sandbox) {
+      throw new Error('Sandbox not found');
+    }
 
-    return gitService.getAllFileDiffs(projectPath, pr.targetBranch, pr.sandbox.gitBranch);
+    const project = await projectRepository.findById(sandbox.projectId);
+    if (!project) {
+      throw new Error('Project not found');
+    }
+
+    const application = await applicationRepository.findById(project.applicationId);
+    if (!application) {
+      throw new Error('Application not found');
+    }
+
+    const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
+
+    return gitService.getAllFileDiffs(projectPath, pr.targetBranch, sandbox.folderPath);
   }
 
   /**
    * Merge a PR
    */
   async merge(pullRequestId: string, userId: string): Promise<PullRequestWithDetails> {
-    const pr = await prisma.pullRequest.findUnique({
-      where: { id: pullRequestId },
-      include: {
-        sandbox: {
-          include: { project: { include: { application: true } } },
-        },
-      },
-    });
+    const pr = await pullRequestRepository.findById(pullRequestId);
 
     if (!pr) {
       throw new Error('Pull request not found');
     }
 
     // Check user permissions to merge
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const user = await userRepository.findById(userId);
     if (!user) {
       throw new Error('User not found');
     }
@@ -686,56 +646,58 @@ export class PullRequestService {
     // Check PR status
     if (pr.status !== 'approved') {
       // Get settings to check if we require approval
-      const settings = await prisma.projectSettings.findUnique({
-        where: { projectId: pr.projectId },
-      });
+      const settings = await projectSettingsRepository.findByProjectId(pr.projectId);
 
       const requiredApprovals = settings?.requiredApprovals || 1;
-      const approvals = await prisma.pullRequestReview.count({
-        where: { pullRequestId, status: 'approved' },
-      });
+      const approvals = await pullRequestReviewRepository.countByStatus(pullRequestId, 'approved');
 
       if (approvals < requiredApprovals) {
         throw new Error(`PR requires ${requiredApprovals} approval(s). Currently has ${approvals}.`);
       }
     }
 
-    const projectPath = pr.sandbox.project.veroPath ||
-      path.join(VERO_PROJECTS_BASE, pr.sandbox.project.application.id, pr.sandbox.project.id);
+    const sandbox = await sandboxRepository.findById(pr.sandboxId);
+    if (!sandbox) {
+      throw new Error('Sandbox not found');
+    }
+
+    const project = await projectRepository.findById(sandbox.projectId);
+    if (!project) {
+      throw new Error('Project not found');
+    }
+
+    const application = await applicationRepository.findById(project.applicationId);
+    if (!application) {
+      throw new Error('Application not found');
+    }
+
+    const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
 
     // Checkout target branch and merge
     await gitService.checkoutBranch(projectPath, pr.targetBranch);
-    const mergeResult = await gitService.mergeBranch(projectPath, pr.sandbox.gitBranch);
+    const mergeResult = await gitService.mergeBranch(projectPath, sandbox.folderPath);
 
     if (!mergeResult.success) {
       throw new Error(`Merge conflicts detected in files: ${mergeResult.conflicts?.join(', ')}`);
     }
 
     // Update PR status
-    await prisma.pullRequest.update({
-      where: { id: pullRequestId },
-      data: {
-        status: 'merged',
-        mergedAt: new Date(),
-        mergedById: userId,
-      },
+    await pullRequestRepository.update(pullRequestId, {
+      status: 'merged',
+      mergedAt: new Date(),
+      mergedById: userId,
     });
 
     // Archive sandbox
-    await prisma.sandbox.update({
-      where: { id: pr.sandboxId },
-      data: { status: 'merged' },
-    });
+    await sandboxRepository.update(pr.sandboxId, { status: 'merged' });
 
     // Get settings to check if we should delete sandbox
-    const settings = await prisma.projectSettings.findUnique({
-      where: { projectId: pr.projectId },
-    });
+    const settings = await projectSettingsRepository.findByProjectId(pr.projectId);
 
     // Optionally delete the git branch
     if (settings?.autoDeleteSandbox) {
       try {
-        await gitService.deleteBranch(projectPath, pr.sandbox.gitBranch, true);
+        await gitService.deleteBranch(projectPath, sandbox.folderPath, true);
       } catch (error) {
         console.error('Failed to delete sandbox branch:', error);
       }
@@ -748,15 +710,13 @@ export class PullRequestService {
    * Check if user can merge a PR
    */
   async canMerge(pullRequestId: string, userId: string): Promise<{ canMerge: boolean; reason?: string }> {
-    const pr = await prisma.pullRequest.findUnique({
-      where: { id: pullRequestId },
-    });
+    const pr = await pullRequestRepository.findById(pullRequestId);
 
     if (!pr) {
       return { canMerge: false, reason: 'Pull request not found' };
     }
 
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const user = await userRepository.findById(userId);
     if (!user) {
       return { canMerge: false, reason: 'User not found' };
     }
@@ -768,14 +728,10 @@ export class PullRequestService {
     }
 
     // Check approvals
-    const settings = await prisma.projectSettings.findUnique({
-      where: { projectId: pr.projectId },
-    });
+    const settings = await projectSettingsRepository.findByProjectId(pr.projectId);
 
     const requiredApprovals = settings?.requiredApprovals || 1;
-    const approvals = await prisma.pullRequestReview.count({
-      where: { pullRequestId, status: 'approved' },
-    });
+    const approvals = await pullRequestReviewRepository.countByStatus(pullRequestId, 'approved');
 
     if (approvals < requiredApprovals) {
       return { canMerge: false, reason: `Needs ${requiredApprovals - approvals} more approval(s)` };
@@ -793,10 +749,7 @@ export class PullRequestService {
     additions: number;
     deletions: number;
   }>> {
-    const files = await prisma.pullRequestFile.findMany({
-      where: { pullRequestId },
-      orderBy: { filePath: 'asc' },
-    });
+    const files = await pullRequestFileRepository.findByPullRequestId(pullRequestId);
 
     return files.map(f => ({
       filePath: f.filePath,

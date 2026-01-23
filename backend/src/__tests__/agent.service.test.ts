@@ -5,17 +5,15 @@ import { AgentService, GenerationRequest, GenerationResult } from '../services/a
 const mockFetch = vi.fn();
 global.fetch = mockFetch as unknown as typeof fetch;
 
-// Mock prisma
-vi.mock('../db/prisma', () => ({
-  prisma: {
-    agent: {
-      create: vi.fn(),
-      findMany: vi.fn(),
-      findUnique: vi.fn(),
-      findFirst: vi.fn(),
-      delete: vi.fn(),
-      update: vi.fn(),
-    },
+// Mock MongoDB repositories
+vi.mock('../db/repositories/mongo', () => ({
+  agentRepository: {
+    create: vi.fn(),
+    findMany: vi.fn(),
+    findById: vi.fn(),
+    findFirst: vi.fn(),
+    delete: vi.fn(),
+    update: vi.fn(),
   },
 }));
 

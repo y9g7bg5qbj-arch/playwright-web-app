@@ -147,9 +147,8 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
   const lastRun = schedule.runs?.[0];
 
   return (
-    <div className={`border rounded-lg overflow-hidden transition-all ${
-      schedule.isActive ? 'border-border-default bg-dark-card/50' : 'border-border-default bg-dark-bg/50 opacity-60'
-    }`}>
+    <div className={`border rounded-lg overflow-hidden transition-all ${schedule.isActive ? 'border-border-default bg-dark-card/50' : 'border-border-default bg-dark-bg/50 opacity-60'
+      }`}>
       {/* Header */}
       <div className="p-4">
         <div className="flex items-start justify-between">
@@ -254,7 +253,7 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
                   </span>
                 ))}
                 {schedule.testSelector.folders?.map((folder) => (
-                  <span key={folder} className="inline-flex items-center gap-1 bg-purple-900/50 text-purple-300 px-2 py-0.5 rounded text-xs">
+                  <span key={folder} className="inline-flex items-center gap-1 bg-orange-900/50 text-orange-300 px-2 py-0.5 rounded text-xs">
                     <Folder className="w-3 h-3" />
                     {folder}
                   </span>
@@ -492,11 +491,10 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
           <button
             type="button"
             onClick={() => setExecutionTarget('local')}
-            className={`p-4 flex flex-col items-center gap-2 border rounded-lg transition-all ${
-              executionTarget === 'local'
+            className={`p-4 flex flex-col items-center gap-2 border rounded-lg transition-all ${executionTarget === 'local'
                 ? 'border-blue-500 bg-blue-900/30 text-blue-300'
                 : 'border-border-default hover:border-border-default text-text-muted'
-            }`}
+              }`}
           >
             <Monitor className="w-6 h-6" />
             <div className="text-sm font-medium">Local Machine</div>
@@ -505,11 +503,10 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
           <button
             type="button"
             onClick={() => setExecutionTarget('github-actions')}
-            className={`p-4 flex flex-col items-center gap-2 border rounded-lg transition-all ${
-              executionTarget === 'github-actions'
+            className={`p-4 flex flex-col items-center gap-2 border rounded-lg transition-all ${executionTarget === 'github-actions'
                 ? 'border-green-500 bg-green-900/30 text-green-300'
                 : 'border-border-default hover:border-border-default text-text-muted'
-            }`}
+              }`}
           >
             <Github className="w-6 h-6" />
             <div className="text-sm font-medium">GitHub Actions</div>
@@ -602,11 +599,10 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
               key={preset.label}
               type="button"
               onClick={() => handlePresetSelect(preset)}
-              className={`p-2 text-left border rounded-lg transition-colors ${
-                selectedPreset === preset.label || cronExpression === preset.cronExpression
+              className={`p-2 text-left border rounded-lg transition-colors ${selectedPreset === preset.label || cronExpression === preset.cronExpression
                   ? 'border-blue-500 bg-blue-900/30 text-blue-300'
                   : 'border-border-default hover:border-border-default text-text-muted'
-              }`}
+                }`}
             >
               <div className="text-sm font-medium">{preset.label}</div>
               <div className="text-xs text-text-muted mt-0.5">{preset.description}</div>
@@ -625,9 +621,8 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
           value={cronExpression}
           onChange={(e) => setCronExpression(e.target.value)}
           placeholder="0 6 * * *"
-          className={`w-full px-3 py-2 bg-dark-card border rounded-lg text-text-primary font-mono text-sm focus:outline-none focus:ring-2 ${
-            cronError ? 'border-red-500 focus:ring-red-500' : 'border-border-default focus:ring-blue-500'
-          }`}
+          className={`w-full px-3 py-2 bg-dark-card border rounded-lg text-text-primary font-mono text-sm focus:outline-none focus:ring-2 ${cronError ? 'border-red-500 focus:ring-red-500' : 'border-border-default focus:ring-blue-500'
+            }`}
           required
         />
         {cronError && (
@@ -744,7 +739,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
             {/* Folders */}
             <div>
               <label className="flex items-center gap-2 text-sm font-medium text-text-secondary mb-2">
-                <Folder className="w-4 h-4 text-purple-400" />
+                <Folder className="w-4 h-4 text-orange-400" />
                 Folders
               </label>
               <div className="flex gap-2">
@@ -754,12 +749,12 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                   onChange={(e) => setFolderInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddFolder())}
                   placeholder="features/auth/**, tests/checkout/*"
-                  className="flex-1 px-3 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                  className="flex-1 px-3 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
                 />
                 <button
                   type="button"
                   onClick={handleAddFolder}
-                  className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 transition-colors text-sm"
+                  className="px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-500 transition-colors text-sm"
                 >
                   Add
                 </button>
@@ -769,7 +764,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                   {folders.map((folder) => (
                     <span
                       key={folder}
-                      className="inline-flex items-center gap-1 bg-purple-900/50 text-purple-300 px-2 py-0.5 rounded text-xs"
+                      className="inline-flex items-center gap-1 bg-orange-900/50 text-orange-300 px-2 py-0.5 rounded text-xs"
                     >
                       <Folder className="w-3 h-3" />
                       {folder}

@@ -12,7 +12,7 @@
  */
 
 import * as XLSX from 'xlsx';
-import { prisma } from '../db/prisma';
+import { testDataSheetRepository, testDataRowRepository } from '../db/repositories/mongo';
 
 // ============================================
 // TYPES
@@ -96,14 +96,7 @@ export class ExcelParserService {
                     const columns = this.inferColumns(firstRow);
 
                     // Check for existing sheet
-                    const existingSheet = await prisma.testDataSheet.findUnique({
-                        where: {
-                            applicationId_name: {
-                                applicationId,
-                                name: sheetName
-                            }
-                        }
-                    });
+                    const existingSheet = await testDataSheetRepository.findByApplicationIdAndName(applicationId, sheetName);
 
                     let dataSheet;
 
@@ -114,27 +107,19 @@ export class ExcelParserService {
                         }
 
                         // Update existing sheet
-                        dataSheet = await prisma.testDataSheet.update({
-                            where: { id: existingSheet.id },
-                            data: {
-                                columns: JSON.stringify(columns),
-                                updatedAt: new Date()
-                            }
+                        dataSheet = await testDataSheetRepository.update(existingSheet.id, {
+                            columns
                         });
 
                         // Delete existing rows if overwriting
-                        await prisma.testDataRow.deleteMany({
-                            where: { sheetId: dataSheet.id }
-                        });
+                        await testDataRowRepository.deleteBySheetId(dataSheet!.id);
                     } else {
                         // Create new sheet
-                        dataSheet = await prisma.testDataSheet.create({
-                            data: {
-                                applicationId,
-                                name: sheetName,
-                                pageObject: sheetName, // Default to sheet name
-                                columns: JSON.stringify(columns)
-                            }
+                        dataSheet = await testDataSheetRepository.create({
+                            applicationId,
+                            name: sheetName,
+                            pageObject: sheetName, // Default to sheet name
+                            columns
                         });
                     }
 
@@ -156,24 +141,12 @@ export class ExcelParserService {
                         const isEnabled = this.parseBoolean(enabled ?? Enabled ?? true);
 
                         try {
-                            await prisma.testDataRow.upsert({
-                                where: {
-                                    sheetId_scenarioId: {
-                                        sheetId: dataSheet.id,
-                                        scenarioId: testId
-                                    }
-                                },
-                                create: {
-                                    sheetId: dataSheet.id,
-                                    scenarioId: testId,
-                                    data: JSON.stringify(rowData),
-                                    enabled: isEnabled
-                                },
-                                update: {
-                                    data: JSON.stringify(rowData),
-                                    enabled: isEnabled
-                                }
-                            });
+                            await testDataRowRepository.upsert(
+                                dataSheet!.id,
+                                testId,
+                                { data: rowData, enabled: isEnabled },
+                                { data: rowData, enabled: isEnabled }
+                            );
                             importedRows++;
                         } catch (rowError) {
                             result.warnings.push(
@@ -238,28 +211,21 @@ export class ExcelParserService {
 
                     const columns = this.inferColumns(firstRow);
 
-                    const dataSheet = await prisma.testDataSheet.upsert({
-                        where: {
-                            applicationId_name: {
-                                applicationId,
-                                name: sheetName
-                            }
-                        },
-                        create: {
+                    // Find or create sheet
+                    let dataSheet = await testDataSheetRepository.findByApplicationIdAndName(applicationId, sheetName);
+                    if (dataSheet) {
+                        dataSheet = await testDataSheetRepository.update(dataSheet.id, { columns });
+                    } else {
+                        dataSheet = await testDataSheetRepository.create({
                             applicationId,
                             name: sheetName,
                             pageObject: sheetName,
-                            columns: JSON.stringify(columns)
-                        },
-                        update: {
-                            columns: JSON.stringify(columns)
-                        }
-                    });
+                            columns
+                        });
+                    }
 
                     // Clear existing rows
-                    await prisma.testDataRow.deleteMany({
-                        where: { sheetId: dataSheet.id }
-                    });
+                    await testDataRowRepository.deleteBySheetId(dataSheet!.id);
 
                     let importedRows = 0;
                     for (const row of data) {
@@ -269,13 +235,11 @@ export class ExcelParserService {
                         const { TestID, enabled, Enabled, ...rowData } = row;
                         const isEnabled = this.parseBoolean(enabled ?? Enabled ?? true);
 
-                        await prisma.testDataRow.create({
-                            data: {
-                                sheetId: dataSheet.id,
-                                scenarioId: testId,
-                                data: JSON.stringify(rowData),
-                                enabled: isEnabled
-                            }
+                        await testDataRowRepository.create({
+                            sheetId: dataSheet!.id,
+                            scenarioId: testId,
+                            data: rowData,
+                            enabled: isEnabled
                         });
                         importedRows++;
                     }
@@ -312,25 +276,35 @@ export class ExcelParserService {
             whereClause.id = { in: sheetIds };
         }
 
-        const sheets = await prisma.testDataSheet.findMany({
-            where: whereClause,
-            include: {
-                rows: {
-                    orderBy: { scenarioId: 'asc' }
-                }
-            },
-            orderBy: { name: 'asc' }
-        });
+        let sheets;
+        if (sheetIds && sheetIds.length > 0) {
+            // Fetch specific sheets
+            sheets = await Promise.all(
+                sheetIds.map(id => testDataSheetRepository.findById(id))
+            );
+            sheets = sheets.filter((s): s is NonNullable<typeof s> => s !== null);
+        } else {
+            // Fetch all sheets for the application
+            sheets = await testDataSheetRepository.findByApplicationId(applicationId);
+        }
+
+        // Fetch rows for each sheet
+        const sheetsWithRows = await Promise.all(
+            sheets.map(async (sheet) => {
+                const rows = await testDataRowRepository.findBySheetId(sheet.id);
+                return { ...sheet, rows };
+            })
+        );
 
         // Create workbook
         const workbook = XLSX.utils.book_new();
 
-        for (const sheet of sheets) {
-            const columns: ExcelColumn[] = JSON.parse(sheet.columns);
+        for (const sheet of sheetsWithRows) {
+            const columns: ExcelColumn[] = sheet.columns as ExcelColumn[] || [];
 
             // Build rows with TestID first
             const rows = sheet.rows.map(row => {
-                const data = JSON.parse(row.data);
+                const data = row.data as Record<string, any>;
                 return {
                     TestID: row.scenarioId,
                     ...data,

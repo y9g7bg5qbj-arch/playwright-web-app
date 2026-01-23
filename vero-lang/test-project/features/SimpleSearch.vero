@@ -12,7 +12,7 @@ FEATURE SimpleSearch {
         OPEN "https://www.amazon.com"
     }
 
-    SCENARIO "Search for pen on Amazon" @smoke {
+    SCENARIO SearchForPenOnAmazon @smoke {
         WAIT 2 SECONDS
         FILL AmazonSearchPage.searchInput WITH "pen"
         CLICK AmazonSearchPage.searchButton

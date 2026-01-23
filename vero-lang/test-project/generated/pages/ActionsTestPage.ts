@@ -22,13 +22,13 @@ export class ActionsTestPage {
   }
 
   async login(email: string, password: string) {
-    await test.step('Fill ActionsTestPage.emailInput', async () => { await actionsTestPage.emailInput.fill(email); });
-    await test.step('Fill ActionsTestPage.passwordInput', async () => { await actionsTestPage.passwordInput.fill(password); });
-    await test.step('Click ActionsTestPage.submitBtn', async () => { await actionsTestPage.submitBtn.click(); });
+    await test.step('Fill ActionsTestPage.emailInput', async () => { await this.emailInput.fill(email); });
+    await test.step('Fill ActionsTestPage.passwordInput', async () => { await this.passwordInput.fill(password); });
+    await test.step('Click ActionsTestPage.submitBtn', async () => { await this.submitBtn.click(); });
   }
 
   async search(query: string) {
-    await test.step('Fill ActionsTestPage.searchBox', async () => { await actionsTestPage.searchBox.fill(query); });
+    await test.step('Fill ActionsTestPage.searchBox', async () => { await this.searchBox.fill(query); });
     await test.step('Press Enter', async () => { await page.keyboard.press('Enter'); });
   }
 }

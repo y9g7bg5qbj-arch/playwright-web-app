@@ -1,6 +1,6 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { prisma } from '../db/prisma';
+import { userRepository } from '../db/repositories/mongo';
 import { config } from '../config';
 import { ConflictError, UnauthorizedError } from '../utils/errors';
 import type { User, UserCreate, UserLogin, AuthResponse } from '@playwright-web-app/shared';
@@ -9,9 +9,7 @@ const SALT_ROUNDS = 10;
 
 export class AuthService {
   async register(data: UserCreate): Promise<AuthResponse> {
-    const existingUser = await prisma.user.findUnique({
-      where: { email: data.email },
-    });
+    const existingUser = await userRepository.findByEmail(data.email);
 
     if (existingUser) {
       throw new ConflictError('User with this email already exists');
@@ -19,12 +17,11 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(data.password, SALT_ROUNDS);
 
-    const user = await prisma.user.create({
-      data: {
-        email: data.email,
-        passwordHash,
-        name: data.name,
-      },
+    const user = await userRepository.create({
+      email: data.email,
+      passwordHash,
+      name: data.name,
+      role: 'qa_tester'
     });
 
     const token = this.generateToken(user.id);
@@ -36,9 +33,7 @@ export class AuthService {
   }
 
   async login(data: UserLogin): Promise<AuthResponse> {
-    const user = await prisma.user.findUnique({
-      where: { email: data.email },
-    });
+    const user = await userRepository.findByEmail(data.email);
 
     if (!user) {
       throw new UnauthorizedError('Invalid credentials');
@@ -59,9 +54,7 @@ export class AuthService {
   }
 
   async getUser(userId: string): Promise<User> {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
+    const user = await userRepository.findById(userId);
 
     if (!user) {
       throw new UnauthorizedError('User not found');

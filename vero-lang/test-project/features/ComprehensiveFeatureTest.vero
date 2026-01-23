@@ -1,0 +1,190 @@
+# ============================================
+# COMPREHENSIVE VERO FEATURE FILE
+# Demonstrates ALL working Vero language features
+# ============================================
+
+FEATURE ComprehensiveFeatureTest {
+
+    USE ComprehensivePage
+    USE ModalPage
+
+    # =====================================================
+    # HOOKS - Setup and teardown
+    # =====================================================
+
+    BEFORE ALL {
+        LOG "Starting ComprehensiveFeatureTest suite"
+    }
+
+    BEFORE EACH {
+        OPEN "https://example.com"
+        WAIT 1 SECONDS
+    }
+
+    AFTER EACH {
+        TAKE SCREENSHOT "after-test"
+    }
+
+    AFTER ALL {
+        LOG "Completed ComprehensiveFeatureTest suite"
+    }
+
+    # =====================================================
+    # NAVIGATION ACTIONS
+    # =====================================================
+
+    SCENARIO TestOpenAndRefreshNavigation @navigation @smoke {
+        OPEN "https://example.com/login"
+        WAIT 1 SECONDS
+        REFRESH
+        LOG "Navigation completed"
+    }
+
+    # =====================================================
+    # CLICK ACTIONS
+    # =====================================================
+
+    SCENARIO TestClickActions @interaction {
+        OPEN "https://example.com"
+        CLICK ComprehensivePage.submitButton
+        LOG "Clicked submit button"
+    }
+
+    # =====================================================
+    # FILL ACTIONS
+    # =====================================================
+
+    SCENARIO TestFillActions @interaction @forms {
+        OPEN "https://example.com/form"
+        FILL ComprehensivePage.emailInput WITH "test@example.com"
+        FILL ComprehensivePage.passwordInput WITH "SecurePassword123"
+        FILL ComprehensivePage.usernameField WITH "testuser"
+        FILL ComprehensivePage.searchInput WITH "search query"
+        LOG "All fill actions completed"
+    }
+
+    # =====================================================
+    # CHECKBOX ACTIONS
+    # =====================================================
+
+    SCENARIO TestCheckActions @interaction @checkboxes {
+        OPEN "https://example.com/preferences"
+        CHECK ComprehensivePage.rememberMeCheckbox
+        CHECK ComprehensivePage.termsCheckbox
+        LOG "Checkboxes checked"
+    }
+
+    # =====================================================
+    # HOVER AND PRESS ACTIONS
+    # =====================================================
+
+    SCENARIO TestHoverAction @interaction @mouse {
+        OPEN "https://example.com"
+        HOVER ComprehensivePage.dashboardLink
+        WAIT 500 MILLISECONDS
+        LOG "Hover completed"
+    }
+
+    SCENARIO TestPressKeyboardActions @interaction @keyboard {
+        OPEN "https://example.com"
+        PRESS "Enter"
+        PRESS "Tab"
+        PRESS "Escape"
+        LOG "All keyboard actions completed"
+    }
+
+    # =====================================================
+    # WAIT ACTIONS
+    # =====================================================
+
+    SCENARIO TestWaitActions @timing {
+        OPEN "https://example.com"
+        WAIT 2 SECONDS
+        WAIT 500 MILLISECONDS
+        LOG "Wait actions completed"
+    }
+
+    # =====================================================
+    # PERFORM (CALL PAGE ACTIONS)
+    # =====================================================
+
+    SCENARIO TestDoPageActions @pageactions {
+        OPEN "https://example.com/login"
+        PERFORM ComprehensivePage.login WITH "testuser", "password123"
+        PERFORM ComprehensivePage.verifyPageLoaded
+        PERFORM ModalPage.dismissModal
+        LOG "Page actions completed"
+    }
+
+    # =====================================================
+    # SCREENSHOT AND LOG ACTIONS
+    # =====================================================
+
+    SCENARIO TestTakeScreenshotAndLog @capture @logging {
+        OPEN "https://example.com"
+        LOG "Test started"
+        TAKE SCREENSHOT "homepage-screenshot"
+        FILL ComprehensivePage.searchInput WITH "test"
+        TAKE SCREENSHOT "after-search-input"
+        LOG "Test completed successfully"
+    }
+
+    # =====================================================
+    # VERIFY (ASSERTION) ACTIONS
+    # =====================================================
+
+    SCENARIO TestVerifyVisibilityAssertions @assertions {
+        OPEN "https://example.com"
+        VERIFY ComprehensivePage.welcomeMessage IS VISIBLE
+        VERIFY ComprehensivePage.errorBanner IS NOT VISIBLE
+        VERIFY ComprehensivePage.loadingSpinner IS HIDDEN
+        LOG "Visibility assertions passed"
+    }
+
+    SCENARIO TestVerifyStateAssertions @assertions @state {
+        OPEN "https://example.com/form"
+        VERIFY ComprehensivePage.submitButton IS ENABLED
+        CHECK ComprehensivePage.rememberMeCheckbox
+        VERIFY ComprehensivePage.rememberMeCheckbox IS CHECKED
+        VERIFY ComprehensivePage.emailInput IS EMPTY
+        FILL ComprehensivePage.emailInput WITH "test"
+        VERIFY ComprehensivePage.emailInput IS NOT EMPTY
+        LOG "State assertions passed"
+    }
+
+    SCENARIO TestVerifyUrlAssertions @assertions {
+        OPEN "https://example.com/dashboard"
+        VERIFY URL CONTAINS "/dashboard"
+        VERIFY URL EQUAL "https://example.com/dashboard"
+        LOG "URL assertions passed"
+    }
+
+    SCENARIO TestVerifyTitleAssertions @assertions {
+        OPEN "https://example.com"
+        VERIFY TITLE CONTAINS "Example"
+        VERIFY TITLE EQUAL "Example Domain"
+        LOG "Title assertions passed"
+    }
+
+    SCENARIO TestVerifyHasAssertions @assertions {
+        OPEN "https://example.com/list"
+        VERIFY ComprehensivePage.tableRows HAS COUNT 10
+        FILL ComprehensivePage.emailInput WITH "test@example.com"
+        VERIFY ComprehensivePage.emailInput HAS VALUE "test@example.com"
+        VERIFY ComprehensivePage.emailInput HAS ATTRIBUTE "type" EQUAL "email"
+        LOG "HAS assertions passed"
+    }
+
+    # =====================================================
+    # TAGS - Multiple tags per scenario
+    # =====================================================
+
+    SCENARIO TestWithMultipleTags @smoke @regression @critical @login {
+        OPEN "https://example.com/login"
+        FILL ComprehensivePage.usernameField WITH "admin"
+        FILL ComprehensivePage.passwordInput WITH "admin123"
+        CLICK ComprehensivePage.submitButton
+        WAIT 1 SECONDS
+        LOG "Login test completed"
+    }
+}

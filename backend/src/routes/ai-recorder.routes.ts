@@ -3,19 +3,43 @@
  *
  * REST API endpoints for AI Test Recorder functionality.
  * Note: Most real-time operations are handled via WebSocket.
+ *
+ * TODO: Integrate ClaudeAgentService for browser automation
  */
 
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { aiRecorderService } from '../services/aiRecorder.service';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
-import { prisma } from '../db/prisma';
+import {
+  aiRecorderSessionRepository,
+  aiRecorderTestCaseRepository,
+  aiRecorderStepRepository,
+  aiSettingsRepository
+} from '../db/repositories/mongo';
 import { logger } from '../utils/logger';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// All routes require authentication
+/**
+ * GET /api/ai-recorder/health
+ * Check if AI Recorder is available
+ */
+router.get('/health', async (_req: Request, res: Response) => {
+  // TODO: Add ClaudeAgentService availability check when integrated
+  const isAvailable = true;
+
+  res.json({
+    available: isAvailable,
+    nodeVersion: process.version,
+    message: isAvailable
+      ? 'AI Recorder is available (browser automation being upgraded)'
+      : 'AI Recorder is unavailable',
+  });
+});
+
+// All routes below require authentication
 router.use(authenticateToken);
 
 /**
@@ -67,7 +91,7 @@ router.post('/sessions', async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      sessionId,
+      data: { sessionId },
     });
   } catch (error: any) {
     logger.error('Error creating session:', error);
@@ -86,12 +110,14 @@ router.post('/sessions/:sessionId/start', async (req: Request, res: Response) =>
     const { sessionId } = req.params;
 
     // Verify session belongs to user
-    const session = await prisma.aIRecorderSession.findFirst({
-      where: { id: sessionId, userId },
-    });
+    const session = await aiRecorderSessionRepository.findById(sessionId);
 
     if (!session) {
       return res.status(404).json({ error: 'Session not found' });
+    }
+
+    if (session.userId !== userId) {
+      return res.status(404).json({ error: 'Session not found' }); // Return 404 for security
     }
 
     if (session.status !== 'pending') {
@@ -99,9 +125,7 @@ router.post('/sessions/:sessionId/start', async (req: Request, res: Response) =>
     }
 
     // Get AI settings
-    const settings = await prisma.aISettings.findUnique({
-      where: { userId },
-    });
+    const settings = await aiSettingsRepository.findByUserId(userId);
 
     if (!settings) {
       return res.status(400).json({ error: 'AI settings not configured. Please configure in Settings > AI.' });
@@ -111,32 +135,37 @@ router.post('/sessions/:sessionId/start', async (req: Request, res: Response) =>
     let apiKey: string;
     let modelName: string;
 
+    // Determine model format: "provider/model"
     switch (settings.provider) {
       case 'gemini':
         if (!settings.geminiApiKey) {
           return res.status(400).json({ error: 'Gemini API key not configured' });
         }
         apiKey = settings.geminiApiKey;
-        modelName = settings.geminiModel || 'gemini-2.5-pro-preview-03-25';
+        const geminiModel = settings.geminiModel || 'gemini-2.0-flash';
+        modelName = geminiModel.startsWith('google/') ? geminiModel : `google/${geminiModel}`;
         break;
       case 'openai':
         if (!settings.openaiApiKey) {
           return res.status(400).json({ error: 'OpenAI API key not configured' });
         }
         apiKey = settings.openaiApiKey;
-        modelName = settings.openaiModel || 'gpt-4o';
+        const openaiModel = settings.openaiModel || 'gpt-4o';
+        modelName = openaiModel.startsWith('openai/') ? openaiModel : `openai/${openaiModel}`;
         break;
       case 'anthropic':
         if (!settings.anthropicApiKey) {
           return res.status(400).json({ error: 'Anthropic API key not configured' });
         }
         apiKey = settings.anthropicApiKey;
-        modelName = settings.anthropicModel || 'claude-sonnet-4-20250514';
+        const anthropicModel = settings.anthropicModel || 'claude-sonnet-4-20250514';
+        modelName = anthropicModel.startsWith('anthropic/') ? anthropicModel : `anthropic/${anthropicModel}`;
         break;
       default:
         return res.status(400).json({ error: `Unknown AI provider: ${settings.provider}` });
     }
 
+    // TODO: ClaudeAgentService will be integrated here for browser automation
     // Start processing
     await aiRecorderService.startSession(sessionId, {
       provider: settings.provider,
@@ -146,10 +175,11 @@ router.post('/sessions/:sessionId/start', async (req: Request, res: Response) =>
       browserbaseApiKey: settings.browserbaseApiKey || undefined,
     });
 
-    res.json({ success: true, sessionId });
+    res.json({ success: true, data: { sessionId } });
   } catch (error: any) {
     logger.error('Error starting session:', error);
-    res.status(500).json({ error: error.message || 'Failed to start session' });
+    const errorMessage = error.message || 'Failed to start session';
+    res.status(500).json({ error: errorMessage });
   }
 });
 
@@ -164,19 +194,17 @@ router.get('/sessions/:sessionId', async (req: Request, res: Response) => {
     const { sessionId } = req.params;
 
     // Verify session belongs to user
-    const session = await prisma.aIRecorderSession.findFirst({
-      where: { id: sessionId, userId },
-    });
+    const session = await aiRecorderSessionRepository.findById(sessionId);
 
-    if (!session) {
-      return res.status(404).json({ error: 'Session not found' });
+    if (!session || session.userId !== userId) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
     }
 
     const progress = await aiRecorderService.getSessionProgress(sessionId);
-    res.json(progress);
+    res.json({ success: true, data: progress });
   } catch (error: any) {
     logger.error('Error getting session:', error);
-    res.status(500).json({ error: error.message || 'Failed to get session' });
+    res.status(500).json({ success: false, error: error.message || 'Failed to get session' });
   }
 });
 
@@ -189,20 +217,26 @@ router.get('/sessions', async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
     const userId = authReq.userId!;
 
-    const sessions = await prisma.aIRecorderSession.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        _count: {
-          select: { testCases: true },
-        },
-      },
-    });
+    const sessions = await aiRecorderSessionRepository.findByUserId(userId);
 
-    res.json(sessions);
+    // Manually aggregate data to match expected response format
+    // (Prisma was doing this with 'include')
+    const enrichedSessions = await Promise.all(sessions.map(async (session) => {
+      const testCases = await aiRecorderTestCaseRepository.findBySessionId(session.id);
+
+      return {
+        ...session,
+        _count: {
+          testCases: testCases.length
+        },
+        testCases: testCases.length > 0 ? [{ name: testCases[0].name }] : []
+      };
+    }));
+
+    res.json({ success: true, data: enrichedSessions });
   } catch (error: any) {
     logger.error('Error listing sessions:', error);
-    res.status(500).json({ error: error.message || 'Failed to list sessions' });
+    res.status(500).json({ success: false, error: error.message || 'Failed to list sessions' });
   }
 });
 
@@ -217,11 +251,9 @@ router.post('/sessions/:sessionId/cancel', async (req: Request, res: Response) =
     const { sessionId } = req.params;
 
     // Verify session belongs to user
-    const session = await prisma.aIRecorderSession.findFirst({
-      where: { id: sessionId, userId },
-    });
+    const session = await aiRecorderSessionRepository.findById(sessionId);
 
-    if (!session) {
+    if (!session || session.userId !== userId) {
       return res.status(404).json({ error: 'Session not found' });
     }
 
@@ -245,18 +277,31 @@ router.delete('/sessions/:sessionId', async (req: Request, res: Response) => {
     const { sessionId } = req.params;
 
     // Verify session belongs to user
-    const session = await prisma.aIRecorderSession.findFirst({
-      where: { id: sessionId, userId },
-    });
+    const session = await aiRecorderSessionRepository.findById(sessionId);
 
-    if (!session) {
+    if (!session || session.userId !== userId) {
       return res.status(404).json({ error: 'Session not found' });
     }
 
     // Delete session (cascade deletes test cases and steps)
-    await prisma.aIRecorderSession.delete({
-      where: { id: sessionId },
-    });
+    // Note: ensure repository handles cascade or we do it here
+    // The Mongo repository 'delete' probably doesn't cascade automatically unless implemented.
+    // aiRecorderService.deleteSession or just rely on repository?
+    // Let's assume the mongo repository is simple and we should probably use a service method if complex.
+    // However, existing code used one-liner.
+    // Let's check if the service has deleteSession.
+    // The previous service file had: cancelSession, createSession, startSession.
+    // It didn't have deleteSession.
+    // But the mongo repository structure suggests direct DB ops.
+    // To be safe, we should delete children too.
+
+    // Manual Cascade Delete for consistency
+    const testCases = await aiRecorderTestCaseRepository.findBySessionId(sessionId);
+    for (const tc of testCases) {
+      await aiRecorderStepRepository.deleteByTestCaseId(tc.id);
+    }
+    await aiRecorderTestCaseRepository.deleteBySessionId(sessionId);
+    await aiRecorderSessionRepository.delete(sessionId);
 
     res.json({ success: true });
   } catch (error: any) {
@@ -275,21 +320,28 @@ router.get('/test-cases/:testCaseId', async (req: Request, res: Response) => {
     const userId = authReq.userId!;
     const { testCaseId } = req.params;
 
-    const testCase = await prisma.aIRecorderTestCase.findUnique({
-      where: { id: testCaseId },
-      include: {
-        session: true,
-        steps: {
-          orderBy: { stepNumber: 'asc' },
-        },
-      },
-    });
+    const testCase = await aiRecorderTestCaseRepository.findById(testCaseId);
 
-    if (!testCase || testCase.session.userId !== userId) {
+    if (!testCase) {
       return res.status(404).json({ error: 'Test case not found' });
     }
 
-    res.json(testCase);
+    // Verify ownership via session
+    const session = await aiRecorderSessionRepository.findById(testCase.sessionId);
+    if (!session || session.userId !== userId) {
+      return res.status(404).json({ error: 'Test case not found' });
+    }
+
+    const steps = await aiRecorderStepRepository.findByTestCaseId(testCaseId);
+
+    // Combine for response
+    const response = {
+      ...testCase,
+      session,
+      steps
+    };
+
+    res.json(response);
   } catch (error: any) {
     logger.error('Error getting test case:', error);
     res.status(500).json({ error: error.message || 'Failed to get test case' });
@@ -333,12 +385,13 @@ router.post('/test-cases/:testCaseId/preview', async (req: Request, res: Respons
     }
 
     // Verify ownership
-    const testCase = await prisma.aIRecorderTestCase.findUnique({
-      where: { id: testCaseId },
-      include: { session: true },
-    });
+    const testCase = await aiRecorderTestCaseRepository.findById(testCaseId);
+    if (!testCase) {
+      return res.status(404).json({ error: 'Test case not found' });
+    }
 
-    if (!testCase || testCase.session.userId !== userId) {
+    const session = await aiRecorderSessionRepository.findById(testCase.sessionId);
+    if (!session || session.userId !== userId) {
       return res.status(404).json({ error: 'Test case not found' });
     }
 
@@ -367,12 +420,13 @@ router.post('/test-cases/:testCaseId/approve', async (req: Request, res: Respons
     }
 
     // Verify ownership
-    const testCase = await prisma.aIRecorderTestCase.findUnique({
-      where: { id: testCaseId },
-      include: { session: true },
-    });
+    const testCase = await aiRecorderTestCaseRepository.findById(testCaseId);
+    if (!testCase) {
+      return res.status(404).json({ error: 'Test case not found' });
+    }
 
-    if (!testCase || testCase.session.userId !== userId) {
+    const session = await aiRecorderSessionRepository.findById(testCase.sessionId);
+    if (!session || session.userId !== userId) {
       return res.status(404).json({ error: 'Test case not found' });
     }
 
@@ -381,7 +435,7 @@ router.post('/test-cases/:testCaseId/approve', async (req: Request, res: Respons
       overwrite,
     });
 
-    res.json({ success: true, filePath });
+    res.json({ success: true, data: { filePath } });
   } catch (error: any) {
     logger.error('Error approving test case:', error);
     res.status(500).json({ error: error.message || 'Failed to approve test case' });
@@ -429,7 +483,7 @@ router.post('/test-cases/:testCaseId/steps', async (req: Request, res: Response)
       description
     );
 
-    res.json({ success: true, stepId });
+    res.json({ success: true, data: { stepId } });
   } catch (error: any) {
     logger.error('Error adding step:', error);
     res.status(500).json({ error: error.message || 'Failed to add step' });
@@ -461,9 +515,7 @@ router.get('/steps/:stepId/screenshot', async (req: Request, res: Response) => {
   try {
     const { stepId } = req.params;
 
-    const step = await prisma.aIRecorderStep.findUnique({
-      where: { id: stepId },
-    });
+    const step = await aiRecorderStepRepository.findById(stepId);
 
     if (!step || !step.screenshotPath) {
       return res.status(404).json({ error: 'Screenshot not found' });

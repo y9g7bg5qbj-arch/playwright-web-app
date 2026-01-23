@@ -64,8 +64,8 @@ program
         OPEN "/login"
     }
     
-    SCENARIO "User can login" @smoke {
-        DO LoginPage.login WITH "test@example.com", "secret"
+    SCENARIO UserCanLogin @smoke {
+        PERFORM LoginPage.login WITH "test@example.com", "secret"
         VERIFY "Dashboard" IS VISIBLE
     }
 }`;

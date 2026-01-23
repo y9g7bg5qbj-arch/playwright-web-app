@@ -170,12 +170,23 @@ export function useEditorErrors(
      */
     const validateCode = useCallback(
         async (code: string) => {
-            if (!monaco || !model || !enableValidation) return;
+            console.log('[useEditorErrors] validateCode called', {
+                hasMonaco: !!monaco,
+                hasModel: !!model,
+                enableValidation,
+                codeLength: code?.length
+            });
+
+            if (!monaco || !model || !enableValidation) {
+                console.log('[useEditorErrors] Skipping validation - missing requirements');
+                return;
+            }
 
             setIsValidating(true);
             setValidationError(null);
 
             try {
+                console.log('[useEditorErrors] Fetching validation from:', `${API_BASE}/api/vero/validate`);
                 const response = await fetch(`${API_BASE}/api/vero/validate`, {
                     method: 'POST',
                     headers: {
@@ -190,6 +201,11 @@ export function useEditorErrors(
                 }
 
                 const result: ValidationResult = await response.json();
+                console.log('[useEditorErrors] Validation result:', {
+                    success: result.success,
+                    errorCount: result.errors?.length,
+                    warningCount: result.warnings?.length
+                });
 
                 if (!mountedRef.current) return;
 
@@ -201,6 +217,7 @@ export function useEditorErrors(
                 const allIssues = [...(result.errors || []), ...(result.warnings || [])];
                 const markers = allIssues.map((err) => errorToMarker(monaco, err, model));
 
+                console.log('[useEditorErrors] Setting', markers.length, 'markers on model');
                 // Set markers on the model
                 monaco.editor.setModelMarkers(model, 'vero', markers);
             } catch (err) {
@@ -221,10 +238,13 @@ export function useEditorErrors(
     );
 
     /**
-     * Debounced validation
+     * Debounced validation - use a ref to always call the latest validateCode
      */
+    const validateCodeRef = useRef(validateCode);
+    validateCodeRef.current = validateCode;
+
     const debouncedValidate = useRef(
-        debounce((code: string) => validateCode(code), debounceMs)
+        debounce((code: string) => validateCodeRef.current(code), debounceMs)
     ).current;
 
     /**

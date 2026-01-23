@@ -2,13 +2,13 @@
 
 FEATURE SimplePassTest {
 
-    SCENARIO "Google Search Test" @smoke {
+    SCENARIO GoogleSearchTest @smoke {
         OPEN "https://www.google.com"
         VERIFY "Google" IS VISIBLE
         TAKE SCREENSHOT "google_homepage.png"
     }
 
-    SCENARIO "Example Domain Test" @smoke {
+    SCENARIO ExampleDomainTest @smoke {
         OPEN "https://example.com"
         VERIFY "Example Domain" IS VISIBLE
         CLICK "More information..."

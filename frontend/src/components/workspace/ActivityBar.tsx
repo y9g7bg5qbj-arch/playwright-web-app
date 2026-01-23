@@ -1,3 +1,14 @@
+import {
+  Files,
+  Rocket,
+  CalendarClock,
+  Database,
+  Sparkles,
+  Settings,
+  ScrollText,
+  User
+} from 'lucide-react';
+
 export type ActivityView =
   | 'explorer'
   | 'executions'
@@ -17,173 +28,140 @@ export interface ActivityBarProps {
 
 interface ActivityItem {
   id: ActivityView;
-  icon: string;
-  activeIcon?: string; // Different icon when active
+  icon: React.FC<any>;
   label: string;
-  description: string; // Tooltip description
-  color?: string; // Accent color when active
+  description: string;
 }
 
 const ACTIVITIES: ActivityItem[] = [
   {
     id: 'explorer',
-    icon: 'folder_copy',
-    activeIcon: 'folder_open',
+    icon: Files,
     label: 'Explorer',
-    description: 'Browse project files and folders',
-    color: '#58a6ff'
+    description: 'Browse project files',
   },
   {
     id: 'executions',
-    icon: 'rocket_launch',
+    icon: Rocket,
     label: 'Runs',
-    description: 'View test execution history and reports',
-    color: '#3fb950'
+    description: 'Execution history',
   },
   {
     id: 'schedules',
-    icon: 'event_repeat',
+    icon: CalendarClock,
     label: 'Schedules',
-    description: 'Manage automated test schedules',
-    color: '#d29922'
+    description: 'Automated jobs',
   },
   {
     id: 'testdata',
-    icon: 'table_chart',
+    icon: Database,
     label: 'Data',
-    description: 'Manage test data tables and variables',
-    color: '#a371f7'
+    description: 'Test data management',
   },
   {
     id: 'ai-test-generator',
-    icon: 'auto_awesome',
+    icon: Sparkles,
     label: 'AI Studio',
-    description: 'Generate tests with AI assistance',
-    color: '#f778ba'
+    description: 'Generate tests with AI',
   },
 ];
 
 export function ActivityBar({ activeView, onViewChange, executionBadge, onOpenScenarioBrowser, scenarioCount }: ActivityBarProps): JSX.Element {
   return (
-    <aside className="w-14 bg-[#0d1117] border-r border-[#30363d] flex flex-col items-center py-3 gap-1 z-20 shrink-0">
+    <aside className="w-[52px] bg-dark-bg border-r border-border-muted flex flex-col items-center py-4 gap-2 z-20 shrink-0 select-none">
       {ACTIVITIES.map((activity) => {
         const isActive = activeView === activity.id;
         const showBadge = activity.id === 'executions' && executionBadge !== undefined && executionBadge > 0;
-        const iconToShow = isActive && activity.activeIcon ? activity.activeIcon : activity.icon;
+        const Icon = activity.icon;
 
         return (
           <button
             key={activity.id}
             onClick={() => onViewChange(activity.id)}
-            className={`relative w-full flex flex-col items-center py-2 px-1 transition-all duration-150 group ${
-              isActive
-                ? 'text-white'
-                : 'text-[#6e7681] hover:text-[#c9d1d9]'
-            }`}
+            className={`
+              relative group flex items-center justify-center
+              w-10 h-10 rounded-lg transition-all duration-200
+              ${isActive
+                ? 'bg-brand-primary/10 text-brand-primary'
+                : 'text-text-muted hover:text-text-primary hover:bg-dark-elevated'
+              }
+            `}
             title={`${activity.label} - ${activity.description}`}
           >
-            {/* Active indicator bar */}
+            {/* Active Indicator (Left Bar) */}
             {isActive && (
               <div
-                className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-7 rounded-r transition-all"
-                style={{ backgroundColor: activity.color || '#2479f9' }}
+                className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 rounded-r-sm bg-brand-primary shadow-[0_0_8px_rgba(99,102,241,0.6)]"
               />
             )}
 
-            {/* Icon */}
-            <span
-              className={`material-symbols-outlined transition-all ${
-                isActive ? 'text-[22px] icon-filled' : 'text-[20px] group-hover:text-[21px]'
-              }`}
-              style={isActive ? { color: activity.color } : undefined}
-            >
-              {iconToShow}
-            </span>
+            <Icon
+              size={20}
+              className={`transition-transform duration-200 ${isActive ? 'scale-105' : 'group-hover:scale-110'}`}
+              strokeWidth={isActive ? 2.5 : 2}
+            />
 
-            {/* Label - only show on hover or active */}
-            <span
-              className={`text-[8px] font-medium mt-0.5 uppercase tracking-wide transition-opacity ${
-                isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-70'
-              }`}
-              style={isActive ? { color: activity.color } : undefined}
-            >
-              {activity.label}
-            </span>
-
+            {/* Notification Badge */}
             {showBadge && (
-              <span
-                className="absolute top-1 right-1.5 min-w-[14px] h-[14px] flex items-center justify-center rounded-full text-white text-[8px] font-bold px-0.5 shadow-sm"
-                style={{ backgroundColor: activity.color || '#2479f9' }}
-              >
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-status-danger text-white text-[10px] font-bold px-1 ring-2 ring-dark-bg animate-pulse-subtle">
                 {executionBadge > 9 ? '9+' : executionBadge}
               </span>
             )}
+
+            {/* Tooltip (Custom implementation would be better, but basic title works for now) */}
           </button>
         );
       })}
 
-      {/* Divider */}
-      <div className="w-6 h-px bg-[#30363d] my-1" />
+      <div className="w-6 h-px bg-border-subtle my-2" />
 
-      {/* Scenarios Button */}
+      {/* Scenario Browser */}
       {onOpenScenarioBrowser && (
         <button
           onClick={onOpenScenarioBrowser}
-          className="relative w-full flex flex-col items-center py-2 px-1 text-[#6e7681] hover:text-[#c9d1d9] transition-all group"
-          title="Scenario Browser - Browse all test scenarios"
+          className="relative group flex items-center justify-center w-10 h-10 rounded-lg text-text-muted hover:text-text-primary hover:bg-dark-elevated transition-all duration-200"
+          title="Scenario Browser"
         >
-          <span className="material-symbols-outlined text-[20px] group-hover:text-[21px] transition-all">
-            checklist
-          </span>
-          <span className="text-[7px] font-medium mt-0.5 uppercase tracking-wide opacity-0 group-hover:opacity-70 transition-opacity">
-            Scenarios
-          </span>
+          <ScrollText size={20} strokeWidth={2} className="group-hover:scale-110 transition-transform" />
+
           {scenarioCount !== undefined && scenarioCount > 0 && (
-            <span className="absolute top-1 right-1.5 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-[#58a6ff] text-white text-[8px] font-bold px-0.5 shadow-sm">
+            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-status-info text-white text-[10px] font-bold px-1 ring-2 ring-dark-bg">
               {scenarioCount > 9 ? '9+' : scenarioCount}
             </span>
           )}
         </button>
       )}
 
-      {/* Spacer */}
-      <div className="mt-auto flex flex-col gap-1 mb-1">
-        {/* Divider */}
-        <div className="w-6 h-px bg-[#30363d] mx-auto mb-1" />
+      {/* Bottom Section */}
+      <div className="mt-auto flex flex-col gap-2 mb-2">
+        <div className="w-6 h-px bg-border-subtle mx-auto" />
 
-        {/* Account */}
+        {/* Profile */}
         <button
-          className="w-full flex flex-col items-center py-2 px-1 text-[#6e7681] hover:text-[#c9d1d9] transition-all group"
-          title="Account - Manage your profile"
+          className="relative group flex items-center justify-center w-10 h-10 rounded-lg text-text-muted hover:text-text-primary hover:bg-dark-elevated transition-all duration-200"
+          title="Account"
         >
-          <span className="material-symbols-outlined text-[20px] group-hover:text-[21px] transition-all">
-            person
-          </span>
+          <User size={20} strokeWidth={2} className="group-hover:scale-110 transition-transform" />
         </button>
 
         {/* Settings */}
         <button
           onClick={() => onViewChange('settings')}
-          className={`w-full flex flex-col items-center py-2 px-1 transition-all group ${
-            activeView === 'settings'
-              ? 'text-white'
-              : 'text-[#6e7681] hover:text-[#c9d1d9]'
-          }`}
-          title="Settings - Configure Vero IDE"
+          className={`
+            relative group flex items-center justify-center
+            w-10 h-10 rounded-lg transition-all duration-200
+            ${activeView === 'settings'
+              ? 'bg-dark-elevated text-text-primary'
+              : 'text-text-muted hover:text-text-primary hover:bg-dark-elevated'
+            }
+          `}
+          title="Settings"
         >
-          {activeView === 'settings' && (
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-7 rounded-r bg-[#8b949e]" />
-          )}
-          <span className={`material-symbols-outlined text-[20px] ${
-            activeView === 'settings' ? 'icon-filled text-[22px]' : 'group-hover:text-[21px]'
-          } transition-all`}>
-            tune
-          </span>
-          {activeView === 'settings' && (
-            <span className="text-[8px] font-medium mt-0.5 uppercase tracking-wide text-[#8b949e]">
-              Settings
-            </span>
-          )}
+          <Settings
+            size={20}
+            strokeWidth={activeView === 'settings' ? 2.5 : 2}
+            className={`transition-transform duration-500 ${activeView === 'settings' ? 'rotate-90' : 'group-hover:rotate-45'}`}
+          />
         </button>
       </div>
     </aside>

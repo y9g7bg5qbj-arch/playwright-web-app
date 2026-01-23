@@ -7,12 +7,18 @@
 
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import { prisma } from '../db/prisma';
 import { excelParserService } from '../services/excel-parser';
 import { environmentService } from '../services/environment.service';
 import { TestDataValidator } from '../services/test-data-validator';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { mongoTestDataService } from '../services/mongodb-test-data.service';
+import {
+  applicationRepository,
+  testDataSheetRepository,
+  testDataRowRepository,
+  testDataSavedViewRepository,
+  testDataRelationshipRepository
+} from '../db/repositories/mongo';
 
 const router = Router();
 
@@ -21,23 +27,15 @@ router.use(authenticateToken);
 
 // Helper function to verify application access
 async function verifyApplicationAccess(userId: string, applicationId: string): Promise<{ hasAccess: boolean; isOwner: boolean }> {
-    const application = await prisma.application.findUnique({
-        where: { id: applicationId },
-        include: {
-            members: {
-                where: { userId }
-            }
-        }
-    });
+    const application = await applicationRepository.findById(applicationId);
 
     if (!application) {
         return { hasAccess: false, isOwner: false };
     }
 
     const isOwner = application.userId === userId;
-    const isMember = application.members.length > 0;
-
-    return { hasAccess: isOwner || isMember, isOwner };
+    // For now, owner has full access (members can be added later via application members collection)
+    return { hasAccess: isOwner, isOwner };
 }
 
 // Configure multer for file uploads (store in memory)
@@ -83,10 +81,8 @@ router.get('/sheets', async (req: AuthRequest, res: Response) => {
 
         if (!applicationId) {
             // Fallback: use user's first application
-            const firstApp = await prisma.application.findFirst({
-                where: { userId },
-                orderBy: { createdAt: 'asc' }
-            });
+            const userApps = await applicationRepository.findByUserId(userId);
+            const firstApp = userApps.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0];
             if (firstApp) {
                 applicationId = firstApp.id;
             } else {
@@ -98,17 +94,9 @@ router.get('/sheets', async (req: AuthRequest, res: Response) => {
         }
 
         // Verify application access
-        const application = await prisma.application.findFirst({
-            where: {
-                id: applicationId,
-                OR: [
-                    { userId },
-                    { members: { some: { userId } } }
-                ]
-            }
-        });
+        const application = await applicationRepository.findById(applicationId);
 
-        if (!application) {
+        if (!application || application.userId !== userId) {
             return res.json({
                 success: true,
                 sheets: []
@@ -167,22 +155,17 @@ router.post('/sheets', async (req: AuthRequest, res: Response) => {
         }
 
         // Verify the application exists and user has access
-        let application = applicationId ? await prisma.application.findFirst({
-            where: {
-                id: applicationId,
-                OR: [
-                    { userId },
-                    { members: { some: { userId } } }
-                ]
-            }
-        }) : null;
+        let application = applicationId ? await applicationRepository.findById(applicationId) : null;
+
+        // Check if user has access (is owner)
+        if (application && application.userId !== userId) {
+            application = null;
+        }
 
         if (!application) {
             // Fallback: use user's first application
-            application = await prisma.application.findFirst({
-                where: { userId },
-                orderBy: { createdAt: 'asc' }
-            });
+            const userApps = await applicationRepository.findByUserId(userId);
+            application = userApps.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0] || null;
 
             if (!application) {
                 return res.status(400).json({
@@ -829,12 +812,8 @@ router.post('/sheets/:id/fill-series', async (req: Request, res: Response) => {
         }
 
         // Fetch rows in the order specified
-        const rows = await prisma.testDataRow.findMany({
-            where: {
-                id: { in: rowIds },
-                sheetId
-            }
-        });
+        const allSheetRows = await testDataRowRepository.findBySheetId(sheetId);
+        const rows = allSheetRows.filter(r => rowIds.includes(r.id));
 
         // Sort rows by the order in rowIds
         const rowMap = new Map(rows.map(r => [r.id, r]));
@@ -864,12 +843,9 @@ router.post('/sheets/:id/fill-series', async (req: Request, res: Response) => {
 
         // Update each row
         const updates = orderedRows.map((row, index) => {
-            const data = JSON.parse(row.data) as Record<string, any>;
+            const data = row.data as Record<string, any>;
             data[columnId] = generateValue(index);
-            return prisma.testDataRow.update({
-                where: { id: row.id },
-                data: { data: JSON.stringify(data) }
-            });
+            return testDataRowRepository.update(row.id, { data });
         });
 
         await Promise.all(updates);
@@ -900,9 +876,7 @@ router.get('/sheets/:id/export-data', async (req: Request, res: Response) => {
         const { format = 'json', rowIds: rowIdsParam } = req.query;
 
         // Fetch sheet with columns
-        const sheet = await prisma.testDataSheet.findUnique({
-            where: { id: sheetId }
-        });
+        const sheet = await testDataSheetRepository.findById(sheetId);
 
         if (!sheet) {
             return res.status(404).json({
@@ -912,25 +886,22 @@ router.get('/sheets/:id/export-data', async (req: Request, res: Response) => {
         }
 
         // Fetch rows (optionally filtered)
-        let whereClause: any = { sheetId };
+        let rows = await testDataRowRepository.findBySheetId(sheetId);
         if (rowIdsParam) {
             const rowIds = (rowIdsParam as string).split(',');
-            whereClause.id = { in: rowIds };
+            rows = rows.filter(r => rowIds.includes(r.id));
         }
+        // Sort by scenarioId
+        rows.sort((a, b) => a.scenarioId.localeCompare(b.scenarioId));
 
-        const rows = await prisma.testDataRow.findMany({
-            where: whereClause,
-            orderBy: { scenarioId: 'asc' }
-        });
-
-        const columns = JSON.parse(sheet.columns) as Array<{ name: string; type: string }>;
+        const columns = sheet.columns as Array<{ name: string; type: string }>;
         const columnNames = columns.map(c => c.name);
 
         if (format === 'csv') {
             // Generate CSV
             const headers = ['TestID', ...columnNames, 'Enabled'].join(',');
             const csvRows = rows.map(row => {
-                const data = JSON.parse(row.data) as Record<string, any>;
+                const data = row.data as Record<string, any>;
                 const values = columnNames.map(col => {
                     const val = data[col];
                     if (val === null || val === undefined) return '';
@@ -963,7 +934,7 @@ router.get('/sheets/:id/export-data', async (req: Request, res: Response) => {
             rows: rows.map(row => ({
                 TestID: row.scenarioId,
                 enabled: row.enabled,
-                ...JSON.parse(row.data)
+                ...row.data
             }))
         };
 
@@ -1145,22 +1116,15 @@ router.get('/schema', async (req: AuthRequest, res: Response) => {
             });
         }
 
-        const sheets = await prisma.testDataSheet.findMany({
-            where: { applicationId },
-            select: {
-                id: true,
-                name: true,
-                columns: true
-            },
-            orderBy: { name: 'asc' }
-        });
+        const sheets = await testDataSheetRepository.findByApplicationId(applicationId);
+        sheets.sort((a, b) => a.name.localeCompare(b.name));
 
         // Return lightweight schema for autocomplete
         res.json({
             success: true,
             schema: sheets.map(s => ({
                 name: s.name,
-                columns: JSON.parse(s.columns).map((c: any) => ({
+                columns: (s.columns || []).map((c: any) => ({
                     name: c.name,
                     type: c.type
                 }))
@@ -1187,12 +1151,7 @@ router.post('/validate/:sheetId', async (req: Request, res: Response) => {
     try {
         const { sheetId } = req.params;
 
-        const sheet = await prisma.testDataSheet.findUnique({
-            where: { id: sheetId },
-            include: {
-                rows: true
-            }
-        });
+        const sheet = await testDataSheetRepository.findById(sheetId);
 
         if (!sheet) {
             return res.status(404).json({
@@ -1201,16 +1160,21 @@ router.post('/validate/:sheetId', async (req: Request, res: Response) => {
             });
         }
 
+        const rows = await testDataRowRepository.findBySheetId(sheetId);
+
         const parsedSheet = {
             id: sheet.id,
             name: sheet.name,
-            columns: JSON.parse(sheet.columns)
+            columns: (sheet.columns || []).map(col => ({
+                ...col,
+                type: col.type as 'string' | 'number' | 'boolean' | 'date'
+            }))
         };
 
-        const parsedRows = sheet.rows.map(r => ({
+        const parsedRows = rows.map(r => ({
             id: r.id,
             scenarioId: r.scenarioId,
-            data: JSON.parse(r.data),
+            data: r.data,
             enabled: r.enabled
         }));
 
@@ -1241,31 +1205,21 @@ router.get('/by-scenario/:applicationId/:scenarioId', async (req: Request, res: 
     try {
         const { applicationId, scenarioId } = req.params;
 
-        const rows = await prisma.testDataRow.findMany({
-            where: {
-                scenarioId,
-                enabled: true,
-                sheet: {
-                    applicationId
-                }
-            },
-            include: {
-                sheet: {
-                    select: {
-                        name: true,
-                        pageObject: true
-                    }
-                }
-            }
-        });
+        // Get all sheets for the application
+        const sheets = await testDataSheetRepository.findByApplicationId(applicationId);
+        const sheetMap = new Map(sheets.map(s => [s.id, s]));
 
+        // Get rows for each sheet with this scenarioId
         const dataBySheet: Record<string, any> = {};
-        for (const row of rows) {
-            const sheetName = row.sheet.name;
-            dataBySheet[sheetName] = {
-                pageObject: row.sheet.pageObject,
-                data: JSON.parse(row.data)
-            };
+        for (const sheet of sheets) {
+            const sheetRows = await testDataRowRepository.findBySheetIdAndScenarioId(sheet.id, scenarioId);
+            const enabledRow = sheetRows.find(r => r.enabled);
+            if (enabledRow) {
+                dataBySheet[sheet.name] = {
+                    pageObject: sheet.pageObject,
+                    data: enabledRow.data
+                };
+            }
         }
 
         res.json({
@@ -1290,14 +1244,9 @@ router.get('/by-sheet/:applicationId/:sheetName/:scenarioId', async (req: Reques
     try {
         const { applicationId, sheetName, scenarioId } = req.params;
 
-        const sheet = await prisma.testDataSheet.findUnique({
-            where: {
-                applicationId_name: {
-                    applicationId,
-                    name: sheetName
-                }
-            }
-        });
+        // Find sheet by applicationId and name
+        const sheets = await testDataSheetRepository.findByApplicationId(applicationId);
+        const sheet = sheets.find(s => s.name === sheetName);
 
         if (!sheet) {
             return res.status(404).json({
@@ -1306,14 +1255,8 @@ router.get('/by-sheet/:applicationId/:sheetName/:scenarioId', async (req: Reques
             });
         }
 
-        const row = await prisma.testDataRow.findUnique({
-            where: {
-                sheetId_scenarioId: {
-                    sheetId: sheet.id,
-                    scenarioId
-                }
-            }
-        });
+        const rows = await testDataRowRepository.findBySheetIdAndScenarioId(sheet.id, scenarioId);
+        const row = rows[0];
 
         if (!row) {
             return res.status(404).json({
@@ -1327,7 +1270,7 @@ router.get('/by-sheet/:applicationId/:sheetName/:scenarioId', async (req: Reques
             sheetName,
             scenarioId,
             enabled: row.enabled,
-            data: JSON.parse(row.data)
+            data: row.data
         });
     } catch (error) {
         console.error('Error fetching sheet data:', error);
@@ -1688,12 +1631,11 @@ router.get('/sheets/:sheetId/views', async (req: AuthRequest, res: Response) => 
     try {
         const { sheetId } = req.params;
 
-        const views = await prisma.testDataSavedView.findMany({
-            where: { sheetId },
-            orderBy: [
-                { isDefault: 'desc' },
-                { name: 'asc' }
-            ]
+        const views = await testDataSavedViewRepository.findBySheetId(sheetId);
+        // Sort: default views first, then alphabetically by name
+        views.sort((a, b) => {
+            if (a.isDefault !== b.isDefault) return b.isDefault ? 1 : -1;
+            return a.name.localeCompare(b.name);
         });
 
         res.json({
@@ -1738,23 +1680,18 @@ router.post('/sheets/:sheetId/views', async (req: AuthRequest, res: Response) =>
 
         // If this view is set as default, unset other defaults
         if (isDefault) {
-            await prisma.testDataSavedView.updateMany({
-                where: { sheetId, isDefault: true },
-                data: { isDefault: false }
-            });
+            await testDataSavedViewRepository.updateMany({ sheetId, isDefault: true }, { isDefault: false });
         }
 
-        const view = await prisma.testDataSavedView.create({
-            data: {
-                sheetId,
-                name,
-                description: description || null,
-                isDefault: isDefault || false,
-                filterState: JSON.stringify(filterState || {}),
-                sortState: JSON.stringify(sortState || []),
-                columnState: JSON.stringify(columnState || []),
-                groupState: JSON.stringify(groupState || [])
-            }
+        const view = await testDataSavedViewRepository.create({
+            sheetId,
+            name,
+            description: description || undefined,
+            isDefault: isDefault || false,
+            filterState: JSON.stringify(filterState || {}),
+            sortState: JSON.stringify(sortState || []),
+            columnState: JSON.stringify(columnState || []),
+            groupState: JSON.stringify(groupState || [])
         });
 
         res.status(201).json({
@@ -1790,9 +1727,7 @@ router.put('/views/:viewId', async (req: AuthRequest, res: Response) => {
         const { viewId } = req.params;
         const { name, description, isDefault, filterState, sortState, columnState, groupState } = req.body;
 
-        const existingView = await prisma.testDataSavedView.findUnique({
-            where: { id: viewId }
-        });
+        const existingView = await testDataSavedViewRepository.findById(viewId);
 
         if (!existingView) {
             return res.status(404).json({
@@ -1803,24 +1738,22 @@ router.put('/views/:viewId', async (req: AuthRequest, res: Response) => {
 
         // If this view is set as default, unset other defaults
         if (isDefault && !existingView.isDefault) {
-            await prisma.testDataSavedView.updateMany({
-                where: { sheetId: existingView.sheetId, isDefault: true },
-                data: { isDefault: false }
-            });
+            await testDataSavedViewRepository.updateMany({ sheetId: existingView.sheetId, isDefault: true }, { isDefault: false });
         }
 
-        const view = await prisma.testDataSavedView.update({
-            where: { id: viewId },
-            data: {
-                name: name ?? existingView.name,
-                description: description !== undefined ? description : existingView.description,
-                isDefault: isDefault ?? existingView.isDefault,
-                filterState: filterState ? JSON.stringify(filterState) : existingView.filterState,
-                sortState: sortState ? JSON.stringify(sortState) : existingView.sortState,
-                columnState: columnState ? JSON.stringify(columnState) : existingView.columnState,
-                groupState: groupState ? JSON.stringify(groupState) : existingView.groupState
-            }
+        const view = await testDataSavedViewRepository.update(viewId, {
+            name: name ?? existingView.name,
+            description: description !== undefined ? description : existingView.description,
+            isDefault: isDefault ?? existingView.isDefault,
+            filterState: filterState ? JSON.stringify(filterState) : existingView.filterState,
+            sortState: sortState ? JSON.stringify(sortState) : existingView.sortState,
+            columnState: columnState ? JSON.stringify(columnState) : existingView.columnState,
+            groupState: groupState ? JSON.stringify(groupState) : existingView.groupState
         });
+
+        if (!view) {
+            return res.status(500).json({ success: false, error: 'Failed to update view' });
+        }
 
         res.json({
             success: true,
@@ -1854,9 +1787,7 @@ router.delete('/views/:viewId', async (req: AuthRequest, res: Response) => {
     try {
         const { viewId } = req.params;
 
-        await prisma.testDataSavedView.delete({
-            where: { id: viewId }
-        });
+        await testDataSavedViewRepository.delete(viewId);
 
         res.json({
             success: true,
@@ -1884,50 +1815,53 @@ router.get('/sheets/:sheetId/relationships', async (req: AuthRequest, res: Respo
         const { sheetId } = req.params;
 
         const [sourceRelationships, targetRelationships] = await Promise.all([
-            prisma.testDataRelationship.findMany({
-                where: { sourceSheetId: sheetId },
-                include: {
-                    targetSheet: {
-                        select: { id: true, name: true, columns: true }
-                    }
-                }
-            }),
-            prisma.testDataRelationship.findMany({
-                where: { targetSheetId: sheetId },
-                include: {
-                    sourceSheet: {
-                        select: { id: true, name: true, columns: true }
-                    }
-                }
-            })
+            testDataRelationshipRepository.findBySourceSheetId(sheetId),
+            testDataRelationshipRepository.findByTargetSheetId(sheetId)
         ]);
+
+        // Fetch related sheets for outgoing relationships
+        const targetSheetIds = [...new Set(sourceRelationships.map(r => r.targetSheetId))];
+        const sourceSheetIds = [...new Set(targetRelationships.map(r => r.sourceSheetId))];
+
+        const allRelatedSheetIds = [...new Set([...targetSheetIds, ...sourceSheetIds])];
+        const relatedSheetsMap = new Map<string, any>();
+        for (const id of allRelatedSheetIds) {
+            const sheet = await testDataSheetRepository.findById(id);
+            if (sheet) relatedSheetsMap.set(id, sheet);
+        }
 
         res.json({
             success: true,
-            outgoing: sourceRelationships.map(r => ({
-                id: r.id,
-                name: r.name,
-                sourceColumn: r.sourceColumn,
-                targetSheetId: r.targetSheetId,
-                targetSheetName: r.targetSheet.name,
-                targetColumn: r.targetColumn,
-                targetColumns: JSON.parse(r.targetSheet.columns),
-                displayColumns: JSON.parse(r.displayColumns),
-                relationshipType: r.relationshipType,
-                cascadeDelete: r.cascadeDelete,
-                createdAt: r.createdAt
-            })),
-            incoming: targetRelationships.map(r => ({
-                id: r.id,
-                name: r.name,
-                sourceSheetId: r.sourceSheetId,
-                sourceSheetName: r.sourceSheet.name,
-                sourceColumn: r.sourceColumn,
-                sourceColumns: JSON.parse(r.sourceSheet.columns),
-                targetColumn: r.targetColumn,
-                relationshipType: r.relationshipType,
-                createdAt: r.createdAt
-            }))
+            outgoing: sourceRelationships.map(r => {
+                const targetSheet = relatedSheetsMap.get(r.targetSheetId);
+                return {
+                    id: r.id,
+                    name: r.name,
+                    sourceColumn: r.sourceColumn,
+                    targetSheetId: r.targetSheetId,
+                    targetSheetName: targetSheet?.name || 'Unknown',
+                    targetColumn: r.targetColumn,
+                    targetColumns: targetSheet?.columns || [],
+                    displayColumns: JSON.parse(r.displayColumns),
+                    relationshipType: r.relationshipType,
+                    cascadeDelete: r.cascadeDelete,
+                    createdAt: r.createdAt
+                };
+            }),
+            incoming: targetRelationships.map(r => {
+                const sourceSheet = relatedSheetsMap.get(r.sourceSheetId);
+                return {
+                    id: r.id,
+                    name: r.name,
+                    sourceSheetId: r.sourceSheetId,
+                    sourceSheetName: sourceSheet?.name || 'Unknown',
+                    sourceColumn: r.sourceColumn,
+                    sourceColumns: sourceSheet?.columns || [],
+                    targetColumn: r.targetColumn,
+                    relationshipType: r.relationshipType,
+                    createdAt: r.createdAt
+                };
+            })
         });
     } catch (error) {
         console.error('Error listing relationships:', error);
@@ -1956,40 +1890,45 @@ router.get('/relationships', async (req: AuthRequest, res: Response) => {
         }
 
         // Get all sheets for this application
-        const sheets = await prisma.testDataSheet.findMany({
-            where: { applicationId },
-            select: { id: true }
-        });
+        const sheets = await testDataSheetRepository.findByApplicationId(applicationId);
         const sheetIds = sheets.map(s => s.id);
+        const sheetMap = new Map(sheets.map(s => [s.id, s]));
 
         // Get all relationships where source sheet belongs to this application
-        const relationships = await prisma.testDataRelationship.findMany({
-            where: {
-                sourceSheetId: { in: sheetIds }
-            },
-            include: {
-                sourceSheet: { select: { id: true, name: true } },
-                targetSheet: { select: { id: true, name: true, columns: true } }
-            }
-        });
+        const relationships = await testDataRelationshipRepository.findBySheetIds(sheetIds);
+        // Filter to only outgoing relationships from this application's sheets
+        const outgoingRelationships = relationships.filter(r => sheetIds.includes(r.sourceSheetId));
+
+        // Fetch any target sheets not in our map
+        const missingSheetIds = outgoingRelationships
+            .filter(r => !sheetMap.has(r.targetSheetId))
+            .map(r => r.targetSheetId);
+        for (const id of missingSheetIds) {
+            const sheet = await testDataSheetRepository.findById(id);
+            if (sheet) sheetMap.set(id, sheet);
+        }
 
         res.json({
             success: true,
-            relationships: relationships.map(r => ({
-                id: r.id,
-                name: r.name,
-                sourceSheetId: r.sourceSheetId,
-                sourceSheetName: r.sourceSheet.name,
-                sourceColumn: r.sourceColumn,
-                targetSheetId: r.targetSheetId,
-                targetSheetName: r.targetSheet.name,
-                targetColumn: r.targetColumn,
-                displayColumns: JSON.parse(r.displayColumns),
-                relationshipType: r.relationshipType,
-                cascadeDelete: r.cascadeDelete,
-                createdAt: r.createdAt,
-                updatedAt: r.updatedAt
-            }))
+            relationships: outgoingRelationships.map(r => {
+                const sourceSheet = sheetMap.get(r.sourceSheetId);
+                const targetSheet = sheetMap.get(r.targetSheetId);
+                return {
+                    id: r.id,
+                    name: r.name,
+                    sourceSheetId: r.sourceSheetId,
+                    sourceSheetName: sourceSheet?.name || 'Unknown',
+                    sourceColumn: r.sourceColumn,
+                    targetSheetId: r.targetSheetId,
+                    targetSheetName: targetSheet?.name || 'Unknown',
+                    targetColumn: r.targetColumn,
+                    displayColumns: JSON.parse(r.displayColumns),
+                    relationshipType: r.relationshipType,
+                    cascadeDelete: r.cascadeDelete,
+                    createdAt: r.createdAt,
+                    updatedAt: r.updatedAt
+                };
+            })
         });
     } catch (error) {
         console.error('Error listing all relationships:', error);
@@ -2026,8 +1965,8 @@ router.post('/relationships', async (req: AuthRequest, res: Response) => {
 
         // Verify both sheets exist
         const [sourceSheet, targetSheet] = await Promise.all([
-            prisma.testDataSheet.findUnique({ where: { id: sourceSheetId } }),
-            prisma.testDataSheet.findUnique({ where: { id: targetSheetId } })
+            testDataSheetRepository.findById(sourceSheetId),
+            testDataSheetRepository.findById(targetSheetId)
         ]);
 
         if (!sourceSheet || !targetSheet) {
@@ -2037,21 +1976,15 @@ router.post('/relationships', async (req: AuthRequest, res: Response) => {
             });
         }
 
-        const relationship = await prisma.testDataRelationship.create({
-            data: {
-                sourceSheetId,
-                targetSheetId,
-                name,
-                sourceColumn,
-                targetColumn,
-                displayColumns: JSON.stringify(displayColumns || []),
-                relationshipType: relationshipType || 'many-to-one',
-                cascadeDelete: cascadeDelete || false
-            },
-            include: {
-                sourceSheet: { select: { name: true } },
-                targetSheet: { select: { name: true, columns: true } }
-            }
+        const relationship = await testDataRelationshipRepository.create({
+            sourceSheetId,
+            targetSheetId,
+            name,
+            sourceColumn,
+            targetColumn,
+            displayColumns: JSON.stringify(displayColumns || []),
+            relationshipType: relationshipType || 'many-to-one',
+            cascadeDelete: cascadeDelete || false
         });
 
         res.status(201).json({
@@ -2060,10 +1993,10 @@ router.post('/relationships', async (req: AuthRequest, res: Response) => {
                 id: relationship.id,
                 name: relationship.name,
                 sourceSheetId: relationship.sourceSheetId,
-                sourceSheetName: relationship.sourceSheet.name,
+                sourceSheetName: sourceSheet.name,
                 sourceColumn: relationship.sourceColumn,
                 targetSheetId: relationship.targetSheetId,
-                targetSheetName: relationship.targetSheet.name,
+                targetSheetName: targetSheet.name,
                 targetColumn: relationship.targetColumn,
                 displayColumns: JSON.parse(relationship.displayColumns),
                 relationshipType: relationship.relationshipType,
@@ -2089,9 +2022,7 @@ router.put('/relationships/:relationshipId', async (req: AuthRequest, res: Respo
         const { relationshipId } = req.params;
         const { name, displayColumns, cascadeDelete } = req.body;
 
-        const existing = await prisma.testDataRelationship.findUnique({
-            where: { id: relationshipId }
-        });
+        const existing = await testDataRelationshipRepository.findById(relationshipId);
 
         if (!existing) {
             return res.status(404).json({
@@ -2100,18 +2031,20 @@ router.put('/relationships/:relationshipId', async (req: AuthRequest, res: Respo
             });
         }
 
-        const relationship = await prisma.testDataRelationship.update({
-            where: { id: relationshipId },
-            data: {
-                name: name ?? existing.name,
-                displayColumns: displayColumns ? JSON.stringify(displayColumns) : existing.displayColumns,
-                cascadeDelete: cascadeDelete ?? existing.cascadeDelete
-            },
-            include: {
-                sourceSheet: { select: { name: true } },
-                targetSheet: { select: { name: true } }
-            }
+        const relationship = await testDataRelationshipRepository.update(relationshipId, {
+            name: name ?? existing.name,
+            displayColumns: displayColumns ? JSON.stringify(displayColumns) : existing.displayColumns,
+            cascadeDelete: cascadeDelete ?? existing.cascadeDelete
         });
+
+        if (!relationship) {
+            return res.status(500).json({ success: false, error: 'Failed to update relationship' });
+        }
+
+        const [sourceSheet, targetSheet] = await Promise.all([
+            testDataSheetRepository.findById(relationship.sourceSheetId),
+            testDataSheetRepository.findById(relationship.targetSheetId)
+        ]);
 
         res.json({
             success: true,
@@ -2119,10 +2052,10 @@ router.put('/relationships/:relationshipId', async (req: AuthRequest, res: Respo
                 id: relationship.id,
                 name: relationship.name,
                 sourceSheetId: relationship.sourceSheetId,
-                sourceSheetName: relationship.sourceSheet.name,
+                sourceSheetName: sourceSheet?.name || 'Unknown',
                 sourceColumn: relationship.sourceColumn,
                 targetSheetId: relationship.targetSheetId,
-                targetSheetName: relationship.targetSheet.name,
+                targetSheetName: targetSheet?.name || 'Unknown',
                 targetColumn: relationship.targetColumn,
                 displayColumns: JSON.parse(relationship.displayColumns),
                 relationshipType: relationship.relationshipType,
@@ -2146,9 +2079,7 @@ router.delete('/relationships/:relationshipId', async (req: AuthRequest, res: Re
     try {
         const { relationshipId } = req.params;
 
-        await prisma.testDataRelationship.delete({
-            where: { id: relationshipId }
-        });
+        await testDataRelationshipRepository.delete(relationshipId);
 
         res.json({
             success: true,
@@ -2172,12 +2103,7 @@ router.get('/relationships/:relationshipId/lookup', async (req: AuthRequest, res
         const { relationshipId } = req.params;
         const { value } = req.query;
 
-        const relationship = await prisma.testDataRelationship.findUnique({
-            where: { id: relationshipId },
-            include: {
-                targetSheet: { select: { id: true, columns: true } }
-            }
-        });
+        const relationship = await testDataRelationshipRepository.findById(relationshipId);
 
         if (!relationship) {
             return res.status(404).json({
@@ -2187,13 +2113,11 @@ router.get('/relationships/:relationshipId/lookup', async (req: AuthRequest, res
         }
 
         // Find matching row in target sheet
-        const targetRows = await prisma.testDataRow.findMany({
-            where: { sheetId: relationship.targetSheetId }
-        });
+        const targetRows = await testDataRowRepository.findBySheetId(relationship.targetSheetId);
 
         const displayColumns = JSON.parse(relationship.displayColumns) as string[];
         const matchingRow = targetRows.find(row => {
-            const data = JSON.parse(row.data);
+            const data = row.data as Record<string, any>;
             return data[relationship.targetColumn] === value;
         });
 
@@ -2205,7 +2129,7 @@ router.get('/relationships/:relationshipId/lookup', async (req: AuthRequest, res
             });
         }
 
-        const rowData = JSON.parse(matchingRow.data);
+        const rowData = matchingRow.data as Record<string, any>;
         const displayData: Record<string, unknown> = {};
         for (const col of displayColumns) {
             displayData[col] = rowData[col];
@@ -2247,9 +2171,7 @@ router.post('/resolve-references', async (req: AuthRequest, res: Response) => {
         }
 
         // Get the source sheet and its column definitions
-        const sourceSheet = await prisma.testDataSheet.findUnique({
-            where: { id: sheetId }
-        });
+        const sourceSheet = await testDataSheetRepository.findById(sheetId);
 
         if (!sourceSheet) {
             return res.status(404).json({
@@ -2258,7 +2180,7 @@ router.post('/resolve-references', async (req: AuthRequest, res: Response) => {
             });
         }
 
-        const sheetColumns = JSON.parse(sourceSheet.columns) as Array<{
+        const sheetColumns = (sourceSheet.columns || []) as Array<{
             name: string;
             type: string;
             referenceConfig?: {
@@ -2273,11 +2195,9 @@ router.post('/resolve-references', async (req: AuthRequest, res: Response) => {
         // Get the row data if rowId is provided
         let rowData: Record<string, unknown> = {};
         if (rowId) {
-            const row = await prisma.testDataRow.findUnique({
-                where: { id: rowId }
-            });
+            const row = await testDataRowRepository.findById(rowId);
             if (row) {
-                rowData = JSON.parse(row.data);
+                rowData = row.data as Record<string, unknown>;
             }
         }
 
@@ -2307,14 +2227,12 @@ router.post('/resolve-references', async (req: AuthRequest, res: Response) => {
             }
 
             // Fetch all rows from the target sheet
-            const targetRows = await prisma.testDataRow.findMany({
-                where: { sheetId: config.targetSheet }
-            });
+            const targetRows = await testDataRowRepository.findBySheetId(config.targetSheet);
 
             // Find matching rows by target column
             const matchedRows: Record<string, unknown>[] = [];
             for (const targetRow of targetRows) {
-                const targetData = JSON.parse(targetRow.data);
+                const targetData = targetRow.data as Record<string, any>;
                 const targetId = String(targetData[config.targetColumn] || '');
 
                 if (ids.includes(targetId)) {
@@ -2357,10 +2275,7 @@ router.post('/sheets/:sheetId/expand', async (req: AuthRequest, res: Response) =
         const { rowIds, expandColumns } = req.body;
 
         // Get the sheet with all rows
-        const sheet = await prisma.testDataSheet.findUnique({
-            where: { id: sheetId },
-            include: { rows: true }
-        });
+        const sheet = await testDataSheetRepository.findById(sheetId);
 
         if (!sheet) {
             return res.status(404).json({
@@ -2369,7 +2284,9 @@ router.post('/sheets/:sheetId/expand', async (req: AuthRequest, res: Response) =
             });
         }
 
-        const sheetColumns = JSON.parse(sheet.columns) as Array<{
+        const allRows = await testDataRowRepository.findBySheetId(sheetId);
+
+        const sheetColumns = (sheet.columns || []) as Array<{
             name: string;
             type: string;
             referenceConfig?: {
@@ -2382,7 +2299,7 @@ router.post('/sheets/:sheetId/expand', async (req: AuthRequest, res: Response) =
         }>;
 
         // Filter rows if rowIds provided
-        let rows = sheet.rows;
+        let rows = allRows;
         if (rowIds && Array.isArray(rowIds) && rowIds.length > 0) {
             rows = rows.filter(r => rowIds.includes(r.id));
         }
@@ -2399,18 +2316,16 @@ router.post('/sheets/:sheetId/expand', async (req: AuthRequest, res: Response) =
         const targetSheetData: Record<string, Array<{ id: string; data: Record<string, unknown> }>> = {};
 
         for (const targetId of targetSheetIds) {
-            const targetRows = await prisma.testDataRow.findMany({
-                where: { sheetId: targetId }
-            });
+            const targetRows = await testDataRowRepository.findBySheetId(targetId);
             targetSheetData[targetId] = targetRows.map(r => ({
                 id: r.id,
-                data: JSON.parse(r.data)
+                data: r.data as Record<string, unknown>
             }));
         }
 
         // Expand each row
         const expandedRows = rows.map(row => {
-            const rowData = JSON.parse(row.data);
+            const rowData = row.data as Record<string, any>;
             const expanded: Record<string, unknown> = { ...rowData };
 
             for (const col of referenceColumns) {
@@ -2543,10 +2458,7 @@ router.post('/sheets/:sheetId/compute-all', async (req: AuthRequest, res: Respon
     try {
         const { sheetId } = req.params;
 
-        const sheet = await prisma.testDataSheet.findUnique({
-            where: { id: sheetId },
-            include: { rows: true }
-        });
+        const sheet = await testDataSheetRepository.findById(sheetId);
 
         if (!sheet) {
             return res.status(404).json({
@@ -2555,7 +2467,9 @@ router.post('/sheets/:sheetId/compute-all', async (req: AuthRequest, res: Respon
             });
         }
 
-        const columns = JSON.parse(sheet.columns) as Array<{ name: string; type: string; formula?: string }>;
+        const allRows = await testDataRowRepository.findBySheetId(sheetId);
+
+        const columns = (sheet.columns || []) as Array<{ name: string; type: string; formula?: string }>;
         const formulaColumns = columns.filter(c => c.formula);
 
         if (formulaColumns.length === 0) {
@@ -2596,8 +2510,8 @@ router.post('/sheets/:sheetId/compute-all', async (req: AuthRequest, res: Respon
         };
 
         let updatedCount = 0;
-        for (const row of sheet.rows) {
-            const data = JSON.parse(row.data) as Record<string, unknown>;
+        for (const row of allRows) {
+            const data = row.data as Record<string, unknown>;
             let updated = false;
 
             for (const col of formulaColumns) {
@@ -2609,10 +2523,7 @@ router.post('/sheets/:sheetId/compute-all', async (req: AuthRequest, res: Respon
             }
 
             if (updated) {
-                await prisma.testDataRow.update({
-                    where: { id: row.id },
-                    data: { data: JSON.stringify(data) }
-                });
+                await testDataRowRepository.update(row.id, { data });
                 updatedCount++;
             }
         }

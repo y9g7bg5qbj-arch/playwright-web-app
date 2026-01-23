@@ -36,10 +36,11 @@ export interface PageField {
     rawValue: string;
 }
 
-// A page object with its fields
+// A page object with its fields and URL patterns
 export interface PageObject {
     name: string;
     filePath: string;
+    urlPatterns: string[];  // URL patterns like "/login", "/signin", "/auth/*"
     fields: Map<string, PageField>;
     actions: string[]; // Raw action block content
     rawContent: string;
@@ -125,6 +126,19 @@ export class PageObjectRegistry {
     private parsePage(pageName: string, filePath: string, content: string): PageObject {
         const fields = new Map<string, PageField>();
         const actions: string[] = [];
+        const urlPatterns: string[] = [];
+
+        // Parse URL patterns from PAGE declaration
+        // Supports: PAGE LoginPage ("/login", "/signin", "/auth/*") {
+        const pageUrlPatternMatch = content.match(/PAGE\s+\w+\s*\(([^)]+)\)/i);
+        if (pageUrlPatternMatch) {
+            const patternsStr = pageUrlPatternMatch[1];
+            // Extract all quoted strings
+            const patternMatches = patternsStr.matchAll(/"([^"]+)"/g);
+            for (const m of patternMatches) {
+                urlPatterns.push(m[1]);
+            }
+        }
 
         // Parse field declarations: field name = selector
         // Supports: field emailInput = testId "email"
@@ -168,6 +182,7 @@ export class PageObjectRegistry {
         return {
             name: pageName,
             filePath,
+            urlPatterns,
             fields,
             actions,
             rawContent: content
@@ -785,28 +800,129 @@ export class PageObjectRegistry {
     }
 
     /**
+     * Find a page that matches the given URL based on URL patterns
+     */
+    findPageByUrl(url: string): PageObject | null {
+        const urlPath = this.extractUrlPath(url);
+
+        for (const [, page] of this.pages) {
+            if (page.urlPatterns.length > 0) {
+                for (const pattern of page.urlPatterns) {
+                    if (this.matchUrlPattern(urlPath, pattern)) {
+                        return page;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract the path from a URL (without domain and query params for matching)
+     */
+    private extractUrlPath(url: string): string {
+        try {
+            const urlObj = new URL(url);
+            return urlObj.pathname;
+        } catch {
+            // If not a valid URL, treat as path
+            return url.split('?')[0];
+        }
+    }
+
+    /**
+     * Match a URL path against a pattern
+     * Supports:
+     *   - Exact match: "/login" matches "/login"
+     *   - Wildcard suffix: "/login*" matches "/login", "/login/forgot", "/login?x=1"
+     *   - Wildcard prefix: "*\/login" matches any domain + "/login"
+     *   - Contains: "*\/auth\/*" matches any URL containing "/auth/"
+     */
+    private matchUrlPattern(urlPath: string, pattern: string): boolean {
+        // Remove leading/trailing whitespace
+        pattern = pattern.trim();
+        urlPath = urlPath.trim();
+
+        // Handle wildcard patterns
+        if (pattern.startsWith('*') && pattern.endsWith('*')) {
+            // Contains pattern: *\/auth\/*
+            const inner = pattern.slice(1, -1);
+            return urlPath.includes(inner);
+        }
+
+        if (pattern.startsWith('*/')) {
+            // Wildcard prefix: */login matches any path ending with /login
+            const suffix = pattern.slice(1); // Remove leading *
+            return urlPath === suffix || urlPath.endsWith(suffix);
+        }
+
+        if (pattern.endsWith('*')) {
+            // Wildcard suffix: /login* matches /login, /login/x, /login?y
+            const prefix = pattern.slice(0, -1);
+            return urlPath.startsWith(prefix);
+        }
+
+        // Exact match (ignoring query params)
+        return urlPath === pattern || urlPath.startsWith(pattern + '?');
+    }
+
+    /**
      * Get or create a page for the given URL
+     * First tries to find an existing page by URL pattern match
      */
     getOrCreatePage(url: string): PageObject {
-        const suggestedName = this.suggestPageName(url);
+        // First, try to find an existing page by URL pattern
+        const existingPage = this.findPageByUrl(url);
+        if (existingPage) {
+            return existingPage;
+        }
 
-        // Check if page exists
+        // Next, check if page exists by suggested name
+        const suggestedName = this.suggestPageName(url);
         if (this.pages.has(suggestedName)) {
             return this.pages.get(suggestedName)!;
         }
 
-        // Create new page object
+        // Create new page object with the URL pattern
+        const urlPath = this.extractUrlPath(url);
         const filePath = join(this.projectPath, 'pages', `${suggestedName}.vero`);
         const newPage: PageObject = {
             name: suggestedName,
             filePath,
+            urlPatterns: [urlPath],  // Initialize with current URL path
             fields: new Map(),
             actions: [],
-            rawContent: `# ${suggestedName}\n\npage ${suggestedName} {\n}\n`
+            rawContent: ''  // Will be generated by updatePageContent
         };
 
+        this.updatePageContent(newPage);
         this.pages.set(suggestedName, newPage);
         return newPage;
+    }
+
+    /**
+     * Add a URL pattern to an existing page
+     */
+    addUrlPattern(pageName: string, pattern: string): void {
+        const page = this.pages.get(pageName);
+        if (!page) {
+            throw new Error(`Page not found: ${pageName}`);
+        }
+
+        // Avoid duplicates
+        if (!page.urlPatterns.includes(pattern)) {
+            page.urlPatterns.push(pattern);
+            this.updatePageContent(page);
+        }
+    }
+
+    /**
+     * Get URL patterns for a page
+     */
+    getUrlPatterns(pageName: string): string[] {
+        const page = this.pages.get(pageName);
+        return page?.urlPatterns || [];
     }
 
     /**
@@ -855,16 +971,23 @@ export class PageObjectRegistry {
      * Update the raw content of a page after adding fields
      */
     private updatePageContent(page: PageObject): void {
-        // Rebuild the page content with all fields
+        // Rebuild the page content with URL patterns and fields
         const lines: string[] = [
             `# ${page.name}`,
-            '',
-            `page ${page.name} {`
+            ''
         ];
+
+        // Build PAGE declaration with URL patterns
+        if (page.urlPatterns.length > 0) {
+            const patternsStr = page.urlPatterns.map(p => `"${p}"`).join(', ');
+            lines.push(`PAGE ${page.name} (${patternsStr}) {`);
+        } else {
+            lines.push(`PAGE ${page.name} {`);
+        }
 
         // Add all fields
         for (const [, field] of page.fields) {
-            lines.push(`    field ${field.name} = ${field.selector}`);
+            lines.push(`    FIELD ${field.name} = ${field.selector}`);
         }
 
         // Add actions if any
@@ -922,6 +1045,13 @@ export class PageObjectRegistry {
      */
     getPageNames(): string[] {
         return Array.from(this.pages.keys());
+    }
+
+    /**
+     * Get a page by name
+     */
+    getPage(pageName: string): PageObject | null {
+        return this.pages.get(pageName) || null;
     }
 }
 

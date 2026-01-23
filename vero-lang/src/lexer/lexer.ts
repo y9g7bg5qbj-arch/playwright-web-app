@@ -1,27 +1,33 @@
 import { Token, TokenType, LexerError } from './tokens.js';
 
-// Map of keywords to their token types
 const KEYWORDS: Record<string, TokenType> = {
+    // Structural
     'PAGE': TokenType.PAGE,
     'FEATURE': TokenType.FEATURE,
     'SCENARIO': TokenType.SCENARIO,
     'FIELD': TokenType.FIELD,
     'USE': TokenType.USE,
-    // Test annotations
+
+    // Test Annotations
     'SKIP': TokenType.SKIP,
     'ONLY': TokenType.ONLY,
     'SLOW': TokenType.SLOW,
     'FIXME': TokenType.FIXME,
     'SERIAL': TokenType.SERIAL,
+
+    // Variable Types
     'TEXT': TokenType.TEXT,
     'NUMBER': TokenType.NUMBER,
     'FLAG': TokenType.FLAG,
     'LIST': TokenType.LIST,
+
+    // Hooks
     'BEFORE': TokenType.BEFORE,
     'AFTER': TokenType.AFTER,
     'ALL': TokenType.ALL,
     'EACH': TokenType.EACH,
-    // Fixture keywords
+
+    // Fixtures
     'FIXTURE': TokenType.FIXTURE,
     'SCOPE': TokenType.SCOPE,
     'TEST': TokenType.TEST,
@@ -33,6 +39,8 @@ const KEYWORDS: Record<string, TokenType> = {
     'AUTO': TokenType.AUTO,
     'OPTION': TokenType.OPTION,
     'DEFAULT': TokenType.DEFAULT,
+
+    // Actions
     'CLICK': TokenType.CLICK,
     'FILL': TokenType.FILL,
     'OPEN': TokenType.OPEN,
@@ -45,13 +53,15 @@ const KEYWORDS: Record<string, TokenType> = {
     'WAIT': TokenType.WAIT,
     'VERIFY': TokenType.VERIFY,
     'UPLOAD': TokenType.UPLOAD,
-    'DO': TokenType.DO,
-    // Extended Actions (Phase 1)
+    'PERFORM': TokenType.PERFORM,
     'RIGHT': TokenType.RIGHT,
     'DOUBLE': TokenType.DOUBLE,
     'FORCE': TokenType.FORCE,
     'DRAG': TokenType.DRAG,
-    // Assertion keywords
+    'REFRESH': TokenType.REFRESH,
+    'CLEAR': TokenType.CLEAR,
+
+    // Assertions
     'URL': TokenType.URL,
     'TITLE': TokenType.TITLE,
     'EQUAL': TokenType.EQUAL,
@@ -64,6 +74,8 @@ const KEYWORDS: Record<string, TokenType> = {
     'OF': TokenType.OF,
     'CLASS': TokenType.CLASS,
     'MATCHES': TokenType.MATCHES,
+
+    // Conditions
     'IS': TokenType.IS,
     'NOT': TokenType.NOT,
     'VISIBLE': TokenType.VISIBLE,
@@ -74,6 +86,8 @@ const KEYWORDS: Record<string, TokenType> = {
     'FOCUSED': TokenType.FOCUSED,
     'CONTAINS': TokenType.CONTAINS,
     'EMPTY': TokenType.EMPTY,
+
+    // Selectors
     'BUTTON': TokenType.BUTTON,
     'TEXTBOX': TokenType.TEXTBOX,
     'LINK': TokenType.LINK,
@@ -81,6 +95,8 @@ const KEYWORDS: Record<string, TokenType> = {
     'ROLE': TokenType.ROLE,
     'LABEL': TokenType.LABEL,
     'PLACEHOLDER': TokenType.PLACEHOLDER,
+
+    // Connectors
     'WITH': TokenType.WITH,
     'AND': TokenType.AND,
     'FROM': TokenType.FROM,
@@ -88,24 +104,97 @@ const KEYWORDS: Record<string, TokenType> = {
     'IN': TokenType.IN,
     'RETURNS': TokenType.RETURNS,
     'RETURN': TokenType.RETURN,
+
+    // Boolean Values
     'TRUE': TokenType.TRUE,
     'FALSE': TokenType.FALSE,
     'NULL': TokenType.NULL,
+
+    // Control Flow
     'IF': TokenType.IF,
     'ELSE': TokenType.ELSE,
     'REPEAT': TokenType.REPEAT,
     'TIMES': TokenType.TIMES,
     'FOR': TokenType.FOR,
+
+    // Data Query (VDQL)
     'LOAD': TokenType.LOAD,
     'WHERE': TokenType.WHERE,
     'AS': TokenType.AS,
-    'REFRESH': TokenType.REFRESH,
+    'ROW': TokenType.ROW,
+    'ROWS': TokenType.ROWS,
+    'ORDER': TokenType.ORDER,
+    'BY': TokenType.BY,
+    'ASC': TokenType.ASC,
+    'DESC': TokenType.DESC,
+    'LIMIT': TokenType.LIMIT,
+    'OFFSET': TokenType.OFFSET,
+    'FIRST': TokenType.FIRST,
+    'LAST': TokenType.LAST,
+    'RANDOM': TokenType.RANDOM,
+    'DISTINCT': TokenType.DISTINCT,
+    'OR': TokenType.OR,
+    'STARTS': TokenType.STARTS,
+    'ENDS': TokenType.ENDS,
+
+    // Utilities
     'TAKE': TokenType.TAKE,
     'SCREENSHOT': TokenType.SCREENSHOT,
     'LOG': TokenType.LOG,
-    'CLEAR': TokenType.CLEAR,
     'SECONDS': TokenType.SECONDS,
     'MILLISECONDS': TokenType.MILLISECONDS,
+
+    // String Operations
+    'TRIM': TokenType.TRIM,
+    'CONVERT': TokenType.CONVERT,
+    'UPPERCASE': TokenType.UPPERCASE,
+    'LOWERCASE': TokenType.LOWERCASE,
+    'EXTRACT': TokenType.EXTRACT,
+    'REPLACE': TokenType.REPLACE,
+    'SPLIT': TokenType.SPLIT,
+    'JOIN': TokenType.JOIN,
+    'LENGTH': TokenType.LENGTH,
+    'PAD': TokenType.PAD,
+    'THEN': TokenType.THEN,
+
+    // Date Operations
+    'TODAY': TokenType.TODAY,
+    'NOW': TokenType.NOW,
+    'ADD': TokenType.ADD,
+    'SUBTRACT': TokenType.SUBTRACT,
+    'DAY': TokenType.DAY,
+    'DAYS': TokenType.DAYS_UNIT,
+    'MONTH': TokenType.MONTH,
+    'MONTHS': TokenType.MONTHS_UNIT,
+    'YEAR': TokenType.YEAR,
+    'YEARS': TokenType.YEARS_UNIT,
+    'FORMAT': TokenType.FORMAT,
+
+    // Number Operations
+    'ROUND': TokenType.ROUND,
+    'DECIMALS': TokenType.DECIMALS,
+    'UP': TokenType.UP,
+    'DOWN': TokenType.DOWN,
+    'ABSOLUTE': TokenType.ABSOLUTE,
+    'CURRENCY': TokenType.CURRENCY,
+    'PERCENT': TokenType.PERCENT,
+
+    // Generate Operations
+    'GENERATE': TokenType.GENERATE,
+    'UUID': TokenType.UUID,
+};
+
+const SINGLE_CHAR_TOKENS: Record<string, TokenType> = {
+    '{': TokenType.LBRACE,
+    '}': TokenType.RBRACE,
+    '(': TokenType.LPAREN,
+    ')': TokenType.RPAREN,
+    '[': TokenType.LBRACKET,
+    ']': TokenType.RBRACKET,
+    '=': TokenType.EQUALS_SIGN,
+    '.': TokenType.DOT,
+    ',': TokenType.COMMA,
+    '@': TokenType.AT_SIGN,
 };
 
 export class Lexer {
@@ -128,7 +217,6 @@ export class Lexer {
             }
         }
 
-        // Add EOF token
         this.tokens.push({
             type: TokenType.EOF,
             value: '',
@@ -165,7 +253,6 @@ export class Lexer {
             if (char === ' ' || char === '\t' || char === '\r' || char === '\n') {
                 this.advance();
             } else if (char === '#') {
-                // Skip comments
                 this.skipComment();
             } else {
                 break;
@@ -178,12 +265,11 @@ export class Lexer {
         const startColumn = this.column;
         let comment = '';
 
-        this.advance(); // skip #
+        this.advance();
         while (!this.isAtEnd() && this.peek() !== '\n') {
             comment += this.advance();
         }
 
-        // Optionally store comment as token
         this.tokens.push({
             type: TokenType.COMMENT,
             value: comment.trim(),
@@ -197,51 +283,32 @@ export class Lexer {
         const startLine = this.line;
         const startColumn = this.column;
 
-        // Check for environment variable reference {{varName}}
         if (char === '{' && this.source[this.pos + 1] === '{') {
             this.scanEnvVarReference();
             return;
         }
 
-        // Single character tokens
-        const singleCharTokens: Record<string, TokenType> = {
-            '{': TokenType.LBRACE,
-            '}': TokenType.RBRACE,
-            '(': TokenType.LPAREN,
-            ')': TokenType.RPAREN,
-            '[': TokenType.LBRACKET,
-            ']': TokenType.RBRACKET,
-            '=': TokenType.EQUALS_SIGN,
-            '.': TokenType.DOT,
-            ',': TokenType.COMMA,
-            '@': TokenType.AT_SIGN,
-        };
-
-        if (singleCharTokens[char]) {
+        if (SINGLE_CHAR_TOKENS[char]) {
             this.advance();
-            this.addToken(singleCharTokens[char], char, startLine, startColumn);
+            this.addToken(SINGLE_CHAR_TOKENS[char], char, startLine, startColumn);
             return;
         }
 
-        // Strings
         if (char === '"' || char === "'") {
             this.scanString(char);
             return;
         }
 
-        // Numbers
         if (this.isDigit(char) || (char === '-' && this.isDigit(this.source[this.pos + 1]))) {
             this.scanNumber();
             return;
         }
 
-        // Identifiers and keywords
         if (this.isAlpha(char)) {
             this.scanIdentifier();
             return;
         }
 
-        // Unknown character
         this.advance();
         this.errors.push({
             message: `Unexpected character: '${char}'`,
@@ -255,7 +322,7 @@ export class Lexer {
         const startColumn = this.column;
         let value = '';
 
-        this.advance(); // skip opening quote
+        this.advance();
 
         while (!this.isAtEnd() && this.peek() !== quote) {
             if (this.peek() === '\\') {
@@ -282,7 +349,7 @@ export class Lexer {
         }
 
         if (!this.isAtEnd()) {
-            this.advance(); // skip closing quote
+            this.advance();
         }
 
         this.addToken(TokenType.STRING, value, startLine, startColumn);
@@ -301,9 +368,8 @@ export class Lexer {
             value += this.advance();
         }
 
-        // Handle decimals
         if (this.peek() === '.' && this.isDigit(this.source[this.pos + 1])) {
-            value += this.advance(); // .
+            value += this.advance();
             while (this.isDigit(this.peek())) {
                 value += this.advance();
             }
@@ -321,27 +387,21 @@ export class Lexer {
             value += this.advance();
         }
 
-        // Check if it's a keyword (case-insensitive)
         const upperValue = value.toUpperCase();
         const tokenType = KEYWORDS[upperValue] || TokenType.IDENTIFIER;
 
         this.addToken(tokenType, value, startLine, startColumn);
     }
 
-    /**
-     * Scan environment variable reference: {{variableName}}
-     * Postman-style syntax for referencing environment variables
-     */
     private scanEnvVarReference(): void {
         const startLine = this.line;
         const startColumn = this.column;
 
-        this.advance(); // skip first {
-        this.advance(); // skip second {
+        this.advance();
+        this.advance();
 
         let varName = '';
 
-        // Scan until we find }} or reach end
         while (!this.isAtEnd()) {
             if (this.peek() === '}' && this.source[this.pos + 1] === '}') {
                 break;
@@ -366,8 +426,8 @@ export class Lexer {
             return;
         }
 
-        this.advance(); // skip first }
-        this.advance(); // skip second }
+        this.advance();
+        this.advance();
 
         const trimmedName = varName.trim();
         if (!trimmedName) {

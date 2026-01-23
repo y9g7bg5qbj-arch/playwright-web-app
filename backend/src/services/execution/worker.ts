@@ -44,9 +44,9 @@ export interface WorkerEvents {
 }
 
 /**
- * Test execution options
+ * Test execution options for worker (simplified subset)
  */
-export interface ExecutionOptions {
+export interface WorkerExecutionOptions {
   timeout?: number;
   retries?: number;
   browser?: string;
@@ -73,7 +73,7 @@ export class TestWorker extends EventEmitter {
   private artifactsDir: string;
   private status: WorkerStatus = 'idle';
   private currentTests: Map<string, ChildProcess> = new Map();
-  private heartbeatInterval?: NodeJS.Timer;
+  private heartbeatInterval?: ReturnType<typeof setInterval>;
   private registered: boolean = false;
 
   constructor(config: WorkerConfig) {
@@ -182,7 +182,7 @@ export class TestWorker extends EventEmitter {
    */
   async *runTests(
     allocation: TestAllocation,
-    options: ExecutionOptions = {}
+    options: WorkerExecutionOptions = {}
   ): AsyncGenerator<TestResult> {
     this.status = 'busy';
 
@@ -200,7 +200,7 @@ export class TestWorker extends EventEmitter {
   private async runSingleTest(
     test: TestFile,
     allocation: TestAllocation,
-    options: ExecutionOptions
+    options: WorkerExecutionOptions
   ): Promise<TestResult> {
     const startTime = new Date();
     const testDir = path.join(this.artifactsDir, test.id);
@@ -262,7 +262,7 @@ export class TestWorker extends EventEmitter {
   private executePlaywright(
     test: TestFile,
     testDir: string,
-    options: ExecutionOptions
+    options: WorkerExecutionOptions
   ): Promise<{
     exitCode: number;
     error?: string;

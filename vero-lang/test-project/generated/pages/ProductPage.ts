@@ -24,15 +24,15 @@ export class ProductPage {
   }
 
   async addToCart() {
-    await test.step('Click ProductPage.addToCartBtn', async () => { await productPage.addToCartBtn.click(); });
+    await test.step('Click ProductPage.addToCartBtn', async () => { await this.addToCartBtn.click(); });
   }
 
   async addToCartWithQuantity(quantity: string) {
-    await test.step('Fill ProductPage.quantityInput', async () => { await productPage.quantityInput.fill(quantity); });
-    await test.step('Click ProductPage.addToCartBtn', async () => { await productPage.addToCartBtn.click(); });
+    await test.step('Fill ProductPage.quantityInput', async () => { await this.quantityInput.fill(quantity); });
+    await test.step('Click ProductPage.addToCartBtn', async () => { await this.addToCartBtn.click(); });
   }
 
   async addToWishlist() {
-    await test.step('Click ProductPage.wishlistBtn', async () => { await productPage.wishlistBtn.click(); });
+    await test.step('Click ProductPage.wishlistBtn', async () => { await this.wishlistBtn.click(); });
   }
 }

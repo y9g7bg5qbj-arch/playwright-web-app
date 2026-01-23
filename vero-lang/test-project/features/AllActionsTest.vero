@@ -27,39 +27,39 @@ PAGE ActionsTestPage {
 FEATURE AllActionsTest {
     USE ActionsTestPage
 
-    SCENARIO "Test OPEN action" @actions @navigation {
+    SCENARIO TestOpenAction @actions @navigation {
         OPEN "https://example.com"
         LOG "Opened example.com"
         OPEN "https://example.com/login"
         LOG "Opened login page"
     }
 
-    SCENARIO "Test CLICK action" @actions @interaction {
+    SCENARIO TestClickAction @actions @interaction {
         OPEN "https://example.com"
         CLICK ActionsTestPage.submitBtn
         LOG "Clicked submit button"
     }
 
-    SCENARIO "Test FILL action" @actions @forms {
+    SCENARIO TestFillAction @actions @forms {
         OPEN "https://example.com/form"
         FILL ActionsTestPage.emailInput WITH "test@example.com"
         FILL ActionsTestPage.passwordInput WITH "SecurePass123"
         LOG "Filled form fields"
     }
 
-    SCENARIO "Test CHECK action" @actions @checkboxes {
+    SCENARIO TestCheckAction @actions @checkboxes {
         OPEN "https://example.com/preferences"
         CHECK ActionsTestPage.agreeCheckbox
         LOG "Checked checkbox"
     }
 
-    SCENARIO "Test HOVER action" @actions @mouse {
+    SCENARIO TestHoverAction @actions @mouse {
         OPEN "https://example.com"
         HOVER ActionsTestPage.menuIcon
         LOG "Hovered menu icon"
     }
 
-    SCENARIO "Test PRESS action" @actions @keyboard {
+    SCENARIO TestPressAction @actions @keyboard {
         OPEN "https://example.com"
         PRESS "Enter"
         PRESS "Tab"
@@ -67,7 +67,7 @@ FEATURE AllActionsTest {
         LOG "Pressed keys"
     }
 
-    SCENARIO "Test WAIT action with time" @actions @timing {
+    SCENARIO TestWaitActionWithTime @actions @timing {
         OPEN "https://example.com"
         WAIT 1 SECONDS
         LOG "Waited 1 second"
@@ -75,26 +75,26 @@ FEATURE AllActionsTest {
         LOG "Waited 500ms"
     }
 
-    SCENARIO "Test DO action" @actions @pageaction {
+    SCENARIO TestDoAction @actions @pageaction {
         OPEN "https://example.com/login"
-        DO ActionsTestPage.login WITH "user@test.com", "password123"
+        PERFORM ActionsTestPage.login WITH "user@test.com", "password123"
         LOG "Executed login action"
     }
 
-    SCENARIO "Test REFRESH action" @actions @reload {
+    SCENARIO TestRefreshAction @actions @reload {
         OPEN "https://example.com"
         REFRESH
         LOG "Page refreshed"
     }
 
-    SCENARIO "Test LOG action" @actions @logging {
+    SCENARIO TestLogAction @actions @logging {
         OPEN "https://example.com"
         LOG "Test started"
         LOG "Step 1 completed"
         LOG "All steps passed"
     }
 
-    SCENARIO "Test TAKE SCREENSHOT action" @actions @capture {
+    SCENARIO TestTakeScreenshotAction @actions @capture {
         OPEN "https://example.com"
         TAKE SCREENSHOT "homepage.png"
         FILL ActionsTestPage.emailInput WITH "test@example.com"

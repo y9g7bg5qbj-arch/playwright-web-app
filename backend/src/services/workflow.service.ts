@@ -1,24 +1,26 @@
-import { prisma } from '../db/prisma';
+/**
+ * Workflow Service
+ * NOW USES MONGODB INSTEAD OF PRISMA
+ */
+
+import { workflowRepository, applicationRepository, testFlowRepository, executionRepository } from '../db/repositories/mongo';
 import { NotFoundError, ForbiddenError } from '../utils/errors';
 import type { Workflow, WorkflowCreate, WorkflowUpdate } from '@playwright-web-app/shared';
 
 export class WorkflowService {
   /**
-   * Check if user has access to an application (owner or member)
+   * Check if user has access to an application (owner)
+   * Note: Multi-tenant member access removed - single company mode
    */
   private async checkApplicationAccess(userId: string, applicationId: string): Promise<boolean> {
-    const application = await prisma.application.findUnique({
-      where: { id: applicationId },
-      include: { members: true },
-    });
+    const application = await applicationRepository.findById(applicationId);
 
     if (!application) {
       return false;
     }
 
-    // User is owner of the application or a member
-    return application.userId === userId ||
-      application.members.some(m => m.userId === userId);
+    // User is owner of the application
+    return application.userId === userId;
   }
 
   async create(userId: string, data: WorkflowCreate): Promise<Workflow> {
@@ -28,25 +30,22 @@ export class WorkflowService {
       throw new ForbiddenError('Access denied to this application');
     }
 
-    const workflow = await prisma.workflow.create({
-      data: {
-        applicationId: data.applicationId,
-        userId,
-        name: data.name,
-        description: data.description,
-      },
-      include: {
-        testFlows: true,
-      },
+    const workflow = await workflowRepository.create({
+      applicationId: data.applicationId,
+      userId,
+      name: data.name,
+      description: data.description,
     });
 
-    return this.formatWorkflow(workflow);
+    return this.formatWorkflow({ ...workflow, testFlows: [] });
   }
 
   /**
    * Find all workflows in an application that user has access to
    */
   async findAll(userId: string, applicationId?: string): Promise<Workflow[]> {
+    let workflows;
+
     // If applicationId is provided, filter by application
     if (applicationId) {
       const hasAccess = await this.checkApplicationAccess(userId, applicationId);
@@ -54,64 +53,37 @@ export class WorkflowService {
         throw new ForbiddenError('Access denied to this application');
       }
 
-      const workflows = await prisma.workflow.findMany({
-        where: { applicationId },
-        include: {
-          testFlows: {
-            include: {
-              executions: {
-                orderBy: { createdAt: 'desc' },
-                take: 1,
-              },
-            },
-          },
-        },
-        orderBy: { updatedAt: 'desc' },
-      });
-
-      return workflows.map(this.formatWorkflow);
+      workflows = await workflowRepository.findByApplicationId(applicationId);
+    } else {
+      // Return all workflows user owns
+      workflows = await workflowRepository.findByUserId(userId);
     }
 
-    // Legacy: If no applicationId, return all workflows user owns
-    // This maintains backward compatibility
-    const workflows = await prisma.workflow.findMany({
-      where: { userId },
-      include: {
-        testFlows: {
-          include: {
-            executions: {
-              orderBy: { createdAt: 'desc' },
-              take: 1,
-            },
-          },
-        },
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
+    // Enrich with test flows and their latest execution
+    const enrichedWorkflows = await Promise.all(
+      workflows.map(async (workflow) => {
+        const testFlows = await testFlowRepository.findByWorkflowId(workflow.id);
+        const testFlowsWithExecutions = await Promise.all(
+          testFlows.map(async (tf) => {
+            const executions = await executionRepository.findByTestFlowId(tf.id, 1);
+            return { ...tf, executions };
+          })
+        );
+        return { ...workflow, testFlows: testFlowsWithExecutions };
+      })
+    );
 
-    return workflows.map(this.formatWorkflow);
+    return enrichedWorkflows.map(this.formatWorkflow);
   }
 
   async findOne(userId: string, workflowId: string): Promise<Workflow> {
-    const workflow = await prisma.workflow.findUnique({
-      where: { id: workflowId },
-      include: {
-        testFlows: {
-          include: {
-            executions: {
-              orderBy: { createdAt: 'desc' },
-              take: 5,
-            },
-          },
-        },
-      },
-    });
+    const workflow = await workflowRepository.findById(workflowId);
 
     if (!workflow) {
       throw new NotFoundError('Workflow not found');
     }
 
-    // Check access via application membership or ownership
+    // Check access via application ownership
     if (workflow.applicationId) {
       const hasAccess = await this.checkApplicationAccess(userId, workflow.applicationId);
       if (!hasAccess) {
@@ -122,19 +94,26 @@ export class WorkflowService {
       throw new ForbiddenError('Access denied');
     }
 
-    return this.formatWorkflow(workflow);
+    // Get test flows with executions
+    const testFlows = await testFlowRepository.findByWorkflowId(workflowId);
+    const testFlowsWithExecutions = await Promise.all(
+      testFlows.map(async (tf) => {
+        const executions = await executionRepository.findByTestFlowId(tf.id, 5);
+        return { ...tf, executions };
+      })
+    );
+
+    return this.formatWorkflow({ ...workflow, testFlows: testFlowsWithExecutions });
   }
 
   async update(userId: string, workflowId: string, data: WorkflowUpdate): Promise<Workflow> {
-    const existing = await prisma.workflow.findUnique({
-      where: { id: workflowId },
-    });
+    const existing = await workflowRepository.findById(workflowId);
 
     if (!existing) {
       throw new NotFoundError('Workflow not found');
     }
 
-    // Check access via application membership or ownership
+    // Check access via application ownership
     if (existing.applicationId) {
       const hasAccess = await this.checkApplicationAccess(userId, existing.applicationId);
       if (!hasAccess) {
@@ -144,30 +123,29 @@ export class WorkflowService {
       throw new ForbiddenError('Access denied');
     }
 
-    const workflow = await prisma.workflow.update({
-      where: { id: workflowId },
-      data: {
-        name: data.name,
-        description: data.description,
-      },
-      include: {
-        testFlows: true,
-      },
+    const workflow = await workflowRepository.update(workflowId, {
+      name: data.name,
+      description: data.description,
     });
 
-    return this.formatWorkflow(workflow);
+    if (!workflow) {
+      throw new NotFoundError('Workflow not found');
+    }
+
+    // Get test flows
+    const testFlows = await testFlowRepository.findByWorkflowId(workflowId);
+
+    return this.formatWorkflow({ ...workflow, testFlows });
   }
 
   async delete(userId: string, workflowId: string): Promise<void> {
-    const existing = await prisma.workflow.findUnique({
-      where: { id: workflowId },
-    });
+    const existing = await workflowRepository.findById(workflowId);
 
     if (!existing) {
       throw new NotFoundError('Workflow not found');
     }
 
-    // Check access via application membership or ownership
+    // Check access via application ownership
     if (existing.applicationId) {
       const hasAccess = await this.checkApplicationAccess(userId, existing.applicationId);
       if (!hasAccess) {
@@ -177,9 +155,7 @@ export class WorkflowService {
       throw new ForbiddenError('Access denied');
     }
 
-    await prisma.workflow.delete({
-      where: { id: workflowId },
-    });
+    await workflowRepository.delete(workflowId);
   }
 
   private formatWorkflow(workflow: any): Workflow {

@@ -7,20 +7,20 @@ FEATURE Search {
         OPEN "https://www.google.com"
     }
 
-    SCENARIO "User can search for pen" @smoke {
+    SCENARIO UserCanSearchForPen @smoke {
         FILL SearchHomePage.searchInput WITH "pen"
         PRESS "Enter"
         WAIT 2 SECONDS
         VERIFY SearchHomePage.searchResults IS VISIBLE
     }
 
-    SCENARIO "Search using action" @smoke {
-        DO SearchHomePage.searchFor WITH "pen"
+    SCENARIO SearchUsingAction @smoke {
+        PERFORM SearchHomePage.searchFor WITH "pen"
         WAIT 2 SECONDS
         VERIFY SearchHomePage.searchResults IS VISIBLE
     }
 
-    SCENARIO "Multiple search test" @smoke {
+    SCENARIO MultipleSearchTest @smoke {
         FILL SearchHomePage.searchInput WITH "pencil"
         PRESS "Enter"
         WAIT 2 SECONDS

@@ -20,10 +20,10 @@ export class HomePage {
   }
 
   async navigateToSignUp() {
-    await test.step('Click HomePage.signUpButton', async () => { await homePage.signUpButton.click(); });
+    await test.step('Click HomePage.signUpButton', async () => { await this.signUpButton.click(); });
   }
 
   async navigateToLogin() {
-    await test.step('Click HomePage.loginLink', async () => { await homePage.loginLink.click(); });
+    await test.step('Click HomePage.loginLink', async () => { await this.loginLink.click(); });
   }
 }

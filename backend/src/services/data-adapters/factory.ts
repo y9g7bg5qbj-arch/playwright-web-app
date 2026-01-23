@@ -5,9 +5,8 @@
  * Caches adapters by application ID for efficient reuse.
  */
 
-import { prisma } from '../../db/prisma';
+import { dataStorageConfigRepository } from '../../db/repositories/mongo';
 import { DataAdapter, AdapterConfig } from './types';
-import { SQLiteAdapter } from './sqlite.adapter';
 import { MongoDBAdapter, MongoDBAdapterConfig } from './mongodb.adapter';
 
 // ============================================
@@ -25,28 +24,14 @@ const adapterCache = new Map<string, DataAdapter>();
  * Creates and caches the adapter if not already cached.
  */
 export async function getDataAdapter(applicationId: string): Promise<DataAdapter> {
-  // Check cache first
   const cached = adapterCache.get(applicationId);
   if (cached && cached.isConnected()) {
     return cached;
   }
 
-  // Get configuration from database
-  const config = await prisma.dataStorageConfig.findUnique({
-    where: { applicationId },
-  });
+  const config = await dataStorageConfigRepository.findByApplicationId(applicationId);
+  const adapter = createAdapter(config || { provider: 'mongodb' });
 
-  // Create appropriate adapter
-  let adapter: DataAdapter;
-
-  if (!config || config.provider === 'sqlite') {
-    // Default to SQLite
-    adapter = new SQLiteAdapter();
-  } else {
-    adapter = createAdapter(config);
-  }
-
-  // Connect and cache
   await adapter.connect();
   adapterCache.set(applicationId, adapter);
 
@@ -79,9 +64,9 @@ function createAdapter(config: {
       // TODO: Implement MySQL adapter
       throw new Error('MySQL adapter not yet implemented');
 
-    case 'sqlite':
     default:
-      return new SQLiteAdapter();
+      // Default to MongoDB
+      return createMongoDBAdapter(config);
   }
 }
 
@@ -188,44 +173,27 @@ export async function testConnection(config: AdapterConfig): Promise<{
     platform?: string;
   };
 }> {
-  let adapter: DataAdapter;
+  if (config.provider === 'postgresql') {
+    return { success: false, error: 'PostgreSQL adapter not yet implemented' };
+  }
+  if (config.provider === 'mysql') {
+    return { success: false, error: 'MySQL adapter not yet implemented' };
+  }
 
   try {
-    switch (config.provider) {
-      case 'mongodb':
-        adapter = createMongoDBAdapter({
-          connectionString: config.connectionString,
-          host: config.host,
-          port: config.port,
-          database: config.database,
-          username: config.username,
-          password: config.password,
-          useSSL: config.useSSL,
-          options: config.options ? JSON.stringify(config.options) : undefined,
-        });
-        break;
-
-      case 'postgresql':
-        return {
-          success: false,
-          error: 'PostgreSQL adapter not yet implemented',
-        };
-
-      case 'mysql':
-        return {
-          success: false,
-          error: 'MySQL adapter not yet implemented',
-        };
-
-      case 'sqlite':
-      default:
-        adapter = new SQLiteAdapter();
-        break;
-    }
+    const adapter = createMongoDBAdapter({
+      connectionString: config.connectionString,
+      host: config.host,
+      port: config.port,
+      database: config.database,
+      username: config.username,
+      password: config.password,
+      useSSL: config.useSSL,
+      options: config.options ? JSON.stringify(config.options) : undefined,
+    });
 
     const result = await adapter.testConnection();
 
-    // Clean up test connection
     if (adapter.isConnected()) {
       await adapter.disconnect();
     }
@@ -240,10 +208,10 @@ export async function testConnection(config: AdapterConfig): Promise<{
 }
 
 /**
- * Get the default adapter (SQLite) for system operations.
+ * Get the default adapter (MongoDB) for system operations.
  */
 export function getDefaultAdapter(): DataAdapter {
-  return new SQLiteAdapter();
+  return createMongoDBAdapter({});
 }
 
 // ============================================

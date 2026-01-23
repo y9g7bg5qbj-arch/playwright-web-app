@@ -238,13 +238,15 @@ export class LocalStorageBackend implements StorageBackend {
 }
 
 /**
- * S3 Storage Backend (placeholder implementation)
+ * S3 Storage Backend - Full implementation for AWS S3
+ * Requires @aws-sdk/client-s3 package
  */
 export class S3StorageBackend implements StorageBackend {
     private bucket: string;
     private region: string;
     private prefix: string;
-    private client: any; // AWS S3 client
+    private client: any; // S3Client from @aws-sdk/client-s3
+    private isInitialized: boolean = false;
 
     constructor(config: {
         bucket: string;
@@ -252,16 +254,55 @@ export class S3StorageBackend implements StorageBackend {
         prefix?: string;
         accessKeyId?: string;
         secretAccessKey?: string;
+        endpoint?: string; // For S3-compatible services like MinIO
     }) {
         this.bucket = config.bucket;
         this.region = config.region;
         this.prefix = config.prefix || '';
 
-        // Note: In production, you would initialize the AWS S3 client here
-        // const { S3Client } = require('@aws-sdk/client-s3');
-        // this.client = new S3Client({ region: this.region });
+        // Lazy initialization to allow graceful fallback
+        this.initializeClient(config);
+    }
 
-        logger.info(`S3 storage backend initialized: ${this.bucket}/${this.prefix}`);
+    private async initializeClient(config: {
+        accessKeyId?: string;
+        secretAccessKey?: string;
+        endpoint?: string;
+    }) {
+        try {
+            const { S3Client } = await import('@aws-sdk/client-s3');
+
+            const clientConfig: any = {
+                region: this.region,
+            };
+
+            // Use explicit credentials if provided, otherwise rely on default credential chain
+            if (config.accessKeyId && config.secretAccessKey) {
+                clientConfig.credentials = {
+                    accessKeyId: config.accessKeyId,
+                    secretAccessKey: config.secretAccessKey,
+                };
+            }
+
+            // Support S3-compatible services (MinIO, DigitalOcean Spaces, etc.)
+            if (config.endpoint) {
+                clientConfig.endpoint = config.endpoint;
+                clientConfig.forcePathStyle = true;
+            }
+
+            this.client = new S3Client(clientConfig);
+            this.isInitialized = true;
+            logger.info(`S3 storage backend initialized: ${this.bucket}/${this.prefix}`);
+        } catch (error) {
+            logger.warn('AWS SDK not available. S3 storage backend will not work.', error);
+            this.isInitialized = false;
+        }
+    }
+
+    private ensureInitialized(): void {
+        if (!this.isInitialized || !this.client) {
+            throw new Error('S3 storage backend not initialized. Install @aws-sdk/client-s3: npm install @aws-sdk/client-s3');
+        }
     }
 
     private getFullKey(key: string): string {
@@ -269,71 +310,260 @@ export class S3StorageBackend implements StorageBackend {
     }
 
     async save(key: string, data: Buffer, metadata: object): Promise<string> {
+        this.ensureInitialized();
         const fullKey = this.getFullKey(key);
 
-        // Placeholder implementation
-        // In production:
-        // const { PutObjectCommand } = require('@aws-sdk/client-s3');
-        // await this.client.send(new PutObjectCommand({
-        //     Bucket: this.bucket,
-        //     Key: fullKey,
-        //     Body: data,
-        //     Metadata: metadata,
-        // }));
+        const { PutObjectCommand } = await import('@aws-sdk/client-s3');
 
-        logger.debug(`[S3 Placeholder] Would save to: s3://${this.bucket}/${fullKey}`);
-        throw new Error('S3 storage backend not fully implemented. Install @aws-sdk/client-s3 and configure credentials.');
+        // Convert metadata to S3-compatible format (all values must be strings)
+        const s3Metadata: Record<string, string> = {};
+        for (const [k, v] of Object.entries(metadata)) {
+            s3Metadata[k] = String(v);
+        }
+
+        await this.client.send(new PutObjectCommand({
+            Bucket: this.bucket,
+            Key: fullKey,
+            Body: data,
+            Metadata: s3Metadata,
+            ContentType: this.getContentType(key),
+        }));
+
+        logger.debug(`Saved to S3: s3://${this.bucket}/${fullKey}`);
+        return `s3://${this.bucket}/${fullKey}`;
     }
 
     async get(key: string): Promise<Buffer> {
+        this.ensureInitialized();
         const fullKey = this.getFullKey(key);
 
-        // Placeholder implementation
-        logger.debug(`[S3 Placeholder] Would get from: s3://${this.bucket}/${fullKey}`);
-        throw new Error('S3 storage backend not fully implemented.');
+        const { GetObjectCommand } = await import('@aws-sdk/client-s3');
+
+        const response = await this.client.send(new GetObjectCommand({
+            Bucket: this.bucket,
+            Key: fullKey,
+        }));
+
+        // Convert stream to buffer
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of response.Body) {
+            chunks.push(chunk);
+        }
+        return Buffer.concat(chunks);
     }
 
     async delete(key: string): Promise<void> {
+        this.ensureInitialized();
         const fullKey = this.getFullKey(key);
 
-        // Placeholder implementation
-        logger.debug(`[S3 Placeholder] Would delete: s3://${this.bucket}/${fullKey}`);
-        throw new Error('S3 storage backend not fully implemented.');
+        const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+
+        await this.client.send(new DeleteObjectCommand({
+            Bucket: this.bucket,
+            Key: fullKey,
+        }));
+
+        logger.debug(`Deleted from S3: s3://${this.bucket}/${fullKey}`);
     }
 
     async list(prefix: string): Promise<string[]> {
+        this.ensureInitialized();
         const fullPrefix = this.getFullKey(prefix);
 
-        // Placeholder implementation
-        logger.debug(`[S3 Placeholder] Would list: s3://${this.bucket}/${fullPrefix}`);
-        return [];
+        const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+
+        const results: string[] = [];
+        let continuationToken: string | undefined;
+
+        do {
+            const response = await this.client.send(new ListObjectsV2Command({
+                Bucket: this.bucket,
+                Prefix: fullPrefix,
+                ContinuationToken: continuationToken,
+            }));
+
+            if (response.Contents) {
+                for (const object of response.Contents) {
+                    if (object.Key) {
+                        // Remove prefix to return relative paths
+                        const relativePath = this.prefix
+                            ? object.Key.replace(`${this.prefix}/`, '')
+                            : object.Key;
+                        results.push(relativePath);
+                    }
+                }
+            }
+
+            continuationToken = response.NextContinuationToken;
+        } while (continuationToken);
+
+        return results;
     }
 
     async exists(key: string): Promise<boolean> {
+        this.ensureInitialized();
         const fullKey = this.getFullKey(key);
 
-        // Placeholder implementation
-        logger.debug(`[S3 Placeholder] Would check existence: s3://${this.bucket}/${fullKey}`);
-        return false;
+        const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
+
+        try {
+            await this.client.send(new HeadObjectCommand({
+                Bucket: this.bucket,
+                Key: fullKey,
+            }));
+            return true;
+        } catch (error: any) {
+            if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+                return false;
+            }
+            throw error;
+        }
     }
 
     async getMetadata(key: string): Promise<object | null> {
-        // Placeholder implementation
-        return null;
+        this.ensureInitialized();
+        const fullKey = this.getFullKey(key);
+
+        const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
+
+        try {
+            const response = await this.client.send(new HeadObjectCommand({
+                Bucket: this.bucket,
+                Key: fullKey,
+            }));
+            return {
+                ...response.Metadata,
+                contentType: response.ContentType,
+                contentLength: response.ContentLength,
+                lastModified: response.LastModified,
+                eTag: response.ETag,
+            };
+        } catch (error: any) {
+            if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+                return null;
+            }
+            throw error;
+        }
     }
 
     getUrl(key: string): string {
         const fullKey = this.getFullKey(key);
-        return `s3://${this.bucket}/${fullKey}`;
+        return `https://${this.bucket}.s3.${this.region}.amazonaws.com/${fullKey}`;
+    }
+
+    /**
+     * Get a presigned URL for direct access (valid for specified duration)
+     */
+    async getPresignedUrl(key: string, expiresIn: number = 3600): Promise<string> {
+        this.ensureInitialized();
+        const fullKey = this.getFullKey(key);
+
+        const { GetObjectCommand } = await import('@aws-sdk/client-s3');
+        const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
+
+        const command = new GetObjectCommand({
+            Bucket: this.bucket,
+            Key: fullKey,
+        });
+
+        return getSignedUrl(this.client, command, { expiresIn });
     }
 
     getStream(key: string): NodeJS.ReadableStream {
-        throw new Error('S3 stream not implemented');
+        // For streaming, we need to return a passthrough stream that we populate
+        const { PassThrough } = require('stream');
+        const passThrough = new PassThrough();
+
+        // Async initialization
+        (async () => {
+            try {
+                this.ensureInitialized();
+                const fullKey = this.getFullKey(key);
+
+                const { GetObjectCommand } = await import('@aws-sdk/client-s3');
+                const response = await this.client.send(new GetObjectCommand({
+                    Bucket: this.bucket,
+                    Key: fullKey,
+                }));
+
+                response.Body.pipe(passThrough);
+            } catch (error) {
+                passThrough.destroy(error as Error);
+            }
+        })();
+
+        return passThrough;
     }
 
     async getSize(key: string): Promise<number> {
-        // Placeholder implementation
-        return 0;
+        const metadata = await this.getMetadata(key);
+        return (metadata as any)?.contentLength || 0;
+    }
+
+    private getContentType(key: string): string {
+        const ext = path.extname(key).toLowerCase();
+        const mimeTypes: Record<string, string> = {
+            '.vero': 'text/plain',
+            '.json': 'application/json',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.webm': 'video/webm',
+            '.mp4': 'video/mp4',
+            '.html': 'text/html',
+            '.css': 'text/css',
+            '.js': 'application/javascript',
+            '.ts': 'text/typescript',
+            '.zip': 'application/zip',
+            '.txt': 'text/plain',
+        };
+        return mimeTypes[ext] || 'application/octet-stream';
+    }
+
+    /**
+     * Copy an object within S3
+     */
+    async copy(sourceKey: string, destKey: string): Promise<void> {
+        this.ensureInitialized();
+        const fullSourceKey = this.getFullKey(sourceKey);
+        const fullDestKey = this.getFullKey(destKey);
+
+        const { CopyObjectCommand } = await import('@aws-sdk/client-s3');
+
+        await this.client.send(new CopyObjectCommand({
+            Bucket: this.bucket,
+            CopySource: `${this.bucket}/${fullSourceKey}`,
+            Key: fullDestKey,
+        }));
+
+        logger.debug(`Copied in S3: ${sourceKey} -> ${destKey}`);
+    }
+
+    /**
+     * Delete multiple objects
+     */
+    async deleteMany(keys: string[]): Promise<void> {
+        this.ensureInitialized();
+
+        const { DeleteObjectsCommand } = await import('@aws-sdk/client-s3');
+
+        // S3 limits to 1000 objects per request
+        const batches: string[][] = [];
+        for (let i = 0; i < keys.length; i += 1000) {
+            batches.push(keys.slice(i, i + 1000));
+        }
+
+        for (const batch of batches) {
+            await this.client.send(new DeleteObjectsCommand({
+                Bucket: this.bucket,
+                Delete: {
+                    Objects: batch.map(key => ({ Key: this.getFullKey(key) })),
+                },
+            }));
+        }
+
+        logger.debug(`Deleted ${keys.length} objects from S3`);
     }
 }
 

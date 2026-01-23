@@ -5,7 +5,7 @@ import * as path from 'path';
 import { validate } from '../middleware/validate';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { sandboxService } from '../services/sandbox.service';
-import { prisma } from '../db/prisma';
+import { projectRepository, applicationRepository, sandboxRepository } from '../db/repositories/mongo';
 
 const VERO_PROJECTS_BASE = process.env.VERO_PROJECTS_PATH || path.join(process.cwd(), 'vero-projects');
 
@@ -313,17 +313,14 @@ router.get(
       const { source, target, file } = req.query as { source: string; target: string; file: string };
 
       // Get project info
-      const project = await prisma.project.findUnique({
-        where: { id: projectId },
-        include: { application: true },
-      });
+      const project = await projectRepository.findById(projectId);
 
       if (!project) {
         return res.status(404).json({ success: false, error: 'Project not found' });
       }
 
       const projectPath = project.veroPath ||
-        path.join(VERO_PROJECTS_BASE, project.application.id, project.id);
+        path.join(VERO_PROJECTS_BASE, project.applicationId, project.id);
 
       // Helper to resolve environment to folder path
       const resolveEnvFolder = async (env: string): Promise<string> => {
@@ -332,7 +329,7 @@ router.get(
         }
         if (env.startsWith('sandbox:')) {
           const sandboxId = env.replace('sandbox:', '');
-          const sandbox = await prisma.sandbox.findUnique({ where: { id: sandboxId } });
+          const sandbox = await sandboxRepository.findById(sandboxId);
           if (!sandbox) {
             throw new Error(`Sandbox ${sandboxId} not found`);
           }
@@ -564,25 +561,20 @@ router.get(
       // This handles both nested project IDs and application IDs
       let resolvedProjectId = projectId;
 
-      const project = await prisma.project.findUnique({
-        where: { id: projectId },
-        select: { id: true, applicationId: true },
-      });
+      const project = await projectRepository.findById(projectId);
 
       if (!project) {
         // Check if ID is for an Application instead
-        const application = await prisma.application.findUnique({
-          where: { id: projectId },
-          include: { projects: { take: 1, select: { id: true } } },
-        });
+        const application = await applicationRepository.findById(projectId);
 
         if (!application) {
           return res.status(404).json({ error: 'Project or Application not found' });
         }
 
         // Use the first project under this application if available
-        if (application.projects.length > 0) {
-          resolvedProjectId = application.projects[0].id;
+        const appProjects = await projectRepository.findByApplicationId(projectId);
+        if (appProjects.length > 0) {
+          resolvedProjectId = appProjects[0].id;
         }
       } else {
         resolvedProjectId = project.id;
@@ -595,26 +587,20 @@ router.get(
       ];
 
       // Get sandboxes for this project
-      const sandboxes = await prisma.sandbox.findMany({
-        where: {
-          projectId: resolvedProjectId,
-          status: 'active',
-        },
-        include: {
-          owner: { select: { name: true, email: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
+      const sandboxes = await sandboxRepository.findByProjectId(resolvedProjectId);
+      const activeSandboxes = sandboxes
+        .filter(s => s.status === 'active')
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-      // Add sandboxes to environments
-      for (const sandbox of sandboxes) {
+      // Add sandboxes to environments (owner info is stored in ownerId, would need user lookup for full name)
+      for (const sandbox of activeSandboxes) {
         environments.push({
           id: `sandbox:${sandbox.id}`,
           name: sandbox.name,
           type: 'sandbox',
           branch: sandbox.folderPath,
           icon: 'purple',
-          owner: sandbox.owner.name || sandbox.owner.email,
+          owner: sandbox.ownerId, // Using ownerId directly since we don't have owner relation
         });
       }
 

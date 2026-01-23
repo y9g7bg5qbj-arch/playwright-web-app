@@ -31,7 +31,7 @@ router.get(
     validate,
     async (req: Request, res: Response, next: NextFunction) => {
         try {
-            const userId = (req as AuthRequest).userId;
+            const userId = (req as AuthRequest).userId!;
             const { workflowId } = req.params;
 
             const repository = await repositoryService.getByWorkflowId(userId, workflowId);
@@ -57,7 +57,7 @@ router.put(
     validate,
     async (req: Request, res: Response, next: NextFunction) => {
         try {
-            const userId = (req as AuthRequest).userId;
+            const userId = (req as AuthRequest).userId!;
             const { workflowId } = req.params;
             const { name, description, globalElements } = req.body;
 
@@ -89,7 +89,7 @@ router.get(
     validate,
     async (req: Request, res: Response, next: NextFunction) => {
         try {
-            const userId = (req as AuthRequest).userId;
+            const userId = (req as AuthRequest).userId!;
             const { workflowId } = req.params;
 
             const pages = await repositoryService.getPages(userId, workflowId);
@@ -117,7 +117,7 @@ router.post(
     validate,
     async (req: Request, res: Response, next: NextFunction) => {
         try {
-            const userId = (req as AuthRequest).userId;
+            const userId = (req as AuthRequest).userId!;
             const { workflowId } = req.params;
             const { name, description, urlPattern, baseUrl, elements } = req.body;
 
@@ -154,7 +154,7 @@ router.put(
     validate,
     async (req: Request, res: Response, next: NextFunction) => {
         try {
-            const userId = (req as AuthRequest).userId;
+            const userId = (req as AuthRequest).userId!;
             const { workflowId, pageId } = req.params;
             const { name, description, urlPattern, baseUrl, elements, order } = req.body;
 
@@ -186,7 +186,7 @@ router.delete(
     validate,
     async (req: Request, res: Response, next: NextFunction) => {
         try {
-            const userId = (req as AuthRequest).userId;
+            const userId = (req as AuthRequest).userId!;
             const { workflowId, pageId } = req.params;
 
             await repositoryService.deletePage(userId, workflowId, pageId);
@@ -211,7 +211,7 @@ router.put(
     validate,
     async (req: Request, res: Response, next: NextFunction) => {
         try {
-            const userId = (req as AuthRequest).userId;
+            const userId = (req as AuthRequest).userId!;
             const { workflowId } = req.params;
             const { pageIds } = req.body;
 
@@ -244,7 +244,7 @@ router.post(
     validate,
     async (req: Request, res: Response, next: NextFunction) => {
         try {
-            const userId = (req as AuthRequest).userId;
+            const userId = (req as AuthRequest).userId!;
             const { workflowId, pageId } = req.params;
             const { name, description, locator, tags } = req.body;
 
@@ -279,7 +279,7 @@ router.put(
     validate,
     async (req: Request, res: Response, next: NextFunction) => {
         try {
-            const userId = (req as AuthRequest).userId;
+            const userId = (req as AuthRequest).userId!;
             const { workflowId, pageId, elementId } = req.params;
             const { name, description, locator, tags } = req.body;
 
@@ -310,7 +310,7 @@ router.delete(
     validate,
     async (req: Request, res: Response, next: NextFunction) => {
         try {
-            const userId = (req as AuthRequest).userId;
+            const userId = (req as AuthRequest).userId!;
             const { workflowId, pageId, elementId } = req.params;
 
             const page = await repositoryService.removeElement(userId, workflowId, pageId, elementId);

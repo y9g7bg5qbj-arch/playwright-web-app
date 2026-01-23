@@ -3,10 +3,9 @@ import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
 import { logger } from '../utils/logger';
-import { prisma } from '../db/prisma';
+import { executionStepRepository } from '../db/repositories/mongo';
 import { ExecutionService } from '../services/execution.service';
 import { PlaywrightService, DebugEvent } from '../services/playwright.service';
-import { CopilotAgentService } from '../services/copilot/CopilotAgentService';
 import { setupAIRecorderHandlers, setupAIRecorderEventForwarding } from './aiRecorder.handler';
 import type { ClientToServerEvents, ServerToClientEvents } from '@playwright-web-app/shared';
 
@@ -196,6 +195,7 @@ export class WebSocketServer {
               error
             });
           },
+          undefined, // onComplete
           data.scenarioName
         );
 
@@ -572,17 +572,15 @@ export class WebSocketServer {
               for (let i = 0; i < scenarios.length; i++) {
                 const scenario = scenarios[i];
                 try {
-                  await prisma.executionStep.create({
-                    data: {
-                      executionId: data.executionId,
-                      stepNumber: i + 1,
-                      action: 'scenario',
-                      description: scenario.name,
-                      status: scenario.status,
-                      duration: scenario.duration,
-                      error: scenario.error || null,
-                      stepsJson: JSON.stringify(scenario.steps),
-                    },
+                  await executionStepRepository.create({
+                    executionId: data.executionId,
+                    stepNumber: i + 1,
+                    action: 'scenario',
+                    description: scenario.name,
+                    status: scenario.status as any,
+                    duration: scenario.duration,
+                    error: scenario.error || undefined,
+                    stepsJson: JSON.stringify(scenario.steps),
                   });
                 } catch (stepErr) {
                   logger.warn(`[WebSocket] Failed to create ExecutionStep for scenario ${scenario.name}:`, stepErr);
@@ -753,216 +751,7 @@ export class WebSocketServer {
       this.io.emit('debug:stopped', { executionId: data.executionId });
     });
 
-    // ======== COPILOT AGENT ========
-    // Note: Copilot events use 'any' cast since they're not in shared types yet
-    const copilotIo = this.io as any;
-    const copilotSocket = socket as any;
-
-    // Handle copilot session join (for real-time updates)
-    copilotSocket.on('copilot:join', async (data: { sessionId: string }) => {
-      logger.info('Copilot session join requested:', data);
-      socket.join(`copilot:${data.sessionId}`);
-      copilotSocket.emit('copilot:joined', { sessionId: data.sessionId });
-    });
-
-    // Handle copilot session leave
-    copilotSocket.on('copilot:leave', async (data: { sessionId: string }) => {
-      logger.info('Copilot session leave requested:', data);
-      socket.leave(`copilot:${data.sessionId}`);
-    });
-
-    // Handle copilot message (user sends a message)
-    copilotSocket.on('copilot:message', async (data: { sessionId: string; content: string }) => {
-      logger.info('Copilot message received:', { sessionId: data.sessionId, content: data.content.substring(0, 100) });
-
-      try {
-        const agent = new CopilotAgentService(data.sessionId);
-
-        // Set up event listeners for real-time updates
-        agent.on('stateChange', (event) => {
-          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:state', {
-            sessionId: data.sessionId,
-            state: event.state,
-            errorMessage: event.errorMessage,
-          });
-        });
-
-        agent.on('thinking', (event) => {
-          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:thinking', {
-            sessionId: data.sessionId,
-            message: event.message,
-          });
-        });
-
-        agent.on('message', (message) => {
-          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:message', {
-            sessionId: data.sessionId,
-            message,
-          });
-        });
-
-        agent.on('exploration', (exploration) => {
-          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:exploration', {
-            sessionId: data.sessionId,
-            ...exploration,
-          });
-        });
-
-        agent.on('filesCreated', (event) => {
-          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:filesCreated', {
-            sessionId: data.sessionId,
-            veroPath: event.veroPath,
-            createdFiles: event.createdFiles,
-            skippedFiles: event.skippedFiles,
-          });
-        });
-
-        agent.on('stagedChanges', (event) => {
-          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:staged', {
-            sessionId: data.sessionId,
-            changeIds: event.changeIds,
-          });
-        });
-
-        agent.on('mergeComplete', (event) => {
-          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:merged', {
-            sessionId: data.sessionId,
-            changes: event.changes,
-          });
-        });
-
-        // Process the message
-        await agent.processUserMessage(data.content);
-      } catch (error: any) {
-        logger.error('Copilot message processing failed:', error);
-        copilotSocket.emit('copilot:error', {
-          sessionId: data.sessionId,
-          error: error.message,
-        });
-      }
-    });
-
-    // Handle copilot clarification response
-    copilotSocket.on('copilot:clarify', async (data: { sessionId: string; clarificationId: string; response: string }) => {
-      logger.info('Copilot clarification response:', data);
-
-      try {
-        const agent = new CopilotAgentService(data.sessionId);
-
-        // Set up event listeners
-        agent.on('stateChange', (event) => {
-          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:state', {
-            sessionId: data.sessionId,
-            state: event.state,
-          });
-        });
-
-        agent.on('message', (message) => {
-          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:message', {
-            sessionId: data.sessionId,
-            message,
-          });
-        });
-
-        await agent.handleClarificationResponse(data.clarificationId, data.response);
-      } catch (error: any) {
-        logger.error('Copilot clarification failed:', error);
-        copilotSocket.emit('copilot:error', {
-          sessionId: data.sessionId,
-          error: error.message,
-        });
-      }
-    });
-
-    // Handle copilot change approval
-    copilotSocket.on('copilot:approve', async (data: { sessionId: string; changeId: string }) => {
-      logger.info('Copilot change approval:', data);
-
-      try {
-        const agent = new CopilotAgentService(data.sessionId);
-        await agent.load();
-        await agent.approveChange(data.changeId);
-
-        copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:change:approved', {
-          sessionId: data.sessionId,
-          changeId: data.changeId,
-        });
-      } catch (error: any) {
-        logger.error('Copilot approval failed:', error);
-        copilotSocket.emit('copilot:error', {
-          sessionId: data.sessionId,
-          error: error.message,
-        });
-      }
-    });
-
-    // Handle copilot change rejection
-    copilotSocket.on('copilot:reject', async (data: { sessionId: string; changeId: string; feedback?: string }) => {
-      logger.info('Copilot change rejection:', data);
-
-      try {
-        const agent = new CopilotAgentService(data.sessionId);
-        await agent.load();
-        await agent.rejectChange(data.changeId, data.feedback);
-
-        copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:change:rejected', {
-          sessionId: data.sessionId,
-          changeId: data.changeId,
-        });
-      } catch (error: any) {
-        logger.error('Copilot rejection failed:', error);
-        copilotSocket.emit('copilot:error', {
-          sessionId: data.sessionId,
-          error: error.message,
-        });
-      }
-    });
-
-    // Handle approve all changes
-    copilotSocket.on('copilot:approve-all', async (data: { sessionId: string }) => {
-      logger.info('Copilot approve all:', data);
-
-      try {
-        const agent = new CopilotAgentService(data.sessionId);
-
-        agent.on('mergeComplete', (event) => {
-          copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:merged', {
-            sessionId: data.sessionId,
-            changes: event.changes,
-          });
-        });
-
-        await agent.load();
-        await agent.approveAllChanges();
-      } catch (error: any) {
-        logger.error('Copilot approve all failed:', error);
-        copilotSocket.emit('copilot:error', {
-          sessionId: data.sessionId,
-          error: error.message,
-        });
-      }
-    });
-
-    // Handle copilot session reset
-    copilotSocket.on('copilot:reset', async (data: { sessionId: string }) => {
-      logger.info('Copilot reset:', data);
-
-      try {
-        const agent = new CopilotAgentService(data.sessionId);
-        await agent.load();
-        await agent.reset();
-
-        copilotIo.to(`copilot:${data.sessionId}`).emit('copilot:reset', {
-          sessionId: data.sessionId,
-        });
-      } catch (error: any) {
-        logger.error('Copilot reset failed:', error);
-        copilotSocket.emit('copilot:error', {
-          sessionId: data.sessionId,
-          error: error.message,
-        });
-      }
-    });
+    // Note: COPILOT AGENT handlers removed - copilot service deprecated
   }
 
   getIO() {

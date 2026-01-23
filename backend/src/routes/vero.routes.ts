@@ -4,7 +4,14 @@ import { readFile, writeFile, readdir, stat, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { existsSync } from 'fs';
-import { prisma } from '../db/prisma';
+import {
+  projectRepository,
+  workflowRepository,
+  testFlowRepository,
+  executionRepository,
+  executionStepRepository,
+  executionLogRepository
+} from '../db/repositories/mongo';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
@@ -118,10 +125,7 @@ async function getProjectPath(projectId: string | undefined): Promise<string> {
         return VERO_PROJECT_PATH;
     }
 
-    const project = await prisma.project.findUnique({
-        where: { id: projectId },
-        select: { veroPath: true }
-    });
+    const project = await projectRepository.findById(projectId);
 
     if (project?.veroPath) {
         return project.veroPath;
@@ -253,6 +257,30 @@ router.post('/files/rename', authenticateToken, async (req: AuthRequest, res: Re
     } catch (error) {
         console.error('Failed to rename file:', error);
         res.status(500).json({ success: false, error: 'Failed to rename file' });
+    }
+});
+
+// Delete file
+router.delete('/files/:path(*)', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const filePath = req.params.path;
+        const projectId = req.query.projectId as string | undefined;
+        const projectPath = await getProjectPath(projectId);
+        const fullPath = join(projectPath, filePath);
+
+        // Security check: ensure path is within project
+        if (!fullPath.startsWith(projectPath)) {
+            return res.status(403).json({ success: false, error: 'Access denied' });
+        }
+
+        const { unlink } = await import('fs/promises');
+        await unlink(fullPath);
+
+        console.log(`[Vero] Deleted: ${filePath}`);
+        res.json({ success: true, message: 'File deleted' });
+    } catch (error) {
+        console.error('Failed to delete file:', error);
+        res.status(500).json({ success: false, error: 'Failed to delete file' });
     }
 });
 
@@ -618,23 +646,20 @@ router.post('/run', authenticateToken, async (req: AuthRequest, res: Response, n
         let testFlow = await getOrCreateVeroTestFlow(userId, filePath || 'inline', flowName, veroContent);
 
         // Create execution record with 'running' status
-        const executionId = uuidv4();
         const startTime = new Date();
 
-        await prisma.execution.create({
-            data: {
-                id: executionId,
-                testFlowId: testFlow.id,
-                status: 'running',
-                target: 'local',
-                triggeredBy: 'manual',
-                startedAt: startTime,
-                configSnapshot: JSON.stringify({
-                    browserMode: config?.browserMode || 'headed',
-                    workers: config?.workers || 1,
-                }),
-            },
+        const execution = await executionRepository.create({
+            testFlowId: testFlow.id,
+            status: 'running',
+            target: 'local',
+            triggeredBy: 'manual',
+            startedAt: startTime,
+            configSnapshot: JSON.stringify({
+                browserMode: config?.browserMode || 'headed',
+                workers: config?.workers || 1,
+            }),
         });
+        const executionId = execution.id;
         console.log(`[Vero Run] Created execution record: ${executionId}`);
 
         // Extract USE statements to find referenced pages
@@ -787,17 +812,15 @@ router.post('/run', authenticateToken, async (req: AuthRequest, res: Response, n
                             }));
 
                             // Create ExecutionStep for each test/scenario with sub-steps
-                            await prisma.executionStep.create({
-                                data: {
-                                    executionId,
-                                    stepNumber,
-                                    action: 'scenario',
-                                    description: spec.title || `Test ${stepNumber}`,
-                                    status: testStatus,
-                                    duration,
-                                    error: error || null,
-                                    stepsJson: JSON.stringify(subSteps),
-                                },
+                            await executionStepRepository.create({
+                                executionId,
+                                stepNumber,
+                                action: 'scenario',
+                                description: spec.title || `Test ${stepNumber}`,
+                                status: testStatus as any,
+                                duration,
+                                error: error || undefined,
+                                stepsJson: JSON.stringify(subSteps),
                             });
                         }
                     }
@@ -819,24 +842,20 @@ router.post('/run', authenticateToken, async (req: AuthRequest, res: Response, n
             console.warn('[Vero Run] Failed to parse test results JSON:', parseError);
         }
 
-        await prisma.execution.update({
-            where: { id: executionId },
-            data: {
-                status: result.status,
-                exitCode: result.status === 'passed' ? 0 : 1,
-                finishedAt: finishTime,
-            },
+        await executionRepository.update(executionId, {
+            status: result.status as any,
+            exitCode: result.status === 'passed' ? 0 : 1,
+            finishedAt: finishTime,
         });
         console.log(`[Vero Run] Updated execution ${executionId} with status: ${result.status}`);
 
         // Add execution log
         if (result.error) {
-            await prisma.executionLog.create({
-                data: {
-                    executionId,
-                    message: result.error,
-                    level: 'error',
-                },
+            await executionLogRepository.create({
+                executionId,
+                message: result.error,
+                level: 'error',
+                timestamp: new Date(),
             });
         }
 
@@ -880,21 +899,17 @@ router.post('/debug', authenticateToken, async (req: AuthRequest, res: Response,
         let testFlow = await getOrCreateVeroTestFlow(userId, filePath || 'inline', flowName, veroContent);
 
         // Create execution record with 'pending' status (will be 'running' when WebSocket connects)
-        const executionId = uuidv4();
-
-        await prisma.execution.create({
-            data: {
-                id: executionId,
-                testFlowId: testFlow.id,
-                status: 'pending',
-                target: 'local',
-                triggeredBy: 'debug',
-                configSnapshot: JSON.stringify({
-                    debugMode: true,
-                    breakpoints,
-                }),
-            },
+        const execution = await executionRepository.create({
+            testFlowId: testFlow.id,
+            status: 'pending',
+            target: 'local',
+            triggeredBy: 'debug',
+            configSnapshot: JSON.stringify({
+                debugMode: true,
+                breakpoints,
+            }),
         });
+        const executionId = execution.id;
         console.log(`[Vero Debug] Created debug execution record: ${executionId}`);
 
         // Extract USE statements to find referenced pages
@@ -939,47 +954,31 @@ router.post('/debug', authenticateToken, async (req: AuthRequest, res: Response,
 // Helper function to get or create a test flow for Vero files
 async function getOrCreateVeroTestFlow(userId: string, filePath: string, flowName: string, content: string) {
     // First, get or create a "Vero Tests" workflow for this user
-    let workflow = await prisma.workflow.findFirst({
-        where: {
-            userId,
-            name: 'Vero Tests',
-        },
-    });
+    let workflow = await workflowRepository.findByUserIdAndName(userId, 'Vero Tests');
 
     if (!workflow) {
-        workflow = await prisma.workflow.create({
-            data: {
-                name: 'Vero Tests',
-                userId,
-            },
+        workflow = await workflowRepository.create({
+            name: 'Vero Tests',
+            userId,
         });
         console.log(`[Vero Run] Created Vero Tests workflow for user ${userId}`);
     }
 
     // Look for existing test flow with this file path
-    let testFlow = await prisma.testFlow.findFirst({
-        where: {
-            workflowId: workflow.id,
-            name: flowName,
-        },
-    });
+    let testFlow = await testFlowRepository.findByWorkflowIdAndName(workflow.id, flowName);
 
     if (!testFlow) {
-        testFlow = await prisma.testFlow.create({
-            data: {
-                workflowId: workflow.id,
-                name: flowName,
-                code: content,
-                language: 'vero',
-            },
+        testFlow = await testFlowRepository.create({
+            workflowId: workflow.id,
+            name: flowName,
+            code: content,
+            language: 'vero',
+            tags: [],
         });
         console.log(`[Vero Run] Created test flow for: ${flowName}`);
     } else {
         // Update the code content if it changed
-        await prisma.testFlow.update({
-            where: { id: testFlow.id },
-            data: { code: content },
-        });
+        await testFlowRepository.update(testFlow.id, { code: content });
     }
 
     return testFlow;
@@ -1418,7 +1417,7 @@ const generationHistory = new Map<string, {
 // Save generation to history
 router.post('/agent/history', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const userId = req.user?.id;
+        const userId = req.userId;
         if (!userId) {
             return res.status(401).json({ success: false, error: 'User not authenticated' });
         }
@@ -1455,7 +1454,7 @@ router.post('/agent/history', authenticateToken, async (req: AuthRequest, res: R
 // Get generation history
 router.get('/agent/history', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const userId = req.user?.id;
+        const userId = req.userId;
         if (!userId) {
             return res.status(401).json({ success: false, error: 'User not authenticated' });
         }
@@ -1470,7 +1469,7 @@ router.get('/agent/history', authenticateToken, async (req: AuthRequest, res: Re
 // Delete history entry
 router.delete('/agent/history/:entryId', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const userId = req.user?.id;
+        const userId = req.userId;
         if (!userId) {
             return res.status(401).json({ success: false, error: 'User not authenticated' });
         }
@@ -1601,7 +1600,7 @@ router.get('/scenarios', authenticateToken, async (req: AuthRequest, res: Respon
         const projectId = req.query.projectId as string | undefined;
         const veroPathParam = req.query.veroPath as string | undefined;
 
-        // Get project path
+        // Get project path from query params or database
         let projectPath: string;
         if (veroPathParam) {
             projectPath = veroPathParam;
@@ -1677,9 +1676,7 @@ router.post('/validate', authenticateToken, async (req: AuthRequest, res: Respon
         }
 
         // Import vero-lang parsing and validation functions
-        const { tokenize } = await import('../../node_modules/vero-lang/dist/lexer/lexer.js');
-        const { Parser } = await import('../../node_modules/vero-lang/dist/parser/parser.js');
-        const { validate } = await import('../../node_modules/vero-lang/dist/validator/validator.js');
+        const { tokenize, parse, validate } = await import('vero-lang');
 
         const veroErrors: VeroValidationError[] = [];
         const veroWarnings: VeroValidationError[] = [];
@@ -1714,8 +1711,7 @@ router.post('/validate', authenticateToken, async (req: AuthRequest, res: Respon
             }
 
             // Step 2: Parse
-            const parser = new Parser(lexResult.tokens);
-            const parseResult = parser.parse();
+            const parseResult = parse(lexResult.tokens);
 
             // Convert parser errors
             for (const err of parseResult.errors) {
@@ -1877,6 +1873,256 @@ function getValidationErrorFix(message: string): string {
     if (message.includes('not defined')) return 'Define this element before using it, or check the spelling.';
     if (message.includes('not in USE list')) return 'Add a USE statement at the top of the feature.';
     return 'Fix the validation issue.';
+}
+
+// ============= LSP ENDPOINTS =============
+
+// Go to Definition - Find symbol definition
+router.post('/definition', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { filePath, line, column, word } = req.body;
+
+        if (!word) {
+            return res.json({ success: true, location: null });
+        }
+
+        const projectId = req.query.projectId as string;
+        if (!projectId) {
+            return res.status(400).json({ success: false, error: 'Project ID is required' });
+        }
+
+        // Get the project path
+        const project = await projectRepository.findById(projectId);
+
+        if (!project) {
+            return res.status(404).json({ success: false, error: 'Project not found' });
+        }
+
+        const projectPath = join(process.cwd(), 'vero-projects', project.applicationId, projectId);
+
+        // Scan all .vero files in the project
+        const files = await findVeroFiles(projectPath);
+
+        // Search for symbol definition across all files
+        for (const veroFile of files) {
+            try {
+                const content = await readFile(veroFile, 'utf-8');
+                const lines = content.split('\n');
+
+                // Look for page definition
+                if (/^[A-Z][a-zA-Z0-9]*$/.test(word)) {
+                    for (let i = 0; i < lines.length; i++) {
+                        const ln = lines[i];
+                        const pageMatch = ln.match(new RegExp(`^\\s*page\\s+(${word})\\s*\\{`, 'i'));
+                        if (pageMatch) {
+                            const col = ln.indexOf(pageMatch[1]) + 1;
+                            return res.json({
+                                success: true,
+                                location: {
+                                    filePath: veroFile,
+                                    line: i + 1,
+                                    column: col,
+                                    endLine: i + 1,
+                                    endColumn: col + word.length
+                                }
+                            });
+                        }
+                    }
+                }
+
+                // Look for field/action definition (word contains dot: Page.member)
+                if (word.includes('.')) {
+                    const [pageName, memberName] = word.split('.');
+                    let inPage = false;
+
+                    for (let i = 0; i < lines.length; i++) {
+                        const ln = lines[i];
+
+                        if (ln.match(new RegExp(`^\\s*page\\s+${pageName}\\s*\\{`, 'i'))) {
+                            inPage = true;
+                        }
+
+                        if (inPage) {
+                            // Field definition
+                            const fieldMatch = ln.match(new RegExp(`^\\s*field\\s+(${memberName})\\s*=`, 'i'));
+                            if (fieldMatch) {
+                                const col = ln.indexOf(fieldMatch[1]) + 1;
+                                return res.json({
+                                    success: true,
+                                    location: {
+                                        filePath: veroFile,
+                                        line: i + 1,
+                                        column: col,
+                                        endLine: i + 1,
+                                        endColumn: col + memberName.length
+                                    }
+                                });
+                            }
+
+                            // Action definition
+                            const actionMatch = ln.match(new RegExp(`^\\s*(${memberName})(?:\\s+with)?\\s*\\{`, 'i'));
+                            if (actionMatch && !['field', 'if', 'for'].includes(actionMatch[1].toLowerCase())) {
+                                const col = ln.indexOf(actionMatch[1]) + 1;
+                                return res.json({
+                                    success: true,
+                                    location: {
+                                        filePath: veroFile,
+                                        line: i + 1,
+                                        column: col,
+                                        endLine: i + 1,
+                                        endColumn: col + memberName.length
+                                    }
+                                });
+                            }
+
+                            if (ln.trim() === '}') inPage = false;
+                        }
+                    }
+                }
+            } catch (e) {
+                // Skip files that can't be read
+                continue;
+            }
+        }
+
+        res.json({ success: true, location: null });
+
+    } catch (error) {
+        console.error('[Vero Definition] Error:', error);
+        res.status(500).json({ success: false, error: 'Failed to find definition' });
+    }
+});
+
+// Find References - Find all usages of a symbol
+router.post('/references', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { filePath, line, column, word, includeDeclaration } = req.body;
+
+        if (!word) {
+            return res.json({ success: true, references: [] });
+        }
+
+        const projectId = req.query.projectId as string;
+        if (!projectId) {
+            return res.status(400).json({ success: false, error: 'Project ID is required' });
+        }
+
+        // Get the project path
+        const project = await projectRepository.findById(projectId);
+
+        if (!project) {
+            return res.status(404).json({ success: false, error: 'Project not found' });
+        }
+
+        const projectPath = join(process.cwd(), 'vero-projects', project.applicationId, projectId);
+
+        // Scan all .vero files in the project
+        const files = await findVeroFiles(projectPath);
+        const references: Array<{
+            filePath: string;
+            line: number;
+            column: number;
+            endLine: number;
+            endColumn: number;
+            kind: string;
+            context: string;
+        }> = [];
+
+        // Search for references across all files
+        for (const veroFile of files) {
+            try {
+                const content = await readFile(veroFile, 'utf-8');
+                const lines = content.split('\n');
+
+                for (let i = 0; i < lines.length; i++) {
+                    const ln = lines[i];
+                    const lineNum = i + 1;
+
+                    // Page references
+                    if (/^[A-Z][a-zA-Z0-9]*$/.test(word)) {
+                        // Definition
+                        if (includeDeclaration) {
+                            const defMatch = ln.match(new RegExp(`^\\s*page\\s+(${word})\\s*\\{`, 'i'));
+                            if (defMatch) {
+                                references.push({
+                                    filePath: veroFile,
+                                    line: lineNum,
+                                    column: ln.indexOf(defMatch[1]) + 1,
+                                    endLine: lineNum,
+                                    endColumn: ln.indexOf(defMatch[1]) + 1 + word.length,
+                                    kind: 'definition',
+                                    context: ln.trim()
+                                });
+                            }
+                        }
+
+                        // USE statement
+                        const useMatch = ln.match(new RegExp(`\\buse\\s+(${word})\\b`, 'i'));
+                        if (useMatch) {
+                            references.push({
+                                filePath: veroFile,
+                                line: lineNum,
+                                column: ln.indexOf(useMatch[1]) + 1,
+                                endLine: lineNum,
+                                endColumn: ln.indexOf(useMatch[1]) + 1 + word.length,
+                                kind: 'use',
+                                context: ln.trim()
+                            });
+                        }
+
+                        // Page.member references
+                        const memberRegex = new RegExp(`\\b(${word})\\.(\\w+)\\b`, 'gi');
+                        let memberMatch;
+                        while ((memberMatch = memberRegex.exec(ln)) !== null) {
+                            references.push({
+                                filePath: veroFile,
+                                line: lineNum,
+                                column: memberMatch.index + 1,
+                                endLine: lineNum,
+                                endColumn: memberMatch.index + 1 + word.length,
+                                kind: 'reference',
+                                context: ln.trim()
+                            });
+                        }
+                    }
+                }
+            } catch (e) {
+                // Skip files that can't be read
+                continue;
+            }
+        }
+
+        res.json({ success: true, references });
+
+    } catch (error) {
+        console.error('[Vero References] Error:', error);
+        res.status(500).json({ success: false, error: 'Failed to find references' });
+    }
+});
+
+// Helper function to recursively find all .vero files
+async function findVeroFiles(dir: string): Promise<string[]> {
+    const files: string[] = [];
+
+    try {
+        const entries = await readdir(dir);
+
+        for (const entry of entries) {
+            const fullPath = join(dir, entry);
+            const stats = await stat(fullPath);
+
+            if (stats.isDirectory()) {
+                const subFiles = await findVeroFiles(fullPath);
+                files.push(...subFiles);
+            } else if (entry.endsWith('.vero')) {
+                files.push(fullPath);
+            }
+        }
+    } catch (e) {
+        // Directory doesn't exist or can't be read
+    }
+
+    return files;
 }
 
 // ============= HELPERS =============

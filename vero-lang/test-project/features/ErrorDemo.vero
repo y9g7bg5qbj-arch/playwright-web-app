@@ -1,0 +1,55 @@
+# ============================================
+# ERROR DEMO FILE
+# This file intentionally contains syntax errors
+# to demonstrate the editor's error highlighting
+# ============================================
+
+# ERROR 1: Missing opening brace
+PAGE BrokenPage
+    FIELD foo = "bar"
+}
+
+# ERROR 2: Missing equals sign
+PAGE MissingEquals {
+    FIELD badField "value"
+}
+
+# ERROR 3: Missing string value
+PAGE MissingValue {
+    FIELD empty =
+}
+
+# ERROR 4: Invalid keyword
+PAGE InvalidKeyword {
+    CLICKX "something"
+}
+
+# CORRECT PAGE - No errors
+PAGE CorrectPage {
+    FIELD validField = "#selector"
+
+    doSomething {
+        CLICK CorrectPage.validField
+        WAIT 1 SECONDS
+    }
+}
+
+FEATURE ErrorDemoFeature {
+    USE CorrectPage
+
+    # ERROR 5: Missing scenario name
+    SCENARIO @smoke {
+        OPEN "https://example.com"
+    }
+
+    # ERROR 6: Unclosed brace
+    SCENARIO UnclosedTest @regression {
+        OPEN "https://example.com"
+        CLICK CorrectPage.validField
+
+    # This scenario is valid
+    SCENARIO ValidTest @smoke {
+        OPEN "https://example.com"
+        LOG "Test completed"
+    }
+}
