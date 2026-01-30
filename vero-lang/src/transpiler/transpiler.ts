@@ -1,5 +1,5 @@
 import {
-    ProgramNode, PageNode, FeatureNode, ScenarioNode,
+    ProgramNode, PageNode, PageActionsNode, FeatureNode, ScenarioNode,
     FieldNode, ActionDefinitionNode, HookNode, StatementNode,
     SelectorNode, TargetNode, ExpressionNode, VerifyCondition,
     LoadStatement, ForEachStatement, WhereClause,
@@ -7,6 +7,10 @@ import {
     DataCondition, DataComparison,
     FixtureNode,
     UploadStatement, VerifyUrlStatement, VerifyTitleStatement, VerifyHasStatement,
+    // Variable verification types
+    VerifyVariableStatement, VariableCondition, PerformAssignmentStatement,
+    // Wait and Return statements
+    WaitForStatement, ReturnStatement,
     // New ROW/ROWS syntax types
     RowStatement, RowsStatement, ColumnAccessStatement, CountStatement, SimpleTableReference,
     // Utility function types
@@ -27,10 +31,11 @@ export interface TranspileOptions {
 }
 
 export interface TranspileResult {
-    pages: Map<string, string>;     // pageName -> TypeScript code
-    tests: Map<string, string>;     // featureName -> TypeScript code
-    fixtures: Map<string, string>;  // fixtureName -> TypeScript code
-    fixturesIndex?: string;         // Combined fixtures export file
+    pages: Map<string, string>;        // pageName -> TypeScript code
+    pageActions: Map<string, string>;  // pageActionsName -> TypeScript code
+    tests: Map<string, string>;        // featureName -> TypeScript code
+    fixtures: Map<string, string>;     // fixtureName -> TypeScript code
+    fixturesIndex?: string;            // Combined fixtures export file
 }
 
 export class Transpiler {
@@ -51,42 +56,16 @@ export class Transpiler {
      * Check if a feature uses any environment variable references
      */
     private usesEnvVars(feature: FeatureNode): boolean {
-        let hasEnvVars = false;
-
-        const checkExpression = (expr: ExpressionNode): void => {
-            if (expr.type === 'EnvVarReference') {
-                hasEnvVars = true;
-            }
-        };
-
-        const checkStatements = (statements: StatementNode[]): void => {
-            for (const stmt of statements) {
-                if ('value' in stmt && stmt.value) {
-                    checkExpression(stmt.value as ExpressionNode);
-                }
-                if ('url' in stmt && stmt.url) {
-                    checkExpression(stmt.url as ExpressionNode);
-                }
-                if ('message' in stmt && stmt.message) {
-                    checkExpression(stmt.message as ExpressionNode);
-                }
-                if (stmt.type === 'ForEach') {
-                    checkStatements((stmt as ForEachStatement).statements);
+        return this.featureHasStatement(feature, (stmt) => {
+            // Check expression-bearing fields for environment variable references
+            const stmtAny = stmt as unknown as Record<string, ExpressionNode | undefined>;
+            for (const field of ['value', 'url', 'message']) {
+                if (field in stmt && stmtAny[field]?.type === 'EnvVarReference') {
+                    return true;
                 }
             }
-        };
-
-        // Check hooks
-        for (const hook of feature.hooks) {
-            checkStatements(hook.statements);
-        }
-
-        // Check scenarios
-        for (const scenario of feature.scenarios) {
-            checkStatements(scenario.statements);
-        }
-
-        return hasEnvVars;
+            return false;
+        });
     }
 
     /**
@@ -97,23 +76,28 @@ export class Transpiler {
 
         const collectFromStatements = (statements: StatementNode[]) => {
             for (const stmt of statements) {
-                if (stmt.type === 'DataQuery') {
-                    const query = (stmt as DataQueryStatement).query;
-                    this.usedTables.add(query.tableRef.tableName);
-                } else if (stmt.type === 'Load') {
-                    this.usedTables.add((stmt as LoadStatement).tableName);
-                } else if (stmt.type === 'ForEach') {
-                    collectFromStatements((stmt as ForEachStatement).statements);
-                }
-                // New ROW/ROWS syntax
-                else if (stmt.type === 'Row') {
-                    this.usedTables.add((stmt as RowStatement).tableRef.tableName);
-                } else if (stmt.type === 'Rows') {
-                    this.usedTables.add((stmt as RowsStatement).tableRef.tableName);
-                } else if (stmt.type === 'ColumnAccess') {
-                    this.usedTables.add((stmt as ColumnAccessStatement).tableRef.tableName);
-                } else if (stmt.type === 'Count') {
-                    this.usedTables.add((stmt as CountStatement).tableRef.tableName);
+                switch (stmt.type) {
+                    case 'DataQuery':
+                        this.usedTables.add(stmt.query.tableRef.tableName);
+                        break;
+                    case 'Load':
+                        this.usedTables.add(stmt.tableName);
+                        break;
+                    case 'ForEach':
+                        collectFromStatements(stmt.statements);
+                        break;
+                    case 'Row':
+                        this.usedTables.add(stmt.tableRef.tableName);
+                        break;
+                    case 'Rows':
+                        this.usedTables.add(stmt.tableRef.tableName);
+                        break;
+                    case 'ColumnAccess':
+                        this.usedTables.add(stmt.tableRef.tableName);
+                        break;
+                    case 'Count':
+                        this.usedTables.add(stmt.tableRef.tableName);
+                        break;
                 }
             }
         };
@@ -133,6 +117,7 @@ export class Transpiler {
 
     transpile(ast: ProgramNode): TranspileResult {
         const pages = new Map<string, string>();
+        const pageActions = new Map<string, string>();
         const tests = new Map<string, string>();
         const fixtures = new Map<string, string>();
 
@@ -140,22 +125,25 @@ export class Transpiler {
             pages.set(page.name, this.transpilePage(page));
         }
 
-        // Transpile fixtures
-        for (const fixture of ast.fixtures || []) {
+        for (const pa of ast.pageActions) {
+            pageActions.set(pa.name, this.transpilePageActions(pa, ast.pages));
+        }
+
+        for (const fixture of ast.fixtures) {
             fixtures.set(fixture.name, this.transpileFixture(fixture));
         }
 
         // Generate fixtures index file if there are fixtures
         let fixturesIndex: string | undefined;
-        if ((ast.fixtures || []).length > 0) {
-            fixturesIndex = this.generateFixturesIndex(ast.fixtures || []);
+        if (ast.fixtures.length > 0) {
+            fixturesIndex = this.generateFixturesIndex(ast.fixtures);
         }
 
         for (const feature of ast.features) {
-            tests.set(feature.name, this.transpileFeature(feature, ast.fixtures || []));
+            tests.set(feature.name, this.transpileFeature(feature, ast.fixtures));
         }
 
-        return { pages, tests, fixtures, fixturesIndex };
+        return { pages, pageActions, tests, fixtures, fixturesIndex };
     }
 
     // ==================== PAGE TRANSPILATION ====================
@@ -208,6 +196,156 @@ export class Transpiler {
         lines.push('}');
 
         return lines.join('\n');
+    }
+
+    // ==================== PAGEACTIONS TRANSPILATION ====================
+
+    private transpilePageActions(pa: PageActionsNode, pages: PageNode[]): string {
+        const lines: string[] = [];
+        const boundPage = pages.find(p => p.name === pa.forPage);
+
+        lines.push("import { Page, Locator } from '@playwright/test';");
+        lines.push(`import { ${pa.forPage} } from './${pa.forPage}';`);
+        lines.push('');
+        lines.push(`export class ${pa.name} {`);
+        this.indent++;
+
+        // Properties
+        lines.push(this.line('readonly page: Page;'));
+        lines.push(this.line(`private readonly ${this.camelCase(pa.forPage)}: ${pa.forPage};`));
+        lines.push('');
+
+        // Constructor
+        lines.push(this.line('constructor(page: Page) {'));
+        this.indent++;
+        lines.push(this.line('this.page = page;'));
+        lines.push(this.line(`this.${this.camelCase(pa.forPage)} = new ${pa.forPage}(page);`));
+        this.indent--;
+        lines.push(this.line('}'));
+
+        // Actions - these can access the bound page's fields
+        for (const action of pa.actions) {
+            lines.push('');
+            lines.push(this.transpilePageActionsMethod(action, pa.forPage, boundPage));
+        }
+
+        this.indent--;
+        lines.push('}');
+
+        return lines.join('\n');
+    }
+
+    private transpilePageActionsMethod(action: ActionDefinitionNode, forPage: string, boundPage?: PageNode): string {
+        const lines: string[] = [];
+        const params = action.parameters.map(p => `${p}: string`).join(', ');
+        const returnType = action.returnType
+            ? `: Promise<${this.getTypeScriptType(action.returnType)}>`
+            : ': Promise<void>';
+
+        lines.push(this.line(`async ${action.name}(${params})${returnType} {`));
+        this.indent++;
+
+        for (const statement of action.statements) {
+            // Pass the bound page name as context so fields resolve correctly
+            const code = this.transpilePageActionsStatement(statement, forPage, boundPage);
+            if (code) lines.push(this.line(code));
+        }
+
+        this.indent--;
+        lines.push(this.line('}'));
+
+        return lines.join('\n');
+    }
+
+    private transpilePageActionsStatement(statement: StatementNode, forPage: string, boundPage?: PageNode): string {
+        // PageActions methods should NOT use test.step - they're reusable helpers
+        // Generate simple Playwright calls without test.step wrapping
+        const boundPageVar = this.camelCase(forPage);
+
+        const resolveField = (field: string): string => {
+            if (boundPage && boundPage.fields.some(f => f.name === field)) {
+                return `this.${boundPageVar}.${field}`;
+            }
+            return `this.${field}`;
+        };
+
+        switch (statement.type) {
+            case 'Click': {
+                if (statement.target.field) {
+                    return `await ${resolveField(statement.target.field)}.click();`;
+                }
+                if (statement.target.text) {
+                    return `await this.page.getByText('${statement.target.text}').click();`;
+                }
+                return '';
+            }
+            case 'Fill': {
+                const value = this.transpileExpression(statement.value);
+                if (statement.target.field) {
+                    return `await ${resolveField(statement.target.field)}.fill(${value});`;
+                }
+                return '';
+            }
+            case 'WaitFor': {
+                if (statement.target.field) {
+                    return `await ${resolveField(statement.target.field)}.waitFor({ state: 'visible' });`;
+                }
+                return '';
+            }
+            case 'Return': {
+                switch (statement.returnType) {
+                    case 'VISIBLE': {
+                        if (statement.target?.field) {
+                            return `return await ${resolveField(statement.target.field)}.isVisible();`;
+                        }
+                        return '';
+                    }
+                    case 'TEXT': {
+                        if (statement.target?.field) {
+                            return `return await ${resolveField(statement.target.field)}.textContent() || '';`;
+                        }
+                        return '';
+                    }
+                    case 'VALUE': {
+                        if (statement.target?.field) {
+                            return `return await ${resolveField(statement.target.field)}.inputValue();`;
+                        }
+                        return '';
+                    }
+                    case 'EXPRESSION': {
+                        return `return ${this.transpileExpression(statement.expression!)};`;
+                    }
+                }
+                return '';
+            }
+            case 'Verify': {
+                // Verifications in PageActions should just execute, not use expect
+                const target = statement.target as TargetNode;
+                if (target && target.field) {
+                    const locator = resolveField(target.field);
+                    if (statement.condition.value === 'VISIBLE') {
+                        return `await ${locator}.waitFor({ state: 'visible' });`;
+                    }
+                }
+                return '';
+            }
+            case 'Press': {
+                return `await this.page.keyboard.press('${statement.key}');`;
+            }
+            default:
+                // Fall back to regular transpilation for other statement types
+                let code = this.transpileStatement(statement, [forPage], forPage);
+                // Remove test.step wrappers
+                code = code.replace(/await test\.step\([^)]+, async \(\) => \{ (.*) \}\);/g, '$1');
+                // Fix field references
+                code = code.replace(/this\.(\w+)\./g, (match, fieldName) => {
+                    if (boundPage && boundPage.fields.some(f => f.name === fieldName)) {
+                        return `this.${boundPageVar}.${fieldName}.`;
+                    }
+                    return match;
+                });
+                return code;
+        }
     }
 
     private transpileActionDefinition(action: ActionDefinitionNode, pageName?: string): string {
@@ -369,37 +507,14 @@ export class Transpiler {
      * Check if a feature uses any utility functions
      */
     private usesUtilityFunctions(feature: FeatureNode): boolean {
-        let hasUtils = false;
-
-        const checkStatements = (statements: StatementNode[]): void => {
-            for (const stmt of statements) {
-                if (stmt.type === 'UtilityAssignment') {
-                    hasUtils = true;
-                    return;
-                }
-                if (stmt.type === 'ForEach') {
-                    checkStatements((stmt as ForEachStatement).statements);
-                }
-            }
-        };
-
-        // Check hooks
-        for (const hook of feature.hooks) {
-            checkStatements(hook.statements);
-            if (hasUtils) return true;
-        }
-
-        // Check scenarios
-        for (const scenario of feature.scenarios) {
-            checkStatements(scenario.statements);
-            if (hasUtils) return true;
-        }
-
-        return hasUtils;
+        return this.featureHasStatement(feature, stmt => stmt.type === 'UtilityAssignment');
     }
 
     private transpileFeature(feature: FeatureNode, allFixtures: FixtureNode[] = []): string {
         const lines: string[] = [];
+
+        // Extract page names from UseNode[] for downstream methods
+        const useNames = feature.uses.map(u => u.name);
 
         // Collect all tables used in VDQL queries
         const usedTables = this.collectUsedTables(feature);
@@ -409,7 +524,7 @@ export class Transpiler {
         const hasEnvVars = this.usesEnvVars(feature);
 
         // Check if feature uses any fixtures
-        const usesFixtures = (feature.fixtures || []).length > 0;
+        const usesFixtures = feature.fixtures.length > 0;
 
         // Check if feature uses utility functions
         const hasUtilityFunctions = this.usesUtilityFunctions(feature);
@@ -420,8 +535,8 @@ export class Transpiler {
         } else {
             lines.push("import { test, expect } from '@playwright/test';");
         }
-        for (const usedPage of feature.uses) {
-            lines.push(`import { ${usedPage} } from '../${this.options.pageObjectDir}/${usedPage}';`);
+        for (const use of feature.uses) {
+            lines.push(`import { ${use.name} } from '../${this.options.pageObjectDir}/${use.name}';`);
         }
 
         // Add VeroUtils imports if utility functions are used
@@ -459,9 +574,9 @@ export class Transpiler {
         lines.push('');
 
         // Determine describe modifier based on annotations
-        const hasSerial = (feature.annotations || []).includes('serial');
-        const hasSkip = (feature.annotations || []).includes('skip');
-        const hasOnly = (feature.annotations || []).includes('only');
+        const hasSerial = feature.annotations.includes('serial');
+        const hasSkip = feature.annotations.includes('skip');
+        const hasOnly = feature.annotations.includes('only');
 
         let describeCall = 'test.describe';
         if (hasSerial) {
@@ -478,9 +593,9 @@ export class Transpiler {
 
         // Page object variables
         if (feature.uses.length > 0) {
-            for (const usedPage of feature.uses) {
-                const varName = this.camelCase(usedPage);
-                lines.push(this.line(`let ${varName}: ${usedPage};`));
+            for (const use of feature.uses) {
+                const varName = this.camelCase(use.name);
+                lines.push(this.line(`let ${varName}: ${use.name};`));
             }
             lines.push('');
         }
@@ -509,7 +624,7 @@ export class Transpiler {
 
         // User-defined hooks
         for (const hook of feature.hooks) {
-            lines.push(this.transpileHook(hook, feature.uses));
+            lines.push(this.transpileHook(hook, useNames));
             lines.push('');
         }
 
@@ -518,9 +633,9 @@ export class Transpiler {
         if (!hasBeforeEach && feature.uses.length > 0) {
             lines.push(this.line('test.beforeEach(async ({ page }) => {'));
             this.indent++;
-            for (const usedPage of feature.uses) {
-                const varName = this.camelCase(usedPage);
-                lines.push(this.line(`${varName} = new ${usedPage}(page);`));
+            for (const use of feature.uses) {
+                const varName = this.camelCase(use.name);
+                lines.push(this.line(`${varName} = new ${use.name}(page);`));
             }
             this.indent--;
             lines.push(this.line('});'));
@@ -529,7 +644,7 @@ export class Transpiler {
 
         // Scenarios
         for (const scenario of feature.scenarios) {
-            lines.push(this.transpileScenario(scenario, feature.uses));
+            lines.push(this.transpileScenario(scenario, useNames));
             lines.push('');
         }
 
@@ -579,11 +694,10 @@ export class Transpiler {
         const testName = tags ? `${readableName} ${tags}` : readableName;
 
         // Determine test modifier based on annotations
-        const annotations = scenario.annotations || [];
-        const hasSkip = annotations.includes('skip');
-        const hasOnly = annotations.includes('only');
-        const hasSlow = annotations.includes('slow');
-        const hasFixme = annotations.includes('fixme');
+        const hasSkip = scenario.annotations.includes('skip');
+        const hasOnly = scenario.annotations.includes('only');
+        const hasSlow = scenario.annotations.includes('slow');
+        const hasFixme = scenario.annotations.includes('fixme');
 
         // Determine test call: test.skip, test.only, test.fixme, or test
         let testCall = 'test';
@@ -726,41 +840,52 @@ export class Transpiler {
                 return `await test.step('Log: ' + ${this.transpileExpression(statement.message)}, async () => { console.log(${this.transpileExpression(statement.message)}); });`;
 
             case 'Load':
-                return this.transpileLoadStatement(statement as LoadStatement);
+                return this.transpileLoadStatement(statement);
 
             case 'ForEach':
-                return this.transpileForEachStatement(statement as ForEachStatement, uses, currentPage);
+                return this.transpileForEachStatement(statement, uses, currentPage);
 
             case 'DataQuery':
-                return this.transpileDataQueryStatement(statement as DataQueryStatement);
+                return this.transpileDataQueryStatement(statement);
 
             case 'Upload':
-                return this.transpileUploadStatement(statement as UploadStatement, uses, currentPage);
+                return this.transpileUploadStatement(statement, uses, currentPage);
 
             case 'VerifyUrl':
-                return this.transpileVerifyUrlStatement(statement as VerifyUrlStatement);
+                return this.transpileVerifyUrlStatement(statement);
 
             case 'VerifyTitle':
-                return this.transpileVerifyTitleStatement(statement as VerifyTitleStatement);
+                return this.transpileVerifyTitleStatement(statement);
 
             case 'VerifyHas':
-                return this.transpileVerifyHasStatement(statement as VerifyHasStatement, uses, currentPage);
+                return this.transpileVerifyHasStatement(statement, uses, currentPage);
 
-            // New ROW/ROWS syntax
             case 'Row':
-                return this.transpileRowStatement(statement as RowStatement);
+                return this.transpileRowStatement(statement);
 
             case 'Rows':
-                return this.transpileRowsStatement(statement as RowsStatement);
+                return this.transpileRowsStatement(statement);
 
             case 'ColumnAccess':
-                return this.transpileColumnAccessStatement(statement as ColumnAccessStatement);
+                return this.transpileColumnAccessStatement(statement);
 
             case 'Count':
-                return this.transpileCountStatement(statement as CountStatement);
+                return this.transpileCountStatement(statement);
 
             case 'UtilityAssignment':
-                return this.transpileUtilityAssignment(statement as UtilityAssignmentStatement);
+                return this.transpileUtilityAssignment(statement);
+
+            case 'PerformAssignment':
+                return this.transpilePerformAssignment(statement, uses, currentPage);
+
+            case 'VerifyVariable':
+                return this.transpileVerifyVariable(statement);
+
+            case 'WaitFor':
+                return this.transpileWaitFor(statement, uses, currentPage);
+
+            case 'Return':
+                return this.transpileReturn(statement, uses, currentPage);
 
             default:
                 return `// Unknown statement type`;
@@ -779,80 +904,151 @@ export class Transpiler {
     }
 
     /**
+     * Transpile perform assignment: FLAG isWelcome = PERFORM DashboardActions.isWelcomeVisible
+     * Generates: const isWelcome = await dashboardActions.isWelcomeVisible();
+     */
+    private transpilePerformAssignment(stmt: PerformAssignmentStatement, uses: string[] = [], currentPage?: string): string {
+        const actionCall = this.transpileDoAction(stmt.action, uses, currentPage);
+        // transpileDoAction returns something like:
+        // await test.step('Perform DashboardActions.isWelcomeVisible', async () => { await dashboardActions.isWelcomeVisible(); });
+        // We need to extract the actual method call and assign it to a variable
+
+        const pageLower = stmt.action.page ? this.camelCase(stmt.action.page) : '';
+        const actionName = stmt.action.action;
+        const args = stmt.action.arguments.map(arg => this.transpileExpression(arg)).join(', ');
+
+        const methodCall = pageLower
+            ? `await ${pageLower}.${actionName}(${args})`
+            : `await ${actionName}(${args})`;
+
+        const stepName = stmt.action.page
+            ? `${stmt.action.page}.${actionName}`
+            : actionName;
+
+        return `const ${stmt.variableName} = await test.step('Get ${stepName}', async () => { return ${methodCall}; });`;
+    }
+
+    /**
+     * Transpile verify variable: VERIFY isWelcome IS TRUE
+     * Generates: expect(isWelcome).toBe(true);
+     */
+    private transpileVerifyVariable(stmt: VerifyVariableStatement): string {
+        const varName = stmt.variable.name;
+        const condition = stmt.condition;
+
+        switch (condition.type) {
+            case 'IsTrue':
+                return `await test.step('Verify ${varName} is true', async () => { expect(${varName}).toBe(true); });`;
+            case 'IsFalse':
+                return `await test.step('Verify ${varName} is false', async () => { expect(${varName}).toBe(false); });`;
+            case 'IsNotTrue':
+                return `await test.step('Verify ${varName} is not true', async () => { expect(${varName}).not.toBe(true); });`;
+            case 'IsNotFalse':
+                return `await test.step('Verify ${varName} is not false', async () => { expect(${varName}).not.toBe(false); });`;
+            case 'Contains': {
+                const value = this.transpileExpression(condition.value);
+                return `await test.step('Verify ${varName} contains ' + ${value}, async () => { expect(${varName}).toContain(${value}); });`;
+            }
+            case 'NotContains': {
+                const value = this.transpileExpression(condition.value);
+                return `await test.step('Verify ${varName} does not contain ' + ${value}, async () => { expect(${varName}).not.toContain(${value}); });`;
+            }
+            case 'Equals': {
+                const value = this.transpileExpression(condition.value);
+                return `await test.step('Verify ${varName} equals ' + ${value}, async () => { expect(${varName}).toBe(${value}); });`;
+            }
+            case 'NotEquals': {
+                const value = this.transpileExpression(condition.value);
+                return `await test.step('Verify ${varName} does not equal ' + ${value}, async () => { expect(${varName}).not.toBe(${value}); });`;
+            }
+            default:
+                return `// Unknown variable condition type`;
+        }
+    }
+
+    /**
+     * Transpile WAIT FOR target - wait until element is visible
+     */
+    private transpileWaitFor(stmt: WaitForStatement, uses: string[] = [], currentPage?: string): string {
+        const targetDesc = this.getTargetDescription(stmt.target);
+        const locator = this.transpileTarget(stmt.target, uses, currentPage);
+        return `await test.step('Wait for ${targetDesc}', async () => { await ${locator}.waitFor({ state: 'visible' }); });`;
+    }
+
+    private static readonly RETURN_TYPE_METHODS: Record<string, string> = {
+        'VISIBLE': 'isVisible()',
+        'TEXT': "textContent() || ''",
+        'VALUE': 'inputValue()',
+    };
+
+    /**
+     * Transpile RETURN statement - returns value from PageActions method
+     */
+    private transpileReturn(stmt: ReturnStatement, uses: string[] = [], currentPage?: string): string {
+        const method = Transpiler.RETURN_TYPE_METHODS[stmt.returnType];
+        if (method && stmt.target) {
+            const locator = this.transpileTarget(stmt.target, uses, currentPage);
+            return `return await ${locator}.${method};`;
+        }
+        if (stmt.returnType === 'EXPRESSION' && stmt.expression) {
+            return `return ${this.transpileExpression(stmt.expression)};`;
+        }
+        return `return null;`;
+    }
+
+    /**
      * Transpile a utility expression to JavaScript
      */
     private transpileUtilityExpression(expr: UtilityExpressionNode): string {
-        // Check the expression type
         if (!expr || typeof expr !== 'object') {
             return 'null';
         }
 
         switch (expr.type) {
             case 'Trim':
-                return this.transpileTrimExpression(expr as TrimExpression);
-
+                return this.transpileTrimExpression(expr);
             case 'Convert':
-                return this.transpileConvertExpression(expr as ConvertExpression);
-
+                return this.transpileConvertExpression(expr);
             case 'Extract':
-                return this.transpileExtractExpression(expr as ExtractExpression);
-
+                return this.transpileExtractExpression(expr);
             case 'Replace':
-                return this.transpileReplaceExpression(expr as ReplaceExpression);
-
+                return this.transpileReplaceExpression(expr);
             case 'Split':
-                return this.transpileSplitExpression(expr as SplitExpression);
-
+                return this.transpileSplitExpression(expr);
             case 'Join':
-                return this.transpileJoinExpression(expr as JoinExpression);
-
+                return this.transpileJoinExpression(expr);
             case 'Length':
-                return this.transpileLengthExpression(expr as LengthExpression);
-
+                return this.transpileLengthExpression(expr);
             case 'Pad':
-                return this.transpilePadExpression(expr as PadExpression);
-
+                return this.transpilePadExpression(expr);
             case 'Today':
                 return 'veroDate.today()';
-
             case 'Now':
                 return 'veroDate.now()';
-
             case 'AddDate':
-                return this.transpileAddDateExpression(expr as AddDateExpression);
-
+                return this.transpileAddDateExpression(expr);
             case 'SubtractDate':
-                return this.transpileSubtractDateExpression(expr as SubtractDateExpression);
-
+                return this.transpileSubtractDateExpression(expr);
             case 'Format':
-                return this.transpileFormatExpression(expr as FormatExpression);
-
+                return this.transpileFormatExpression(expr);
             case 'DatePart':
-                return this.transpileDatePartExpression(expr as DatePartExpression);
-
+                return this.transpileDatePartExpression(expr);
             case 'Round':
-                return this.transpileRoundExpression(expr as RoundExpression);
-
+                return this.transpileRoundExpression(expr);
             case 'Absolute':
-                return this.transpileAbsoluteExpression(expr as AbsoluteExpression);
-
+                return this.transpileAbsoluteExpression(expr);
             case 'Generate':
-                return this.transpileGenerateExpression(expr as GenerateExpression);
-
+                return this.transpileGenerateExpression(expr);
             case 'RandomNumber':
-                return this.transpileRandomNumberExpression(expr as RandomNumberExpression);
-
+                return this.transpileRandomNumberExpression(expr);
             case 'Chained':
-                return this.transpileChainedExpression(expr as ChainedExpression);
-
-            // Fallback to regular expression types
+                return this.transpileChainedExpression(expr);
             case 'StringLiteral':
             case 'NumberLiteral':
             case 'BooleanLiteral':
             case 'VariableReference':
             case 'EnvVarReference':
-                return this.transpileExpression(expr as ExpressionNode);
-
+                return this.transpileExpression(expr);
             default:
                 return 'null';
         }
@@ -1664,9 +1860,69 @@ export class Transpiler {
 
     // ==================== HELPER METHODS ====================
 
+    /**
+     * Walk all statements in a feature (hooks + scenarios, including nested ForEach)
+     * and return true if predicate matches any statement.
+     */
+    private featureHasStatement(feature: FeatureNode, predicate: (stmt: StatementNode) => boolean): boolean {
+        const checkStatements = (statements: StatementNode[]): boolean => {
+            for (const stmt of statements) {
+                if (predicate(stmt)) return true;
+                if (stmt.type === 'ForEach') {
+                    if (checkStatements(stmt.statements)) return true;
+                }
+            }
+            return false;
+        };
+
+        for (const hook of feature.hooks) {
+            if (checkStatements(hook.statements)) return true;
+        }
+        for (const scenario of feature.scenarios) {
+            if (checkStatements(scenario.statements)) return true;
+        }
+        return false;
+    }
+
     private transpileSelector(selector: SelectorNode): string {
-        // All selectors now use auto-detection
-        return this.transpileAutoSelector(selector.value);
+        const v = selector.value.replace(/'/g, "\\'");
+
+        switch (selector.selectorType) {
+            // Role shorthands
+            case 'button':    return `page.getByRole('button', { name: '${v}' })`;
+            case 'textbox':   return `page.getByRole('textbox', { name: '${v}' })`;
+            case 'link':      return `page.getByRole('link', { name: '${v}' })`;
+            case 'checkbox':  return `page.getByRole('checkbox', { name: '${v}' })`;
+            case 'heading':   return `page.getByRole('heading', { name: '${v}' })`;
+            case 'combobox':  return `page.getByRole('combobox', { name: '${v}' })`;
+            case 'radio':     return `page.getByRole('radio', { name: '${v}' })`;
+
+            // Generic role
+            case 'role':
+                if (selector.nameParam) {
+                    const nameEsc = selector.nameParam.replace(/'/g, "\\'");
+                    return `page.getByRole('${v}', { name: '${nameEsc}' })`;
+                }
+                return `page.getByRole('${v}')`;
+
+            // Other locator methods
+            case 'label':       return `page.getByLabel('${v}')`;
+            case 'placeholder': return `page.getByPlaceholder('${v}')`;
+            case 'testid':      return `page.getByTestId('${v}')`;
+            case 'text':        return `page.getByText('${v}')`;
+            case 'alt':         return `page.getByAltText('${v}')`;
+            case 'title':       return `page.getByTitle('${v}')`;
+
+            // Raw CSS/XPath selectors
+            case 'css':
+            case 'xpath':
+                return `page.locator('${v}')`;
+
+            // Legacy auto-detection
+            case 'auto':
+            default:
+                return this.transpileAutoSelector(selector.value);
+        }
     }
 
     /**
@@ -1674,6 +1930,9 @@ export class Transpiler {
      * Analyzes the string to determine the best Playwright locator method.
      */
     private transpileAutoSelector(value: string): string {
+        // Escape single quotes in the value for JavaScript string literals
+        const escapedValue = value.replace(/'/g, "\\'");
+
         // CSS/XPath patterns that should use page.locator()
         const isCssOrXPath =
             value.startsWith('#') ||                        // ID selector
@@ -1688,11 +1947,11 @@ export class Transpiler {
             /^[a-z]+[.#\[]/i.test(value);                   // Tag with selector
 
         if (isCssOrXPath) {
-            return `page.locator('${value}')`;
+            return `page.locator('${escapedValue}')`;
         }
 
         // Default: treat as human-readable text
-        return `page.getByText('${value}')`;
+        return `page.getByText('${escapedValue}')`;
     }
 
     private getTargetDescription(target: TargetNode): string {
@@ -1711,7 +1970,7 @@ export class Transpiler {
     }
 
     private transpileTarget(target: TargetNode, _uses: string[] = [], currentPage?: string): string {
-        if (target.text) return `page.getByText('${target.text}')`;
+        if (target.text) return `page.getByText('${target.text.replace(/'/g, "\\'")}')`;
         if (target.selector) return this.transpileSelector(target.selector);
         if (target.page && target.field) {
             // If we're inside a page action and referencing the same page, use 'this'

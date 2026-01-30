@@ -1,13 +1,13 @@
 /**
  * AI Settings Routes
  *
- * Manage user AI provider configuration for Copilot
- * NOW USES MONGODB INSTEAD OF PRISMA
+ * Manage user AI provider configuration for Copilot.
  */
 
 import { Router, Request, Response } from 'express';
 import { aiSettingsRepository } from '../db/repositories/mongo';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -25,6 +25,26 @@ const DEFAULT_AI_SETTINGS = {
   useBrowserbase: false,
 };
 
+// Mask API key to show only last 4 characters
+function maskApiKey(key: string | undefined | null): string | null {
+  return key ? `...${key.slice(-4)}` : null;
+}
+
+// Build masked settings response with has-key flags
+function maskSettingsForResponse(settings: Record<string, any>): Record<string, any> {
+  return {
+    ...settings,
+    geminiApiKey: maskApiKey(settings.geminiApiKey),
+    openaiApiKey: maskApiKey(settings.openaiApiKey),
+    anthropicApiKey: maskApiKey(settings.anthropicApiKey),
+    browserbaseApiKey: maskApiKey(settings.browserbaseApiKey),
+    hasGeminiKey: !!settings.geminiApiKey,
+    hasOpenaiKey: !!settings.openaiApiKey,
+    hasAnthropicKey: !!settings.anthropicApiKey,
+    hasBrowserbaseKey: !!settings.browserbaseApiKey,
+  };
+}
+
 /**
  * GET /api/ai-settings
  * Get user's AI settings
@@ -41,23 +61,9 @@ router.get('/', async (req: Request, res: Response) => {
       settings = await aiSettingsRepository.upsert(userId, DEFAULT_AI_SETTINGS);
     }
 
-    // Mask API keys for security (only show last 4 chars)
-    const maskedSettings = {
-      ...settings,
-      geminiApiKey: settings.geminiApiKey ? `...${settings.geminiApiKey.slice(-4)}` : null,
-      openaiApiKey: settings.openaiApiKey ? `...${settings.openaiApiKey.slice(-4)}` : null,
-      anthropicApiKey: settings.anthropicApiKey ? `...${settings.anthropicApiKey.slice(-4)}` : null,
-      browserbaseApiKey: settings.browserbaseApiKey ? `...${settings.browserbaseApiKey.slice(-4)}` : null,
-      // Include a flag to indicate if keys are set
-      hasGeminiKey: !!settings.geminiApiKey,
-      hasOpenaiKey: !!settings.openaiApiKey,
-      hasAnthropicKey: !!settings.anthropicApiKey,
-      hasBrowserbaseKey: !!settings.browserbaseApiKey,
-    };
-
-    res.json(maskedSettings);
+    res.json(maskSettingsForResponse(settings));
   } catch (error: any) {
-    console.error('Error fetching AI settings:', error);
+    logger.error('Error fetching AI settings:', error);
     res.status(500).json({ error: 'Failed to fetch AI settings' });
   }
 });
@@ -112,22 +118,9 @@ router.put('/', async (req: Request, res: Response) => {
 
     const settings = await aiSettingsRepository.upsert(userId, updateData);
 
-    // Mask API keys in response
-    const maskedSettings = {
-      ...settings,
-      geminiApiKey: settings.geminiApiKey ? `...${settings.geminiApiKey.slice(-4)}` : null,
-      openaiApiKey: settings.openaiApiKey ? `...${settings.openaiApiKey.slice(-4)}` : null,
-      anthropicApiKey: settings.anthropicApiKey ? `...${settings.anthropicApiKey.slice(-4)}` : null,
-      browserbaseApiKey: settings.browserbaseApiKey ? `...${settings.browserbaseApiKey.slice(-4)}` : null,
-      hasGeminiKey: !!settings.geminiApiKey,
-      hasOpenaiKey: !!settings.openaiApiKey,
-      hasAnthropicKey: !!settings.anthropicApiKey,
-      hasBrowserbaseKey: !!settings.browserbaseApiKey,
-    };
-
-    res.json(maskedSettings);
+    res.json(maskSettingsForResponse(settings));
   } catch (error: any) {
-    console.error('Error updating AI settings:', error);
+    logger.error('Error updating AI settings:', error);
     res.status(500).json({ error: 'Failed to update AI settings' });
   }
 });
@@ -213,7 +206,7 @@ router.post('/test', async (req: Request, res: Response) => {
 
     res.json({ success, message, provider: provider || settings.provider });
   } catch (error: any) {
-    console.error('Error testing AI connection:', error);
+    logger.error('Error testing AI connection:', error);
     res.status(500).json({ error: 'Failed to test AI connection' });
   }
 });
@@ -252,7 +245,7 @@ router.delete('/key/:provider', async (req: Request, res: Response) => {
 
     res.json({ success: true, message: `${provider} API key deleted` });
   } catch (error: any) {
-    console.error('Error deleting API key:', error);
+    logger.error('Error deleting API key:', error);
     res.status(500).json({ error: 'Failed to delete API key' });
   }
 });

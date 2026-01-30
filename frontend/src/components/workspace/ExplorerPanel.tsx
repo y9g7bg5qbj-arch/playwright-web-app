@@ -162,10 +162,12 @@ export function ExplorerPanel({
         const isEnvFolder = ['master', 'dev', 'sandboxes'].includes(lowerName);
         const isSandbox = parentPath?.endsWith('sandboxes');
 
-        const displayName = lowerName === 'master' ? 'Production' :
-          lowerName === 'dev' ? 'Development' :
-            lowerName === 'sandboxes' ? 'Sandboxes' :
-              node.name;
+        const ENV_DISPLAY_NAMES: Record<string, string> = {
+          master: 'Production',
+          dev: 'Development',
+          sandboxes: 'Sandboxes',
+        };
+        const displayName = ENV_DISPLAY_NAMES[lowerName] || node.name;
 
         // Custom icon logic for expanded state
         const DisplayIcon = (isExpanded && !isEnvFolder && !isSandbox) ? FolderOpen : FolderIcon;
@@ -280,7 +282,7 @@ export function ExplorerPanel({
           <span className="truncate">{node.name}</span>
 
           {node.hasChanges && (
-            <span className="ml-auto w-2 h-2 bg-brand-primary rounded-full shadow-[0_0_4px_var(--brand-primary)]" />
+            <span className="ml-auto w-2 h-2 bg-brand-primary rounded-full" />
           )}
         </div>
       );

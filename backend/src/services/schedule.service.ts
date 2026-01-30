@@ -1,6 +1,7 @@
 /**
  * Schedule Service
- * NOW USES MONGODB INSTEAD OF PRISMA
+ *
+ * Manages scheduled test execution with cron expressions.
  */
 
 import { scheduleRepository, scheduleRunRepository, scheduleTestResultRepository, userRepository } from '../db/repositories/mongo';
@@ -168,7 +169,22 @@ export class ScheduleService {
     /**
      * Find a single schedule by ID
      */
-    async findOne(userId: string, scheduleId: string): Promise<Schedule> {
+    /**
+     * Enrich run records with their test results.
+     */
+    private async enrichRunsWithResults(runs: any[]): Promise<any[]> {
+        return Promise.all(
+            runs.map(async (run) => {
+                const testResults = await scheduleTestResultRepository.findByRunId(run.id);
+                return { ...run, testResults };
+            })
+        );
+    }
+
+    /**
+     * Verify user owns the schedule. Returns the schedule record.
+     */
+    private async verifyOwnership(userId: string, scheduleId: string): Promise<any> {
         const schedule = await scheduleRepository.findById(scheduleId);
 
         if (!schedule) {
@@ -179,13 +195,14 @@ export class ScheduleService {
             throw new ForbiddenError('Access denied');
         }
 
+        return schedule;
+    }
+
+    async findOne(userId: string, scheduleId: string): Promise<Schedule> {
+        const schedule = await this.verifyOwnership(userId, scheduleId);
+
         const runs = await scheduleRunRepository.findByScheduleId(scheduleId, 10);
-        const runsWithResults = await Promise.all(
-            runs.map(async (run) => {
-                const testResults = await scheduleTestResultRepository.findByRunId(run.id);
-                return { ...run, testResults };
-            })
-        );
+        const runsWithResults = await this.enrichRunsWithResults(runs);
 
         return this.formatSchedule({ ...schedule, runs: runsWithResults });
     }
@@ -194,15 +211,7 @@ export class ScheduleService {
      * Update a schedule
      */
     async update(userId: string, scheduleId: string, data: ScheduleUpdate): Promise<Schedule> {
-        const existing = await scheduleRepository.findById(scheduleId);
-
-        if (!existing) {
-            throw new NotFoundError('Schedule not found');
-        }
-
-        if (existing.userId !== userId) {
-            throw new ForbiddenError('Access denied');
-        }
+        const existing = await this.verifyOwnership(userId, scheduleId);
 
         // Validate new cron expression if provided
         let nextRunAt = existing.nextRunAt;
@@ -259,16 +268,7 @@ export class ScheduleService {
      * Delete a schedule
      */
     async delete(userId: string, scheduleId: string): Promise<void> {
-        const existing = await scheduleRepository.findById(scheduleId);
-
-        if (!existing) {
-            throw new NotFoundError('Schedule not found');
-        }
-
-        if (existing.userId !== userId) {
-            throw new ForbiddenError('Access denied');
-        }
-
+        await this.verifyOwnership(userId, scheduleId);
         await scheduleRepository.delete(scheduleId);
     }
 
@@ -276,15 +276,7 @@ export class ScheduleService {
      * Toggle schedule active status
      */
     async toggleActive(userId: string, scheduleId: string): Promise<Schedule> {
-        const existing = await scheduleRepository.findById(scheduleId);
-
-        if (!existing) {
-            throw new NotFoundError('Schedule not found');
-        }
-
-        if (existing.userId !== userId) {
-            throw new ForbiddenError('Access denied');
-        }
+        const existing = await this.verifyOwnership(userId, scheduleId);
 
         const schedule = await scheduleRepository.update(scheduleId, {
             isActive: !existing.isActive,
@@ -310,15 +302,7 @@ export class ScheduleService {
         scheduleId: string,
         request?: ScheduleTriggerRequest
     ): Promise<ScheduleRun> {
-        const schedule = await scheduleRepository.findById(scheduleId);
-
-        if (!schedule) {
-            throw new NotFoundError('Schedule not found');
-        }
-
-        if (schedule.userId !== userId) {
-            throw new ForbiddenError('Access denied');
-        }
+        const schedule = await this.verifyOwnership(userId, scheduleId);
 
         // Get user info for audit
         const user = await userRepository.findById(userId);
@@ -521,23 +505,10 @@ export class ScheduleService {
      * Get run history for a schedule
      */
     async getRuns(userId: string, scheduleId: string, limit: number = 20): Promise<ScheduleRun[]> {
-        const schedule = await scheduleRepository.findById(scheduleId);
-
-        if (!schedule) {
-            throw new NotFoundError('Schedule not found');
-        }
-
-        if (schedule.userId !== userId) {
-            throw new ForbiddenError('Access denied');
-        }
+        await this.verifyOwnership(userId, scheduleId);
 
         const runs = await scheduleRunRepository.findByScheduleId(scheduleId, limit);
-        const runsWithResults = await Promise.all(
-            runs.map(async (run) => {
-                const testResults = await scheduleTestResultRepository.findByRunId(run.id);
-                return { ...run, testResults };
-            })
-        );
+        const runsWithResults = await this.enrichRunsWithResults(runs);
 
         return runsWithResults.map(r => this.formatRun(r));
     }
@@ -650,15 +621,7 @@ export class ScheduleService {
         webhookUrl: string | null;
         hasToken: boolean;
     }> {
-        const schedule = await scheduleRepository.findById(scheduleId);
-
-        if (!schedule) {
-            throw new NotFoundError('Schedule not found');
-        }
-
-        if (schedule.userId !== userId) {
-            throw new ForbiddenError('Access denied');
-        }
+        const schedule = await this.verifyOwnership(userId, scheduleId);
 
         const baseUrl = process.env.API_BASE_URL || 'http://localhost:3000';
 
@@ -675,15 +638,7 @@ export class ScheduleService {
      * Regenerate webhook token for a schedule
      */
     async regenerateWebhookToken(userId: string, scheduleId: string): Promise<string> {
-        const existing = await scheduleRepository.findById(scheduleId);
-
-        if (!existing) {
-            throw new NotFoundError('Schedule not found');
-        }
-
-        if (existing.userId !== userId) {
-            throw new ForbiddenError('Access denied');
-        }
+        await this.verifyOwnership(userId, scheduleId);
 
         const newToken = generateWebhookToken();
 

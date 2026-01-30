@@ -3,6 +3,7 @@
 export interface ProgramNode {
     type: 'Program';
     pages: PageNode[];
+    pageActions: PageActionsNode[];
     features: FeatureNode[];
     fixtures: FixtureNode[];
 }
@@ -23,10 +24,18 @@ export interface FieldNode {
     line: number;
 }
 
+export type SelectorType =
+    | 'auto'       // legacy string-only
+    | 'button' | 'textbox' | 'link' | 'checkbox' | 'heading' | 'combobox' | 'radio'  // role shorthands
+    | 'role'       // generic role
+    | 'label' | 'placeholder' | 'testid' | 'text' | 'alt' | 'title'  // other locators
+    | 'css' | 'xpath';  // raw selectors
+
 export interface SelectorNode {
     type: 'Selector';
-    selectorType: 'auto';
+    selectorType: SelectorType;
     value: string;
+    nameParam?: string;  // For: ROLE "button" NAME "Submit"
 }
 
 export interface VariableNode {
@@ -46,16 +55,31 @@ export interface ActionDefinitionNode {
     line: number;
 }
 
+// ==================== PAGEACTIONS ====================
+
+export interface PageActionsNode {
+    type: 'PageActions';
+    name: string;
+    forPage: string;
+    actions: ActionDefinitionNode[];
+    line: number;
+}
+
 // ==================== FEATURES AND SCENARIOS ====================
 
 export type FeatureAnnotation = 'serial' | 'skip' | 'only';
 export type ScenarioAnnotation = 'skip' | 'only' | 'slow' | 'fixme';
 
+export interface UseNode {
+    name: string;
+    line: number;
+}
+
 export interface FeatureNode {
     type: 'Feature';
     name: string;
     annotations: FeatureAnnotation[];
-    uses: string[];
+    uses: UseNode[];
     fixtures: FixtureUseNode[];
     hooks: HookNode[];
     scenarios: ScenarioNode[];
@@ -126,8 +150,11 @@ export type StatementNode =
     | VerifyUrlStatement
     | VerifyTitleStatement
     | VerifyHasStatement
+    | VerifyVariableStatement
     | PerformStatement
+    | PerformAssignmentStatement
     | WaitStatement
+    | WaitForStatement
     | RefreshStatement
     | CheckStatement
     | HoverStatement
@@ -142,7 +169,8 @@ export type StatementNode =
     | RowsStatement
     | ColumnAccessStatement
     | CountStatement
-    | UtilityAssignmentStatement;
+    | UtilityAssignmentStatement
+    | ReturnStatement;
 
 // Action Statements
 
@@ -221,6 +249,22 @@ export interface WaitStatement {
     line: number;
 }
 
+// WAIT FOR element - wait until element is visible
+export interface WaitForStatement {
+    type: 'WaitFor';
+    target: TargetNode;
+    line: number;
+}
+
+// RETURN VISIBLE OF field | RETURN TEXT OF field | RETURN expression
+export interface ReturnStatement {
+    type: 'Return';
+    returnType: 'VISIBLE' | 'TEXT' | 'VALUE' | 'EXPRESSION';
+    target?: TargetNode;      // For VISIBLE OF / TEXT OF / VALUE OF
+    expression?: ExpressionNode;  // For direct expression return
+    line: number;
+}
+
 export interface RefreshStatement {
     type: 'Refresh';
     line: number;
@@ -248,6 +292,15 @@ export interface UploadStatement {
 
 export interface PerformStatement {
     type: 'Perform';
+    action: ActionCallNode;
+    line: number;
+}
+
+// Assign result of PERFORM to a variable: FLAG isWelcome = PERFORM DashboardActions.isWelcomeVisible
+export interface PerformAssignmentStatement {
+    type: 'PerformAssignment';
+    varType: 'TEXT' | 'NUMBER' | 'FLAG' | 'LIST';
+    variableName: string;
     action: ActionCallNode;
     line: number;
 }
@@ -294,6 +347,24 @@ export interface VerifyHasStatement {
     hasCondition: HasCondition;
     line: number;
 }
+
+// VERIFY variable IS TRUE/FALSE or VERIFY variable CONTAINS "text"
+export interface VerifyVariableStatement {
+    type: 'VerifyVariable';
+    variable: VariableReference;
+    condition: VariableCondition;
+    line: number;
+}
+
+export type VariableCondition =
+    | { type: 'IsTrue' }
+    | { type: 'IsFalse' }
+    | { type: 'IsNotTrue' }
+    | { type: 'IsNotFalse' }
+    | { type: 'Contains'; value: ExpressionNode }
+    | { type: 'NotContains'; value: ExpressionNode }
+    | { type: 'Equals'; value: ExpressionNode }
+    | { type: 'NotEquals'; value: ExpressionNode };
 
 export type HasCondition =
     | HasCountCondition

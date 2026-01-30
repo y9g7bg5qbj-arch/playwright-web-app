@@ -26,6 +26,7 @@ import {
     SELECTOR_EXTRACTOR_SCRIPT,
     type ExtractedSelectors,
 } from '../../selector/selectorExtractor';
+import { generateVeroAction } from '../../veroSyntaxReference';
 
 /** Selector type priorities (lower = better) */
 const SELECTOR_PRIORITY: Record<string, number> = {
@@ -416,7 +417,7 @@ export class SelectorGeneratorSkill extends BaseSkill {
     }
 
     /**
-     * Generate Vero code for the action
+     * Generate Vero code for the action using single source of truth
      */
     private generateVeroCode(
         action: string,
@@ -424,23 +425,7 @@ export class SelectorGeneratorSkill extends BaseSkill {
         value?: string
     ): string {
         const field = this.selectorToVeroField(selector);
-
-        switch (action) {
-            case 'click':
-                return `click ${field}`;
-            case 'fill':
-                return `fill ${field} with "${value || ''}"`;
-            case 'select':
-                return `select "${value || ''}" from ${field}`;
-            case 'check':
-                return `check ${field}`;
-            case 'uncheck':
-                return `uncheck ${field}`;
-            case 'hover':
-                return `hover ${field}`;
-            default:
-                return `click ${field} # Unknown action: ${action}`;
-        }
+        return generateVeroAction(action, field, value);
     }
 
     /**

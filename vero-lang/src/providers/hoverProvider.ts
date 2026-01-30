@@ -18,7 +18,7 @@ export const KEYWORD_DOCS: Record<string, { syntax: string; description: string;
     page: { syntax: 'page PageName { ... }', description: 'Defines a Page Object containing fields and actions.', example: 'page LoginPage {\n  field username = "#username"\n}' },
     feature: { syntax: 'feature "Feature Name" { ... }', description: 'Groups related test scenarios together.' },
     scenario: { syntax: 'scenario "Scenario Name" { ... }', description: 'Defines a single test case.' },
-    field: { syntax: 'field fieldName = "selector"', description: 'Defines a locator for a UI element.' },
+    field: { syntax: 'FIELD fieldName = BUTTON "Submit"', description: 'Defines a locator for a UI element using a typed selector.', example: 'FIELD submitBtn = BUTTON "Submit"\nFIELD email = TEXTBOX "Email"\nFIELD nav = LINK "Home"\nFIELD cart = TESTID "cart-icon"\nFIELD search = PLACEHOLDER "Search..."\nFIELD legacy = "#css-selector"' },
     use: { syntax: 'use PageName', description: 'Imports a page object for use in the current feature.' },
     fixture: { syntax: 'fixture fixtureName { ... }', description: 'Defines reusable test data or setup.' },
     click: { syntax: 'click "element" | click Page.field', description: 'Clicks on an element.' },

@@ -1,4 +1,4 @@
-import { ProgramNode, PageNode, FeatureNode, StatementNode, ExpressionNode } from '../parser/ast.js';
+import { ProgramNode, PageNode, PageActionsNode, FeatureNode, StatementNode, ExpressionNode } from '../parser/ast.js';
 
 export interface ValidationError {
     message: string;
@@ -20,23 +20,23 @@ export class Validator {
     private errors: ValidationError[] = [];
     private warnings: ValidationError[] = [];
     private definedPages: Set<string> = new Set();
+    private definedPageActions: Set<string> = new Set();
     private definedFields: Map<string, Set<string>> = new Map();
     private definedActions: Map<string, Set<string>> = new Map();
     private definedVariables: Map<string, Set<string>> = new Map();  // Page -> variable names
     private scenarioVariables: Set<string> = new Set();  // Variables defined in current scenario
 
     validate(ast: ProgramNode): ValidationResult {
-        this.errors = [];
-        this.warnings = [];
-        this.definedPages = new Set();
-        this.definedFields = new Map();
-        this.definedActions = new Map();
-        this.definedVariables = new Map();
-        this.scenarioVariables = new Set();
+        this.resetState();
 
         // First pass: collect definitions
         for (const page of ast.pages) {
             this.collectPageDefinitions(page);
+        }
+
+        // Collect PageActions definitions
+        for (const pa of ast.pageActions) {
+            this.collectPageActionsDefinitions(pa);
         }
 
         // Second pass: validate
@@ -64,6 +64,16 @@ export class Validator {
         this.definedFields.set(page.name, new Set(page.fields.map(f => f.name)));
         this.definedVariables.set(page.name, new Set(page.variables.map(v => v.name)));
         this.definedActions.set(page.name, new Set(page.actions.map(a => a.name)));
+    }
+
+    private collectPageActionsDefinitions(pa: PageActionsNode): void {
+        if (this.definedPageActions.has(pa.name)) {
+            this.addError(`Duplicate PageActions definition: ${pa.name}`, pa.line, undefined, 'VERO-101');
+        }
+
+        this.definedPageActions.add(pa.name);
+        // PageActions also define actions that can be called via PERFORM
+        this.definedActions.set(pa.name, new Set(pa.actions.map(a => a.name)));
     }
 
     private validatePage(page: PageNode): void {
@@ -94,13 +104,13 @@ export class Validator {
     }
 
     private validateFeature(feature: FeatureNode): void {
-        // Validate USE statements
-        for (const usedPage of feature.uses) {
-            if (!this.definedPages.has(usedPage)) {
+        // Validate USE statements - can use either Pages or PageActions
+        for (const use of feature.uses) {
+            if (!this.definedPages.has(use.name) && !this.definedPageActions.has(use.name)) {
                 this.addError(
-                    `Page '${usedPage}' is used but not defined`,
-                    feature.line,
-                    `Make sure ${usedPage}.vero exists`,
+                    `'${use.name}' is used but not defined`,
+                    use.line,
+                    `Make sure ${use.name}.vero exists in pages/ or PageActions/`,
                     'VERO-200'
                 );
             }
@@ -118,11 +128,73 @@ export class Validator {
     }
 
     private validateStatement(stmt: StatementNode, feature: FeatureNode): void {
+        // Helper to validate a target's page reference
+        const validateTargetPage = (target: { page?: string, field?: string }, line: number) => {
+            if (target.page && !feature.uses.some(u => u.name === target.page)) {
+                this.addError(
+                    `Page '${target.page}' is referenced but not in USE list`,
+                    line,
+                    `Add 'USE ${target.page}' at the top of the feature`,
+                    'VERO-201'
+                );
+            }
+            // Also check if the field exists on the page
+            if (target.page && target.field) {
+                const pageFields = this.definedFields.get(target.page);
+                if (pageFields && !pageFields.has(target.field)) {
+                    this.addWarning(
+                        `Field '${target.field}' may not be defined in page '${target.page}'`,
+                        line,
+                        `Define the field in ${target.page}.vero`,
+                        'VERO-205'
+                    );
+                }
+            }
+        };
+
+        // Validate targets and expressions by statement type
+        switch (stmt.type) {
+            case 'Click':
+            case 'RightClick':
+            case 'DoubleClick':
+            case 'ForceClick':
+            case 'Hover':
+            case 'Check':
+            case 'WaitFor':
+                validateTargetPage(stmt.target, stmt.line);
+                break;
+
+            case 'Fill':
+                validateTargetPage(stmt.target, stmt.line);
+                this.validateExpression(stmt.value, stmt.line, feature);
+                break;
+
+            case 'Drag':
+                validateTargetPage(stmt.source, stmt.line);
+                if (stmt.destination.type === 'Target') {
+                    validateTargetPage(stmt.destination, stmt.line);
+                }
+                break;
+
+            case 'Upload':
+                validateTargetPage(stmt.target, stmt.line);
+                for (const file of stmt.files) {
+                    this.validateExpression(file, stmt.line, feature);
+                }
+                break;
+
+            case 'TakeScreenshot':
+                if (stmt.target) {
+                    validateTargetPage(stmt.target, stmt.line);
+                }
+                break;
+        }
+
         // Check PERFORM statements for undefined pages/actions
         if (stmt.type === 'Perform') {
             const action = stmt.action;
             if (action.page) {
-                if (!feature.uses.includes(action.page)) {
+                if (!feature.uses.some(u => u.name === action.page)) {
                     this.addError(
                         `Page '${action.page}' is referenced but not in USE list`,
                         stmt.line,
@@ -145,11 +217,6 @@ export class Validator {
             for (const arg of action.arguments) {
                 this.validateExpression(arg, stmt.line, feature);
             }
-        }
-
-        // Check FILL statements for undefined variables in value
-        if (stmt.type === 'Fill') {
-            this.validateExpression(stmt.value, stmt.line, feature);
         }
 
         // Check LOAD statements - they define new variables
@@ -179,7 +246,7 @@ export class Validator {
         if (stmt.type === 'Verify' || stmt.type === 'VerifyHas') {
             if ('target' in stmt && stmt.target && stmt.target.type === 'Target') {
                 const target = stmt.target;
-                if (target.page && !feature.uses.includes(target.page)) {
+                if (target.page && !feature.uses.some(u => u.name === target.page)) {
                     this.addError(
                         `Page '${target.page}' is referenced but not in USE list`,
                         stmt.line,
@@ -198,7 +265,7 @@ export class Validator {
 
             if (pageName) {
                 // Check if page is in USE list
-                if (!feature.uses.includes(pageName)) {
+                if (!feature.uses.some(u => u.name === pageName)) {
                     this.addError(
                         `Page '${pageName}' is referenced but not in USE list`,
                         line,
@@ -229,6 +296,17 @@ export class Validator {
                 }
             }
         }
+    }
+
+    private resetState(): void {
+        this.errors = [];
+        this.warnings = [];
+        this.definedPages = new Set();
+        this.definedPageActions = new Set();
+        this.definedFields = new Map();
+        this.definedActions = new Map();
+        this.definedVariables = new Map();
+        this.scenarioVariables = new Set();
     }
 
     private addError(message: string, line?: number, suggestion?: string, code?: string): void {

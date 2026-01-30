@@ -1,6 +1,7 @@
 /**
  * Run Configuration Service
- * NOW USES MONGODB INSTEAD OF PRISMA
+ *
+ * Manages run configurations, environments, and remote runners.
  */
 
 import {
@@ -67,10 +68,7 @@ export class RunConfigurationService {
         const environment = config.environmentId
           ? await executionEnvironmentRepository.findById(config.environmentId)
           : null;
-        const remoteRunner = config.localConfig
-          ? null
-          : null; // Remote runner lookup if needed
-        return { ...config, environment, remoteRunner };
+        return { ...config, environment };
       })
     );
 
@@ -165,32 +163,19 @@ export class RunConfigurationService {
       }
     }
 
-    const updateData: any = {};
-    if (data.name !== undefined) updateData.name = data.name;
-    if (data.description !== undefined) updateData.description = data.description;
-    if (data.isDefault !== undefined) updateData.isDefault = data.isDefault;
-    if (data.tags !== undefined) updateData.tags = data.tags;
-    if (data.tagMode !== undefined) updateData.tagMode = data.tagMode;
-    if (data.excludeTags !== undefined) updateData.excludeTags = data.excludeTags;
-    if (data.testFlowIds !== undefined) updateData.testFlowIds = data.testFlowIds;
-    if (data.grep !== undefined) updateData.grep = data.grep;
-    if (data.environmentId !== undefined) updateData.environmentId = data.environmentId;
-    if (data.target !== undefined) updateData.target = data.target;
-    if (data.localConfig !== undefined) updateData.localConfig = data.localConfig ? JSON.stringify(data.localConfig) : null;
-    if (data.dockerConfig !== undefined) updateData.dockerConfig = data.dockerConfig ? JSON.stringify(data.dockerConfig) : null;
-    if (data.githubActionsConfig !== undefined) updateData.githubActionsConfig = data.githubActionsConfig ? JSON.stringify(data.githubActionsConfig) : null;
-    if (data.browser !== undefined) updateData.browser = data.browser;
-    if (data.browserChannel !== undefined) updateData.browserChannel = data.browserChannel;
-    if (data.headless !== undefined) updateData.headless = data.headless;
-    if (data.viewport !== undefined) updateData.viewport = JSON.stringify(data.viewport);
-    if (data.workers !== undefined) updateData.workers = data.workers;
-    if (data.shardCount !== undefined) updateData.shardCount = data.shardCount;
-    if (data.retries !== undefined) updateData.retries = data.retries;
-    if (data.timeout !== undefined) updateData.timeout = data.timeout;
-    if (data.tracing !== undefined) updateData.tracing = data.tracing;
-    if (data.screenshot !== undefined) updateData.screenshot = data.screenshot;
-    if (data.video !== undefined) updateData.video = data.video;
-    if (data.advancedConfig !== undefined) updateData.advancedConfig = data.advancedConfig ? JSON.stringify(data.advancedConfig) : null;
+    const plainKeys = [
+      'name', 'description', 'isDefault', 'tags', 'tagMode', 'excludeTags',
+      'testFlowIds', 'grep', 'environmentId', 'target', 'browser',
+      'browserChannel', 'headless', 'workers', 'shardCount', 'retries',
+      'timeout', 'tracing', 'screenshot', 'video',
+    ];
+    const jsonKeys = ['localConfig', 'dockerConfig', 'githubActionsConfig', 'advancedConfig'];
+    const updateData = this.buildUpdateData(data, [...plainKeys, ...jsonKeys], jsonKeys);
+
+    // viewport needs stringify but not null-ify (it always has a value when provided)
+    if (data.viewport !== undefined) {
+      updateData.viewport = JSON.stringify(data.viewport);
+    }
 
     const config = await runConfigurationRepository.update(configId, updateData);
 
@@ -253,6 +238,41 @@ export class RunConfigurationService {
     });
   }
 
+  /**
+   * Build a partial update object, only including defined keys.
+   * For keys listed in jsonKeys, stringify truthy values and null-ify falsy ones.
+   */
+  private buildUpdateData(
+    data: Record<string, any>,
+    keys: string[],
+    jsonKeys: string[] = []
+  ): Record<string, any> {
+    const result: Record<string, any> = {};
+    for (const key of keys) {
+      if (data[key] === undefined) continue;
+      if (jsonKeys.includes(key)) {
+        result[key] = data[key] ? JSON.stringify(data[key]) : null;
+      } else {
+        result[key] = data[key];
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Parse a value that may be a JSON string or already an object
+   */
+  private parseJsonField<T>(value: any): T | undefined {
+    if (!value) return undefined;
+    if (typeof value === 'string') return JSON.parse(value) as T;
+    return value as T;
+  }
+
+  private parseArrayField(value: any): string[] {
+    if (Array.isArray(value)) return value;
+    return JSON.parse(value || '[]');
+  }
+
   private formatConfiguration(config: any): RunConfiguration {
     return {
       id: config.id,
@@ -260,23 +280,23 @@ export class RunConfigurationService {
       name: config.name,
       description: config.description ?? undefined,
       isDefault: config.isDefault,
-      tags: Array.isArray(config.tags) ? config.tags : JSON.parse(config.tags || '[]'),
+      tags: this.parseArrayField(config.tags),
       tagMode: config.tagMode as 'any' | 'all',
-      excludeTags: Array.isArray(config.excludeTags) ? config.excludeTags : JSON.parse(config.excludeTags || '[]'),
-      testFlowIds: Array.isArray(config.testFlowIds) ? config.testFlowIds : JSON.parse(config.testFlowIds || '[]'),
+      excludeTags: this.parseArrayField(config.excludeTags),
+      testFlowIds: this.parseArrayField(config.testFlowIds),
       grep: config.grep ?? undefined,
       environmentId: config.environmentId ?? undefined,
       environment: config.environment ? this.formatEnvironment(config.environment) : undefined,
       target: config.target as ExecutionTarget,
-      localConfig: config.localConfig ? (typeof config.localConfig === 'string' ? JSON.parse(config.localConfig) : config.localConfig) as LocalExecutionConfig : undefined,
-      dockerConfig: config.dockerConfig ? (typeof config.dockerConfig === 'string' ? JSON.parse(config.dockerConfig) : config.dockerConfig) as DockerExecutionConfig : undefined,
-      githubActionsConfig: config.githubActionsConfig ? (typeof config.githubActionsConfig === 'string' ? JSON.parse(config.githubActionsConfig) : config.githubActionsConfig) as GitHubActionsConfig : undefined,
+      localConfig: this.parseJsonField<LocalExecutionConfig>(config.localConfig),
+      dockerConfig: this.parseJsonField<DockerExecutionConfig>(config.dockerConfig),
+      githubActionsConfig: this.parseJsonField<GitHubActionsConfig>(config.githubActionsConfig),
       remoteRunnerId: config.remoteRunnerId ?? undefined,
       remoteRunner: config.remoteRunner ? this.formatRunner(config.remoteRunner) : undefined,
       browser: config.browser as BrowserType,
       browserChannel: config.browserChannel as BrowserChannel | undefined,
       headless: config.headless,
-      viewport: (typeof config.viewport === 'string' ? JSON.parse(config.viewport) : config.viewport) as Viewport,
+      viewport: this.parseJsonField<Viewport>(config.viewport) as Viewport,
       workers: config.workers,
       shardCount: config.shardCount,
       retries: config.retries,
@@ -284,7 +304,7 @@ export class RunConfigurationService {
       tracing: config.tracing as ArtifactMode,
       screenshot: config.screenshot as ArtifactMode,
       video: config.video as ArtifactMode,
-      advancedConfig: config.advancedConfig ? (typeof config.advancedConfig === 'string' ? JSON.parse(config.advancedConfig) : config.advancedConfig) : undefined,
+      advancedConfig: this.parseJsonField(config.advancedConfig),
       createdAt: config.createdAt?.toISOString?.() || config.createdAt,
       updatedAt: config.updatedAt?.toISOString?.() || config.updatedAt,
     };
@@ -360,13 +380,15 @@ export class RunConfigurationService {
       }
     }
 
-    const updateData: any = {};
-    if (data.name !== undefined) updateData.name = data.name;
-    if (data.slug !== undefined) updateData.slug = data.slug;
-    if (data.baseUrl !== undefined) updateData.baseUrl = data.baseUrl;
-    if (data.description !== undefined) updateData.description = data.description;
-    if (data.variables !== undefined) updateData.variables = JSON.stringify(data.variables);
-    if (data.isDefault !== undefined) updateData.isDefault = data.isDefault;
+    const updateData = this.buildUpdateData(
+      data,
+      ['name', 'slug', 'baseUrl', 'description', 'variables', 'isDefault'],
+      ['variables']
+    );
+    // variables should always stringify (not null-ify), override the json key behavior
+    if (data.variables !== undefined) {
+      updateData.variables = JSON.stringify(data.variables);
+    }
 
     const env = await executionEnvironmentRepository.update(envId, updateData);
 
@@ -463,14 +485,10 @@ export class RunConfigurationService {
 
     await this.verifyWorkflowAccess(userId, existing.workflowId);
 
-    const updateData: any = {};
-    if (data.name !== undefined) updateData.name = data.name;
-    if (data.host !== undefined) updateData.host = data.host;
-    if (data.port !== undefined) updateData.port = data.port;
-    if (data.authType !== undefined) updateData.authType = data.authType;
-    if (data.credentialId !== undefined) updateData.credentialId = data.credentialId;
-    if (data.dockerImage !== undefined) updateData.dockerImage = data.dockerImage;
-    if (data.maxWorkers !== undefined) updateData.maxWorkers = data.maxWorkers;
+    const updateData = this.buildUpdateData(
+      data,
+      ['name', 'host', 'port', 'authType', 'credentialId', 'dockerImage', 'maxWorkers']
+    );
 
     const runner = await remoteRunnerRepository.update(runnerId, updateData);
 

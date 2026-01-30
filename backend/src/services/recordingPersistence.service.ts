@@ -1,15 +1,19 @@
 /**
  * Recording Persistence Service
- * NOW USES MONGODB INSTEAD OF PRISMA
  *
  * Persists recording sessions to database to survive server restarts.
  * Provides recovery, session management, and step tracking.
  */
 import {
-  recordingSessionRepository,
-  recordingStepRepository
+    recordingSessionRepository,
+    recordingStepRepository
 } from '../db/repositories/mongo';
 import { MongoRecordingSession, MongoRecordingStep } from '../db/mongodb';
+import { generateVeroScenario, generateVeroFeature, generateVeroPage, toPascalCase } from './veroSyntaxReference';
+import { logger } from '../utils/logger';
+import { writeFile, mkdir, readFile } from 'fs/promises';
+import { join } from 'path';
+import { existsSync } from 'fs';
 
 // Types for creating sessions and steps
 export interface CreateSessionDTO {
@@ -209,6 +213,7 @@ class RecordingPersistenceService {
 
     /**
      * Generate Vero code from all steps in a session
+     * Uses veroSyntaxReference.ts as single source of truth
      */
     async generateVeroFromSteps(sessionId: string): Promise<string> {
         const session = await this.getSessionWithSteps(sessionId);
@@ -216,30 +221,87 @@ class RecordingPersistenceService {
             throw new Error(`Session ${sessionId} not found`);
         }
 
-        const lines: string[] = [];
+        // Extract page fields from steps
+        const pageFields = this.extractPageFieldsFromSteps(session.steps);
 
-        // Group steps by page
-        const stepsByPage = new Map<string, MongoRecordingStep[]>();
-        for (const step of session.steps) {
-            const pageName = step.pageName || 'DefaultPage';
-            if (!stepsByPage.has(pageName)) {
-                stepsByPage.set(pageName, []);
+        // Generate PAGE objects
+        const pageObjects: string[] = [];
+        const pageNames: string[] = [];
+
+        for (const [pageName, fields] of Object.entries(pageFields)) {
+            pageNames.push(pageName);
+            pageObjects.push(generateVeroPage(pageName, fields));
+        }
+
+        // Generate step lines
+        const stepLines = session.steps
+            .filter(step => step.veroCode)
+            .map(step => step.veroCode);
+
+        // Generate SCENARIO
+        const scenarioName = toPascalCase(session.scenarioName || 'RecordedScenario');
+        const scenarioCode = generateVeroScenario(scenarioName, stepLines);
+
+        // Generate FEATURE
+        const featureName = toPascalCase(session.scenarioName || 'RecordedFeature');
+        const featureCode = generateVeroFeature(featureName, [scenarioCode], pageNames);
+
+        // Combine all parts
+        const parts: string[] = [];
+        if (pageObjects.length > 0) {
+            parts.push(pageObjects.join('\n\n'));
+        }
+        parts.push(featureCode);
+
+        return parts.join('\n\n');
+    }
+
+    /**
+     * Extract page field references from steps' veroCode
+     */
+    private extractPageFieldsFromSteps(steps: MongoRecordingStep[]): Record<string, Array<{ name: string, selectorType: string, selector: string }>> {
+        const pageFields: Record<string, Array<{ name: string, selectorType: string, selector: string }>> = {};
+
+        for (const step of steps) {
+            if (!step.veroCode) continue;
+
+            // Match PageName.fieldName patterns
+            const matches = step.veroCode.matchAll(/(\w+Page)\.(\w+)/g);
+
+            for (const match of matches) {
+                const pageName = match[1];
+                const fieldName = match[2];
+
+                if (!pageFields[pageName]) {
+                    pageFields[pageName] = [];
+                }
+
+                // Check if field already exists
+                const exists = pageFields[pageName].some(f => f.name === fieldName);
+                if (!exists) {
+                    pageFields[pageName].push({
+                        name: fieldName,
+                        selectorType: step.selectorType || this.inferSelectorType(fieldName),
+                        selector: step.primarySelector || fieldName
+                    });
+                }
             }
-            stepsByPage.get(pageName)!.push(step);
         }
 
-        // Add scenario header
-        const scenarioName = session.scenarioName || 'Recorded Scenario';
-        lines.push(`scenario "${scenarioName}" {`);
+        return pageFields;
+    }
 
-        // Add steps
-        for (const step of session.steps) {
-            lines.push(`    ${step.veroCode}`);
-        }
-
-        lines.push('}');
-
-        return lines.join('\n');
+    /**
+     * Infer selector type from field name
+     */
+    private inferSelectorType(fieldName: string): string {
+        const name = fieldName.toLowerCase();
+        if (name.includes('button') || name.includes('btn')) return 'button';
+        if (name.includes('textbox') || name.includes('input') || name.includes('field')) return 'textbox';
+        if (name.includes('link')) return 'link';
+        if (name.includes('checkbox') || name.includes('check')) return 'checkbox';
+        if (name.includes('text') || name.includes('label')) return 'text';
+        return 'text';
     }
 
     /**
@@ -294,6 +356,94 @@ class RecordingPersistenceService {
             pages: Array.from(pages),
             averageConfidence: steps.length > 0 ? totalConfidence / steps.length : 0,
         };
+    }
+
+    /**
+     * Save Page and Feature files to the sandbox filesystem
+     * Called when a recording session is finalized
+     */
+    async saveVeroFilesToSandbox(
+        sessionId: string,
+        sandboxPath: string
+    ): Promise<{
+        pagesCreated: string[];
+        featureCreated: string | null;
+    }> {
+        const session = await this.getSessionWithSteps(sessionId);
+        if (!session) {
+            throw new Error(`Session ${sessionId} not found`);
+        }
+
+        const pagesCreated: string[] = [];
+        let featureCreated: string | null = null;
+
+        // Extract page fields from steps
+        const pageFields = this.extractPageFieldsFromSteps(session.steps);
+
+        // Ensure Pages folder exists
+        const pagesDir = join(sandboxPath, 'Pages');
+        const featuresDir = join(sandboxPath, 'Features');
+
+        if (!existsSync(pagesDir)) {
+            await mkdir(pagesDir, { recursive: true });
+        }
+        if (!existsSync(featuresDir)) {
+            await mkdir(featuresDir, { recursive: true });
+        }
+
+        // Generate and write Page files
+        for (const [pageName, fields] of Object.entries(pageFields)) {
+            const pageFilePath = join(pagesDir, `${pageName}.vero`);
+
+            // Check if file exists and merge fields if needed
+            let existingFields: Array<{ name: string, selectorType: string, selector: string }> = [];
+            if (existsSync(pageFilePath)) {
+                try {
+                    const existingContent = await readFile(pageFilePath, 'utf-8');
+                    // Extract existing field names to avoid duplicates
+                    const fieldMatches = existingContent.matchAll(/FIELD\s+(\w+)\s*=/g);
+                    for (const match of fieldMatches) {
+                        existingFields.push({ name: match[1], selectorType: 'text', selector: '' });
+                    }
+                } catch {
+                    // File doesn't exist or can't be read, create new
+                }
+            }
+
+            // Filter out fields that already exist
+            const existingFieldNames = new Set(existingFields.map(f => f.name));
+            const newFields = fields.filter(f => !existingFieldNames.has(f.name));
+
+            // If there are new fields to add, regenerate the page
+            if (newFields.length > 0 || !existsSync(pageFilePath)) {
+                const allFields = [...existingFields.filter(f => f.selector), ...fields];
+                const pageContent = generateVeroPage(pageName, allFields);
+                await writeFile(pageFilePath, pageContent, 'utf-8');
+                pagesCreated.push(pageFilePath);
+                logger.info(`[RecordingPersistence] Created/updated Page file: ${pageFilePath}`);
+            }
+        }
+
+        // Generate and write Feature file
+        const pageNames = Object.keys(pageFields);
+        if (session.steps.length > 0) {
+            const stepLines = session.steps
+                .filter(step => step.veroCode)
+                .map(step => step.veroCode);
+
+            const scenarioName = toPascalCase(session.scenarioName || 'RecordedScenario');
+            const scenarioCode = generateVeroScenario(scenarioName, stepLines);
+            const featureName = toPascalCase(session.scenarioName || 'RecordedFeature');
+            const featureCode = generateVeroFeature(featureName, [scenarioCode], pageNames);
+
+            const featureFileName = `${featureName}.vero`;
+            const featureFilePath = join(featuresDir, featureFileName);
+            await writeFile(featureFilePath, featureCode, 'utf-8');
+            featureCreated = featureFilePath;
+            console.log(`[RecordingPersistence] Created Feature file: ${featureFilePath}`);
+        }
+
+        return { pagesCreated, featureCreated };
     }
 }
 

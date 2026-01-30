@@ -36,6 +36,30 @@ const API_BASE = '/api';
 
 const FULL_PAGE_VIEWS: ActivityView[] = ['executions', 'schedules', 'testdata', 'ai-test-generator', 'trace'];
 
+/**
+ * Resolve browser mode from config.
+ * Zustand configs use `headed` (true = show browser).
+ * Legacy configs use `headless` (true = hide browser).
+ * Defaults to 'headed' so users can see the browser.
+ */
+function resolveBrowserMode(config: Record<string, unknown>): 'headed' | 'headless' {
+  if (config.headed === true) return 'headed';
+  if (config.headed === false) return 'headless';
+  if (config.headless === true) return 'headless';
+  return 'headed';
+}
+
+/**
+ * Extract a path relative to vero-projects/ from an absolute file path.
+ */
+function toRelativeVeroPath(absolutePath: string): string {
+  const marker = 'vero-projects/';
+  const index = absolutePath.indexOf(marker);
+  return index !== -1
+    ? absolutePath.substring(index + marker.length)
+    : absolutePath;
+}
+
 interface ApiFile {
   name: string;
   path: string;
@@ -419,7 +443,9 @@ export function VeroWorkspace() {
 
     // Count running local executions
     try {
-      const response = await fetch(`${API_BASE}/executions`);
+      const response = await fetch(`${API_BASE}/executions`, {
+        credentials: 'include'
+      });
       const data = await response.json();
       if (data.success && data.executions) {
         runningCount += data.executions.filter((e: Execution) => e.status === 'running').length;
@@ -432,7 +458,9 @@ export function VeroWorkspace() {
     try {
       const owner = 'y9g7bg5qbj-arch';
       const repo = 'playwright-web-app';
-      const ghResponse = await fetch(`${API_BASE}/github/runs?owner=${owner}&repo=${repo}&limit=10`);
+      const ghResponse = await fetch(`${API_BASE}/github/runs?owner=${owner}&repo=${repo}&limit=10`, {
+        credentials: 'include'
+      });
       const ghData = await ghResponse.json();
       if (ghData.success && ghData.data) {
         runningCount += ghData.data.filter((r: { status: string }) =>
@@ -478,8 +506,6 @@ export function VeroWorkspace() {
         // Just send the path directly (don't encode slashes)
         apiUrl = `${API_BASE}/vero/files/${filePath}`;
       }
-
-      console.log('[VeroWorkspace] Loading file:', { filePath, projectId, apiUrl, project: project?.name });
 
       const response = await fetch(apiUrl);
       const data = await response.json();
@@ -587,8 +613,6 @@ feature ${fileName.replace('.vero', '')} {
         apiUrl = `${API_BASE}/vero/files/${activeTab.path}`;
       }
 
-      console.log('[VeroWorkspace] Saving file:', { path: activeTab.path, apiUrl });
-
       const response = await fetch(apiUrl, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -651,19 +675,6 @@ feature ${fileName.replace('.vero', '')} {
     const configWithGitHub = activeConfig as ZustandRunConfig;
     const isGitHubTarget = configWithGitHub?.target === 'github';
 
-    // Debug logging to identify GitHub Actions trigger issues
-    console.log('[VeroWorkspace] runTests called with:', {
-      zustandConfigId: zustandConfig?.id,
-      zustandConfigName: zustandConfig?.name,
-      zustandConfigTarget: zustandConfig?.target,
-      zustandConfigGitHub: zustandConfig?.github,
-      legacyConfigId: legacyConfig?.id,
-      legacyConfigName: legacyConfig?.name,
-      activeConfigName: activeConfig?.name,
-      isGitHubTarget,
-      hasRepository: !!configWithGitHub?.github?.repository,
-    });
-
     setIsRunning(true);
     addConsoleOutput(`Running ${activeTab.name} with ${activeConfig?.name || 'Default'}...`);
 
@@ -705,11 +716,10 @@ feature ${fileName.replace('.vero', '')} {
       return;
     }
 
-
-    // Local execution (original code)
-    const config = legacyConfig;
+    // Local execution - use Zustand config or fall back to legacy config
+    const config = zustandConfig || legacyConfig;
     if (!config) {
-      addConsoleOutput('No local configuration found');
+      addConsoleOutput('No run configuration found. Open Run Configuration to create one.');
       setIsRunning(false);
       return;
     }
@@ -734,35 +744,24 @@ feature ${fileName.replace('.vero', '')} {
     });
 
     try {
-      // Get the relative file path (without veroPath prefix)
-      const project = nestedProjects.find(p =>
-        activeTab.path.startsWith(p.veroPath || '')
-      );
-      const relativePath = project?.veroPath
-        ? activeTab.path.replace(`${project.veroPath}/`, '')
-        : activeTab.path;
-
-      console.log('[VeroWorkspace] Running test:', {
-        filePath: relativePath,
-        content: activeTab.content.substring(0, 100) + '...',
-        config: config.name
-      });
+      const relativePath = toRelativeVeroPath(activeTab.path);
 
       const response = await fetch(`${API_BASE}/vero/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           filePath: relativePath,
-          content: activeTab.content, // Send current editor content (includes unsaved changes)
+          content: activeTab.content,
           config: {
             browser: config.browser,
-            browserMode: config.headless ? 'headless' : 'headed',
-            baseUrl: config.baseUrl,
+            browserMode: resolveBrowserMode(config as unknown as Record<string, unknown>),
+            baseUrl: (config as any).baseURL || (config as any).baseUrl,
             timeout: config.timeout,
             retries: config.retries || 0,
-            tracing: config.tracing,
+            tracing: (config as any).trace || (config as any).tracing,
             video: config.video,
-            screenshotOnFailure: config.screenshotOnFailure,
+            screenshotOnFailure: (config as any).screenshot === 'only-on-failure' || (config as any).screenshotOnFailure,
             workers: config.workers || 1,
           },
         }),
@@ -845,23 +844,19 @@ feature ${fileName.replace('.vero', '')} {
     });
 
     try {
-      const project = nestedProjects.find(p =>
-        activeTab.path.startsWith(p.veroPath || '')
-      );
-      const relativePath = project?.veroPath
-        ? activeTab.path.replace(`${project.veroPath}/`, '')
-        : activeTab.path;
+      const relativePath = toRelativeVeroPath(activeTab.path);
 
       const response = await fetch(`${API_BASE}/vero/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           filePath: relativePath,
           content: activeTab.content,
-          scenarioName: scenarioName, // Filter to specific scenario
+          scenarioName,
           config: {
             browser: (config as any).browser || 'chromium',
-            browserMode: (config as any).headless !== false ? 'headless' : 'headed',
+            browserMode: resolveBrowserMode(config as unknown as Record<string, unknown>),
             baseUrl: (config as any).baseUrl,
             timeout: (config as any).timeout || 30000,
             retries: (config as any).retries || 0,
@@ -1030,6 +1025,7 @@ feature ${fileName.replace('.vero', '')} {
       const response = await fetch(`${API_BASE}/codegen/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           sessionId,
           url,
@@ -1312,24 +1308,88 @@ feature ${fileName.replace('.vero', '')} {
     }
   };
 
-  const handleCreateFile = (projectId: string, folderPath: string) => {
-    console.log('Create new file in', projectId, folderPath);
+  const handleCreateFile = async (projectId: string, folderPath: string) => {
+    // Find the project to get the veroPath
+    const project = nestedProjects.find(p => p.id === projectId);
+    if (!project?.veroPath) {
+      addConsoleOutput('Error: Could not find project path');
+      return;
+    }
+
+    // Prompt user for filename
+    const fileName = prompt('Enter file name (e.g., MyTest.vero):');
+    if (!fileName || !fileName.trim()) {
+      return; // User cancelled
+    }
+
+    // Ensure .vero extension for feature files in Features folder
+    let finalFileName = fileName.trim();
+    const isFeatureFolder = folderPath.toLowerCase().includes('feature');
+    if (isFeatureFolder && !finalFileName.endsWith('.vero') && !finalFileName.endsWith('.json')) {
+      finalFileName += '.vero';
+    }
+
+    // Create default content based on file type
+    let defaultContent = '';
+    if (finalFileName.endsWith('.vero')) {
+      const featureName = finalFileName.replace('.vero', '');
+      defaultContent = `FEATURE ${featureName} {
+  SCENARIO "New Scenario" @smoke {
+    OPEN "https://example.com"
+  }
+}
+`;
+    } else if (finalFileName.endsWith('.json')) {
+      defaultContent = '{\n  \n}\n';
+    }
+
+    // Construct the file path
+    const relativePath = `${folderPath}/${finalFileName}`;
+    const apiUrl = `${API_BASE}/vero/files/${relativePath}?veroPath=${encodeURIComponent(project.veroPath)}`;
+
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: defaultContent }),
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        addConsoleOutput(`File created: ${finalFileName}`);
+
+        // Refresh the file tree
+        await loadProjectFiles(projectId, project.veroPath);
+
+        // Open the new file in a tab
+        const tabId = `tab-${Date.now()}`;
+        const fullPath = `${project.veroPath}/${relativePath}`;
+        const newTab: OpenTab = {
+          id: tabId,
+          path: fullPath,
+          name: finalFileName,
+          content: defaultContent,
+          hasChanges: false,
+          projectId,
+        };
+        setOpenTabs(prev => [...prev, newTab]);
+        setActiveTabId(tabId);
+      } else {
+        addConsoleOutput(`Error creating file: ${data.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Failed to create file:', error);
+      addConsoleOutput(`Error creating file: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const handleCreateSandbox = (projectId: string) => {
-    console.log('[handleCreateSandbox] Called with projectId:', projectId);
-    console.log('[handleCreateSandbox] nestedProjects:', nestedProjects.map(p => ({ id: p.id, name: p.name })));
-    console.log('[handleCreateSandbox] currentProject:', currentProject?.id, currentProject?.name);
-
     if (!projectId || projectId.trim() === '') {
-      console.error('[handleCreateSandbox] Empty projectId received!');
       addConsoleOutput('Error: Cannot create sandbox - project ID is missing. Please expand a project first.');
       return;
     }
 
-    // Validate UUID format
     if (!isValidUUID(projectId)) {
-      console.error('[handleCreateSandbox] Invalid UUID format:', projectId);
       addConsoleOutput(`Error: Invalid project ID format: "${projectId}". Expected a UUID.`);
       return;
     }
@@ -1359,38 +1419,25 @@ feature ${fileName.replace('.vero', '')} {
 
   // Sync sandbox handler - triggers three-way merge if conflicts exist
   const handleSyncSandbox = async (sandboxName: string, projectId: string) => {
-    console.log('[handleSyncSandbox] Called with:', { sandboxName, projectId });
-    console.log('[handleSyncSandbox] nestedProjects:', nestedProjects.map(p => ({ id: p.id, name: p.name })));
-    console.log('[handleSyncSandbox] currentProject:', currentProject?.id, currentProject?.name);
-
     if (!projectId || projectId.trim() === '') {
-      console.error('[handleSyncSandbox] Empty projectId received!');
       addConsoleOutput('Error: Cannot sync sandbox - project ID is missing. Please expand a project first.');
       return;
     }
 
-    // Validate UUID format
     if (!isValidUUID(projectId)) {
-      console.error('[handleSyncSandbox] Invalid UUID format:', projectId);
       addConsoleOutput(`Error: Invalid project ID format: "${projectId}". Expected a UUID.`);
       return;
     }
 
-    addConsoleOutput(`Syncing sandbox "${sandboxName}" (projectId: ${projectId})...`);
+    addConsoleOutput(`Syncing sandbox "${sandboxName}"...`);
 
     try {
-      // First, we need to find the sandbox ID from the name
-      // The sandbox folder name might be the sandbox name with some ID suffix
-      // For now, we'll fetch all sandboxes and match by name
       const project = nestedProjects.find(p => p.id === projectId);
-      console.log('[handleSyncSandbox] Found project:', project);
       if (!project) {
         addConsoleOutput(`Error: Project not found (id=${projectId})`);
         return;
       }
 
-      // List sandboxes for this project to find the sandbox ID
-      console.log('[handleSyncSandbox] Calling listByProject with:', projectId);
       const sandboxes = await sandboxApi.listByProject(projectId);
       const sandbox = sandboxes.find(s => s.name === sandboxName || s.folderPath?.includes(sandboxName));
 
@@ -1491,12 +1538,6 @@ feature ${fileName.replace('.vero', '')} {
       setContextMenu(null);
       return;
     }
-
-    console.log('[Compare] Opening compare modal with projectId:', projectId, 'from:', {
-      contextMenuProjectId: contextMenu?.projectId,
-      selectedProjectId,
-      applicationId: currentProject?.id,
-    });
 
     setCompareModal({
       filePath,
@@ -1781,8 +1822,8 @@ feature ${fileName.replace('.vero', '')} {
                             }`}
                         >
                           <span className={`material-symbols-outlined text-sm ${tab.type === 'compare'
-                              ? (activeTabId === tab.id ? 'text-purple-400' : 'text-[#8b949e]')
-                              : (activeTabId === tab.id ? 'text-[#135bec]' : 'text-[#8b949e]')
+                            ? (activeTabId === tab.id ? 'text-purple-400' : 'text-[#8b949e]')
+                            : (activeTabId === tab.id ? 'text-[#135bec]' : 'text-[#8b949e]')
                             }`}>
                             {tab.type === 'compare' ? 'compare' : 'description'}
                           </span>
@@ -1835,6 +1876,8 @@ feature ${fileName.replace('.vero', '')} {
                         onRunFeature={handleRunFeature}
                         showErrorPanel={true}
                         token={null}
+                        veroPath={nestedProjects.find(p => activeTab.path.startsWith(p.veroPath || ''))?.veroPath}
+                        filePath={activeTab.path}
                       />
                     ) : null}
                   </div>

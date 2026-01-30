@@ -1,6 +1,7 @@
 /**
  * TestFlow Service
- * NOW USES MONGODB INSTEAD OF PRISMA
+ *
+ * Manages test flows within workflows.
  */
 
 import { testFlowRepository, workflowRepository, executionRepository } from '../db/repositories/mongo';
@@ -8,8 +9,7 @@ import { NotFoundError, ForbiddenError } from '../utils/errors';
 import type { TestFlow, TestFlowCreate, TestFlowUpdate } from '@playwright-web-app/shared';
 
 export class TestFlowService {
-  async create(userId: string, workflowId: string, data: TestFlowCreate): Promise<TestFlow> {
-    // Verify workflow belongs to user
+  private async verifyWorkflowAccess(userId: string, workflowId: string): Promise<void> {
     const workflow = await workflowRepository.findById(workflowId);
 
     if (!workflow) {
@@ -19,6 +19,30 @@ export class TestFlowService {
     if (workflow.userId !== userId) {
       throw new ForbiddenError('Access denied');
     }
+  }
+
+  /**
+   * Verify the user owns the workflow that contains the given test flow.
+   * Returns the test flow record.
+   */
+  private async verifyTestFlowAccess(userId: string, testFlowId: string): Promise<any> {
+    const testFlow = await testFlowRepository.findById(testFlowId);
+
+    if (!testFlow) {
+      throw new NotFoundError('Test flow not found');
+    }
+
+    const workflow = await workflowRepository.findById(testFlow.workflowId);
+
+    if (!workflow || workflow.userId !== userId) {
+      throw new ForbiddenError('Access denied');
+    }
+
+    return testFlow;
+  }
+
+  async create(userId: string, workflowId: string, data: TestFlowCreate): Promise<TestFlow> {
+    await this.verifyWorkflowAccess(userId, workflowId);
 
     const testFlow = await testFlowRepository.create({
       workflowId,
@@ -34,16 +58,7 @@ export class TestFlowService {
   }
 
   async findAll(userId: string, workflowId: string): Promise<TestFlow[]> {
-    // Verify workflow belongs to user
-    const workflow = await workflowRepository.findById(workflowId);
-
-    if (!workflow) {
-      throw new NotFoundError('Workflow not found');
-    }
-
-    if (workflow.userId !== userId) {
-      throw new ForbiddenError('Access denied');
-    }
+    await this.verifyWorkflowAccess(userId, workflowId);
 
     const testFlows = await testFlowRepository.findByWorkflowId(workflowId);
 
@@ -59,38 +74,15 @@ export class TestFlowService {
   }
 
   async findOne(userId: string, testFlowId: string): Promise<TestFlow> {
-    const testFlow = await testFlowRepository.findById(testFlowId);
+    const testFlow = await this.verifyTestFlowAccess(userId, testFlowId);
 
-    if (!testFlow) {
-      throw new NotFoundError('Test flow not found');
-    }
-
-    // Get workflow to check access
-    const workflow = await workflowRepository.findById(testFlow.workflowId);
-
-    if (!workflow || workflow.userId !== userId) {
-      throw new ForbiddenError('Access denied');
-    }
-
-    // Get recent executions
     const executions = await executionRepository.findByTestFlowId(testFlowId, 10);
 
-    return this.formatTestFlow({ ...testFlow, workflow, executions });
+    return this.formatTestFlow({ ...testFlow, executions });
   }
 
   async update(userId: string, testFlowId: string, data: TestFlowUpdate): Promise<TestFlow> {
-    const existing = await testFlowRepository.findById(testFlowId);
-
-    if (!existing) {
-      throw new NotFoundError('Test flow not found');
-    }
-
-    // Get workflow to check access
-    const workflow = await workflowRepository.findById(existing.workflowId);
-
-    if (!workflow || workflow.userId !== userId) {
-      throw new ForbiddenError('Access denied');
-    }
+    await this.verifyTestFlowAccess(userId, testFlowId);
 
     const testFlow = await testFlowRepository.update(testFlowId, {
       name: data.name,
@@ -108,35 +100,12 @@ export class TestFlowService {
   }
 
   async delete(userId: string, testFlowId: string): Promise<void> {
-    const existing = await testFlowRepository.findById(testFlowId);
-
-    if (!existing) {
-      throw new NotFoundError('Test flow not found');
-    }
-
-    // Get workflow to check access
-    const workflow = await workflowRepository.findById(existing.workflowId);
-
-    if (!workflow || workflow.userId !== userId) {
-      throw new ForbiddenError('Access denied');
-    }
-
+    await this.verifyTestFlowAccess(userId, testFlowId);
     await testFlowRepository.delete(testFlowId);
   }
 
   async clone(userId: string, testFlowId: string): Promise<TestFlow> {
-    const existing = await testFlowRepository.findById(testFlowId);
-
-    if (!existing) {
-      throw new NotFoundError('Test flow not found');
-    }
-
-    // Get workflow to check access
-    const workflow = await workflowRepository.findById(existing.workflowId);
-
-    if (!workflow || workflow.userId !== userId) {
-      throw new ForbiddenError('Access denied');
-    }
+    const existing = await this.verifyTestFlowAccess(userId, testFlowId);
 
     const cloned = await testFlowRepository.create({
       workflowId: existing.workflowId,

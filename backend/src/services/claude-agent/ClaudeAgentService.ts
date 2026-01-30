@@ -16,6 +16,8 @@ import type {
 import { SkillRegistry, type SkillExecutionResult } from './SkillRegistry';
 import type { PlaywrightClient } from './interfaces/PlaywrightClient';
 import { DirectPlaywrightClient } from './clients/DirectPlaywrightClient';
+import { generateVeroAction } from '../veroSyntaxReference';
+import { logger } from '../../utils/logger';
 
 /** Options for starting an agent session */
 export interface AgentSessionOptions {
@@ -172,7 +174,7 @@ export class ClaudeAgentService {
     this.generatedVeroLines = [];
     this.generatedPlaywrightLines = [];
 
-    console.log('[ClaudeAgentService] Session started');
+    logger.info('[ClaudeAgentService] Session started');
   }
 
   /**
@@ -188,7 +190,7 @@ export class ClaudeAgentService {
     this.page = null;
     this.playwrightClient = null;
 
-    console.log('[ClaudeAgentService] Session ended');
+    logger.info('[ClaudeAgentService] Session ended');
   }
 
   /**
@@ -230,7 +232,7 @@ export class ClaudeAgentService {
       try {
         listener(event);
       } catch (error) {
-        console.error('[ClaudeAgentService] Error in event listener:', error);
+        logger.error('[ClaudeAgentService] Error in event listener:', error);
       }
     }
   }
@@ -496,23 +498,26 @@ test('Generated Test', async ({ page }) => {
 
   /**
    * Navigate to a URL (convenience method)
+   * Uses veroSyntaxReference.ts as single source of truth
    */
   async navigateTo(url: string): Promise<StepExecutionResult> {
-    return this.executeRawStep(`navigate to "${url}"`);
+    return this.executeRawStep(generateVeroAction('open', undefined, url));
   }
 
   /**
    * Click an element (convenience method)
+   * Uses veroSyntaxReference.ts as single source of truth
    */
   async click(target: string): Promise<StepExecutionResult> {
-    return this.executeRawStep(`click "${target}"`);
+    return this.executeRawStep(generateVeroAction('click', `"${target}"`));
   }
 
   /**
    * Fill an input (convenience method)
+   * Uses veroSyntaxReference.ts as single source of truth
    */
   async fill(target: string, value: string): Promise<StepExecutionResult> {
-    return this.executeRawStep(`fill "${target}" with "${value}"`);
+    return this.executeRawStep(generateVeroAction('fill', `"${target}"`, value));
   }
 }
 

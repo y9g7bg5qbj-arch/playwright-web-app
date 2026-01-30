@@ -1,11 +1,10 @@
 /**
- * MongoDB Connection for Vero Test Data
+ * MongoDB Connection
  *
- * Uses MongoDB Atlas for test data storage while keeping
- * Prisma/SQLite for other application data.
+ * Central database connection for all Vero IDE application data.
  */
 
-import { MongoClient, Db, Collection } from 'mongodb';
+import { MongoClient, Db, Collection, Document } from 'mongodb';
 
 // MongoDB Atlas connection string - REQUIRED from environment
 const MONGODB_URI: string = (() => {

@@ -91,24 +91,21 @@ export function ActivityBar({ activeView, onViewChange, executionBadge, onOpenSc
             {/* Active Indicator (Left Bar) */}
             {isActive && (
               <div
-                className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 rounded-r-sm bg-brand-primary shadow-[0_0_8px_rgba(99,102,241,0.6)]"
+                className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r-sm bg-brand-primary"
               />
             )}
 
             <Icon
               size={20}
-              className={`transition-transform duration-200 ${isActive ? 'scale-105' : 'group-hover:scale-110'}`}
-              strokeWidth={isActive ? 2.5 : 2}
+              className="transition-colors"
+              strokeWidth={isActive ? 2 : 1.5}
             />
 
-            {/* Notification Badge */}
             {showBadge && (
-              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-status-danger text-white text-[10px] font-bold px-1 ring-2 ring-dark-bg animate-pulse-subtle">
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-status-danger text-white text-[10px] font-bold px-1">
                 {executionBadge > 9 ? '9+' : executionBadge}
               </span>
             )}
-
-            {/* Tooltip (Custom implementation would be better, but basic title works for now) */}
           </button>
         );
       })}
@@ -122,10 +119,10 @@ export function ActivityBar({ activeView, onViewChange, executionBadge, onOpenSc
           className="relative group flex items-center justify-center w-10 h-10 rounded-lg text-text-muted hover:text-text-primary hover:bg-dark-elevated transition-all duration-200"
           title="Scenario Browser"
         >
-          <ScrollText size={20} strokeWidth={2} className="group-hover:scale-110 transition-transform" />
+          <ScrollText size={20} strokeWidth={1.5} className="transition-colors" />
 
           {scenarioCount !== undefined && scenarioCount > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-status-info text-white text-[10px] font-bold px-1 ring-2 ring-dark-bg">
+            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-status-info text-white text-[10px] font-bold px-1">
               {scenarioCount > 9 ? '9+' : scenarioCount}
             </span>
           )}
@@ -141,7 +138,7 @@ export function ActivityBar({ activeView, onViewChange, executionBadge, onOpenSc
           className="relative group flex items-center justify-center w-10 h-10 rounded-lg text-text-muted hover:text-text-primary hover:bg-dark-elevated transition-all duration-200"
           title="Account"
         >
-          <User size={20} strokeWidth={2} className="group-hover:scale-110 transition-transform" />
+          <User size={20} strokeWidth={1.5} className="transition-colors" />
         </button>
 
         {/* Settings */}
@@ -159,8 +156,8 @@ export function ActivityBar({ activeView, onViewChange, executionBadge, onOpenSc
         >
           <Settings
             size={20}
-            strokeWidth={activeView === 'settings' ? 2.5 : 2}
-            className={`transition-transform duration-500 ${activeView === 'settings' ? 'rotate-90' : 'group-hover:rotate-45'}`}
+            strokeWidth={activeView === 'settings' ? 2 : 1.5}
+            className="transition-colors"
           />
         </button>
       </div>

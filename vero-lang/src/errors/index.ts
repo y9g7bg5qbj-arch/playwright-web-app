@@ -5,7 +5,6 @@
  * with IntelliJ-like compile-time errors and Playwright runtime error mapping.
  */
 
-// Base error class
 export {
     VeroError,
     type VeroErrorData,
@@ -17,7 +16,22 @@ export {
     type FlakinessType,
 } from './VeroError.js';
 
-// Error codes
+export {
+    VeroErrorCode,
+    VeroErrorSeverity,
+    ValidationResult,
+    VeroValidationError,
+    createValidationResult,
+    levenshteinDistance,
+    findSimilar,
+    VERO_KEYWORDS,
+    type VeroKeyword,
+} from './VeroErrors.js';
+
+export { VeroErrorListener } from './VeroErrorListener.js';
+
+export { SemanticValidator } from '../validator/SemanticValidator.js';
+
 export {
     ERROR_CODES,
     LEXER_ERRORS,
@@ -35,13 +49,10 @@ export {
     type ErrorCodeDefinition,
 } from './codes.js';
 
-// Error categories
 export {
-    // Compile-time
     LexerError,
     ParserError,
     ValidationError,
-    // Runtime
     LocatorError,
     TimeoutError,
     NavigationError,
@@ -50,7 +61,6 @@ export {
     NetworkError,
 } from './categories/index.js';
 
-// Monaco adapter
 export {
     veroErrorToMonacoMarker,
     veroErrorsToMonacoMarkers,
@@ -64,7 +74,6 @@ export {
     type MonacoMarkerData,
 } from './monacoAdapter.js';
 
-// Playwright error mapper
 export {
     PlaywrightErrorMapper,
     playwrightErrorMapper,

@@ -1,6 +1,7 @@
 /**
  * Workflow Service
- * NOW USES MONGODB INSTEAD OF PRISMA
+ *
+ * Manages workflows within applications.
  */
 
 import { workflowRepository, applicationRepository, testFlowRepository, executionRepository } from '../db/repositories/mongo';
@@ -10,17 +11,33 @@ import type { Workflow, WorkflowCreate, WorkflowUpdate } from '@playwright-web-a
 export class WorkflowService {
   /**
    * Check if user has access to an application (owner)
-   * Note: Multi-tenant member access removed - single company mode
    */
   private async checkApplicationAccess(userId: string, applicationId: string): Promise<boolean> {
     const application = await applicationRepository.findById(applicationId);
+    return application?.userId === userId;
+  }
 
-    if (!application) {
-      return false;
+  /**
+   * Verify user has access to a workflow.
+   * Returns the workflow record.
+   */
+  private async verifyWorkflowAccess(userId: string, workflowId: string): Promise<any> {
+    const workflow = await workflowRepository.findById(workflowId);
+
+    if (!workflow) {
+      throw new NotFoundError('Workflow not found');
     }
 
-    // User is owner of the application
-    return application.userId === userId;
+    if (workflow.applicationId) {
+      const hasAccess = await this.checkApplicationAccess(userId, workflow.applicationId);
+      if (!hasAccess) {
+        throw new ForbiddenError('Access denied');
+      }
+    } else if (workflow.userId !== userId) {
+      throw new ForbiddenError('Access denied');
+    }
+
+    return workflow;
   }
 
   async create(userId: string, data: WorkflowCreate): Promise<Workflow> {
@@ -77,22 +94,7 @@ export class WorkflowService {
   }
 
   async findOne(userId: string, workflowId: string): Promise<Workflow> {
-    const workflow = await workflowRepository.findById(workflowId);
-
-    if (!workflow) {
-      throw new NotFoundError('Workflow not found');
-    }
-
-    // Check access via application ownership
-    if (workflow.applicationId) {
-      const hasAccess = await this.checkApplicationAccess(userId, workflow.applicationId);
-      if (!hasAccess) {
-        throw new ForbiddenError('Access denied');
-      }
-    } else if (workflow.userId !== userId) {
-      // Legacy workflows without applicationId - check userId
-      throw new ForbiddenError('Access denied');
-    }
+    const workflow = await this.verifyWorkflowAccess(userId, workflowId);
 
     // Get test flows with executions
     const testFlows = await testFlowRepository.findByWorkflowId(workflowId);
@@ -107,21 +109,7 @@ export class WorkflowService {
   }
 
   async update(userId: string, workflowId: string, data: WorkflowUpdate): Promise<Workflow> {
-    const existing = await workflowRepository.findById(workflowId);
-
-    if (!existing) {
-      throw new NotFoundError('Workflow not found');
-    }
-
-    // Check access via application ownership
-    if (existing.applicationId) {
-      const hasAccess = await this.checkApplicationAccess(userId, existing.applicationId);
-      if (!hasAccess) {
-        throw new ForbiddenError('Access denied');
-      }
-    } else if (existing.userId !== userId) {
-      throw new ForbiddenError('Access denied');
-    }
+    await this.verifyWorkflowAccess(userId, workflowId);
 
     const workflow = await workflowRepository.update(workflowId, {
       name: data.name,
@@ -139,22 +127,7 @@ export class WorkflowService {
   }
 
   async delete(userId: string, workflowId: string): Promise<void> {
-    const existing = await workflowRepository.findById(workflowId);
-
-    if (!existing) {
-      throw new NotFoundError('Workflow not found');
-    }
-
-    // Check access via application ownership
-    if (existing.applicationId) {
-      const hasAccess = await this.checkApplicationAccess(userId, existing.applicationId);
-      if (!hasAccess) {
-        throw new ForbiddenError('Access denied');
-      }
-    } else if (existing.userId !== userId) {
-      throw new ForbiddenError('Access denied');
-    }
-
+    await this.verifyWorkflowAccess(userId, workflowId);
     await workflowRepository.delete(workflowId);
   }
 

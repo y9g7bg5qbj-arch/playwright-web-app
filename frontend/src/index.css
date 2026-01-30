@@ -10,60 +10,43 @@
    ========================================================================== */
 
 :root {
-  /* --- Color Palette: Deep Space Blue --- */
+  /* Color Palette: Deep Space Blue */
 
-  /* Backgrounds - Cool & Deep */
+  /* Backgrounds */
   --bg-canvas: #111216;
-  /* Darker, cooler background */
   --bg-primary: #18191e;
-  /* Main editor area */
   --bg-secondary: #212229;
-  /* Sidebars */
   --bg-elevated: #2b2d36;
-  /* Dropdowns/Inputs */
   --bg-overlay: rgba(17, 18, 22, 0.85);
 
-  /* Brand Identity - Electric Blue (JetBrains-ish) */
+  /* Brand Identity */
   --brand-primary: #3574f0;
-  /* Vibrant Electric Blue */
   --brand-secondary: #5c8ef2;
-  /* Lighter Blue for gradients */
   --brand-gradient: linear-gradient(135deg, #3574f0, #2c62c9);
-  /* Subtle depth */
   --brand-hover: #4582f5;
 
-  /* Accent Colors - Distinct & Functional */
+  /* Accent Colors */
   --accent-purple: #9f7efe;
-  /* For special tags (not Main AI) */
   --accent-teal: #4cb2c0;
-  /* For data/json */
   --accent-orange: #e57f49;
-  /* For warnings/attention */
 
-  /* Text Colors - Crisp */
+  /* Text Colors */
   --text-primary: #ecedee;
-  /* Bright white-grey */
   --text-secondary: #9aa0a6;
-  /* Cool grey */
   --text-muted: #6b717b;
-  /* Darker grey */
   --text-inverted: #ffffff;
 
-  /* Borders - Distinct Separation */
+  /* Borders */
   --border-subtle: #2b2d36;
   --border-default: #393b44;
   --border-emphasis: #4f525e;
   --border-active: #3574f0;
 
-  /* Status Colors (Semantically Rich) */
+  /* Status Colors */
   --status-success: #57ab5a;
-  /* Muted Green */
   --status-warning: #c69026;
-  /* Golden */
   --status-danger: #e5534b;
-  /* Soft Red */
   --status-info: #539bf5;
-  /* Sky Blue */
 
   /* Status Backgrounds */
   --bg-success: rgba(87, 171, 90, 0.15);
@@ -175,23 +158,14 @@ pre,
 .btn-primary {
   background: var(--brand-primary);
   color: white;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  /* Top highlight for 3D feel */
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  border: 1px solid transparent;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--brand-hover);
-  transform: translateY(-1px);
-  box-shadow:
-    0 3px 6px rgba(0, 0, 0, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  background: var(--brand-secondary);
 }
 
 .btn-primary:active {
-  transform: translateY(0);
   background: #2c62c9;
 }
 
@@ -199,12 +173,11 @@ pre,
   background: var(--bg-elevated);
   color: var(--text-primary);
   border: 1px solid var(--border-default);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .btn-secondary:hover:not(:disabled) {
   background: #363942;
-  border-color: var(--text-muted);
+  border-color: var(--border-emphasis);
 }
 
 .btn-ghost {
@@ -238,17 +211,14 @@ select:focus {
   box-shadow: 0 0 0 3px rgba(53, 116, 240, 0.15);
 }
 
-/* Cards - Subtle Depth */
 .card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
 }
 
 .card:hover {
   border-color: var(--border-emphasis);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 /* Activity Bar - Modern Tab Style */
@@ -256,7 +226,6 @@ select:focus {
   position: relative;
   opacity: 0.6;
   border-left: 3px solid transparent;
-  /* Left marker instead of generic */
   transition: all 0.2s;
 }
 
@@ -269,12 +238,6 @@ select:focus {
   opacity: 1;
   background-color: rgba(53, 116, 240, 0.1);
   border-left-color: var(--brand-primary);
-  /* Featured active state */
-}
-
-.activity-bar-item.active::before {
-  display: none;
-  /* Remove old style */
 }
 
 /* File Tree - Selection with Rounded Corners */
@@ -286,7 +249,6 @@ select:focus {
   background-color: rgba(53, 116, 240, 0.15);
   color: #fff;
   border-radius: 4px;
-  /* Modern rounded select */
 }
 
 /* Monaco & Grid */

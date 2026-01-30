@@ -1,7 +1,7 @@
 /**
  * Notification Service
- * NOW USES MONGODB INSTEAD OF PRISMA
- * Handles email (SendGrid) and Slack webhook notifications
+ *
+ * Handles email (SendGrid) and Slack webhook notifications.
  */
 
 import { notificationHistoryRepository } from '../db/repositories/mongo';

@@ -1,6 +1,5 @@
 /**
  * Environment Service
- * NOW USES MONGODB INSTEAD OF PRISMA
  *
  * Manages environment variables and global variables with Postman-style
  * precedence (Runtime > Environment > Global).

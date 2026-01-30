@@ -37,6 +37,8 @@ import {
     isElementInteractable,
     SelectorValidationResult
 } from './selectorHealing';
+import { generateVeroAction, generateVeroAssertion } from './veroSyntaxReference';
+import { logger } from '../utils/logger';
 
 interface RecordingSession {
     sessionId: string;
@@ -145,7 +147,7 @@ export class BrowserStreamService extends EventEmitter {
 
             // No screencast - user interacts with real browser
             // Just notify frontend that browser is ready
-            console.log('[BrowserStream] Launched headed Chrome browser for recording');
+            logger.info('[BrowserStream] Launched headed Chrome browser for recording');
 
             // Store session BEFORE navigation
             this.sessions.set(sessionId, {
@@ -325,18 +327,16 @@ export class BrowserStreamService extends EventEmitter {
             page.on('console', async (msg) => {
                 const text = msg.text();
                 if (text.startsWith('__VERO_ACTION__')) {
-                    console.log('[BrowserStream] Captured action from browser:', text.substring(0, 200));
+                    logger.debug('[BrowserStream] Captured action from browser:', text.substring(0, 200));
                     try {
                         const jsonStr = text.replace('__VERO_ACTION__', '').trim();
-                        console.log('[BrowserStream] Parsing JSON:', jsonStr.substring(0, 200));
                         const actionData: CapturedAction = JSON.parse(jsonStr);
-                        console.log('[BrowserStream] Parsed action:', JSON.stringify(actionData, null, 2).substring(0, 500));
+                        logger.debug('[BrowserStream] Parsed action:', JSON.stringify(actionData, null, 2).substring(0, 500));
 
                         const result = await this.processAction(actionData, url, sessionId);
-                        console.log('[BrowserStream] Process result:', result ? JSON.stringify(result, null, 2).substring(0, 300) : 'null');
 
                         if (result) {
-                            console.log('[BrowserStream] Emitting veroCode:', result.veroCode);
+                            logger.debug('[BrowserStream] Emitting veroCode:', result.veroCode);
                             onAction(
                                 result.veroCode,
                                 result.pagePath,
@@ -344,18 +344,17 @@ export class BrowserStreamService extends EventEmitter {
                                 result.fieldCreated
                             );
                         } else {
-                            console.log('[BrowserStream] No result from processAction - action not recorded');
+                            logger.debug('[BrowserStream] No result from processAction - action not recorded');
                         }
                     } catch (e) {
-                        console.error('[BrowserStream] Error parsing action:', e);
-                        console.error('[BrowserStream] Raw text was:', text);
+                        logger.error('[BrowserStream] Error parsing action:', e);
                     }
                 }
             });
 
             // Detect when user closes the browser
             browser.on('disconnected', () => {
-                console.log(`[BrowserStream] Browser closed for session ${sessionId}`);
+                logger.info(`[BrowserStream] Browser closed for session ${sessionId}`);
                 this.sessions.delete(sessionId);
                 onError('Browser closed');
             });
@@ -364,10 +363,10 @@ export class BrowserStreamService extends EventEmitter {
             // This ensures the action capture script runs on the initial page load
             await page.goto(url);
 
-            console.log(`[BrowserStream] Recording started for session ${sessionId} - Chrome browser opened`);
+            logger.info(`[BrowserStream] Recording started for session ${sessionId} - Chrome browser opened`);
 
         } catch (error: any) {
-            console.error('[BrowserStream] Error starting recording:', error);
+            logger.error('[BrowserStream] Error starting recording:', error);
             onError(error.message);
         }
     }
@@ -409,7 +408,7 @@ export class BrowserStreamService extends EventEmitter {
                 await screenshotService.saveStepScreenshot(sessionId, stepNumber, buffer);
                 return screenshotService.bufferToDataUrl(buffer);
             } catch (e) {
-                console.warn('[BrowserStream] Failed to capture screenshot:', e);
+                logger.warn('[BrowserStream] Failed to capture screenshot:', e);
                 return undefined;
             }
         };
@@ -417,7 +416,7 @@ export class BrowserStreamService extends EventEmitter {
         // Handle keypress actions
         if (action.type === 'keypress' && action.key) {
             screenshotDataUrl = await captureScreenshot();
-            return { veroCode: `press "${action.key}"`, screenshot: screenshotDataUrl, stepNumber };
+            return { veroCode: generateVeroAction('press', undefined, action.key), screenshot: screenshotDataUrl, stepNumber };
         }
 
         // Skip if no element info
@@ -442,14 +441,14 @@ export class BrowserStreamService extends EventEmitter {
         // Use Playwright's locator ranking to get the best selector
         const bestLocator = getBestLocator(locatorElement);
         if (!bestLocator) {
-            console.log('[BrowserStream] Could not generate locator for element');
+            logger.debug('[BrowserStream] Could not generate locator for element');
             return null;
         }
 
         // Convert Playwright selector to Vero DSL format
         const veroSelector = this.playwrightToVeroSelector(bestLocator.selector);
 
-        console.log(`[BrowserStream] Playwright: ${bestLocator.selector} -> Vero: ${veroSelector}`);
+        logger.debug(`[BrowserStream] Playwright: ${bestLocator.selector} -> Vero: ${veroSelector}`);
 
         // Check if this selector already exists in a page object
         let fieldRef = registry.findBySelector(veroSelector);
@@ -489,7 +488,7 @@ export class BrowserStreamService extends EventEmitter {
 
             veroCode = this.buildVeroActionWithRef(action.type, fieldRef, action.value);
 
-            console.log(`[BrowserStream] Created field ${fieldRef.pageName}.${fieldRef.fieldName} = ${veroSelector}`);
+            logger.debug(`[BrowserStream] Created field ${fieldRef.pageName}.${fieldRef.fieldName} = ${veroSelector}`);
         }
 
         // Capture screenshot after action
@@ -576,18 +575,8 @@ export class BrowserStreamService extends EventEmitter {
     ): string {
         const ref = `${fieldRef.pageName}.${fieldRef.fieldName}`;
 
-        switch (type) {
-            case 'click':
-                return `click ${ref}`;
-            case 'fill':
-                return `fill ${ref} with "${value || ''}"`;
-            case 'check':
-                return `check ${ref}`;
-            case 'select':
-                return `select "${value || ''}" from ${ref}`;
-            default:
-                return `# ${type}: ${ref}`;
-        }
+        // Use single source of truth for Vero syntax
+        return generateVeroAction(type, ref, value);
     }
 
     /**
@@ -615,16 +604,10 @@ export class BrowserStreamService extends EventEmitter {
             return null; // Can't build a reliable selector
         }
 
-        // Generate Vero code based on action type
-        switch (action.type) {
-            case 'click':
-                return `click ${selector}`;
-            case 'fill':
-                if (!action.value) return null;
-                return `fill ${selector} with "${action.value}"`;
-            default:
-                return null;
-        }
+        // Generate Vero code using single source of truth
+        if (action.type === 'fill' && !action.value) return null;
+        const veroCode = generateVeroAction(action.type, selector, action.value);
+        return veroCode.startsWith('#') ? null : veroCode;
     }
 
     /**
@@ -801,12 +784,12 @@ export class BrowserStreamService extends EventEmitter {
 
         // Handle goto separately
         if (action.type === 'goto') {
-            return { veroCode: `open "${action.value}"` };
+            return { veroCode: generateVeroAction('open', undefined, action.value) };
         }
 
         // Handle press separately (no selector)
         if (action.type === 'press') {
-            return { veroCode: `press "${action.value}"` };
+            return { veroCode: generateVeroAction('press', undefined, action.value) };
         }
 
         // Try to find existing page object for this selector
@@ -834,26 +817,14 @@ export class BrowserStreamService extends EventEmitter {
     }
 
     /**
-     * Build Vero action code
+     * Build Vero action code using single source of truth
      */
     private buildVeroAction(type: string, selector: string, value?: string): string {
-        switch (type) {
-            case 'click':
-                return `click "${selector}"`;
-            case 'fill':
-                return `fill "${selector}" with "${value}"`;
-            case 'check':
-                return `check "${selector}"`;
-            case 'select':
-                return `select "${value}" from "${selector}"`;
-            case 'expect':
-                if (value) {
-                    return `expect "${selector}" contains "${value}"`;
-                }
-                return `expect "${selector}" visible`;
-            default:
-                return `# ${type}: ${selector}`;
+        if (type === 'expect') {
+            const assertType = value ? 'contains' : 'visible';
+            return generateVeroAssertion(selector, assertType, value);
         }
+        return generateVeroAction(type, selector, value);
     }
 
     /**
@@ -1064,7 +1035,7 @@ export class BrowserStreamService extends EventEmitter {
         const session = this.sessions.get(sessionId);
         if (!session) return false;
         session.captureScreenshots = enabled;
-        console.log(`[BrowserStream] Screenshot capture ${enabled ? 'enabled' : 'disabled'} for session ${sessionId}`);
+        logger.info(`[BrowserStream] Screenshot capture ${enabled ? 'enabled' : 'disabled'} for session ${sessionId}`);
         return true;
     }
 
@@ -1087,7 +1058,7 @@ export class BrowserStreamService extends EventEmitter {
             );
             return screenshotService.bufferToDataUrl(buffer);
         } catch (e) {
-            console.warn('[BrowserStream] Failed to take screenshot:', e);
+            logger.warn('[BrowserStream] Failed to take screenshot:', e);
             return null;
         }
     }
@@ -1146,12 +1117,11 @@ export class BrowserStreamService extends EventEmitter {
     }> {
         const session = this.sessions.get(sessionId);
         if (!session) {
-            console.log(`[BrowserStream] dispatchClick: Session not found: ${sessionId}`);
-            console.log(`[BrowserStream] Available sessions: ${Array.from(this.sessions.keys()).join(', ') || '(none)'}`);
+            logger.warn(`[BrowserStream] dispatchClick: Session not found: ${sessionId}`);
             return { success: false, error: 'Session not found' };
         }
 
-        console.log(`[BrowserStream] Dispatching click at (${x}, ${y}) for session ${sessionId}`);
+        logger.debug(`[BrowserStream] Dispatching click at (${x}, ${y}) for session ${sessionId}`);
 
         try {
             // Get element at position before clicking for debugging
@@ -1166,13 +1136,12 @@ export class BrowserStreamService extends EventEmitter {
                 };
             }, { x, y });
 
-            console.log(`[BrowserStream] Element at (${x}, ${y}):`, elementInfo);
+            logger.debug(`[BrowserStream] Element at (${x}, ${y}):`, elementInfo);
 
             const urlBefore = session.page.url();
 
-            // Use Playwright's mouse API which properly triggers DOM events
             await session.page.mouse.click(x, y);
-            console.log(`[BrowserStream] Click dispatched successfully`);
+            logger.debug(`[BrowserStream] Click dispatched successfully`);
 
             // Wait for potential navigation (with timeout)
             try {
@@ -1183,7 +1152,7 @@ export class BrowserStreamService extends EventEmitter {
 
             // Check URL after click (for navigation)
             const urlAfter = session.page.url();
-            console.log(`[BrowserStream] URL: ${urlBefore} -> ${urlAfter}`);
+            logger.debug(`[BrowserStream] URL: ${urlBefore} -> ${urlAfter}`);
 
             return {
                 success: true,
@@ -1191,7 +1160,7 @@ export class BrowserStreamService extends EventEmitter {
                 urlAfter
             };
         } catch (error: any) {
-            console.error(`[BrowserStream] Error dispatching click:`, error);
+            logger.error(`[BrowserStream] Error dispatching click:`, error);
             return { success: false, error: error.message };
         }
     }
@@ -1239,7 +1208,7 @@ export class BrowserStreamService extends EventEmitter {
                 await session.page.keyboard.type(text);
             }
         } catch (error) {
-            console.error(`[BrowserStream] Error dispatching keyboard:`, error);
+            logger.error(`[BrowserStream] Error dispatching keyboard:`, error);
         }
     }
 
@@ -1279,7 +1248,7 @@ export class BrowserStreamService extends EventEmitter {
 
         // Handle keypress actions
         if (action.type === 'keypress' && action.key) {
-            return { veroCode: `press "${action.key}"` };
+            return { veroCode: generateVeroAction('press', undefined, action.key) };
         }
 
         // Skip if no element info
@@ -1304,14 +1273,14 @@ export class BrowserStreamService extends EventEmitter {
         // Use Playwright's locator ranking to get the best selector
         const bestLocator = getBestLocator(locatorElement);
         if (!bestLocator) {
-            console.log('[BrowserStream] Could not generate locator for iframe element');
+            logger.debug('[BrowserStream] Could not generate locator for iframe element');
             return null;
         }
 
         // Convert Playwright selector to Vero DSL format
         const veroSelector = this.playwrightToVeroSelector(bestLocator.selector);
 
-        console.log(`[BrowserStream] Iframe action - Playwright: ${bestLocator.selector} -> Vero: ${veroSelector}`);
+        logger.debug(`[BrowserStream] Iframe action - Playwright: ${bestLocator.selector} -> Vero: ${veroSelector}`);
 
         // Check if this selector already exists in a page object
         let fieldRef = registry.findBySelector(veroSelector);
@@ -1351,7 +1320,7 @@ export class BrowserStreamService extends EventEmitter {
 
             veroCode = this.buildVeroActionWithRef(action.type, fieldRef, action.value);
 
-            console.log(`[BrowserStream] Created iframe field ${fieldRef.pageName}.${fieldRef.fieldName} = ${veroSelector}`);
+            logger.debug(`[BrowserStream] Created iframe field ${fieldRef.pageName}.${fieldRef.fieldName} = ${veroSelector}`);
         }
 
         return { veroCode, pagePath, pageCode, fieldCreated };
@@ -1365,7 +1334,7 @@ export class BrowserStreamService extends EventEmitter {
 
         // Store a lightweight session for iframe proxy mode
         // We don't have a browser, just registry state
-        console.log(`[BrowserStream] Created iframe session: ${sessionId} for URL: ${url}`);
+        logger.info(`[BrowserStream] Created iframe session: ${sessionId} for URL: ${url}`);
     }
 
     /**
@@ -1401,14 +1370,14 @@ export class BrowserStreamService extends EventEmitter {
             // Find the element using Playwright and get its node ID
             const element = await this.findElementByVeroSelector(session.page, selector);
             if (!element) {
-                console.log(`[BrowserStream] Element not found for highlight: ${selector}`);
+                logger.debug(`[BrowserStream] Element not found for highlight: ${selector}`);
                 return false;
             }
 
             // Get the element's bounding box for highlight
             const box = await element.boundingBox();
             if (!box) {
-                console.log(`[BrowserStream] Element has no bounding box: ${selector}`);
+                logger.debug(`[BrowserStream] Element has no bounding box: ${selector}`);
                 return false;
             }
 
@@ -1435,7 +1404,7 @@ export class BrowserStreamService extends EventEmitter {
 
             return true;
         } catch (e) {
-            console.warn(`[BrowserStream] Failed to highlight element:`, e);
+            logger.warn(`[BrowserStream] Failed to highlight element:`, e);
             return false;
         }
     }
@@ -1498,7 +1467,7 @@ export class BrowserStreamService extends EventEmitter {
 
             return false;
         } catch (e) {
-            console.warn(`[BrowserStream] Failed to highlight at point:`, e);
+            logger.warn(`[BrowserStream] Failed to highlight at point:`, e);
             return false;
         }
     }
@@ -1547,7 +1516,7 @@ export class BrowserStreamService extends EventEmitter {
             }
             return true;
         } catch (e) {
-            console.warn(`[BrowserStream] Failed to toggle hover highlight:`, e);
+            logger.warn(`[BrowserStream] Failed to toggle hover highlight:`, e);
             return false;
         }
     }

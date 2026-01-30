@@ -181,12 +181,21 @@ export class MongoDBAdapter implements DataAdapter {
     return this.db.collection<T>(name);
   }
 
+  private removeUndefinedValues(obj: Record<string, any>): Record<string, any> {
+    const result: Record<string, any> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (value !== undefined) {
+        result[key] = value;
+      }
+    }
+    return result;
+  }
+
   private toObjectId(id: string): ObjectId {
     try {
       return new ObjectId(id);
     } catch {
-      // If not a valid ObjectId, create one from string hash
-      // This handles cases where IDs from SQLite are used
+      // If not a valid ObjectId, create a new one
       return new ObjectId();
     }
   }
@@ -280,17 +289,7 @@ export class MongoDBAdapter implements DataAdapter {
   async updateSheet(id: string, data: TestDataSheetUpdate): Promise<TestDataSheet> {
     const collection = this.getCollection<SheetDocument>(this.SHEETS_COLLECTION);
 
-    const updateData: any = {
-      ...data,
-      updatedAt: new Date(),
-    };
-
-    // Remove undefined values
-    Object.keys(updateData).forEach(key => {
-      if (updateData[key] === undefined) {
-        delete updateData[key];
-      }
-    });
+    const updateData = this.removeUndefinedValues({ ...data, updatedAt: new Date() });
 
     const result = await collection.findOneAndUpdate(
       { _id: this.toObjectId(id) },
@@ -366,17 +365,7 @@ export class MongoDBAdapter implements DataAdapter {
   async updateRow(id: string, data: TestDataRowUpdate): Promise<TestDataRow> {
     const collection = this.getCollection<RowDocument>(this.ROWS_COLLECTION);
 
-    const updateData: any = {
-      ...data,
-      updatedAt: new Date(),
-    };
-
-    // Remove undefined values
-    Object.keys(updateData).forEach(key => {
-      if (updateData[key] === undefined) {
-        delete updateData[key];
-      }
-    });
+    const updateData = this.removeUndefinedValues({ ...data, updatedAt: new Date() });
 
     const result = await collection.findOneAndUpdate(
       { _id: this.toObjectId(id) },

@@ -1,7 +1,7 @@
 /**
  * Audit Service
- * Track changes to schedules, configurations, and executions
- * NOW USES MONGODB INSTEAD OF PRISMA
+ *
+ * Tracks changes to schedules, configurations, and executions.
  */
 
 import { auditLogRepository } from '../db/repositories/mongo';

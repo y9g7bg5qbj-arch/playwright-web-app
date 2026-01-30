@@ -130,18 +130,18 @@ export function registerVeroLanguage(monaco: Monaco): void {
                 [/"([^"\\]|\\.)*"/, 'string'],
                 [/\b\d+(\.\d+)?\b/, 'number'],
                 [/\b[A-Z][a-zA-Z0-9]*\.[a-zA-Z][a-zA-Z0-9]*\b/, 'variable.name'],
-                [/\b(page|feature|scenario|field|use)\b/, 'keyword.structure'],
-                [/\b(before|after|all|each)\b/, 'keyword.hook'],
-                [/\b(if|else|repeat|times)\b/, 'keyword.control'],
-                [/\b(with|and|from|to|in|returns|return|then|as|by)\b/, 'keyword.operator'],
-                [/\b(button|textbox|link|testId|role|label|placeholder)\b/, 'type.selector'],
-                [/\b(click|fill|open|check|uncheck|select|hover|press|scroll|wait|do|refresh|clear|take|screenshot|log)\b/, 'function.action'],
-                [/\b(verify)\b/, 'keyword.assertion'],
-                [/\b(is|not|visible|hidden|enabled|disabled|checked|contains|empty)\b/, 'constant.condition'],
-                [/\b(text|number|flag|list|seconds|milliseconds)\b/, 'type'],
-                [/\b(data|where|order|by|asc|desc|limit|offset|first|last|random|default)\b/, 'keyword.vdql'],
-                [/\b(or|starts|ends|matches|null)\b/, 'keyword.vdql.operator'],
-                [/\b(count|sum|average|min|max|distinct|rows|columns|headers)\b/, 'function.vdql'],
+                [/\b(page|feature|scenario|field|use)\b/i, 'keyword.structure'],
+                [/\b(before|after|all|each)\b/i, 'keyword.hook'],
+                [/\b(if|else|repeat|times)\b/i, 'keyword.control'],
+                [/\b(with|and|from|to|in|returns|return|then|as|by)\b/i, 'keyword.operator'],
+                [/\b(button|textbox|link|checkbox|heading|combobox|radio|testid|role|label|placeholder|css|xpath|text|alt|title)\b/i, 'type.selector'],
+                [/\b(click|fill|open|check|uncheck|select|hover|press|scroll|wait|do|refresh|clear|take|screenshot|log)\b/i, 'function.action'],
+                [/\b(verify)\b/i, 'keyword.assertion'],
+                [/\b(is|not|visible|hidden|enabled|disabled|checked|contains|empty|has|value|count)\b/i, 'constant.condition'],
+                [/\b(text|number|flag|list|seconds|milliseconds)\b/i, 'type'],
+                [/\b(data|where|order|by|asc|desc|limit|offset|first|last|random|default)\b/i, 'keyword.vdql'],
+                [/\b(or|starts|ends|matches|null)\b/i, 'keyword.vdql.operator'],
+                [/\b(count|sum|average|min|max|distinct|rows|columns|headers)\b/i, 'function.vdql'],
                 [/\b(trim|convert|uppercase|lowercase|extract|replace|split|join|length|pad)\b/i, 'function.utility.string'],
                 [/\b(today|now|add|subtract|day|days|month|months|year|years|format)\b/i, 'function.utility.date'],
                 [/\b(round|decimals|up|down|absolute|currency|percent)\b/i, 'function.utility.number'],
@@ -198,9 +198,18 @@ export function parseVeroCode(code: string): VeroCodeItem[] {
             items.push({ type: 'feature', name: featureMatch[1], line: i + 1 });
         }
 
-        const scenarioMatch = line.match(/^\s*(?:SCENARIO|scenario)\s+"([^"]+)"/);
-        if (scenarioMatch) {
-            items.push({ type: 'scenario', name: scenarioMatch[1], line: i + 1 });
+        // Support both quoted and unquoted scenario names:
+        // - SCENARIO "My Scenario Name" { ... }
+        // - SCENARIO MyScenarioName @tag { ... }
+        const quotedScenarioMatch = line.match(/^\s*(?:SCENARIO|scenario)\s+"([^"]+)"/);
+        if (quotedScenarioMatch) {
+            items.push({ type: 'scenario', name: quotedScenarioMatch[1], line: i + 1 });
+        } else {
+            // Unquoted: capture word until whitespace, @tag, or {
+            const unquotedScenarioMatch = line.match(/^\s*(?:SCENARIO|scenario)\s+(\w+)(?:\s|@|\{)/);
+            if (unquotedScenarioMatch) {
+                items.push({ type: 'scenario', name: unquotedScenarioMatch[1], line: i + 1 });
+            }
         }
     }
     return items;

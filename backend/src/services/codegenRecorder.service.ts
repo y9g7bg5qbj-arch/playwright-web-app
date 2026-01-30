@@ -10,6 +10,8 @@ import {
 } from './pageObjectRegistry';
 import { recordingPersistenceService, CreateStepDTO } from './recordingPersistence.service';
 import { generateResilientSelector, CapturedElement } from './selectorHealing';
+import { generateVeroAction, generateVeroAssertion } from './veroSyntaxReference';
+import { logger } from '../utils/logger';
 
 interface CodegenSession {
     sessionId: string;
@@ -85,9 +87,9 @@ export class CodegenRecorderService extends EventEmitter {
                         pageName: registry.suggestPageName(url),
                     });
                     dbSessionId = dbSession.id;
-                    console.log(`[CodegenRecorder] Created DB session: ${dbSessionId}`);
+                    logger.info(`[CodegenRecorder] Created DB session: ${dbSessionId}`);
                 } catch (dbError) {
-                    console.warn('[CodegenRecorder] Failed to create DB session, continuing without persistence:', dbError);
+                    logger.warn('[CodegenRecorder] Failed to create DB session, continuing without persistence:', dbError);
                 }
             }
 
@@ -99,9 +101,7 @@ export class CodegenRecorderService extends EventEmitter {
             // Initialize empty file
             await writeFile(outputFile, '');
 
-            console.log(`[CodegenRecorder] Starting codegen for session ${sessionId}`);
-            console.log(`[CodegenRecorder] URL: ${url}`);
-            console.log(`[CodegenRecorder] Output file: ${outputFile}`);
+            logger.info(`[CodegenRecorder] Starting codegen for session ${sessionId}, URL: ${url}`);
 
             // Launch Playwright codegen
             const codegenProcess = spawn('npx', [
@@ -117,39 +117,39 @@ export class CodegenRecorderService extends EventEmitter {
             });
 
             codegenProcess.stdout?.on('data', (data) => {
-                console.log(`[CodegenRecorder] stdout: ${data.toString().trim()}`);
+                logger.debug(`[CodegenRecorder] stdout: ${data.toString().trim()}`);
             });
 
             codegenProcess.stderr?.on('data', (data) => {
                 const msg = data.toString().trim();
                 if (msg && !msg.includes('DevTools listening')) {
-                    console.log(`[CodegenRecorder] stderr: ${msg}`);
+                    logger.debug(`[CodegenRecorder] stderr: ${msg}`);
                 }
             });
 
             codegenProcess.on('error', (error) => {
-                console.error(`[CodegenRecorder] Process error:`, error);
+                logger.error(`[CodegenRecorder] Process error:`, error);
                 onError(`Codegen error: ${error.message}`);
             });
 
             codegenProcess.on('exit', async (code) => {
-                console.log(`[CodegenRecorder] Process exited with code ${code}`);
+                logger.info(`[CodegenRecorder] Process exited with code ${code}`);
 
                 // Read the final output file before cleaning up
                 try {
                     const finalCode = await readFile(outputFile, 'utf-8');
-                    console.log(`[CodegenRecorder] Final code length: ${finalCode.length}`);
+                    logger.debug(`[CodegenRecorder] Final code length: ${finalCode.length}`);
 
                     if (finalCode && finalCode.trim()) {
                         // Process any remaining actions
                         const currentSession = this.sessions.get(sessionId);
                         if (currentSession) {
-                            console.log(`[CodegenRecorder] Processing final code on exit...`);
+                            logger.debug(`[CodegenRecorder] Processing final code on exit...`);
                             await this.processCodeChanges(currentSession, finalCode, onAction);
                         }
                     }
                 } catch (e) {
-                    console.error(`[CodegenRecorder] Error reading final output:`, e);
+                    logger.error(`[CodegenRecorder] Error reading final output:`, e);
                 }
 
                 this.sessions.delete(sessionId);
@@ -159,7 +159,7 @@ export class CodegenRecorderService extends EventEmitter {
 
                 // Call onComplete callback
                 if (onComplete) {
-                    console.log(`[CodegenRecorder] Calling onComplete callback`);
+                    logger.debug(`[CodegenRecorder] Calling onComplete callback`);
                     onComplete();
                 }
             });
@@ -187,7 +187,7 @@ export class CodegenRecorderService extends EventEmitter {
             let pollCount = 0;
             const pollInterval = setInterval(async () => {
                 if (!this.sessions.has(sessionId)) {
-                    console.log(`[CodegenRecorder] Session ${sessionId} ended, stopping poll`);
+                    logger.debug(`[CodegenRecorder] Session ${sessionId} ended, stopping poll`);
                     clearInterval(pollInterval);
                     return;
                 }
@@ -198,8 +198,7 @@ export class CodegenRecorderService extends EventEmitter {
                     const currentSession = this.sessions.get(sessionId);
 
                     if (currentSession && currentCode !== currentSession.lastCode) {
-                        console.log(`[CodegenRecorder] Code changed! Length: ${currentCode.length}, Poll #${pollCount}`);
-                        console.log(`[CodegenRecorder] New code preview: ${currentCode.substring(0, 200)}...`);
+                        logger.debug(`[CodegenRecorder] Code changed. Length: ${currentCode.length}, Poll #${pollCount}`);
                         // Code changed - process new actions
                         await this.processCodeChanges(
                             currentSession,
@@ -211,7 +210,7 @@ export class CodegenRecorderService extends EventEmitter {
                 } catch (e: any) {
                     // File might not exist yet - log occasionally
                     if (pollCount % 20 === 1) {
-                        console.log(`[CodegenRecorder] Poll #${pollCount}: File not ready yet (${e.code || e.message})`);
+                        logger.debug(`[CodegenRecorder] Poll #${pollCount}: File not ready yet (${e.code || e.message})`);
                     }
                 }
             }, 500); // Poll every 500ms
@@ -219,10 +218,10 @@ export class CodegenRecorderService extends EventEmitter {
             // Store interval for cleanup
             (session as any)._pollInterval = pollInterval;
 
-            console.log(`[CodegenRecorder] Recording started for session ${sessionId}`);
+            logger.info(`[CodegenRecorder] Recording started for session ${sessionId}`);
 
         } catch (error: any) {
-            console.error('[CodegenRecorder] Error starting recording:', error);
+            logger.error('[CodegenRecorder] Error starting recording:', error);
             onError(error.message);
         }
     }
@@ -243,23 +242,23 @@ export class CodegenRecorderService extends EventEmitter {
     ): Promise<void> {
         // Parse all actions from new code
         const actions = this.parsePlaywrightCode(newCode);
-        console.log(`[CodegenRecorder] Parsed ${actions.length} total actions from code`);
+        logger.debug(`[CodegenRecorder] Parsed ${actions.length} total actions from code`);
 
         // Find new actions (compare line counts)
         const newActions = actions.slice(session.lastLineCount);
         session.lastLineCount = actions.length;
 
-        console.log(`[CodegenRecorder] Processing ${newActions.length} new actions (lastLineCount was ${session.lastLineCount - newActions.length})`);
+        logger.debug(`[CodegenRecorder] Processing ${newActions.length} new actions`);
 
         // Convert each new action to Vero DSL
         for (const action of newActions) {
             const result = await this.convertToVero(action, session);
             if (result) {
-                console.log(`[CodegenRecorder] Emitting: ${result.veroCode}`);
+                logger.debug(`[CodegenRecorder] Emitting: ${result.veroCode}`);
 
                 // Log duplicate warning if present
                 if (result.duplicateWarning) {
-                    console.log(`[CodegenRecorder] Duplicate warning: ${result.duplicateWarning.reason}`);
+                    logger.info(`[CodegenRecorder] Duplicate warning: ${result.duplicateWarning.reason}`);
                     // Emit duplicate detection event
                     this.emit('duplicate-detected', {
                         sessionId: session.sessionId,
@@ -292,9 +291,9 @@ export class CodegenRecorderService extends EventEmitter {
                             elementText: capturedElement.innerText,
                         };
                         await recordingPersistenceService.addStep(stepData);
-                        console.log(`[CodegenRecorder] Persisted step ${session.stepCount} with ${resilientSelector.fallbacks.length} fallbacks`);
+                        logger.debug(`[CodegenRecorder] Persisted step ${session.stepCount} with ${resilientSelector.fallbacks.length} fallbacks`);
                     } catch (dbError) {
-                        console.warn('[CodegenRecorder] Failed to persist step:', dbError);
+                        logger.warn('[CodegenRecorder] Failed to persist step:', dbError);
                     }
                 }
 
@@ -609,12 +608,12 @@ export class CodegenRecorderService extends EventEmitter {
 
         // Handle goto
         if (action.type === 'goto') {
-            return { veroCode: `open "${action.value}"` };
+            return { veroCode: generateVeroAction('open', undefined, action.value) };
         }
 
         // Handle keyboard press without selector
         if (action.type === 'press' && !action.selector) {
-            return { veroCode: `press "${action.value}"` };
+            return { veroCode: generateVeroAction('press', undefined, action.value) };
         }
 
         // For actions with selectors, check page object registry
@@ -650,7 +649,7 @@ export class CodegenRecorderService extends EventEmitter {
                         reason: duplicateCheck.reason || 'Duplicate detected'
                     };
 
-                    console.log(`[CodegenRecorder] Duplicate detected: reusing ${fieldRef.pageName}.${fieldRef.fieldName} (${Math.round(duplicateCheck.similarity * 100)}% match)`);
+                    logger.info(`[CodegenRecorder] Duplicate detected: reusing ${fieldRef.pageName}.${fieldRef.fieldName} (${Math.round(duplicateCheck.similarity * 100)}% match)`);
                 } else if (duplicateCheck.recommendation === 'review' && duplicateCheck.existingRef) {
                     // Create new field but emit warning for review
                     const fieldName = this.generateFieldName(action);
@@ -673,7 +672,7 @@ export class CodegenRecorderService extends EventEmitter {
                         reason: duplicateCheck.reason || 'Similar field exists - please review'
                     };
 
-                    console.log(`[CodegenRecorder] Created field with warning: ${fieldRef.pageName}.${fieldRef.fieldName} (similar to ${duplicateCheck.existingRef.pageName}.${duplicateCheck.existingRef.fieldName})`);
+                    logger.info(`[CodegenRecorder] Created field with warning: ${fieldRef.pageName}.${fieldRef.fieldName} (similar to ${duplicateCheck.existingRef.pageName}.${duplicateCheck.existingRef.fieldName})`);
                 } else {
                     // No duplicate - create new page object field
                     const fieldName = this.generateFieldName(action);
@@ -693,42 +692,19 @@ export class CodegenRecorderService extends EventEmitter {
                         fieldName: fieldRef.fieldName
                     };
 
-                    console.log(`[CodegenRecorder] Created field ${fieldRef.pageName}.${fieldRef.fieldName} = ${action.selector}`);
+                    logger.info(`[CodegenRecorder] Created field ${fieldRef.pageName}.${fieldRef.fieldName} = ${action.selector}`);
                 }
             }
 
-            // Build Vero action with page object reference
+            // Build Vero action with page object reference using single source of truth
             const ref = `${fieldRef.pageName}.${fieldRef.fieldName}`;
             let veroCode: string;
 
-            switch (action.type) {
-                case 'click':
-                    veroCode = `click ${ref}`;
-                    break;
-                case 'fill':
-                    veroCode = `fill ${ref} with "${action.value || ''}"`;
-                    break;
-                case 'check':
-                    veroCode = `check ${ref}`;
-                    break;
-                case 'select':
-                    veroCode = `select "${action.value || ''}" from ${ref}`;
-                    break;
-                case 'hover':
-                    veroCode = `hover ${ref}`;
-                    break;
-                case 'press':
-                    veroCode = `press "${action.value}" on ${ref}`;
-                    break;
-                case 'expect':
-                    if (action.value === 'visible') {
-                        veroCode = `verify ${ref} is visible`;
-                    } else {
-                        veroCode = `verify ${ref} has text "${action.value}"`;
-                    }
-                    break;
-                default:
-                    veroCode = `# ${action.originalLine}`;
+            if (action.type === 'expect') {
+                const assertType = action.value === 'visible' ? 'visible' : 'hasValue';
+                veroCode = generateVeroAssertion(ref, assertType, action.value === 'visible' ? undefined : action.value);
+            } else {
+                veroCode = generateVeroAction(action.type, ref, action.value);
             }
 
             return { veroCode, pagePath, pageCode, fieldCreated, duplicateWarning };
@@ -899,9 +875,9 @@ export class CodegenRecorderService extends EventEmitter {
                 // Generate final Vero code from all persisted steps
                 const veroCode = await recordingPersistenceService.generateVeroFromSteps(session.dbSessionId);
                 await recordingPersistenceService.completeSession(session.dbSessionId, veroCode);
-                console.log(`[CodegenRecorder] Completed DB session: ${session.dbSessionId}`);
+                logger.info(`[CodegenRecorder] Completed DB session: ${session.dbSessionId}`);
             } catch (dbError) {
-                console.warn('[CodegenRecorder] Failed to complete DB session:', dbError);
+                logger.warn('[CodegenRecorder] Failed to complete DB session:', dbError);
                 // Try to mark as failed
                 try {
                     await recordingPersistenceService.failSession(session.dbSessionId, 'Recording stopped unexpectedly');
@@ -943,7 +919,7 @@ export class CodegenRecorderService extends EventEmitter {
                 status: session.status
             };
         } catch (e) {
-            console.error('[CodegenRecorder] Failed to recover session:', e);
+            logger.error('[CodegenRecorder] Failed to recover session:', e);
             return null;
         }
     }

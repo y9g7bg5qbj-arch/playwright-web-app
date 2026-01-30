@@ -1,6 +1,7 @@
 /**
  * Execution Service
- * NOW USES MONGODB INSTEAD OF PRISMA
+ *
+ * Manages test execution lifecycle, logging, and step tracking.
  */
 
 import { executionRepository, executionLogRepository, executionStepRepository, testFlowRepository, workflowRepository } from '../db/repositories/mongo';

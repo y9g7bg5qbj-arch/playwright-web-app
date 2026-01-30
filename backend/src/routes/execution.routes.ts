@@ -20,6 +20,14 @@ const executionService = new ExecutionService();
 const playwrightService = new PlaywrightService();
 const testFlowService = new TestFlowService();
 
+// GET / - List all executions (returns empty for now as executions are managed per-session in memory)
+router.get('/', (_req, res) => {
+  res.json({
+    success: true,
+    executions: []
+  });
+});
+
 // CORS preflight handler for trace files (required for trace.playwright.dev embedding)
 router.options('/:id/trace', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -94,28 +102,20 @@ router.get(
       const traceDir = path.join(storagePath, req.params.id, 'trace');
       const testResultsDir = path.join(storagePath, req.params.id, 'test-results');
 
-      // Removed: [TRACE] Looking for trace in: debug log
-
       // Find trace.zip using shared helper
       let tracePath = await findTraceFile(traceDir);
       if (!tracePath) {
         tracePath = await findTraceFile(testResultsDir);
       }
-      if (tracePath) {
-        // Removed: [TRACE] Found trace file: debug log
-      }
 
       if (!tracePath) {
-        // Removed: [TRACE] Trace file not found for: debug log
         return res.status(404).json({
           success: false,
           error: 'Trace file not found',
         });
       }
 
-      // Ensure absolute path
       const absoluteTracePath = path.resolve(tracePath);
-      // Removed: [TRACE] Serving trace file: debug log
 
       // Send the trace file with CORS headers for trace.playwright.dev embedding
       res.setHeader('Content-Type', 'application/zip');
@@ -125,17 +125,11 @@ router.get(
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
       res.sendFile(absoluteTracePath, (err) => {
-        if (err) {
-          // Removed: [TRACE] Error sending file: debug log
-          if (!res.headersSent) {
-            res.status(500).json({ error: 'Failed to send trace file' });
-          }
-        } else {
-          // Removed: [TRACE] Successfully sent trace file debug log
+        if (err && !res.headersSent) {
+          res.status(500).json({ error: 'Failed to send trace file' });
         }
       });
     } catch (error) {
-      // Removed: [TRACE] Error in trace route: debug log
       next(error);
     }
   }
@@ -149,30 +143,11 @@ router.post(
     try {
       const storagePath = playwrightService.getStoragePath();
       const traceDir = path.join(storagePath, req.params.id, 'trace');
-
-      // Find trace.zip
-      const findTrace = async (dir: string): Promise<string | null> => {
-        try {
-          const entries = await fs.readdir(dir, { withFileTypes: true });
-          for (const entry of entries) {
-            const fullPath = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              const found = await findTrace(fullPath);
-              if (found) return found;
-            } else if (entry.name === 'trace.zip' || entry.name.endsWith('.zip')) {
-              return fullPath;
-            }
-          }
-        } catch {
-          // Directory might not exist
-        }
-        return null;
-      };
-
       const testResultsDir = path.join(storagePath, req.params.id, 'test-results');
-      let tracePath = await findTrace(traceDir);
+
+      let tracePath = await findTraceFile(traceDir);
       if (!tracePath) {
-        tracePath = await findTrace(testResultsDir);
+        tracePath = await findTraceFile(testResultsDir);
       }
 
       if (!tracePath) {
@@ -182,12 +157,9 @@ router.post(
         });
       }
 
-      // Launch Playwright trace viewer (opens in dedicated browser window)
-      const { spawn } = require('child_process');
       const absoluteTracePath = path.resolve(tracePath);
-      // Removed: [TRACE] Opening trace viewer for: debug log
 
-      // Just spawn the trace viewer - it opens in its own browser window
+      // Spawn the trace viewer - it opens in its own browser window
       const traceProcess = spawn('npx', ['playwright', 'show-trace', absoluteTracePath], {
         detached: true,
         stdio: 'ignore',
@@ -265,7 +237,6 @@ router.get('/docker/list', async (req, res, next) => {
       data: executions,
     });
   } catch (error) {
-    // Removed: [DOCKER-TRACES] Error listing executions: debug log
     next(error);
   }
 });
@@ -285,8 +256,6 @@ router.get('/docker/trace/:shard/:testDir', async (req, res, next) => {
     const { shard, testDir } = req.params;
     const tracePath = path.join(DOCKER_TRACES_DIR, shard, decodeURIComponent(testDir), 'trace.zip');
 
-    // Removed: [DOCKER-TRACE] Looking for trace at: debug log
-
     // Verify file exists
     try {
       await fs.access(tracePath);
@@ -298,7 +267,6 @@ router.get('/docker/trace/:shard/:testDir', async (req, res, next) => {
     }
 
     const absolutePath = path.resolve(tracePath);
-    // Removed: [DOCKER-TRACE] Serving: debug log
 
     // Send with CORS headers
     res.setHeader('Content-Type', 'application/zip');
@@ -308,15 +276,11 @@ router.get('/docker/trace/:shard/:testDir', async (req, res, next) => {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     res.sendFile(absolutePath, (err) => {
-      if (err) {
-        // Removed: [DOCKER-TRACE] Error sending file: debug log
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Failed to send trace file' });
-        }
+      if (err && !res.headersSent) {
+        res.status(500).json({ error: 'Failed to send trace file' });
       }
     });
   } catch (error) {
-    // Removed: [DOCKER-TRACE] Error: debug log
     next(error);
   }
 });
@@ -338,10 +302,8 @@ router.post('/docker/trace/:shard/:testDir/view', async (req, res, next) => {
     }
 
     const absolutePath = path.resolve(tracePath);
-    // Removed: [DOCKER-TRACE] Opening local viewer for: debug log
 
     // Launch Playwright trace viewer
-    const { spawn } = require('child_process');
     const traceProcess = spawn('npx', ['playwright', 'show-trace', absolutePath], {
       detached: true,
       stdio: 'ignore',
@@ -354,7 +316,6 @@ router.post('/docker/trace/:shard/:testDir/view', async (req, res, next) => {
       tracePath: absolutePath,
     });
   } catch (error) {
-    // Removed: [DOCKER-TRACE] Error launching viewer: debug log
     next(error);
   }
 });
@@ -389,8 +350,6 @@ router.options('/local/trace/:scenarioName', (req, res) => {
  */
 router.get('/local/trace', async (req, res, next) => {
   try {
-    // Removed: [LOCAL-TRACE] Looking for traces in: debug log
-
     // Find the most recent trace.zip in test-results directory
     let latestTrace: { path: string; mtime: Date } | null = null;
 
@@ -416,14 +375,13 @@ router.get('/local/trace', async (req, res, next) => {
     await findTraces(VERO_TEST_RESULTS_PATH);
 
     if (!latestTrace) {
-      // Removed: [LOCAL-TRACE] No trace files found
       return res.status(404).json({
         success: false,
         error: 'No trace files found. Run tests first.',
       });
     }
 
-    // Removed: [LOCAL-TRACE] Serving trace
+    // TypeScript doesn't track mutations through closures, so assert non-null
     const tracePath = (latestTrace as { path: string; mtime: Date }).path;
 
     // Send with CORS headers for trace.playwright.dev
@@ -434,15 +392,11 @@ router.get('/local/trace', async (req, res, next) => {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     res.sendFile(tracePath, (err) => {
-      if (err) {
-        // Removed: [LOCAL-TRACE] Error sending file
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Failed to send trace file' });
-        }
+      if (err && !res.headersSent) {
+        res.status(500).json({ error: 'Failed to send trace file' });
       }
     });
   } catch (error) {
-    // Removed: [LOCAL-TRACE] Error
     next(error);
   }
 });
@@ -454,7 +408,6 @@ router.get('/local/trace', async (req, res, next) => {
 router.get('/local/trace/:scenarioName', async (req, res, next) => {
   try {
     const scenarioName = decodeURIComponent(req.params.scenarioName).toLowerCase();
-    // Removed: [LOCAL-TRACE] Looking for scenario trace
 
     // Find trace.zip in directory matching scenario name
     let matchedTrace: string | null = null;
@@ -482,14 +435,11 @@ router.get('/local/trace/:scenarioName', async (req, res, next) => {
     }
 
     if (!matchedTrace) {
-      // Removed: [LOCAL-TRACE] No trace found for scenario: debug log
       return res.status(404).json({
         success: false,
         error: `No trace found for scenario: ${scenarioName}`,
       });
     }
-
-    // Removed: [LOCAL-TRACE] Serving trace: debug log
 
     // Send with CORS headers
     res.setHeader('Content-Type', 'application/zip');
@@ -499,15 +449,11 @@ router.get('/local/trace/:scenarioName', async (req, res, next) => {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     res.sendFile(matchedTrace, (err) => {
-      if (err) {
-        // Removed: [LOCAL-TRACE] Error sending file
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Failed to send trace file' });
-        }
+      if (err && !res.headersSent) {
+        res.status(500).json({ error: 'Failed to send trace file' });
       }
     });
   } catch (error) {
-    // Removed: [LOCAL-TRACE] Error
     next(error);
   }
 });
@@ -561,7 +507,6 @@ router.get('/local/traces', async (req, res, next) => {
 router.post('/local/trace/:scenarioName/open', async (req, res, next) => {
   try {
     const scenarioName = decodeURIComponent(req.params.scenarioName).toLowerCase();
-    // Removed: [LOCAL-TRACE] Opening trace viewer for scenario: debug log
 
     // Find trace.zip in directory matching scenario name
     let tracePath: string | null = null;
@@ -577,7 +522,6 @@ router.post('/local/trace/:scenarioName/open', async (req, res, next) => {
             try {
               await fs.access(possibleTrace);
               tracePath = possibleTrace;
-              // Removed: [LOCAL-TRACE] Found trace at: debug log
               break;
             } catch {
               // No trace.zip in this directory
@@ -596,9 +540,6 @@ router.post('/local/trace/:scenarioName/open', async (req, res, next) => {
       });
     }
 
-    // Open Playwright trace viewer
-    // Removed: [LOCAL-TRACE] Spawning trace viewer for: debug log
-
     // Kill any existing trace viewer on our port first
     const { exec, execSync } = require('child_process');
     try {
@@ -607,33 +548,17 @@ router.post('/local/trace/:scenarioName/open', async (req, res, next) => {
       // Ignore errors
     }
 
-    const quotedPath = `"${tracePath}"`;
     const tracePort = 9323;
     const traceUrl = `http://localhost:${tracePort}`;
 
-    // Start trace viewer on a fixed port (-p flag opens browser automatically)
-    const command = `npx playwright show-trace -p ${tracePort} ${quotedPath}`;
-    // Removed: [LOCAL-TRACE] Running command: debug log
+    // Start trace viewer on a fixed port
+    const command = `npx playwright show-trace -p ${tracePort} "${tracePath}"`;
 
-    const childProcess = exec(command, {
-      cwd: VERO_PROJECT_PATH,
-    });
-
-    childProcess.stdout?.on('data', (data: string) => {
-      // Removed: [LOCAL-TRACE] stdout: debug log
-    });
-
-    childProcess.stderr?.on('data', (data: string) => {
-      // Removed: [LOCAL-TRACE] stderr: debug log
-    });
-
-    childProcess.on('error', (error: any) => {
-      // Removed: [LOCAL-TRACE] Process error: debug log
-    });
+    const childProcess = exec(command, { cwd: VERO_PROJECT_PATH });
+    childProcess.unref?.();
 
     // Wait a moment for the server to start, then open browser
     setTimeout(() => {
-      // Removed: [LOCAL-TRACE] Opening browser at: debug log
       exec(`open "${traceUrl}"`);
     }, 1500);
 
@@ -644,7 +569,6 @@ router.post('/local/trace/:scenarioName/open', async (req, res, next) => {
       traceUrl,
     });
   } catch (error) {
-    // Removed: [LOCAL-TRACE] Error opening trace viewer: debug log
     next(error);
   }
 });
@@ -660,7 +584,6 @@ router.post('/local/trace/:scenarioName/open', async (req, res, next) => {
 router.get('/local/screenshot/:scenarioName', async (req, res, next) => {
   try {
     const scenarioName = decodeURIComponent(req.params.scenarioName).toLowerCase();
-    // Removed: [LOCAL-SCREENSHOT] Looking for screenshot for scenario: debug log
 
     // Find screenshot in test-results directory matching scenario name
     let screenshotPath: string | null = null;
@@ -678,7 +601,6 @@ router.get('/local/screenshot/:scenarioName', async (req, res, next) => {
               const pngFile = dirContents.find(f => f.endsWith('.png'));
               if (pngFile) {
                 screenshotPath = path.join(dirPath, pngFile);
-                // Removed: [LOCAL-SCREENSHOT] Found screenshot at: debug log
                 break;
               }
             } catch {
@@ -704,7 +626,6 @@ router.get('/local/screenshot/:scenarioName', async (req, res, next) => {
     const fileBuffer = await fs.readFile(screenshotPath);
     res.send(fileBuffer);
   } catch (error) {
-    // Removed: [LOCAL-SCREENSHOT] Error serving screenshot: debug log
     next(error);
   }
 });
@@ -764,15 +685,14 @@ router.get('/local/screenshots', async (req, res, next) => {
  */
 router.get('/local/allure/status', async (req, res, next) => {
   try {
-    const veroProjectPath = path.join(__dirname, '../../../vero-lang/test-project');
-    const allureReportPath = path.join(veroProjectPath, 'allure-report', 'index.html');
+    const allureReportPath = path.join(VERO_PROJECT_PATH, 'allure-report', 'index.html');
 
     let ready = false;
     try {
       await fs.access(allureReportPath);
       ready = true;
     } catch {
-      ready = false;
+      // Report not generated yet
     }
 
     res.json({
@@ -793,13 +713,9 @@ router.get('/local/allure/status', async (req, res, next) => {
  */
 router.post('/local/allure/generate', async (req, res, next) => {
   try {
-    const { spawn } = require('child_process');
-    const veroProjectPath = path.join(__dirname, '../../../vero-lang/test-project');
-    const allureResultsPath = path.join(veroProjectPath, 'allure-results');
-    const allureReportPath = path.join(veroProjectPath, 'allure-report');
+    const allureResultsPath = path.join(VERO_PROJECT_PATH, 'allure-results');
+    const allureReportPath = path.join(VERO_PROJECT_PATH, 'allure-report');
     const storageAllurePath = path.resolve(__dirname, '../../../backend/storage/allure-reports/local');
-
-    // Removed: [Allure] Generating report from: debug log
 
     // Check if allure-results exists
     try {
@@ -818,11 +734,9 @@ router.post('/local/allure/generate', async (req, res, next) => {
       // Ignore if doesn't exist
     }
 
-    // Generate Allure report - quote paths to handle spaces
-    const quotedResultsPath = `"${allureResultsPath}"`;
-    const quotedReportPath = `"${allureReportPath}"`;
-    const allureProcess = spawn('npx', ['allure', 'generate', quotedResultsPath, '-o', quotedReportPath, '--clean'], {
-      cwd: veroProjectPath,
+    // Generate Allure report
+    const allureProcess = spawn('npx', ['allure', 'generate', `"${allureResultsPath}"`, '-o', `"${allureReportPath}"`, '--clean'], {
+      cwd: VERO_PROJECT_PATH,
       shell: true,
     });
 
@@ -831,19 +745,15 @@ router.post('/local/allure/generate', async (req, res, next) => {
 
     allureProcess.stdout?.on('data', (data: Buffer) => {
       stdout += data.toString();
-      // Removed: [Allure] debug log
     });
 
     allureProcess.stderr?.on('data', (data: Buffer) => {
       stderr += data.toString();
-      // Removed: [Allure Error] debug log
     });
 
     await new Promise<void>((resolve, reject) => {
       allureProcess.on('close', async (code: number) => {
         if (code === 0) {
-          // Removed: [Allure] Report generated successfully debug log
-
           // Copy to storage location for static serving
           try {
             await fs.mkdir(storageAllurePath, { recursive: true });
@@ -866,9 +776,8 @@ router.post('/local/allure/generate', async (req, res, next) => {
             };
 
             await copyRecursive(allureReportPath, storageAllurePath);
-            // Removed: [Allure] Report copied to storage: debug log
-          } catch (copyErr) {
-            // Removed: [Allure] Failed to copy report: debug log
+          } catch {
+            // Non-critical: report is still available from allure-report directory
           }
 
           resolve();
@@ -890,7 +799,6 @@ router.post('/local/allure/generate', async (req, res, next) => {
       },
     });
   } catch (error: any) {
-    // Removed: [Allure] Error generating report: debug log
     res.json({
       success: false,
       error: error.message || 'Failed to generate Allure report',

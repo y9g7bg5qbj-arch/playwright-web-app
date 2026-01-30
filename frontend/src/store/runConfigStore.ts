@@ -91,7 +91,7 @@ export const DEFAULT_CONFIG: Omit<RunConfiguration, 'id' | 'createdAt' | 'update
   name: 'Default',
   target: 'local',
   browser: 'chromium',
-  headed: false,
+  headed: true, // Show browser by default for better user experience
   debug: false,
   ui: false,
   workers: 1,
@@ -143,7 +143,6 @@ export const PRESET_CONFIGS: Omit<RunConfiguration, 'id' | 'createdAt' | 'update
       workflowFile: '.github/workflows/vero-tests.yml',
     },
   },
-
 ];
 
 interface RunConfigState {
@@ -186,7 +185,7 @@ interface RunConfigState {
 }
 
 // Generate unique ID
-const generateId = () => `config_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+const generateId = () => `config_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
 export const useRunConfigStore = create<RunConfigState>()(
   persist(

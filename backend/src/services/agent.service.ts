@@ -1,6 +1,7 @@
 /**
  * Agent Service
- * NOW USES MONGODB INSTEAD OF PRISMA
+ *
+ * Manages remote execution agents and AI generation requests.
  */
 
 import crypto from 'crypto';

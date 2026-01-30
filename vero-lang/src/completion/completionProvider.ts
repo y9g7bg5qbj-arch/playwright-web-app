@@ -53,7 +53,6 @@ export interface CompletionItem {
         endColumn: number;
     };
     sortText?: string;  // For ordering
-    filterText?: string;  // For filtering
 }
 
 /**
@@ -72,76 +71,76 @@ export interface CompletionContext {
 
 /**
  * Keywords for statement start
+ * Uses UPPERCASE keywords matching Vero DSL specification
  */
 const STATEMENT_KEYWORDS: CompletionItem[] = [
-    { label: 'navigate', kind: CompletionItemKind.Keyword, detail: 'Navigate to a URL', insertText: 'navigate to "${1:url}"', insertTextRules: 4 },
-    { label: 'open', kind: CompletionItemKind.Keyword, detail: 'Open a URL (alias for navigate)', insertText: 'open "${1:url}"', insertTextRules: 4 },
-    { label: 'click', kind: CompletionItemKind.Keyword, detail: 'Click an element', insertText: 'click "${1:element}"', insertTextRules: 4 },
-    { label: 'fill', kind: CompletionItemKind.Keyword, detail: 'Fill a field with a value', insertText: 'fill "${1:field}" with "${2:value}"', insertTextRules: 4 },
-    { label: 'verify', kind: CompletionItemKind.Keyword, detail: 'Verify a condition', insertText: 'verify "${1:element}" is visible', insertTextRules: 4 },
-    { label: 'wait', kind: CompletionItemKind.Keyword, detail: 'Wait for time or condition', insertText: 'wait ${1:2} seconds', insertTextRules: 4 },
-    { label: 'hover', kind: CompletionItemKind.Keyword, detail: 'Hover over an element', insertText: 'hover "${1:element}"', insertTextRules: 4 },
-    { label: 'press', kind: CompletionItemKind.Keyword, detail: 'Press a key', insertText: 'press "${1:Enter}"', insertTextRules: 4 },
-    { label: 'check', kind: CompletionItemKind.Keyword, detail: 'Check a checkbox', insertText: 'check "${1:checkbox}"', insertTextRules: 4 },
-    { label: 'load', kind: CompletionItemKind.Keyword, detail: 'Load data from a table', insertText: 'load ${1:data} from "${2:table}"', insertTextRules: 4 },
-    { label: 'for each', kind: CompletionItemKind.Keyword, detail: 'Iterate over data', insertText: 'for each $${1:item} in ${2:items}\n\t${3}\nend', insertTextRules: 4 },
-    { label: 'if', kind: CompletionItemKind.Keyword, detail: 'Conditional statement', insertText: 'if ${1:condition} then\n\t${2}\nend', insertTextRules: 4 },
-    { label: 'do', kind: CompletionItemKind.Keyword, detail: 'Call an action', insertText: 'do ${1:Page}.${2:action}', insertTextRules: 4 },
-    { label: 'refresh', kind: CompletionItemKind.Keyword, detail: 'Refresh the page', insertText: 'refresh' },
-    { label: 'take screenshot', kind: CompletionItemKind.Keyword, detail: 'Take full page screenshot', insertText: 'take screenshot', insertTextRules: 4 },
-    { label: 'take screenshot as', kind: CompletionItemKind.Keyword, detail: 'Take full page screenshot with filename', insertText: 'take screenshot as "${1:filename.png}"', insertTextRules: 4 },
-    { label: 'take screenshot of', kind: CompletionItemKind.Keyword, detail: 'Take element screenshot (Page.field)', insertText: 'take screenshot of ${1:Page}.${2:field}', insertTextRules: 4 },
-    { label: 'take screenshot of ... as', kind: CompletionItemKind.Keyword, detail: 'Take element screenshot with filename', insertText: 'take screenshot of ${1:Page}.${2:field} as "${3:filename.png}"', insertTextRules: 4 },
-    { label: 'log', kind: CompletionItemKind.Keyword, detail: 'Log a message', insertText: 'log "${1:message}"', insertTextRules: 4 },
-    { label: 'upload', kind: CompletionItemKind.Keyword, detail: 'Upload a file', insertText: 'upload "${1:file}" to "${2:element}"', insertTextRules: 4 },
-    { label: 'right-click', kind: CompletionItemKind.Keyword, detail: 'Right-click an element', insertText: 'right-click "${1:element}"', insertTextRules: 4 },
-    { label: 'double-click', kind: CompletionItemKind.Keyword, detail: 'Double-click an element', insertText: 'double-click "${1:element}"', insertTextRules: 4 },
-    { label: 'drag', kind: CompletionItemKind.Keyword, detail: 'Drag an element', insertText: 'drag "${1:source}" to "${2:target}"', insertTextRules: 4 },
+    { label: 'OPEN', kind: CompletionItemKind.Keyword, detail: 'Open a URL', insertText: 'OPEN "${1:url}"', insertTextRules: 4 },
+    { label: 'CLICK', kind: CompletionItemKind.Keyword, detail: 'Click an element', insertText: 'CLICK ${1:Page}.${2:field}', insertTextRules: 4 },
+    { label: 'FILL', kind: CompletionItemKind.Keyword, detail: 'Fill a field with a value', insertText: 'FILL ${1:Page}.${2:field} WITH "${3:value}"', insertTextRules: 4 },
+    { label: 'VERIFY', kind: CompletionItemKind.Keyword, detail: 'Verify a condition', insertText: 'VERIFY ${1:Page}.${2:field} IS VISIBLE', insertTextRules: 4 },
+    { label: 'WAIT', kind: CompletionItemKind.Keyword, detail: 'Wait for time or condition', insertText: 'WAIT ${1:2} SECONDS', insertTextRules: 4 },
+    { label: 'HOVER', kind: CompletionItemKind.Keyword, detail: 'Hover over an element', insertText: 'HOVER ${1:Page}.${2:field}', insertTextRules: 4 },
+    { label: 'PRESS', kind: CompletionItemKind.Keyword, detail: 'Press a key', insertText: 'PRESS "${1:Enter}"', insertTextRules: 4 },
+    { label: 'CHECK', kind: CompletionItemKind.Keyword, detail: 'Check a checkbox', insertText: 'CHECK ${1:Page}.${2:checkbox}', insertTextRules: 4 },
+    { label: 'UNCHECK', kind: CompletionItemKind.Keyword, detail: 'Uncheck a checkbox', insertText: 'UNCHECK ${1:Page}.${2:checkbox}', insertTextRules: 4 },
+    { label: 'SELECT', kind: CompletionItemKind.Keyword, detail: 'Select from dropdown', insertText: 'SELECT "${1:option}" FROM ${2:Page}.${3:dropdown}', insertTextRules: 4 },
+    { label: 'LOAD', kind: CompletionItemKind.Keyword, detail: 'Load data from a table', insertText: 'LOAD ${1:data} FROM "${2:table}"', insertTextRules: 4 },
+    { label: 'FOR EACH', kind: CompletionItemKind.Keyword, detail: 'Iterate over data', insertText: 'FOR EACH $${1:item} IN ${2:items} {\n\t${3}\n}', insertTextRules: 4 },
+    { label: 'IF', kind: CompletionItemKind.Keyword, detail: 'Conditional statement', insertText: 'IF ${1:condition} {\n\t${2}\n}', insertTextRules: 4 },
+    { label: 'DO', kind: CompletionItemKind.Keyword, detail: 'Call an action', insertText: 'DO ${1:Page}.${2:action}', insertTextRules: 4 },
+    { label: 'REFRESH', kind: CompletionItemKind.Keyword, detail: 'Refresh the page', insertText: 'REFRESH' },
+    { label: 'SCREENSHOT', kind: CompletionItemKind.Keyword, detail: 'Take a screenshot', insertText: 'SCREENSHOT "${1:filename.png}"', insertTextRules: 4 },
+    { label: 'LOG', kind: CompletionItemKind.Keyword, detail: 'Log a message', insertText: 'LOG "${1:message}"', insertTextRules: 4 },
+    { label: 'UPLOAD', kind: CompletionItemKind.Keyword, detail: 'Upload a file', insertText: 'UPLOAD "${1:file}" TO ${2:Page}.${3:fileInput}', insertTextRules: 4 },
+    { label: 'SCROLL', kind: CompletionItemKind.Keyword, detail: 'Scroll to element', insertText: 'SCROLL TO ${1:Page}.${2:field}', insertTextRules: 4 },
+    { label: 'CLEAR', kind: CompletionItemKind.Keyword, detail: 'Clear a field', insertText: 'CLEAR ${1:Page}.${2:field}', insertTextRules: 4 },
 ];
 
 /**
  * Keywords for VERIFY conditions
+ * Uses UPPERCASE keywords matching Vero DSL specification
  */
 const VERIFY_CONDITIONS: CompletionItem[] = [
-    { label: 'is visible', kind: CompletionItemKind.Property, detail: 'Element is visible', insertText: 'is visible' },
-    { label: 'is not visible', kind: CompletionItemKind.Property, detail: 'Element is not visible', insertText: 'is not visible' },
-    { label: 'is enabled', kind: CompletionItemKind.Property, detail: 'Element is enabled', insertText: 'is enabled' },
-    { label: 'is disabled', kind: CompletionItemKind.Property, detail: 'Element is disabled', insertText: 'is disabled' },
-    { label: 'is checked', kind: CompletionItemKind.Property, detail: 'Checkbox is checked', insertText: 'is checked' },
-    { label: 'is focused', kind: CompletionItemKind.Property, detail: 'Element is focused', insertText: 'is focused' },
-    { label: 'has text', kind: CompletionItemKind.Property, detail: 'Element has exact text', insertText: 'has text "${1:expected}"', insertTextRules: 4 },
-    { label: 'contains text', kind: CompletionItemKind.Property, detail: 'Element contains text', insertText: 'contains text "${1:expected}"', insertTextRules: 4 },
-    { label: 'has class', kind: CompletionItemKind.Property, detail: 'Element has CSS class', insertText: 'has class "${1:classname}"', insertTextRules: 4 },
-    { label: 'has value', kind: CompletionItemKind.Property, detail: 'Input has value', insertText: 'has value "${1:value}"', insertTextRules: 4 },
-    { label: 'has count', kind: CompletionItemKind.Property, detail: 'Number of matching elements', insertText: 'has count ${1:number}', insertTextRules: 4 },
+    { label: 'IS VISIBLE', kind: CompletionItemKind.Property, detail: 'Element is visible', insertText: 'IS VISIBLE' },
+    { label: 'IS HIDDEN', kind: CompletionItemKind.Property, detail: 'Element is hidden', insertText: 'IS HIDDEN' },
+    { label: 'IS ENABLED', kind: CompletionItemKind.Property, detail: 'Element is enabled', insertText: 'IS ENABLED' },
+    { label: 'IS DISABLED', kind: CompletionItemKind.Property, detail: 'Element is disabled', insertText: 'IS DISABLED' },
+    { label: 'IS CHECKED', kind: CompletionItemKind.Property, detail: 'Checkbox is checked', insertText: 'IS CHECKED' },
+    { label: 'IS FOCUSED', kind: CompletionItemKind.Property, detail: 'Element is focused', insertText: 'IS FOCUSED' },
+    { label: 'HAS TEXT', kind: CompletionItemKind.Property, detail: 'Element has exact text', insertText: 'HAS TEXT "${1:expected}"', insertTextRules: 4 },
+    { label: 'CONTAINS', kind: CompletionItemKind.Property, detail: 'Element contains text', insertText: 'CONTAINS "${1:expected}"', insertTextRules: 4 },
+    { label: 'HAS CLASS', kind: CompletionItemKind.Property, detail: 'Element has CSS class', insertText: 'HAS CLASS "${1:classname}"', insertTextRules: 4 },
+    { label: 'HAS VALUE', kind: CompletionItemKind.Property, detail: 'Input has value', insertText: 'HAS VALUE "${1:value}"', insertTextRules: 4 },
+    { label: 'HAS COUNT', kind: CompletionItemKind.Property, detail: 'Number of matching elements', insertText: 'HAS COUNT ${1:number}', insertTextRules: 4 },
 ];
 
 /**
  * Page/URL assertions
+ * Uses UPPERCASE keywords matching Vero DSL specification
  */
 const PAGE_ASSERTIONS: CompletionItem[] = [
-    { label: 'url contains', kind: CompletionItemKind.Property, detail: 'URL contains substring', insertText: 'url contains "${1:text}"', insertTextRules: 4 },
-    { label: 'url equals', kind: CompletionItemKind.Property, detail: 'URL equals exactly', insertText: 'url equals "${1:url}"', insertTextRules: 4 },
-    { label: 'page title is', kind: CompletionItemKind.Property, detail: 'Page title equals', insertText: 'page title is "${1:title}"', insertTextRules: 4 },
-    { label: 'page title contains', kind: CompletionItemKind.Property, detail: 'Page title contains', insertText: 'page title contains "${1:text}"', insertTextRules: 4 },
-    { label: 'element count of', kind: CompletionItemKind.Property, detail: 'Count matching elements', insertText: 'element count of "${1:selector}" is ${2:count}', insertTextRules: 4 },
+    { label: 'URL CONTAINS', kind: CompletionItemKind.Property, detail: 'URL contains substring', insertText: 'URL CONTAINS "${1:text}"', insertTextRules: 4 },
+    { label: 'URL EQUALS', kind: CompletionItemKind.Property, detail: 'URL equals exactly', insertText: 'URL EQUALS "${1:url}"', insertTextRules: 4 },
+    { label: 'PAGE TITLE IS', kind: CompletionItemKind.Property, detail: 'Page title equals', insertText: 'PAGE TITLE IS "${1:title}"', insertTextRules: 4 },
+    { label: 'PAGE TITLE CONTAINS', kind: CompletionItemKind.Property, detail: 'Page title contains', insertText: 'PAGE TITLE CONTAINS "${1:text}"', insertTextRules: 4 },
 ];
 
 /**
  * Structure keywords for pages/features
+ * Uses UPPERCASE keywords matching Vero DSL specification
  */
 const STRUCTURE_KEYWORDS: CompletionItem[] = [
-    { label: 'page', kind: CompletionItemKind.Class, detail: 'Define a page object', insertText: 'page ${1:PageName} {\n\t${2}\n}', insertTextRules: 4 },
-    { label: 'feature', kind: CompletionItemKind.Class, detail: 'Define a feature', insertText: 'feature "${1:Feature Name}" {\n\t${2}\n}', insertTextRules: 4 },
-    { label: 'scenario', kind: CompletionItemKind.Function, detail: 'Define a scenario', insertText: 'scenario "${1:Scenario Name}" {\n\t${2}\n}', insertTextRules: 4 },
-    { label: 'field', kind: CompletionItemKind.Field, detail: 'Define a page field', insertText: 'field ${1:fieldName} = "${2:selector}"', insertTextRules: 4 },
-    { label: 'action', kind: CompletionItemKind.Method, detail: 'Define a page action', insertText: 'action ${1:actionName} {\n\t${2}\n}', insertTextRules: 4 },
-    { label: 'use', kind: CompletionItemKind.Reference, detail: 'Import a page', insertText: 'use ${1:PageName}', insertTextRules: 4 },
-    { label: 'before each', kind: CompletionItemKind.Event, detail: 'Run before each scenario', insertText: 'before each {\n\t${1}\n}', insertTextRules: 4 },
-    { label: 'after each', kind: CompletionItemKind.Event, detail: 'Run after each scenario', insertText: 'after each {\n\t${1}\n}', insertTextRules: 4 },
+    { label: 'PAGE', kind: CompletionItemKind.Class, detail: 'Define a page object', insertText: 'PAGE ${1:PageName} ("/") {\n\tFIELD ${2:fieldName} = BUTTON "${3:Submit}"\n}', insertTextRules: 4 },
+    { label: 'FEATURE', kind: CompletionItemKind.Class, detail: 'Define a feature', insertText: 'FEATURE ${1:FeatureName} {\n\tUSE ${2:PageName}\n\n\tSCENARIO ${3:ScenarioName} {\n\t\t${4}\n\t}\n}', insertTextRules: 4 },
+    { label: 'SCENARIO', kind: CompletionItemKind.Function, detail: 'Define a scenario', insertText: 'SCENARIO ${1:ScenarioName} {\n\t${2}\n}', insertTextRules: 4 },
+    { label: 'FIELD', kind: CompletionItemKind.Field, detail: 'Define a page field', insertText: 'FIELD ${1:fieldName} = ${2|BUTTON,TEXTBOX,LINK,TESTID,LABEL,PLACEHOLDER,CHECKBOX,HEADING,COMBOBOX,RADIO,ROLE,TEXT,ALT,TITLE,CSS,XPATH|} "${3:value}"', insertTextRules: 4 },
+    { label: 'ACTION', kind: CompletionItemKind.Method, detail: 'Define a page action', insertText: 'ACTION ${1:actionName} {\n\t${2}\n}', insertTextRules: 4 },
+    { label: 'USE', kind: CompletionItemKind.Reference, detail: 'Import a page', insertText: 'USE ${1:PageName}', insertTextRules: 4 },
+    { label: 'BEFORE EACH', kind: CompletionItemKind.Event, detail: 'Run before each scenario', insertText: 'BEFORE EACH {\n\t${1}\n}', insertTextRules: 4 },
+    { label: 'AFTER EACH', kind: CompletionItemKind.Event, detail: 'Run after each scenario', insertText: 'AFTER EACH {\n\t${1}\n}', insertTextRules: 4 },
 ];
 
-type ContextType = 'empty' | 'keyword' | 'afterVerify' | 'afterClick' | 'afterFill' | 'afterDo' | 'afterVariable' | 'structure';
+type ContextType = 'empty' | 'keyword' | 'afterVerify' | 'afterClick' | 'afterFill' | 'afterDo' | 'afterVariable' | 'afterFieldEquals' | 'structure';
 
 function analyzeContext(ctx: CompletionContext): { type: ContextType; trigger?: string } {
     const beforeCursor = ctx.lineContent.substring(0, ctx.column - 1).trim().toLowerCase();
@@ -150,16 +149,37 @@ function analyzeContext(ctx: CompletionContext): { type: ContextType; trigger?: 
         return { type: ctx.lineNumber === 1 ? 'structure' : 'empty' };
     }
 
+    if (/^field\s+\w+\s*=\s*$/.test(beforeCursor)) return { type: 'afterFieldEquals' };
     if (/^verify\s+"[^"]*"\s*$/.test(beforeCursor)) return { type: 'afterVerify' };
     if (/^verify\s+$/.test(beforeCursor)) return { type: 'afterVerify', trigger: 'target' };
     if (/^click\s*$/.test(beforeCursor)) return { type: 'afterClick' };
     if (/^fill\s+"[^"]*"\s+with\s+$/.test(beforeCursor)) return { type: 'afterFill' };
     if (/^do\s+$/.test(beforeCursor)) return { type: 'afterDo' };
     if (beforeCursor.endsWith('$')) return { type: 'afterVariable' };
-    if (ctx.wordBefore && ctx.wordBefore.length > 0) return { type: 'keyword', trigger: ctx.wordBefore };
+    if (ctx.wordBefore) return { type: 'keyword', trigger: ctx.wordBefore };
 
     return { type: 'empty' };
 }
+
+/** Typed selector completions for FIELD definitions */
+const SELECTOR_TYPES: CompletionItem[] = [
+    { label: 'BUTTON', kind: CompletionItemKind.Keyword, detail: 'getByRole(\'button\')', insertText: 'BUTTON "${1:name}"', insertTextRules: 4 },
+    { label: 'TEXTBOX', kind: CompletionItemKind.Keyword, detail: 'getByRole(\'textbox\')', insertText: 'TEXTBOX "${1:name}"', insertTextRules: 4 },
+    { label: 'LINK', kind: CompletionItemKind.Keyword, detail: 'getByRole(\'link\')', insertText: 'LINK "${1:name}"', insertTextRules: 4 },
+    { label: 'CHECKBOX', kind: CompletionItemKind.Keyword, detail: 'getByRole(\'checkbox\')', insertText: 'CHECKBOX "${1:name}"', insertTextRules: 4 },
+    { label: 'HEADING', kind: CompletionItemKind.Keyword, detail: 'getByRole(\'heading\')', insertText: 'HEADING "${1:text}"', insertTextRules: 4 },
+    { label: 'COMBOBOX', kind: CompletionItemKind.Keyword, detail: 'getByRole(\'combobox\')', insertText: 'COMBOBOX "${1:name}"', insertTextRules: 4 },
+    { label: 'RADIO', kind: CompletionItemKind.Keyword, detail: 'getByRole(\'radio\')', insertText: 'RADIO "${1:name}"', insertTextRules: 4 },
+    { label: 'ROLE', kind: CompletionItemKind.Keyword, detail: 'getByRole()', insertText: 'ROLE "${1:role}"', insertTextRules: 4 },
+    { label: 'LABEL', kind: CompletionItemKind.Keyword, detail: 'getByLabel()', insertText: 'LABEL "${1:label}"', insertTextRules: 4 },
+    { label: 'PLACEHOLDER', kind: CompletionItemKind.Keyword, detail: 'getByPlaceholder()', insertText: 'PLACEHOLDER "${1:text}"', insertTextRules: 4 },
+    { label: 'TESTID', kind: CompletionItemKind.Keyword, detail: 'getByTestId()', insertText: 'TESTID "${1:testId}"', insertTextRules: 4 },
+    { label: 'TEXT', kind: CompletionItemKind.Keyword, detail: 'getByText()', insertText: 'TEXT "${1:text}"', insertTextRules: 4 },
+    { label: 'ALT', kind: CompletionItemKind.Keyword, detail: 'getByAltText()', insertText: 'ALT "${1:altText}"', insertTextRules: 4 },
+    { label: 'TITLE', kind: CompletionItemKind.Keyword, detail: 'getByTitle()', insertText: 'TITLE "${1:title}"', insertTextRules: 4 },
+    { label: 'CSS', kind: CompletionItemKind.Keyword, detail: 'page.locator(css)', insertText: 'CSS "${1:#selector}"', insertTextRules: 4 },
+    { label: 'XPATH', kind: CompletionItemKind.Keyword, detail: 'page.locator(xpath)', insertText: 'XPATH "${1://div}"', insertTextRules: 4 },
+];
 
 /**
  * Provide completions based on context
@@ -180,6 +200,10 @@ export function provideCompletions(ctx: CompletionContext): CompletionItem[] {
             if (ctx.lineNumber <= 5) {
                 items.push(...STRUCTURE_KEYWORDS);
             }
+            break;
+
+        case 'afterFieldEquals':
+            items.push(...SELECTOR_TYPES);
             break;
 
         case 'afterVerify':
@@ -268,12 +292,9 @@ export function provideCompletions(ctx: CompletionContext): CompletionItem[] {
     }
 
     // Filter by word being typed if applicable
-    if (analysis.trigger && analysis.trigger.length > 0) {
+    if (analysis.trigger) {
         const filterLower = analysis.trigger.toLowerCase();
-        return items.filter(item =>
-            item.label.toLowerCase().startsWith(filterLower) ||
-            item.label.toLowerCase().includes(filterLower)
-        );
+        return items.filter(item => item.label.toLowerCase().includes(filterLower));
     }
 
     return items;
@@ -283,18 +304,25 @@ export function provideCompletions(ctx: CompletionContext): CompletionItem[] {
  * Get all available keywords (for highlighting/tokenization)
  */
 export function getAllKeywords(): string[] {
-    const keywords: string[] = [];
+    const keywords = new Set<string>();
 
-    for (const item of [...STATEMENT_KEYWORDS, ...STRUCTURE_KEYWORDS]) {
-        keywords.push(item.label.split(' ')[0]);  // Get first word
+    for (const item of STATEMENT_KEYWORDS) {
+        keywords.add(item.label.split(' ')[0]);
+    }
+    for (const item of STRUCTURE_KEYWORDS) {
+        keywords.add(item.label.split(' ')[0]);
     }
 
-    // Add assertion keywords
-    keywords.push('is', 'not', 'visible', 'hidden', 'enabled', 'disabled', 'checked', 'focused');
-    keywords.push('has', 'text', 'class', 'value', 'count', 'contains', 'attribute');
-    keywords.push('url', 'title', 'page', 'element');
+    // Assertion keywords
+    for (const kw of [
+        'is', 'not', 'visible', 'hidden', 'enabled', 'disabled', 'checked', 'focused',
+        'has', 'text', 'class', 'value', 'count', 'contains', 'attribute',
+        'url', 'title', 'page', 'element',
+    ]) {
+        keywords.add(kw);
+    }
 
-    return [...new Set(keywords)];
+    return [...keywords];
 }
 
 /**

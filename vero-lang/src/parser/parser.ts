@@ -1,14 +1,15 @@
 import { Token, TokenType } from '../lexer/tokens.js';
 import {
-    ProgramNode, PageNode, FeatureNode, ScenarioNode, FieldNode,
+    ProgramNode, PageNode, PageActionsNode, FeatureNode, ScenarioNode, FieldNode, UseNode,
     VariableNode, ActionDefinitionNode, HookNode, StatementNode,
-    SelectorNode, TargetNode, ExpressionNode, VerifyCondition,
+    SelectorNode, SelectorType, TargetNode, ExpressionNode, VerifyCondition,
     ParseError, LoadStatement, ForEachStatement, WhereClause,
     FixtureNode, FixtureUseNode, FixtureOptionNode, FixtureOptionValue,
     FeatureAnnotation, ScenarioAnnotation,
     VerifyUrlStatement, VerifyTitleStatement, VerifyHasStatement, UploadStatement,
-    HasCondition,
-    RightClickStatement, DoubleClickStatement, ForceClickStatement, DragStatement, CoordinateTarget,
+    HasCondition, VariableCondition, VariableReference,
+    PerformAssignmentStatement, ActionCallNode, ReturnStatement,
+    CoordinateTarget,
     RowStatement, RowsStatement, ColumnAccessStatement, CountStatement,
     SimpleTableReference, DataCondition, OrderByClause,
     AndCondition, OrCondition, NotCondition, DataComparison, ComparisonOperator, TextOperator,
@@ -44,12 +45,15 @@ export class Parser {
 
     parse(): { ast: ProgramNode; errors: ParseError[] } {
         const pages: PageNode[] = [];
+        const pageActions: PageActionsNode[] = [];
         const features: FeatureNode[] = [];
         const fixtures: FixtureNode[] = [];
 
         while (!this.isAtEnd()) {
             try {
-                if (this.check(TokenType.PAGE)) {
+                if (this.check(TokenType.PAGEACTIONS)) {
+                    pageActions.push(this.parsePageActions());
+                } else if (this.check(TokenType.PAGE)) {
                     pages.push(this.parsePage());
                 } else if (this.check(TokenType.FEATURE) || this.isFeatureAnnotation()) {
                     features.push(this.parseFeature());
@@ -65,7 +69,7 @@ export class Parser {
         }
 
         return {
-            ast: { type: 'Program', pages, features, fixtures },
+            ast: { type: 'Program', pages, pageActions, features, fixtures },
             errors: this.errors
         };
     }
@@ -85,8 +89,7 @@ export class Parser {
         while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
             if (this.check(TokenType.FIELD)) {
                 fields.push(this.parseField());
-            } else if (this.check(TokenType.TEXT) || this.check(TokenType.NUMBER) ||
-                this.check(TokenType.FLAG) || this.check(TokenType.LIST)) {
+            } else if (this.isVariableType()) {
                 variables.push(this.parseVariable());
             } else if (this.check(TokenType.IDENTIFIER)) {
                 actions.push(this.parseActionDefinition());
@@ -101,6 +104,32 @@ export class Parser {
         return { type: 'Page', name, fields, variables, actions, line };
     }
 
+    // ==================== PAGEACTIONS PARSING ====================
+
+    private parsePageActions(): PageActionsNode {
+        const line = this.peek().line;
+        this.consume(TokenType.PAGEACTIONS, "Expected 'PAGEACTIONS'");
+        const name = this.consume(TokenType.IDENTIFIER, "Expected PageActions name").value;
+        this.consume(TokenType.FOR, "Expected 'FOR'");
+        const forPage = this.consume(TokenType.IDENTIFIER, "Expected page name").value;
+        this.consume(TokenType.LBRACE, "Expected '{'");
+
+        const actions: ActionDefinitionNode[] = [];
+
+        while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
+            if (this.check(TokenType.IDENTIFIER)) {
+                actions.push(this.parseActionDefinition());
+            } else {
+                this.error(`Unexpected token in PageActions: ${this.peek().value}`);
+                this.advance();
+            }
+        }
+
+        this.consume(TokenType.RBRACE, "Expected '}'");
+
+        return { type: 'PageActions', name, forPage, actions, line };
+    }
+
     private parseField(): FieldNode {
         const line = this.peek().line;
         this.consume(TokenType.FIELD, "Expected 'FIELD'");
@@ -111,15 +140,56 @@ export class Parser {
         return { type: 'Field', name, selector, line };
     }
 
+    /** Maps uppercase identifier values to SelectorType (contextual keywords). */
+    private static readonly SELECTOR_KEYWORD_MAP: ReadonlyMap<string, SelectorType> = new Map([
+        ['BUTTON', 'button'],
+        ['TEXTBOX', 'textbox'],
+        ['LINK', 'link'],
+        ['CHECKBOX', 'checkbox'],
+        ['HEADING', 'heading'],
+        ['COMBOBOX', 'combobox'],
+        ['RADIO', 'radio'],
+        ['ROLE', 'role'],
+        ['LABEL', 'label'],
+        ['PLACEHOLDER', 'placeholder'],
+        ['TESTID', 'testid'],
+        ['TEXT', 'text'],
+        ['ALT', 'alt'],
+        ['TITLE', 'title'],
+        ['CSS', 'css'],
+        ['XPATH', 'xpath'],
+    ]);
+
     private parseSelector(): SelectorNode {
-        // FIELD is now string-only: field email = "Email"
+        // Check for typed selector keyword: BUTTON "Submit", TESTID "cart-icon", etc.
+        // Selector keywords are contextual — they are normal identifiers everywhere else,
+        // so we match by value (case-insensitive) rather than by token type.
+        const token = this.peek();
+        const selectorType = (token.type === TokenType.IDENTIFIER || token.type === TokenType.TEXT || token.type === TokenType.TITLE)
+            ? Parser.SELECTOR_KEYWORD_MAP.get(token.value.toUpperCase())
+            : undefined;
+
+        if (selectorType !== undefined) {
+            this.advance(); // consume the keyword
+            const value = this.consume(TokenType.STRING, `Expected string after ${selectorType.toUpperCase()}`).value;
+
+            // For ROLE, optionally accept NAME "string" for: ROLE "button" NAME "Submit"
+            let nameParam: string | undefined;
+            if (selectorType === 'role' && this.peek().type === TokenType.IDENTIFIER && this.peek().value.toUpperCase() === 'NAME') {
+                this.advance(); // consume NAME
+                nameParam = this.consume(TokenType.STRING, "Expected string after NAME").value;
+            }
+
+            return { type: 'Selector', selectorType, value, nameParam };
+        }
+
+        // Legacy: plain string selector with auto-detection
         if (this.check(TokenType.STRING)) {
             const value = this.advance().value;
-            // Use 'auto' type - transpiler will decide based on string content
             return { type: 'Selector', selectorType: 'auto', value };
         }
 
-        this.error("Expected string selector");
+        this.error("Expected selector (e.g., BUTTON \"Submit\" or \"#myId\")");
         return { type: 'Selector', selectorType: 'auto', value: '' };
     }
 
@@ -165,17 +235,17 @@ export class Parser {
         let returnType: 'TEXT' | 'NUMBER' | 'FLAG' | 'LIST' | undefined;
 
         // Parameters: WITH param1, param2
+        // Note: Allow keywords like 'value' to be used as parameter names
         if (this.match(TokenType.WITH)) {
-            parameters.push(this.consume(TokenType.IDENTIFIER, "Expected parameter").value);
+            parameters.push(this.consumeIdentifierOrKeyword("Expected parameter"));
             while (this.match(TokenType.COMMA)) {
-                parameters.push(this.consume(TokenType.IDENTIFIER, "Expected parameter").value);
+                parameters.push(this.consumeIdentifierOrKeyword("Expected parameter"));
             }
         }
 
         // Return type: RETURNS TEXT
         if (this.match(TokenType.RETURNS)) {
-            if (this.check(TokenType.TEXT) || this.check(TokenType.NUMBER) ||
-                this.check(TokenType.FLAG) || this.check(TokenType.LIST)) {
+            if (this.isVariableType()) {
                 returnType = this.advance().type as 'TEXT' | 'NUMBER' | 'FLAG' | 'LIST';
             }
         }
@@ -230,7 +300,7 @@ export class Parser {
         const name = this.consume(TokenType.IDENTIFIER, "Expected feature name").value;
         this.consume(TokenType.LBRACE, "Expected '{'");
 
-        const uses: string[] = [];
+        const uses: UseNode[] = [];
         const fixtures: FixtureUseNode[] = [];
         const hooks: HookNode[] = [];
         const scenarios: ScenarioNode[] = [];
@@ -255,9 +325,10 @@ export class Parser {
         return { type: 'Feature', name, annotations, uses, fixtures, hooks, scenarios, line };
     }
 
-    private parseUse(): string {
-        this.consume(TokenType.USE, "Expected 'USE'");
-        return this.consume(TokenType.IDENTIFIER, "Expected page name").value;
+    private parseUse(): { name: string; line: number } {
+        const useToken = this.consume(TokenType.USE, "Expected 'USE'");
+        const nameToken = this.consume(TokenType.IDENTIFIER, "Expected page name");
+        return { name: nameToken.value, line: useToken.line };
     }
 
     // WITH FIXTURE authenticatedUser { role = "admin" }
@@ -453,21 +524,21 @@ export class Parser {
         if (this.match(TokenType.RIGHT)) {
             this.consume(TokenType.CLICK, "Expected 'CLICK' after 'RIGHT'");
             const target = this.parseTarget();
-            return { type: 'RightClick', target, line } as RightClickStatement;
+            return { type: 'RightClick', target, line };
         }
 
         // DOUBLE CLICK "Element"
         if (this.match(TokenType.DOUBLE)) {
             this.consume(TokenType.CLICK, "Expected 'CLICK' after 'DOUBLE'");
             const target = this.parseTarget();
-            return { type: 'DoubleClick', target, line } as DoubleClickStatement;
+            return { type: 'DoubleClick', target, line };
         }
 
         // FORCE CLICK "Element"
         if (this.match(TokenType.FORCE)) {
             this.consume(TokenType.CLICK, "Expected 'CLICK' after 'FORCE'");
             const target = this.parseTarget();
-            return { type: 'ForceClick', target, line } as ForceClickStatement;
+            return { type: 'ForceClick', target, line };
         }
 
         // DRAG "Source" TO "Target" or DRAG "Element" TO x=100 y=200
@@ -476,14 +547,9 @@ export class Parser {
             this.consume(TokenType.TO, "Expected 'TO' after source element");
 
             // Check if destination is coordinates (x=... y=...)
-            if (this.check(TokenType.IDENTIFIER) && this.peek().value.toLowerCase() === 'x') {
-                const destination = this.parseCoordinateTarget();
-                return { type: 'Drag', source, destination, line } as DragStatement;
-            }
-
-            // Otherwise it's a target element
-            const destination = this.parseTarget();
-            return { type: 'Drag', source, destination, line } as DragStatement;
+            const isCoordinate = this.check(TokenType.IDENTIFIER) && this.peek().value.toLowerCase() === 'x';
+            const destination = isCoordinate ? this.parseCoordinateTarget() : this.parseTarget();
+            return { type: 'Drag', source, destination, line };
         }
 
         if (this.match(TokenType.FILL)) {
@@ -532,6 +598,44 @@ export class Parser {
                 return { type: 'VerifyHas', target, hasCondition: { type: 'HasCount', count }, line };
             }
 
+            // Check for variable assertion: VERIFY variableName IS TRUE/FALSE or VERIFY variableName CONTAINS "text"
+            // This must be checked BEFORE parseTarget() because variable names look like identifiers
+            if (this.check(TokenType.IDENTIFIER) && !this.checkVariableIsPageField()) {
+                const variableName = this.advance().value;
+                const variable: VariableReference = { type: 'VariableReference', name: variableName };
+
+                // Check for IS TRUE/FALSE
+                if (this.match(TokenType.IS)) {
+                    const negated = this.match(TokenType.NOT);
+                    if (this.match(TokenType.TRUE)) {
+                        const condition: VariableCondition = negated ? { type: 'IsNotTrue' } : { type: 'IsTrue' };
+                        return { type: 'VerifyVariable', variable, condition, line };
+                    }
+                    if (this.match(TokenType.FALSE)) {
+                        const condition: VariableCondition = negated ? { type: 'IsNotFalse' } : { type: 'IsFalse' };
+                        return { type: 'VerifyVariable', variable, condition, line };
+                    }
+                    this.error("Expected 'TRUE' or 'FALSE' after 'IS'");
+                }
+
+                // Check for CONTAINS "text"
+                if (this.match(TokenType.CONTAINS)) {
+                    const value = this.parseExpression();
+                    const condition: VariableCondition = { type: 'Contains', value };
+                    return { type: 'VerifyVariable', variable, condition, line };
+                }
+
+                // Check for EQUALS "text"
+                if (this.match(TokenType.EQUAL)) {
+                    const value = this.parseExpression();
+                    const condition: VariableCondition = { type: 'Equals', value };
+                    return { type: 'VerifyVariable', variable, condition, line };
+                }
+
+                // Not a variable assertion, treat as a field reference (put back the identifier)
+                this.pos--; // Go back to re-parse as target
+            }
+
             // Parse target for element assertions
             const target = this.parseTarget();
 
@@ -559,6 +663,12 @@ export class Parser {
         }
 
         if (this.match(TokenType.WAIT)) {
+            // WAIT FOR target - wait until element is visible
+            if (this.match(TokenType.FOR)) {
+                const target = this.parseTarget();
+                return { type: 'WaitFor', target, line };
+            }
+            // WAIT N SECONDS/MILLISECONDS
             if (this.check(TokenType.NUMBER_LITERAL)) {
                 const duration = parseFloat(this.advance().value);
                 let unit: 'seconds' | 'milliseconds' = 'seconds';
@@ -672,23 +782,76 @@ export class Parser {
             return this.parseUtilityAssignment(line);
         }
 
+        // PERFORM assignments: FLAG isWelcome = PERFORM DashboardActions.isWelcomeVisible
+        if (this.isPerformAssignment()) {
+            return this.parsePerformAssignment(line);
+        }
+
+        // RETURN VISIBLE OF field | RETURN TEXT OF field | RETURN expression
+        if (this.match(TokenType.RETURN)) {
+            return this.parseReturnStatement(line);
+        }
+
         this.error(`Unexpected statement: ${this.peek().value}`);
         this.advance();
         return null;
     }
 
+    /** Check pattern: TYPE identifier = UTILITY_KEYWORD ... */
     private isUtilityAssignment(): boolean {
-        if (!VARIABLE_TYPES.has(this.peek().type)) return false;
+        return this.isVariableAssignmentFollowedBy(token => UTILITY_KEYWORDS.has(token.type));
+    }
+
+    /** Check pattern: TYPE identifier = PERFORM ... */
+    private isPerformAssignment(): boolean {
+        return this.isVariableAssignmentFollowedBy(token => token.type === TokenType.PERFORM);
+    }
+
+    /** Shared lookahead check: variableType IDENTIFIER = <predicate on 4th token> */
+    private isVariableAssignmentFollowedBy(predicate: (token: Token) => boolean): boolean {
+        if (!this.isVariableType()) return false;
 
         const identifierToken = this.lookahead(1);
         const equalsToken = this.lookahead(2);
-        const utilityToken = this.lookahead(3);
+        const nextToken = this.lookahead(3);
 
-        if (!identifierToken || identifierToken.type !== TokenType.IDENTIFIER) return false;
-        if (!equalsToken || equalsToken.type !== TokenType.EQUALS_SIGN) return false;
-        if (!utilityToken) return false;
+        return !!identifierToken && identifierToken.type === TokenType.IDENTIFIER
+            && !!equalsToken && equalsToken.type === TokenType.EQUALS_SIGN
+            && !!nextToken && predicate(nextToken);
+    }
 
-        return UTILITY_KEYWORDS.has(utilityToken.type);
+    // Parse: FLAG isWelcome = PERFORM DashboardActions.isWelcomeVisible WITH arg1, arg2
+    private parsePerformAssignment(line: number): PerformAssignmentStatement {
+        const varType = this.advance().type as 'TEXT' | 'NUMBER' | 'FLAG' | 'LIST';
+        const variableName = this.consume(TokenType.IDENTIFIER, "Expected variable name").value;
+        this.consume(TokenType.EQUALS_SIGN, "Expected '='");
+        this.consume(TokenType.PERFORM, "Expected 'PERFORM'");
+
+        const action = this.parseActionCall();
+
+        return { type: 'PerformAssignment', varType, variableName, action, line };
+    }
+
+    // RETURN VISIBLE OF field | RETURN TEXT OF field | RETURN VALUE OF field | RETURN expression
+    private static readonly RETURN_TYPE_TOKENS: ReadonlyMap<TokenType, ReturnStatement['returnType']> = new Map([
+        [TokenType.VISIBLE, 'VISIBLE'],
+        [TokenType.TEXT, 'TEXT'],
+        [TokenType.VALUE, 'VALUE'],
+    ]);
+
+    private parseReturnStatement(line: number): ReturnStatement {
+        // RETURN VISIBLE/TEXT/VALUE OF target
+        for (const [tokenType, returnType] of Parser.RETURN_TYPE_TOKENS) {
+            if (this.match(tokenType)) {
+                this.consume(TokenType.OF, `Expected 'OF' after '${returnType}'`);
+                const target = this.parseTarget();
+                return { type: 'Return', returnType, target, line };
+            }
+        }
+
+        // RETURN expression (direct value)
+        const expression = this.parseExpression();
+        return { type: 'Return', returnType: 'EXPRESSION', expression, line };
     }
 
     private parseUtilityAssignment(line: number): UtilityAssignmentStatement {
@@ -1207,15 +1370,13 @@ export class Parser {
             return { type: 'Comparison', column, operator: 'CONTAINS' as TextOperator, value } as DataComparison;
         }
 
-        if (this.check(TokenType.STARTS)) {
-            this.advance(); // STARTS
+        if (this.match(TokenType.STARTS)) {
             this.consume(TokenType.WITH, "Expected 'WITH' after 'STARTS'");
             const value = this.parseExpression();
             return { type: 'Comparison', column, operator: 'STARTS_WITH' as TextOperator, value } as DataComparison;
         }
 
-        if (this.check(TokenType.ENDS)) {
-            this.advance(); // ENDS
+        if (this.match(TokenType.ENDS)) {
             this.consume(TokenType.WITH, "Expected 'WITH' after 'ENDS'");
             const value = this.parseExpression();
             return { type: 'Comparison', column, operator: 'ENDS_WITH' as TextOperator, value } as DataComparison;
@@ -1230,23 +1391,9 @@ export class Parser {
         let operator: ComparisonOperator;
         if (this.match(TokenType.EQUALS_SIGN)) {
             operator = '==';
-        } else if (this.check(TokenType.IDENTIFIER) && this.peek().value === '!=') {
-            this.advance();
-            operator = '!=';
-        } else if (this.check(TokenType.IDENTIFIER) && this.peek().value === '>') {
-            this.advance();
-            operator = '>';
-        } else if (this.check(TokenType.IDENTIFIER) && this.peek().value === '<') {
-            this.advance();
-            operator = '<';
-        } else if (this.check(TokenType.IDENTIFIER) && this.peek().value === '>=') {
-            this.advance();
-            operator = '>=';
-        } else if (this.check(TokenType.IDENTIFIER) && this.peek().value === '<=') {
-            this.advance();
-            operator = '<=';
+        } else if (this.check(TokenType.IDENTIFIER) && this.isComparisonOperatorValue()) {
+            operator = this.advance().value as ComparisonOperator;
         } else {
-            // Default to == if no operator found
             this.error("Expected comparison operator");
             operator = '==';
         }
@@ -1416,13 +1563,14 @@ export class Parser {
         if (this.check(TokenType.ENV_VAR_REF)) {
             return { type: 'EnvVarReference', name: this.advance().value };
         }
-        if (this.check(TokenType.IDENTIFIER)) {
+        // Check for IDENTIFIER or keywords that can be used as variable names
+        if (this.check(TokenType.IDENTIFIER) || this.isKeywordUsableAsVariable()) {
             const first = this.advance().value;
             if (this.match(TokenType.DOT)) {
                 return {
                     type: 'VariableReference',
                     page: first,
-                    name: this.consume(TokenType.IDENTIFIER, "Expected variable name").value
+                    name: this.consumeIdentifierOrKeyword("Expected variable name")
                 };
             }
             return { type: 'VariableReference', name: first };
@@ -1432,7 +1580,26 @@ export class Parser {
         return { type: 'StringLiteral', value: '' };
     }
 
+    // Check if current token is a keyword that can be used as a variable name
+    private isKeywordUsableAsVariable(): boolean {
+        return this.check(TokenType.VALUE) ||
+               this.check(TokenType.TEXT) ||
+               this.check(TokenType.NUMBER) ||
+               this.check(TokenType.FLAG) ||
+               this.check(TokenType.LIST);
+    }
+
     // ==================== HELPER METHODS ====================
+
+    private isVariableType(): boolean {
+        return VARIABLE_TYPES.has(this.peek().type);
+    }
+
+    private static readonly COMPARISON_OPERATORS = new Set(['!=', '>', '<', '>=', '<=']);
+
+    private isComparisonOperatorValue(): boolean {
+        return Parser.COMPARISON_OPERATORS.has(this.peek().value);
+    }
 
     private isAtEnd(): boolean {
         return this.peek().type === TokenType.EOF;
@@ -1448,6 +1615,12 @@ export class Parser {
 
     private lookahead(n: number): Token | undefined {
         return this.tokens[this.pos + n];
+    }
+
+    // Check if current IDENTIFIER is followed by DOT (Page.field pattern)
+    private checkVariableIsPageField(): boolean {
+        const nextToken = this.lookahead(1);
+        return nextToken?.type === TokenType.DOT;
     }
 
     private advance(): Token {
@@ -1490,7 +1663,8 @@ export class Parser {
             this.check(TokenType.NUMBER) ||
             this.check(TokenType.FLAG) ||
             this.check(TokenType.LIST) ||
-            this.check(TokenType.TEST)) {
+            this.check(TokenType.TEST) ||
+            this.check(TokenType.VALUE)) {
             return this.advance().value;
         }
         this.error(message);

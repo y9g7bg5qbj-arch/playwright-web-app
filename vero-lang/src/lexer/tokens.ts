@@ -1,6 +1,7 @@
 export enum TokenType {
     // Structural
     PAGE = 'PAGE',
+    PAGEACTIONS = 'PAGEACTIONS',
     FEATURE = 'FEATURE',
     SCENARIO = 'SCENARIO',
     FIELD = 'FIELD',
@@ -88,10 +89,18 @@ export enum TokenType {
     BUTTON = 'BUTTON',
     TEXTBOX = 'TEXTBOX',
     LINK = 'LINK',
+    CHECKBOX_SEL = 'CHECKBOX_SEL',
+    HEADING = 'HEADING',
+    COMBOBOX = 'COMBOBOX',
+    RADIO = 'RADIO',
     TESTID = 'TESTID',
     ROLE = 'ROLE',
     LABEL = 'LABEL',
     PLACEHOLDER = 'PLACEHOLDER',
+    ALT = 'ALT',
+    CSS = 'CSS',
+    XPATH = 'XPATH',
+    NAME = 'NAME',
 
     // Control Flow
     IF = 'IF',

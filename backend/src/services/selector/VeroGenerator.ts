@@ -7,7 +7,7 @@
  */
 
 import { ExtractedSelectors } from './selectorExtractor';
-import { buildVeroPromptForRecording, fixVeroSyntax, validateVeroSyntax } from '../veroSyntaxReference';
+import { buildVeroPromptForRecording, fixVeroSyntax, validateVeroSyntax, generateVeroAction } from '../veroSyntaxReference';
 
 // Types for recording sessions
 export interface RecordedAction {
@@ -260,7 +260,7 @@ function toCamelCase(str: string): string {
 }
 
 /**
- * Generate a single action line
+ * Generate a single action line using single source of truth
  */
 function generateActionLine(
   action: RecordedAction,
@@ -271,29 +271,30 @@ function generateActionLine(
   const field = selector ? fields.get(selector) : null;
   const fieldRef = field ? `${pageName}.${field.name}` : null;
 
+  // Use single source of truth for Vero syntax
   switch (action.type) {
     case 'navigate':
-      return `OPEN "${action.url}"`;
+      return generateVeroAction('open', undefined, action.url);
 
     case 'click':
-      return fieldRef ? `CLICK ${fieldRef}` : null;
+      return fieldRef ? generateVeroAction('click', fieldRef) : null;
 
     case 'fill':
       if (!fieldRef || !action.value) return null;
-      return `FILL ${fieldRef} WITH "${escapeString(action.value)}"`;
+      return generateVeroAction('fill', fieldRef, action.value);
 
     case 'check':
-      return fieldRef ? `CHECK ${fieldRef}` : null;
+      return fieldRef ? generateVeroAction('check', fieldRef) : null;
 
     case 'select':
       if (!fieldRef || !action.value) return null;
-      return `FILL ${fieldRef} WITH "${escapeString(action.value)}"`;
+      return generateVeroAction('select', fieldRef, action.value);
 
     case 'hover':
-      return fieldRef ? `HOVER ${fieldRef}` : null;
+      return fieldRef ? generateVeroAction('hover', fieldRef) : null;
 
     case 'press':
-      return `PRESS "${action.value || 'Enter'}"`;
+      return generateVeroAction('press', undefined, action.value || 'Enter');
 
     default:
       return null;
@@ -310,39 +311,33 @@ function escapeString(str: string): string {
 /**
  * Map ExtractedSelectors to Vero selector type
  */
-function mapSelectorType(selectors: ExtractedSelectors): string {
-  const type = selectors.recommendedType;
+const SELECTOR_TYPE_MAP: Record<string, string> = {
+  testId: 'testid',
+  role: 'role',
+  label: 'label',
+  placeholder: 'placeholder',
+  text: 'text',
+  alt: 'alt',
+  title: 'title',
+  css: 'css',
+};
 
-  // Map recommendedType to Vero selector keywords
-  switch (type) {
-    case 'testId':
-      return 'testid';
-    case 'role':
-      return 'role';
-    case 'label':
-      return 'label';
-    case 'placeholder':
-      return 'placeholder';
-    case 'text':
-      return 'text';
-    case 'alt':
-      return 'alt';
-    case 'title':
-      return 'title';
-    case 'css':
-      return 'css';
-    default:
-      // Determine type from available selectors
-      if (selectors.testId) return 'testid';
-      if (selectors.role) return 'role';
-      if (selectors.label) return 'label';
-      if (selectors.placeholder) return 'placeholder';
-      if (selectors.text) return 'text';
-      if (selectors.alt) return 'alt';
-      if (selectors.title) return 'title';
-      if (selectors.css) return 'css';
-      return 'text';
+// Fallback priority order for inferring selector type from available selectors
+const SELECTOR_FALLBACK_KEYS = [
+  'testId', 'role', 'label', 'placeholder', 'text', 'alt', 'title', 'css',
+] as const;
+
+function mapSelectorType(selectors: ExtractedSelectors): string {
+  // Use recommended type if it maps to a known Vero selector keyword
+  const mapped = SELECTOR_TYPE_MAP[selectors.recommendedType];
+  if (mapped) return mapped;
+
+  // Fallback: infer type from which selector fields are available
+  for (const key of SELECTOR_FALLBACK_KEYS) {
+    if (selectors[key]) return SELECTOR_TYPE_MAP[key];
   }
+
+  return 'text';
 }
 
 /**

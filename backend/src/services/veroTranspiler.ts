@@ -7,6 +7,7 @@ interface PageDefinition {
     name: string;
     fields: Map<string, string>;
     actions: Map<string, { params: string[]; statements: string[] }>;
+    forPage?: string;  // For PageActions - the associated Page name
 }
 
 interface ScenarioDefinition {
@@ -28,6 +29,93 @@ interface TranspileOptions {
 }
 
 /**
+ * Validation error for semantic issues
+ */
+export interface VeroValidationError {
+    code: string;
+    message: string;
+    line?: number;
+    severity: 'error' | 'warning';
+    suggestion?: string;
+}
+
+/**
+ * Validates that all pages referenced in USE statements exist
+ */
+function validateUsedPages(features: FeatureDefinition[], pages: PageDefinition[]): VeroValidationError[] {
+    const errors: VeroValidationError[] = [];
+    const pageNames = new Set(pages.map(p => p.name));
+
+    for (const feature of features) {
+        for (const usedPage of feature.usedPages) {
+            if (!pageNames.has(usedPage)) {
+                // Find similar page names for suggestion
+                const similar = findSimilarPage(usedPage, pageNames);
+                const suggestion = similar ? `Did you mean '${similar}'?` : undefined;
+
+                errors.push({
+                    code: 'VERO2001',
+                    message: `Page '${usedPage}' is not defined. USE a PAGE or PAGEACTIONS that exists in this project.`,
+                    severity: 'error',
+                    suggestion
+                });
+            }
+        }
+    }
+
+    return errors;
+}
+
+/**
+ * Find similar page name using Levenshtein distance
+ */
+function findSimilarPage(name: string, pageNames: Set<string>): string | undefined {
+    let bestMatch: string | undefined;
+    let bestDistance = Infinity;
+    const maxDistance = Math.max(2, Math.floor(name.length / 3));
+
+    for (const pageName of pageNames) {
+        const distance = levenshteinDistance(name.toLowerCase(), pageName.toLowerCase());
+        if (distance < bestDistance && distance <= maxDistance) {
+            bestDistance = distance;
+            bestMatch = pageName;
+        }
+    }
+
+    return bestMatch;
+}
+
+/**
+ * Calculate Levenshtein distance between two strings
+ */
+function levenshteinDistance(a: string, b: string): number {
+    const matrix: number[][] = [];
+
+    for (let i = 0; i <= b.length; i++) {
+        matrix[i] = [i];
+    }
+    for (let j = 0; j <= a.length; j++) {
+        matrix[0][j] = j;
+    }
+
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1,
+                    matrix[i][j - 1] + 1,
+                    matrix[i - 1][j] + 1
+                );
+            }
+        }
+    }
+
+    return matrix[b.length][a.length];
+}
+
+/**
  * Transpiles Vero DSL code into Playwright TypeScript test code
  */
 export function transpileVero(veroCode: string, options: TranspileOptions = {}): string {
@@ -37,6 +125,17 @@ export function transpileVero(veroCode: string, options: TranspileOptions = {}):
 
     // Parse the Vero code
     parseVeroCode(veroCode, pages, features);
+
+    // Validate semantic correctness - check USE statements reference existing pages
+    const validationErrors = validateUsedPages(features, pages);
+    if (validationErrors.length > 0) {
+        const errorMessages = validationErrors.map(e => {
+            let msg = `[${e.code}] ${e.message}`;
+            if (e.suggestion) msg += ` ${e.suggestion}`;
+            return msg;
+        }).join('\n');
+        throw new Error(`Vero Validation Error:\n${errorMessages}`);
+    }
 
     // Generate Playwright TypeScript
     let output = `// Auto-generated from Vero DSL
@@ -51,7 +150,7 @@ import { test, expect, Page } from '@playwright/test';
 
     // Generate page objects
     for (const page of pages) {
-        output += generatePageObject(page);
+        output += generatePageObject(page, pages);
     }
 
     // Generate test suites
@@ -163,6 +262,21 @@ function parseVeroCode(code: string, pages: PageDefinition[], features: FeatureD
             continue;
         }
 
+        // PAGEACTIONS declaration: PAGEACTIONS Name FOR PageName {
+        const pageActionsMatch = line.match(/^pageactions\s+(\w+)(?:\s+for\s+(\w+))?\s*{/i);
+        if (pageActionsMatch) {
+            // PageActions are treated the same as Pages internally
+            // The FOR clause links to a Page for field resolution
+            currentPage = {
+                name: pageActionsMatch[1],
+                fields: new Map(),
+                actions: new Map(),
+                forPage: pageActionsMatch[2]  // Store the associated page name
+            };
+            braceDepth = 1;
+            continue;
+        }
+
         // Field declaration: field name = "selector" or field name = role "rolename"
         const fieldMatch = line.match(/^field\s+(\w+)\s*=\s*(.+)/i);
         if (fieldMatch && currentPage) {
@@ -179,9 +293,22 @@ function parseVeroCode(code: string, pages: PageDefinition[], features: FeatureD
             continue;
         }
 
-        // Action declaration (inside page)
+        // Action declaration (inside page or pageactions)
+        // Supports multiple syntaxes:
+        // - actionName WITH params {
+        // - actionName RETURNS FLAG {
+        // - actionName RETURNS TEXT {
+        // - actionName {
+        const actionReturnsMatch = line.match(/^(\w+)\s+returns\s+(flag|text)\s*{/i);
+        if (actionReturnsMatch && currentPage && !currentAction) {
+            currentAction = { name: actionReturnsMatch[1], params: [], statements: [] };
+            actionBraceDepth = braceDepth + openBraces;
+            braceDepth += openBraces - closeBraces;
+            continue;
+        }
+
         const actionMatch = line.match(/^(\w+)(?:\s+with\s+([^{]+))?\s*{/i);
-        if (actionMatch && currentPage && !currentAction && !line.match(/^(page|feature|scenario|before|after|if|repeat)/i)) {
+        if (actionMatch && currentPage && !currentAction && !line.match(/^(page|pageactions|feature|scenario|before|after|if|repeat)/i)) {
             const params = actionMatch[2] ? actionMatch[2].split(',').map(p => p.trim()) : [];
             currentAction = { name: actionMatch[1], params, statements: [] };
             actionBraceDepth = braceDepth + openBraces;
@@ -282,6 +409,15 @@ function parseVeroCode(code: string, pages: PageDefinition[], features: FeatureD
             continue;
         }
 
+        // Scenario declaration - unquoted name with optional tags: scenario Name @tag1 @tag2 {
+        const scenarioMatchUnquoted = line.match(/^scenario\s+(\w+)([^{]*){/i);
+        if (scenarioMatchUnquoted && currentFeature) {
+            const tags = (scenarioMatchUnquoted[2].match(/@(\w+)/g) || []).map(t => t.slice(1));
+            currentScenario = { name: scenarioMatchUnquoted[1], tags, statements: [] };
+            braceDepth += openBraces - closeBraces;
+            continue;
+        }
+
         // Scenario declaration - without braces: scenario "Name" as Alias or just scenario "Name"
         const scenarioMatchNoBrace = line.match(/^scenario\s+"([^"]+)"(?:\s+as\s+(\w+))?$/i);
         if (scenarioMatchNoBrace && currentFeature && !line.includes('{')) {
@@ -339,7 +475,7 @@ function parseVeroCode(code: string, pages: PageDefinition[], features: FeatureD
     if (currentFeature) features.push(currentFeature);
 }
 
-function generatePageObject(page: PageDefinition): string {
+function generatePageObject(page: PageDefinition, allPages: PageDefinition[]): string {
     let output = `// Page Object: ${page.name}\nconst ${page.name.toLowerCase()} = {\n`;
 
     // Generate field locators
@@ -361,8 +497,24 @@ function generatePageObject(page: PageDefinition): string {
             ? `, ${action.params.map(p => `${p}: string`).join(', ')}`
             : '';
         output += `\n    ${name}: async (page: Page${params}) => {\n`;
+
+        // If this is a PageActions with a forPage reference, find the associated page
+        // and create a merged page definition for proper field resolution
+        let contextPage = page;
+        if (page.forPage) {
+            const associatedPage = allPages.find(p =>
+                p.name.toLowerCase() === page.forPage!.toLowerCase());
+            if (associatedPage) {
+                // Create a merged page with fields from the associated page
+                contextPage = {
+                    ...page,
+                    fields: new Map([...associatedPage.fields, ...page.fields])
+                };
+            }
+        }
+
         for (const stmt of action.statements) {
-            output += `        ${transpileStatement(stmt, page)};\n`;
+            output += `        ${transpileStatement(stmt, contextPage)};\n`;
         }
         output += `    },\n`;
     }
@@ -426,28 +578,35 @@ function generateTestSuite(feature: FeatureDefinition, _pages: PageDefinition[],
     return output;
 }
 
+/** Prefix-to-action mapping for statement classification */
+const STATEMENT_ACTION_PREFIXES: [string, string][] = [
+    ['open', 'navigate'],
+    ['navigate', 'navigate'],
+    ['page contains', 'verify'],
+    ['take screenshot', 'screenshot'],
+    ['click', 'click'],
+    ['fill', 'fill'],
+    ['wait', 'wait'],
+    ['verify', 'verify'],
+    ['select', 'select'],
+    ['check', 'check'],
+    ['uncheck', 'uncheck'],
+    ['hover', 'hover'],
+    ['press', 'press'],
+    ['scroll', 'scroll'],
+    ['clear', 'clear'],
+    ['upload', 'upload'],
+    ['screenshot', 'screenshot'],
+];
+
 /**
  * Extract the action type from a Vero statement
  */
 function getActionFromStatement(stmt: string): string {
     const trimmed = stmt.trim().toLowerCase();
-    if (trimmed.startsWith('open')) return 'navigate';
-    if (trimmed.startsWith('navigate')) return 'navigate';
-    if (trimmed.startsWith('page contains')) return 'verify';
-    if (trimmed.startsWith('take screenshot')) return 'screenshot';
-    if (trimmed.startsWith('click')) return 'click';
-    if (trimmed.startsWith('fill')) return 'fill';
-    if (trimmed.startsWith('wait')) return 'wait';
-    if (trimmed.startsWith('verify')) return 'verify';
-    if (trimmed.startsWith('select')) return 'select';
-    if (trimmed.startsWith('check')) return 'check';
-    if (trimmed.startsWith('uncheck')) return 'uncheck';
-    if (trimmed.startsWith('hover')) return 'hover';
-    if (trimmed.startsWith('press')) return 'press';
-    if (trimmed.startsWith('scroll')) return 'scroll';
-    if (trimmed.startsWith('clear')) return 'clear';
-    if (trimmed.startsWith('upload')) return 'upload';
-    if (trimmed.startsWith('screenshot')) return 'screenshot';
+    for (const [prefix, action] of STATEMENT_ACTION_PREFIXES) {
+        if (trimmed.startsWith(prefix)) return action;
+    }
     return 'action';
 }
 
@@ -558,12 +717,21 @@ function transpileStatement(stmt: string, contextPage?: PageDefinition): string 
 
     // verify selector is visible/hidden
     // Match either "quoted string" or non-whitespace identifier
-    const verifyMatch = trimmed.match(/^verify\s+("(?:[^"\\]|\\.)*"|\S+)\s+(is\s+not?\s*)?(\w+)/i);
+    // Pattern: VERIFY target IS [NOT] condition
+    const verifyMatch = trimmed.match(/^verify\s+("(?:[^"\\]|\\.)*"|\S+)\s+is\s+(not\s+)?(\w+)/i);
     if (verifyMatch) {
-        const selector = resolveSelector(verifyMatch[1], contextPage);
-        const isNot = verifyMatch[2]?.includes('not');
+        const target = verifyMatch[1];
+        const isNot = !!verifyMatch[2];
         const condition = verifyMatch[3].toLowerCase();
 
+        // Check if this is a variable verification (VERIFY varName IS TRUE/FALSE)
+        if (condition === 'true' || condition === 'false') {
+            const expectedValue = condition === 'true';
+            const actual = isNot ? !expectedValue : expectedValue;
+            return `expect(${target}).toBe(${actual})`;
+        }
+
+        const selector = resolveSelector(target, contextPage);
         let assertion = '';
         switch (condition) {
             case 'visible':
@@ -587,43 +755,67 @@ function transpileStatement(stmt: string, contextPage?: PageDefinition): string 
         return `await expect(${selector}).${assertion}`;
     }
 
-    // do PageName.actionName with args
-    const doMatch = trimmed.match(/^do\s+(\w+)\.(\w+)(?:\s+with\s+(.+))?/i);
-    if (doMatch) {
-        const pageName = doMatch[1].toLowerCase();
-        const actionName = doMatch[2];
-        const args = doMatch[3] ? `, ${doMatch[3]}` : '';
+    // VERIFY varName CONTAINS "text"
+    const verifyContainsMatch = trimmed.match(/^verify\s+(\w+)\s+contains\s+"([^"]+)"/i);
+    if (verifyContainsMatch) {
+        const varName = verifyContainsMatch[1];
+        const expectedText = verifyContainsMatch[2];
+        return `expect(${varName}.toLowerCase()).toContain('${expectedText.toLowerCase()}')`;
+    }
+
+    // RETURN VISIBLE OF field - returns boolean for visibility check
+    const returnVisibleMatch = trimmed.match(/^return\s+visible\s+of\s+(\w+)/i);
+    if (returnVisibleMatch) {
+        const selector = resolveSelector(returnVisibleMatch[1], contextPage);
+        return `return await ${selector}.isVisible()`;
+    }
+
+    // RETURN TEXT OF field - returns text content
+    const returnTextMatch = trimmed.match(/^return\s+text\s+of\s+(\w+)/i);
+    if (returnTextMatch) {
+        const selector = resolveSelector(returnTextMatch[1], contextPage);
+        return `return await ${selector}.textContent() || ''`;
+    }
+
+
+    // ========================
+    // PERFORM / DO PageActions
+    // ========================
+
+    // FLAG varName = PERFORM PageActions.action
+    const flagAssignMatch = trimmed.match(/^flag\s+(\w+)\s*=\s*perform\s+(\w+)\.(\w+)(?:\s+with\s+(.+))?/i);
+    if (flagAssignMatch) {
+        const varName = flagAssignMatch[1];
+        const pageName = flagAssignMatch[2].toLowerCase();
+        const actionName = flagAssignMatch[3];
+        const args = flagAssignMatch[4] ? `, ${flagAssignMatch[4]}` : '';
+        return `const ${varName} = await ${pageName}.${actionName}(page${args})`;
+    }
+
+    // TEXT varName = PERFORM PageActions.action
+    const textAssignMatch = trimmed.match(/^text\s+(\w+)\s*=\s*perform\s+(\w+)\.(\w+)(?:\s+with\s+(.+))?/i);
+    if (textAssignMatch) {
+        const varName = textAssignMatch[1];
+        const pageName = textAssignMatch[2].toLowerCase();
+        const actionName = textAssignMatch[3];
+        const args = textAssignMatch[4] ? `, ${textAssignMatch[4]}` : '';
+        return `const ${varName} = await ${pageName}.${actionName}(page${args})`;
+    }
+
+    // PERFORM PageActions.action WITH args (or DO for backwards compatibility)
+    const performMatch = trimmed.match(/^(?:perform|do)\s+(\w+)\.(\w+)(?:\s+with\s+(.+))?/i);
+    if (performMatch) {
+        const pageName = performMatch[1].toLowerCase();
+        const actionName = performMatch[2];
+        const args = performMatch[3] ? `, ${performMatch[3]}` : '';
         return `await ${pageName}.${actionName}(page${args})`;
     }
 
-    // log "message" - basic log
-    const logMatch = trimmed.match(/^log\s+"([^"]+)"/i);
-    if (logMatch) {
-        return `await test.step('Log: ${logMatch[1]}', async () => { console.log('${logMatch[1]}'); await testInfo.attach('log', { body: JSON.stringify({ level: 'info', message: '${logMatch[1]}', timestamp: new Date().toISOString() }), contentType: 'application/json' }); })`;
-    }
-
-    // log.info "message" - info level log
-    const logInfoMatch = trimmed.match(/^log\.info\s+"([^"]+)"/i);
-    if (logInfoMatch) {
-        return `await test.step('Log: ${logInfoMatch[1]}', async () => { console.log('[INFO] ${logInfoMatch[1]}'); await testInfo.attach('log', { body: JSON.stringify({ level: 'info', message: '${logInfoMatch[1]}', timestamp: new Date().toISOString() }), contentType: 'application/json' }); })`;
-    }
-
-    // log.warn "message" - warning level log
-    const logWarnMatch = trimmed.match(/^log\.warn\s+"([^"]+)"/i);
-    if (logWarnMatch) {
-        return `await test.step('Log: ${logWarnMatch[1]}', async () => { console.warn('[WARN] ${logWarnMatch[1]}'); await testInfo.attach('log', { body: JSON.stringify({ level: 'warn', message: '${logWarnMatch[1]}', timestamp: new Date().toISOString() }), contentType: 'application/json' }); })`;
-    }
-
-    // log.error "message" - error level log
-    const logErrorMatch = trimmed.match(/^log\.error\s+"([^"]+)"/i);
-    if (logErrorMatch) {
-        return `await test.step('Log: ${logErrorMatch[1]}', async () => { console.error('[ERROR] ${logErrorMatch[1]}'); await testInfo.attach('log', { body: JSON.stringify({ level: 'error', message: '${logErrorMatch[1]}', timestamp: new Date().toISOString() }), contentType: 'application/json' }); })`;
-    }
-
-    // log.debug "message" - debug level log
-    const logDebugMatch = trimmed.match(/^log\.debug\s+"([^"]+)"/i);
-    if (logDebugMatch) {
-        return `await test.step('Log: ${logDebugMatch[1]}', async () => { console.debug('[DEBUG] ${logDebugMatch[1]}'); await testInfo.attach('log', { body: JSON.stringify({ level: 'debug', message: '${logDebugMatch[1]}', timestamp: new Date().toISOString() }), contentType: 'application/json' }); })`;
+    // log statements: log "msg", log.info "msg", log.warn "msg", log.error "msg", log.debug "msg"
+    const logStatementMatch = trimmed.match(/^log(?:\.(info|warn|error|debug))?\s+"([^"]+)"/i);
+    if (logStatementMatch) {
+        const hasExplicitLevel = !!logStatementMatch[1];
+        return transpileLogStatement(logStatementMatch[1] || 'info', logStatementMatch[2], hasExplicitLevel);
     }
 
     // hover selector
@@ -989,6 +1181,24 @@ function transpileStatement(stmt: string, contextPage?: PageDefinition): string 
 
     // Default: comment out unknown statements
     return `// TODO: ${trimmed}`;
+}
+
+/** Console method and prefix mapping for log levels */
+const LOG_LEVEL_CONFIG: Record<string, { consoleMethod: string; prefix: string }> = {
+    info:  { consoleMethod: 'log',   prefix: '[INFO] ' },
+    warn:  { consoleMethod: 'warn',  prefix: '[WARN] ' },
+    error: { consoleMethod: 'error', prefix: '[ERROR] ' },
+    debug: { consoleMethod: 'debug', prefix: '[DEBUG] ' },
+};
+
+/**
+ * Generate a Playwright test.step for a Vero log statement.
+ * When hasExplicitLevel is false (bare "log"), no prefix is added.
+ */
+function transpileLogStatement(level: string, message: string, hasExplicitLevel: boolean = true): string {
+    const config = LOG_LEVEL_CONFIG[level.toLowerCase()] || LOG_LEVEL_CONFIG.info;
+    const prefix = hasExplicitLevel ? config.prefix : '';
+    return `await test.step('Log: ${message}', async () => { console.${config.consoleMethod}('${prefix}${message}'); await testInfo.attach('log', { body: JSON.stringify({ level: '${level}', message: '${message}', timestamp: new Date().toISOString() }), contentType: 'application/json' }); })`;
 }
 
 /**

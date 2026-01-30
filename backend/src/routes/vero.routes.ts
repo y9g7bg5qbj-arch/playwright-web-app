@@ -5,12 +5,12 @@ import { join, dirname } from 'path';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { existsSync } from 'fs';
 import {
-  projectRepository,
-  workflowRepository,
-  testFlowRepository,
-  executionRepository,
-  executionStepRepository,
-  executionLogRepository
+    projectRepository,
+    workflowRepository,
+    testFlowRepository,
+    executionRepository,
+    executionStepRepository,
+    executionLogRepository
 } from '../db/repositories/mongo';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -90,11 +90,11 @@ feature Example {
 `;
 
 // Helper function to create example files for a new project
-// Uses capitalized folder names: Pages, Features, Data (3 folders)
+// Uses capitalized folder names: Pages, Features, PageActions (3 folders)
 async function createExampleFiles(projectPath: string): Promise<void> {
     const pagesDir = join(projectPath, 'Pages');
     const featuresDir = join(projectPath, 'Features');
-    const dataDir = join(projectPath, 'Data');
+    const pageActionsDir = join(projectPath, 'PageActions');
 
     // Create directories if they don't exist
     if (!existsSync(pagesDir)) {
@@ -103,8 +103,8 @@ async function createExampleFiles(projectPath: string): Promise<void> {
     if (!existsSync(featuresDir)) {
         await mkdir(featuresDir, { recursive: true });
     }
-    if (!existsSync(dataDir)) {
-        await mkdir(dataDir, { recursive: true });
+    if (!existsSync(pageActionsDir)) {
+        await mkdir(pageActionsDir, { recursive: true });
     }
 
     // Create example files if directories are empty
@@ -119,19 +119,74 @@ async function createExampleFiles(projectPath: string): Promise<void> {
     }
 }
 
-// Helper function to get project path from projectId
-async function getProjectPath(projectId: string | undefined): Promise<string> {
-    if (!projectId) {
-        return VERO_PROJECT_PATH;
+// Resolve project path from either a direct veroPath param or a projectId lookup
+async function resolveProjectPath(veroPathParam: string | undefined, projectId: string | undefined): Promise<string> {
+    if (veroPathParam) {
+        return veroPathParam;
     }
-
-    const project = await projectRepository.findById(projectId);
-
-    if (project?.veroPath) {
-        return project.veroPath;
+    if (projectId) {
+        const project = await projectRepository.findById(projectId);
+        if (project?.veroPath) {
+            return project.veroPath;
+        }
     }
-
     return VERO_PROJECT_PATH;
+}
+
+// Detect the project root directory from a file path by finding Features/Pages/PageActions boundary
+function detectProjectRoot(filePath: string, defaultRoot: string): string {
+    const pathParts = filePath.split('/');
+    const isAbsolutePath = filePath.startsWith('/');
+    for (let i = 0; i < pathParts.length; i++) {
+        const part = pathParts[i].toLowerCase();
+        if (part === 'features' || part === 'pages' || part === 'pageactions') {
+            const projectPathParts = pathParts.slice(0, i).join('/');
+            return isAbsolutePath
+                ? projectPathParts
+                : (projectPathParts ? join(defaultRoot, projectPathParts) : defaultRoot);
+        }
+    }
+    return defaultRoot;
+}
+
+// Load referenced page and pageAction files for a list of page names
+async function loadReferencedPages(pageNames: string[], projectRoot: string): Promise<string> {
+    let combinedContent = '';
+    for (const pageName of pageNames) {
+        const pageFilePath = join(projectRoot, 'Pages', `${pageName}.vero`);
+        const pageActionsFilePath = join(projectRoot, 'PageActions', `${pageName}.vero`);
+
+        // Try Pages folder first, then PageActions
+        let loaded = false;
+        try {
+            const pageContent = await readFile(pageFilePath, 'utf-8');
+            combinedContent += pageContent + '\n\n';
+            loaded = true;
+        } catch {
+            try {
+                const pageContent = await readFile(pageActionsFilePath, 'utf-8');
+                combinedContent += pageContent + '\n\n';
+                loaded = true;
+            } catch {
+                // File not found for this page name
+            }
+        }
+
+        // If a PageActions reference, also load the corresponding base Page
+        if (pageName.endsWith('PageActions')) {
+            const baseName = pageName.replace('PageActions', '');
+            const basePagePath = join(projectRoot, 'Pages', `${baseName}Page.vero`);
+            try {
+                const basePageContent = await readFile(basePagePath, 'utf-8');
+                if (!combinedContent.includes(basePageContent)) {
+                    combinedContent = basePageContent + '\n\n' + combinedContent;
+                }
+            } catch {
+                // Base page not found
+            }
+        }
+    }
+    return combinedContent;
 }
 
 // List all .vero files in the project
@@ -139,20 +194,10 @@ router.get('/files', authenticateToken, async (req: AuthRequest, res: Response, 
     try {
         const projectId = req.query.projectId as string | undefined;
         const veroPathParam = req.query.veroPath as string | undefined;
-
-        // If veroPath is provided directly, use it; otherwise look up by projectId
-        let projectPath: string;
-        if (veroPathParam) {
-            projectPath = veroPathParam;
-        } else {
-            projectPath = await getProjectPath(projectId);
-        }
-
+        const projectPath = await resolveProjectPath(veroPathParam, projectId);
         const fullPath = projectPath.startsWith('/') ? projectPath : join(process.cwd(), projectPath);
 
-        // Check if directory exists, if not return empty structure
         if (!existsSync(fullPath)) {
-            console.log(`[Vero Files] Directory does not exist: ${fullPath}`);
             return res.json({ success: true, files: [] });
         }
 
@@ -170,14 +215,7 @@ router.get('/files/:path(*)', authenticateToken, async (req: AuthRequest, res: R
         const filePath = req.params.path;
         const projectId = req.query.projectId as string | undefined;
         const veroPathParam = req.query.veroPath as string | undefined;
-
-        // If veroPath is provided directly, use it; otherwise look up by projectId
-        let projectPath: string;
-        if (veroPathParam) {
-            projectPath = veroPathParam;
-        } else {
-            projectPath = await getProjectPath(projectId);
-        }
+        const projectPath = await resolveProjectPath(veroPathParam, projectId);
         const fullPath = join(projectPath, filePath);
 
         // Security check: ensure path is within project
@@ -200,16 +238,7 @@ router.put('/files/:path(*)', authenticateToken, async (req: AuthRequest, res: R
         const { content } = req.body;
         const projectId = req.query.projectId as string | undefined;
         const veroPathParam = req.query.veroPath as string | undefined;
-
-        // If veroPath is provided directly, use it; otherwise look up by projectId
-        let projectPath: string;
-        if (veroPathParam) {
-            projectPath = veroPathParam;
-        } else {
-            projectPath = await getProjectPath(projectId);
-        }
-
-        console.log('[Vero] Saving file:', { filePath, projectPath, veroPathParam, projectId });
+        const projectPath = await resolveProjectPath(veroPathParam, projectId);
         const fullPath = join(projectPath, filePath);
 
         // Security check: ensure path is within project
@@ -252,7 +281,6 @@ router.post('/files/rename', authenticateToken, async (req: AuthRequest, res: Re
         const { rename } = await import('fs/promises');
         await rename(fullOldPath, fullNewPath);
 
-        console.log(`[Vero] Renamed: ${oldPath} -> ${newPath}`);
         res.json({ success: true, message: 'File renamed', newPath });
     } catch (error) {
         console.error('Failed to rename file:', error);
@@ -265,7 +293,7 @@ router.delete('/files/:path(*)', authenticateToken, async (req: AuthRequest, res
     try {
         const filePath = req.params.path;
         const projectId = req.query.projectId as string | undefined;
-        const projectPath = await getProjectPath(projectId);
+        const projectPath = await resolveProjectPath(undefined, projectId);
         const fullPath = join(projectPath, filePath);
 
         // Security check: ensure path is within project
@@ -276,7 +304,6 @@ router.delete('/files/:path(*)', authenticateToken, async (req: AuthRequest, res
         const { unlink } = await import('fs/promises');
         await unlink(fullPath);
 
-        console.log(`[Vero] Deleted: ${filePath}`);
         res.json({ success: true, message: 'File deleted' });
     } catch (error) {
         console.error('Failed to delete file:', error);
@@ -301,12 +328,8 @@ router.post('/recording/start', authenticateToken, async (req: AuthRequest, res:
         const sessionId = `vero-${Date.now()}-${Math.random().toString(36).substring(7)}`;
         const outputFile = getVeroTempFilePath(sessionId);
 
-        console.log(`[Vero Recording] Starting session ${sessionId} for URL: ${url}`);
-        console.log(`[Vero Recording] Output file: ${outputFile}`);
-
         // Spawn playwright codegen process with output file
         const command = `npx playwright codegen "${url}" --target=playwright-test -o "${outputFile}"`;
-        console.log(`[Vero Recording] Command: ${command}`);
 
         const codegenProcess = spawn(command, [], {
             stdio: 'inherit', // Show browser window
@@ -327,7 +350,6 @@ router.post('/recording/start', authenticateToken, async (req: AuthRequest, res:
                             if (session) {
                                 session.currentCode = code;
                             }
-                            console.log(`[Vero Recording] Code updated, length: ${code.length}`);
                         } catch (error) {
                             // File might not exist yet or is being written
                         }
@@ -356,7 +378,6 @@ router.post('/recording/start', authenticateToken, async (req: AuthRequest, res:
         });
 
         codegenProcess.on('close', async (exitCode) => {
-            console.log(`[Vero Recording] Session ${sessionId} closed with code ${exitCode}`);
 
             // Stop watching the file
             const session = activeRecordings.get(sessionId);
@@ -370,7 +391,6 @@ router.post('/recording/start', authenticateToken, async (req: AuthRequest, res:
             // Read final code
             try {
                 const finalCode = await readFile(outputFile, 'utf-8');
-                console.log(`[Vero Recording] Final code length: ${finalCode.length}`);
 
                 if (session) {
                     session.finalCode = finalCode;
@@ -378,7 +398,6 @@ router.post('/recording/start', authenticateToken, async (req: AuthRequest, res:
                     session.exitCode = exitCode;
                 }
             } catch (error) {
-                console.error(`[Vero Recording] Error reading final code:`, error);
                 if (session) {
                     session.isComplete = true;
                     session.exitCode = exitCode;
@@ -388,8 +407,7 @@ router.post('/recording/start', authenticateToken, async (req: AuthRequest, res:
             // Don't delete from activeRecordings - let stop/code endpoints handle it
         });
 
-        codegenProcess.on('error', (error) => {
-            console.error(`[Vero Recording] Session ${sessionId} error:`, error);
+        codegenProcess.on('error', () => {
             const session = activeRecordings.get(sessionId);
             if (session?.fileWatcher) {
                 session.fileWatcher.close();
@@ -482,9 +500,7 @@ router.post('/recording/stop', authenticateToken, async (req: AuthRequest, res: 
         let code = '';
         try {
             code = await readFile(session.outputFile, 'utf-8');
-            console.log(`[Vero Recording] Stop - Read code from file, length: ${code.length}`);
-        } catch (error) {
-            console.error('[Vero Recording] Error reading code file:', error);
+        } catch {
             code = session.finalCode || session.currentCode || '';
         }
 
@@ -628,12 +644,11 @@ router.post('/run', authenticateToken, async (req: AuthRequest, res: Response, n
         const isHeadless = config?.browserMode === 'headless';
         const userId = (req as AuthRequest).userId!;
 
-        console.log(`[Vero Run] Starting execution for: ${filePath || 'inline content'}`);
-
         // Get Vero content - either from request or read from file
         let veroContent = content;
         if (!veroContent && filePath) {
-            const fullPath = join(VERO_PROJECT_PATH, filePath);
+            // Handle both absolute and relative file paths
+            const fullPath = filePath.startsWith('/') ? filePath : join(VERO_PROJECT_PATH, filePath);
             veroContent = await readFile(fullPath, 'utf-8');
         }
 
@@ -660,42 +675,60 @@ router.post('/run', authenticateToken, async (req: AuthRequest, res: Response, n
             }),
         });
         const executionId = execution.id;
-        console.log(`[Vero Run] Created execution record: ${executionId}`);
 
-        // Extract USE statements to find referenced pages
+        // Extract USE statements and load referenced pages/pageActions
         const useMatches = veroContent.match(/USE\s+(\w+)/gi) || [];
         const pageNames = useMatches.map((m: string) => m.replace(/USE\s+/i, '').trim());
-        console.log('[Vero Run] Referenced pages:', pageNames);
+        const projectRoot = filePath ? detectProjectRoot(filePath, VERO_PROJECT_PATH) : VERO_PROJECT_PATH;
+        const referencedContent = await loadReferencedPages(pageNames, projectRoot);
+        const combinedContent = referencedContent + veroContent;
 
-        // Load referenced page files and prepend to content
-        let combinedContent = '';
-        for (const pageName of pageNames) {
-            const pageFilePath = join(VERO_PROJECT_PATH, 'pages', `${pageName}.vero`);
-            try {
-                const pageContent = await readFile(pageFilePath, 'utf-8');
-                combinedContent += pageContent + '\n\n';
-                console.log(`[Vero Run] Loaded page: ${pageName}`);
-            } catch (e) {
-                console.warn(`[Vero Run] Page file not found: ${pageFilePath}`);
-            }
+        // Validate the combined Vero code before transpiling
+        const { tokenize, parse, validate } = await import('vero-lang');
+
+        const lexResult = tokenize(combinedContent);
+        if (lexResult.errors.length > 0) {
+            await executionRepository.update(executionId, { status: 'failed', finishedAt: new Date() });
+            const errorMessages = lexResult.errors.map((e: any) => `Line ${e.line}: ${e.message}`).join('\n');
+            return res.status(400).json({
+                success: false, status: 'failed', executionId,
+                error: `Syntax errors prevent execution:\n${errorMessages}`,
+                errors: lexResult.errors,
+            });
         }
-        combinedContent += veroContent;
 
-        // Import transpiler dynamically
-        const { transpileVero } = await import('../services/veroTranspiler');
+        const parseResult = parse(lexResult.tokens);
+        if (parseResult.errors.length > 0) {
+            await executionRepository.update(executionId, { status: 'failed', finishedAt: new Date() });
+            const errorMessages = parseResult.errors.map((e: any) => `Line ${e.line}: ${e.message}`).join('\n');
+            return res.status(400).json({
+                success: false, status: 'failed', executionId,
+                error: `Parse errors prevent execution:\n${errorMessages}`,
+                errors: parseResult.errors,
+            });
+        }
+
+        const validationResult = validate(parseResult.ast);
+        if (!validationResult.valid && validationResult.errors.length > 0) {
+            await executionRepository.update(executionId, { status: 'failed', finishedAt: new Date() });
+            const errorMessages = validationResult.errors.map((e: any) =>
+                `${e.line ? `Line ${e.line}: ` : ''}${e.message}${e.suggestion ? ` (${e.suggestion})` : ''}`
+            ).join('\n');
+            return res.status(400).json({
+                success: false, status: 'failed', executionId,
+                error: `Validation errors prevent execution:\n${errorMessages}`,
+                errors: validationResult.errors,
+            });
+        }
 
         // Transpile Vero to Playwright
-        console.log('[Vero Run] Transpiling Vero to Playwright...');
+        const { transpileVero } = await import('../services/veroTranspiler');
         const playwrightCode = transpileVero(combinedContent);
 
-        // Write to temp test file inside output/ directory (where playwright.config.ts expects tests)
-        const outputDir = join(VERO_PROJECT_PATH, 'output');
-        if (!existsSync(outputDir)) {
-            await mkdir(outputDir, { recursive: true });
-        }
-        const tempTestFile = join(outputDir, '.vero-temp-test.spec.ts');
+        // Write to temp test file in backend directory (which has @playwright/test in node_modules)
+        const backendDir = process.cwd();
+        const tempTestFile = join(backendDir, '.vero-temp-test.spec.ts');
         await writeFile(tempTestFile, playwrightCode, 'utf-8');
-        console.log('[Vero Run] Generated test file:', tempTestFile);
 
         // Run Playwright - use headless or headed based on config
         const headedFlag = isHeadless ? '' : '--headed';
@@ -709,17 +742,15 @@ router.post('/run', authenticateToken, async (req: AuthRequest, res: Response, n
         const retriesFlag = retries > 0 ? `--retries=${retries}` : '';
 
         const command = `npx playwright test .vero-temp-test.spec.ts ${headedFlag} ${workersFlag} ${retriesFlag} ${grepFlag} --timeout=60000`.trim().replace(/\s+/g, ' ');
-        console.log(`[Vero Run] Executing (${isHeadless ? 'headless' : 'headed'}, workers: ${workers}, retries: ${retries}${scenarioName ? `, scenario: ${scenarioName}` : ''}):`, command);
 
         // Prepare environment with VERO_ENV_VARS for {{variableName}} resolution
         const processEnv: Record<string, string> = { ...process.env } as Record<string, string>;
         if (config?.envVars && Object.keys(config.envVars).length > 0) {
             processEnv.VERO_ENV_VARS = JSON.stringify(config.envVars);
-            console.log('[Vero Run] Passing environment variables:', Object.keys(config.envVars));
         }
 
         const testProcess = spawn(command, [], {
-            cwd: VERO_PROJECT_PATH,
+            cwd: backendDir,
             shell: true,
             stdio: 'pipe',
             env: processEnv,
@@ -729,15 +760,11 @@ router.post('/run', authenticateToken, async (req: AuthRequest, res: Response, n
         let stderr = '';
 
         testProcess.stdout.on('data', (data) => {
-            const text = data.toString();
-            stdout += text;
-            console.log('[Vero Run] stdout:', text);
+            stdout += data.toString();
         });
 
         testProcess.stderr.on('data', (data) => {
-            const text = data.toString();
-            stderr += text;
-            console.log('[Vero Run] stderr:', text);
+            stderr += data.toString();
         });
 
         // Wait for process to complete (with timeout)
@@ -789,7 +816,7 @@ router.post('/run', authenticateToken, async (req: AuthRequest, res: Response, n
                             // Playwright JSON: results[0].status is 'passed', 'failed', 'skipped', etc.
                             const resultStatus = test.results?.[0]?.status || 'failed';
                             const testStatus = resultStatus === 'passed' ? 'passed' :
-                                               resultStatus === 'skipped' ? 'skipped' : 'failed';
+                                resultStatus === 'skipped' ? 'skipped' : 'failed';
 
                             if (testStatus === 'passed') passedCount++;
                             else if (testStatus === 'failed') failedCount++;
@@ -836,10 +863,9 @@ router.post('/run', authenticateToken, async (req: AuthRequest, res: Response, n
                     await processSuite(suite);
                 }
 
-                console.log(`[Vero Run] Parsed results: ${passedCount} passed, ${failedCount} failed, ${skippedCount} skipped`);
             }
-        } catch (parseError) {
-            console.warn('[Vero Run] Failed to parse test results JSON:', parseError);
+        } catch {
+            // Test results JSON not available or not parseable
         }
 
         await executionRepository.update(executionId, {
@@ -847,7 +873,6 @@ router.post('/run', authenticateToken, async (req: AuthRequest, res: Response, n
             exitCode: result.status === 'passed' ? 0 : 1,
             finishedAt: finishTime,
         });
-        console.log(`[Vero Run] Updated execution ${executionId} with status: ${result.status}`);
 
         // Add execution log
         if (result.error) {
@@ -866,7 +891,6 @@ router.post('/run', authenticateToken, async (req: AuthRequest, res: Response, n
             // Ignore cleanup errors
         }
 
-        console.log(`[Vero Run] Completed with status: ${result.status}`);
         res.json({ success: true, ...result, executionId });
     } catch (error) {
         console.error('Failed to run tests:', error);
@@ -879,9 +903,6 @@ router.post('/debug', authenticateToken, async (req: AuthRequest, res: Response,
     try {
         const { filePath, content, breakpoints = [] } = req.body;
         const userId = (req as AuthRequest).userId!;
-
-        console.log(`[Vero Debug] Starting debug session for: ${filePath || 'inline content'}`);
-        console.log(`[Vero Debug] Breakpoints:`, breakpoints);
 
         // Get Vero content - either from request or read from file
         let veroContent = content;
@@ -910,30 +931,16 @@ router.post('/debug', authenticateToken, async (req: AuthRequest, res: Response,
             }),
         });
         const executionId = execution.id;
-        console.log(`[Vero Debug] Created debug execution record: ${executionId}`);
 
-        // Extract USE statements to find referenced pages
+        // Extract USE statements and load referenced pages/pageActions
         const useMatches = veroContent.match(/USE\s+(\w+)/gi) || [];
         const pageNames = useMatches.map((m: string) => m.replace(/USE\s+/i, '').trim());
-
-        // Load referenced page files and prepend to content
-        let combinedContent = '';
-        for (const pageName of pageNames) {
-            const pageFilePath = join(VERO_PROJECT_PATH, 'pages', `${pageName}.vero`);
-            try {
-                const pageContent = await readFile(pageFilePath, 'utf-8');
-                combinedContent += pageContent + '\n\n';
-            } catch (e) {
-                // Page not found
-            }
-        }
-        combinedContent += veroContent;
-
-        // Import transpiler dynamically with debug mode enabled
-        const { transpileVero } = await import('../services/veroTranspiler');
+        const projectRoot = filePath ? detectProjectRoot(filePath, VERO_PROJECT_PATH) : VERO_PROJECT_PATH;
+        const referencedContent = await loadReferencedPages(pageNames, projectRoot);
+        const combinedContent = referencedContent + veroContent;
 
         // Transpile Vero to Playwright with debug mode
-        console.log('[Vero Debug] Transpiling Vero with debug markers...');
+        const { transpileVero } = await import('../services/veroTranspiler');
         const playwrightCode = transpileVero(combinedContent, { debugMode: true });
 
         // Return executionId and generated code - frontend will connect via WebSocket
@@ -961,10 +968,8 @@ async function getOrCreateVeroTestFlow(userId: string, filePath: string, flowNam
             name: 'Vero Tests',
             userId,
         });
-        console.log(`[Vero Run] Created Vero Tests workflow for user ${userId}`);
     }
 
-    // Look for existing test flow with this file path
     let testFlow = await testFlowRepository.findByWorkflowIdAndName(workflow.id, flowName);
 
     if (!testFlow) {
@@ -975,7 +980,6 @@ async function getOrCreateVeroTestFlow(userId: string, filePath: string, flowNam
             language: 'vero',
             tags: [],
         });
-        console.log(`[Vero Run] Created test flow for: ${flowName}`);
     } else {
         // Update the code content if it changed
         await testFlowRepository.update(testFlow.id, { code: content });
@@ -992,8 +996,6 @@ router.post('/run-docker', authenticateToken, async (req: AuthRequest, res: Resp
         const { filePath, content, config, executionId } = req.body;
         const shardCount = config?.dockerShards || 1;
 
-        console.log(`[Vero Docker] Starting execution ${executionId} with ${shardCount} shards`);
-
         // Get Vero content - either from request or read from file
         let veroContent = content;
         if (!veroContent && filePath) {
@@ -1005,11 +1007,7 @@ router.post('/run-docker', authenticateToken, async (req: AuthRequest, res: Resp
             return res.status(400).json({ success: false, error: 'No content provided' });
         }
 
-        // Import transpiler dynamically
         const { transpileVero } = await import('../services/veroTranspiler');
-
-        // Transpile Vero to Playwright
-        console.log('[Vero Docker] Transpiling Vero to Playwright...');
         const playwrightCode = transpileVero(veroContent);
 
         // Write test file to sharding-demo folder for Docker to pick up
@@ -1023,7 +1021,6 @@ router.post('/run-docker', authenticateToken, async (req: AuthRequest, res: Resp
         }
 
         await writeFile(testFilePath, playwrightCode, 'utf-8');
-        console.log(`[Vero Docker] Generated test file: ${testFilePath}`);
 
         // Start Docker containers using docker compose
         const dockerComposePath = join(process.cwd(), '..', 'docker', 'worker-vnc', 'docker-compose.yml');
@@ -1043,12 +1040,10 @@ router.post('/run-docker', authenticateToken, async (req: AuthRequest, res: Resp
         let dockerOutput = '';
         dockerProcess.stdout?.on('data', (data) => {
             dockerOutput += data.toString();
-            console.log('[Vero Docker] stdout:', data.toString());
         });
 
         dockerProcess.stderr?.on('data', (data) => {
             dockerOutput += data.toString();
-            console.log('[Vero Docker] stderr:', data.toString());
         });
 
         // Wait for docker to start (don't wait for tests to complete)
@@ -1072,8 +1067,6 @@ router.post('/run-docker', authenticateToken, async (req: AuthRequest, res: Resp
             });
         });
 
-        console.log(`[Vero Docker] Containers started for execution ${executionId}`);
-
         res.json({
             success: true,
             executionId,
@@ -1096,9 +1089,6 @@ router.post('/run-docker', authenticateToken, async (req: AuthRequest, res: Resp
 router.post('/stop-docker', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const { executionId } = req.body;
-
-        console.log(`[Vero Docker] Stopping execution ${executionId}`);
-
         const dockerComposePath = join(process.cwd(), '..', 'docker', 'worker-vnc', 'docker-compose.yml');
 
         const dockerProcess = spawn(
@@ -1163,8 +1153,6 @@ router.post('/agent/generate', authenticateToken, async (req: AuthRequest, res: 
             return res.status(400).json({ success: false, error: 'Steps are required' });
         }
 
-        console.log(`[Vero Agent] Generating from English: "${steps.substring(0, 50)}..."`);
-
         // Call the vero-agent Python service
         const response = await fetch(`${VERO_AGENT_URL}/api/generate`, {
             method: 'POST',
@@ -1187,7 +1175,6 @@ router.post('/agent/generate', authenticateToken, async (req: AuthRequest, res: 
             });
         }
 
-        console.log('[Vero Agent] Generated code successfully');
         res.json({
             success: true,
             veroCode: data.vero_code,
@@ -1212,8 +1199,6 @@ router.post('/agent/run', authenticateToken, async (req: AuthRequest, res: Respo
             return res.status(400).json({ success: false, error: 'Vero code is required' });
         }
 
-        console.log('[Vero Agent] Running with self-healing...');
-
         const response = await fetch(`${VERO_AGENT_URL}/api/run`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1232,7 +1217,6 @@ router.post('/agent/run', authenticateToken, async (req: AuthRequest, res: Respo
             });
         }
 
-        console.log(`[Vero Agent] Completed after ${data.attempts} attempts`);
         res.json({
             success: data.success,
             finalCode: data.final_code,
@@ -1256,8 +1240,6 @@ router.post('/agent/generate-and-run', authenticateToken, async (req: AuthReques
         if (!steps) {
             return res.status(400).json({ success: false, error: 'Steps are required' });
         }
-
-        console.log('[Vero Agent] Generate and run with self-healing...');
 
         const response = await fetch(`${VERO_AGENT_URL}/api/generate-and-run`, {
             method: 'POST',
@@ -1600,13 +1582,7 @@ router.get('/scenarios', authenticateToken, async (req: AuthRequest, res: Respon
         const projectId = req.query.projectId as string | undefined;
         const veroPathParam = req.query.veroPath as string | undefined;
 
-        // Get project path from query params or database
-        let projectPath: string;
-        if (veroPathParam) {
-            projectPath = veroPathParam;
-        } else {
-            projectPath = await getProjectPath(projectId);
-        }
+        const projectPath = await resolveProjectPath(veroPathParam, projectId);
 
         const fullPath = projectPath.startsWith('/') ? projectPath : join(process.cwd(), projectPath);
 
@@ -1665,7 +1641,27 @@ router.get('/scenarios', authenticateToken, async (req: AuthRequest, res: Respon
 // Validate Vero code and return errors/warnings in VeroError format
 router.post('/validate', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { code } = req.body;
+        const { code, veroPath, filePath } = req.body;
+
+        // Extract project path from filePath (parent of Features/Pages/PageActions)
+        let effectiveVeroPath: string | null = null;
+        let currentFileRelPath: string | null = null;
+        if (filePath) {
+            const pathParts = filePath.split('/');
+            for (let i = 0; i < pathParts.length; i++) {
+                const part = pathParts[i].toLowerCase();
+                if (part === 'features' || part === 'pages' || part === 'pageactions') {
+                    effectiveVeroPath = pathParts.slice(0, i).join('/');
+                    currentFileRelPath = pathParts.slice(i).join('/');
+                    break;
+                }
+            }
+        }
+
+        // Fall back to veroPath if we couldn't extract from filePath
+        if (!effectiveVeroPath && veroPath) {
+            effectiveVeroPath = veroPath;
+        }
 
         if (!code || typeof code !== 'string') {
             return res.json({
@@ -1682,7 +1678,55 @@ router.post('/validate', authenticateToken, async (req: AuthRequest, res: Respon
         const veroWarnings: VeroValidationError[] = [];
 
         try {
-            // Step 1: Tokenize
+            // Load project context if veroPath is provided
+            let combinedAst: any = { type: 'Program', pages: [], pageActions: [], features: [], fixtures: [] };
+
+            if (effectiveVeroPath) {
+                // Use the path directly if it's absolute, otherwise resolve relative to vero-projects
+                const projectPath = effectiveVeroPath.startsWith('/')
+                    ? effectiveVeroPath
+                    : join(process.cwd(), 'vero-projects', effectiveVeroPath);
+
+                // Load all .vero files from Pages/, PageActions/ folders for context
+                // Only check capitalized versions to avoid duplicates on case-insensitive filesystems
+                const contextFolders = ['Pages', 'PageActions'];
+                const processedFolders = new Set<string>();
+
+                for (const folder of contextFolders) {
+                    const folderPath = join(projectPath, folder);
+                    const realFolderPath = existsSync(folderPath) ? require('fs').realpathSync(folderPath) : null;
+                    if (realFolderPath && !processedFolders.has(realFolderPath)) {
+                        processedFolders.add(realFolderPath);
+                        try {
+                            const files = await readdir(folderPath);
+                            for (const file of files) {
+                                if (!file.endsWith('.vero')) continue;
+
+                                // Skip the file currently being validated to avoid duplicate definitions
+                                const contextRelPath = `${folder}/${file}`;
+                                if (currentFileRelPath && contextRelPath.toLowerCase() === currentFileRelPath.toLowerCase()) {
+                                    continue;
+                                }
+
+                                const contextFilePath = join(folderPath, file);
+                                const fileContent = await readFile(contextFilePath, 'utf-8');
+                                const lexResult = tokenize(fileContent);
+                                if (lexResult.errors.length === 0) {
+                                    const parseResult = parse(lexResult.tokens);
+                                    if (parseResult.errors.length === 0) {
+                                        combinedAst.pages.push(...(parseResult.ast.pages || []));
+                                        combinedAst.pageActions.push(...(parseResult.ast.pageActions || []));
+                                    }
+                                }
+                            }
+                        } catch {
+                            // Folder may not exist or be unreadable
+                        }
+                    }
+                }
+            }
+
+            // Step 1: Tokenize current file
             const lexResult = tokenize(code);
 
             // Convert lexer errors
@@ -1710,7 +1754,7 @@ router.post('/validate', authenticateToken, async (req: AuthRequest, res: Respon
                 });
             }
 
-            // Step 2: Parse
+            // Step 2: Parse current file
             const parseResult = parse(lexResult.tokens);
 
             // Convert parser errors
@@ -1738,8 +1782,13 @@ router.post('/validate', authenticateToken, async (req: AuthRequest, res: Respon
                 });
             }
 
-            // Step 3: Validate
-            const validationResult = validate(parseResult.ast);
+            // Step 3: Combine with project context and validate
+            combinedAst.pages.push(...(parseResult.ast.pages || []));
+            combinedAst.pageActions.push(...(parseResult.ast.pageActions || []));
+            combinedAst.features.push(...(parseResult.ast.features || []));
+            combinedAst.fixtures.push(...(parseResult.ast.fixtures || []));
+
+            const validationResult = validate(combinedAst);
 
             // Convert validation errors
             for (const err of validationResult.errors) {
@@ -2144,10 +2193,10 @@ async function scanDirectory(dirPath: string, relativePath = ''): Promise<FileNo
         const stats = await stat(fullPath);
 
         if (stats.isDirectory()) {
-            // Scan environment folders (master, dev, sandboxes) and content folders (pages, features, data)
+            // Scan environment folders (master, dev, sandboxes) and content folders (pages, features, pageactions)
             const lowerEntry = entry.toLowerCase();
             const isEnvironmentFolder = lowerEntry === 'master' || lowerEntry === 'dev' || lowerEntry === 'sandboxes';
-            const isContentFolder = lowerEntry === 'pages' || lowerEntry === 'features' || lowerEntry === 'data';
+            const isContentFolder = lowerEntry === 'pages' || lowerEntry === 'features' || lowerEntry === 'pageactions';
             const isSandboxFolder = relativePath.startsWith('sandboxes/') || relativePath === 'sandboxes';
 
             if (isEnvironmentFolder || isContentFolder || relativePath) {

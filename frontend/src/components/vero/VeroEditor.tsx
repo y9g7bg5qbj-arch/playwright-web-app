@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHand
 import Editor, { OnMount, Monaco } from '@monaco-editor/react';
 import * as monacoEditor from 'monaco-editor';
 import { registerVeroLanguage, registerVeroCompletionProvider, registerVeroLSPProviders, parseVeroCode, VeroCodeItem } from './veroLanguage';
-import { Circle } from 'lucide-react';
 import { useEditorErrors } from '../../errors/useEditorErrors';
 import { ErrorPanel } from '../../errors/ErrorPanel';
 
@@ -27,6 +26,10 @@ interface VeroEditorProps {
     showErrorPanel?: boolean;
     errorPanelCollapsed?: boolean;
     token?: string | null;
+    // Project path for validation context (loads Pages, PageActions)
+    veroPath?: string | null;
+    // File path for extracting project path if veroPath not provided
+    filePath?: string | null;
 }
 
 export interface VeroEditorHandle {
@@ -53,6 +56,8 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
     showErrorPanel = true,
     errorPanelCollapsed = false,
     token = null,
+    veroPath = null,
+    filePath = null,
 }, ref) {
     const [code, setCode] = useState(initialValue);
     const [codeItems, setCodeItems] = useState<VeroCodeItem[]>([]);
@@ -60,15 +65,7 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
     const monacoRef = useRef<Monaco | null>(null);
     const decorationsRef = useRef<string[]>([]);
     const debugDecorationsRef = useRef<string[]>([]);
-
-    // Sync code state when initialValue prop changes (e.g., switching tabs)
-    useEffect(() => {
-        setCode(initialValue);
-        // Also update the Monaco editor directly if it's already mounted
-        if (editorRef.current && editorRef.current.getValue() !== initialValue) {
-            editorRef.current.setValue(initialValue);
-        }
-    }, [initialValue]);
+    const errorDecorationsRef = useRef<string[]>([]);
 
     // State for Monaco instance (needed for error validation hook - use state not ref to trigger re-render)
     const [monacoInstance, setMonacoInstance] = useState<Monaco | null>(null);
@@ -85,7 +82,57 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         debounceMs: 500,
         enableValidation: true,
         token,
+        veroPath,
+        filePath,
     });
+
+    // Error/warning line decorations (IntelliJ-style red/yellow background + gutter icon)
+    useEffect(() => {
+        const editor = editorRef.current;
+        const monaco = monacoRef.current;
+        if (!editor || !monaco) return;
+
+        const errorDecorations: monacoEditor.editor.IModelDeltaDecoration[] = [];
+
+        // Add error line decorations
+        for (const error of errors) {
+            const line = error.location?.line || 1;
+            errorDecorations.push({
+                range: new monaco.Range(line, 1, line, 1),
+                options: {
+                    isWholeLine: true,
+                    className: 'vero-error-line',
+                    glyphMarginClassName: 'vero-error-glyph',
+                    overviewRuler: {
+                        color: '#f85149',
+                        position: monaco.editor.OverviewRulerLane.Full,
+                    },
+                },
+            });
+        }
+
+        // Add warning line decorations
+        for (const warning of warnings) {
+            const line = warning.location?.line || 1;
+            errorDecorations.push({
+                range: new monaco.Range(line, 1, line, 1),
+                options: {
+                    isWholeLine: true,
+                    className: 'vero-warning-line',
+                    glyphMarginClassName: 'vero-warning-glyph',
+                    overviewRuler: {
+                        color: '#d29922',
+                        position: monaco.editor.OverviewRulerLane.Full,
+                    },
+                },
+            });
+        }
+
+        errorDecorationsRef.current = editor.deltaDecorations(
+            errorDecorationsRef.current,
+            errorDecorations
+        );
+    }, [errors, warnings]);
 
     // Navigate to error location
     const handleNavigateToError = useCallback((line: number, column?: number) => {
@@ -109,16 +156,13 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         }
     }), []);
 
-    // Sync code state when initialValue prop changes (file selection)
+    // Sync code state when initialValue prop changes (e.g., switching tabs/files)
     useEffect(() => {
-        console.log('[VeroEditor] initialValue changed, length:', initialValue.length);
         setCode(initialValue);
         updateCodeItems(initialValue);
-        // Also update the Monaco editor model directly if it exists
         if (editorRef.current) {
             const model = editorRef.current.getModel();
             if (model && model.getValue() !== initialValue) {
-                console.log('[VeroEditor] Updating Monaco model directly');
                 model.setValue(initialValue);
             }
         }
@@ -339,7 +383,7 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
             {/* Recording indicator */}
             {isRecording && (
                 <div className="recording-indicator flex items-center gap-2 px-3 py-2 bg-red-600 text-white text-sm">
-                    <Circle className="w-3 h-3 fill-current animate-pulse" />
+                    <span className="w-3 h-3 rounded-full bg-current animate-pulse" />
                     <span>Recording...</span>
                     <span className="text-red-200 text-xs">Actions will appear in editor</span>
                 </div>
@@ -444,6 +488,24 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         .vero-debug-current-line {
           background-color: rgba(234, 179, 8, 0.15) !important;
           border-left: 2px solid #eab308 !important;
+        }
+
+        /* Error line highlight (IntelliJ-style) */
+        .vero-error-line {
+          background-color: rgba(248, 81, 73, 0.22) !important;
+          border-left: 3px solid #f85149 !important;
+        }
+        .vero-error-glyph {
+          background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%23f85149'/%3E%3Ctext x='12' y='16' text-anchor='middle' font-size='14' font-weight='bold' fill='white'%3E!%3C/text%3E%3C/svg%3E") center center no-repeat;
+        }
+
+        /* Warning line highlight */
+        .vero-warning-line {
+          background-color: rgba(210, 153, 34, 0.10) !important;
+          border-left: 3px solid #d29922 !important;
+        }
+        .vero-warning-glyph {
+          background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24'%3E%3Cpolygon points='12 2 22 22 2 22' fill='%23d29922'/%3E%3Ctext x='12' y='19' text-anchor='middle' font-size='12' font-weight='bold' fill='white'%3E!%3C/text%3E%3C/svg%3E") center center no-repeat;
         }
       `}</style>
         </div>

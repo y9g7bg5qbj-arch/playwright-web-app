@@ -12,8 +12,8 @@ import type { Monaco } from '@monaco-editor/react';
 import type * as monacoEditor from 'monaco-editor';
 import debounce from 'lodash/debounce';
 
-// API endpoint for validation
-const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3000';
+// API endpoint for validation - use relative URL to go through Vite proxy
+const API_BASE = (import.meta as any).env?.VITE_API_URL || '';
 
 /**
  * VeroError type (matches backend VeroError)
@@ -64,6 +64,10 @@ export interface UseEditorErrorsOptions {
     enableValidation?: boolean;
     /** Auth token for API requests */
     token?: string | null;
+    /** Vero project path for loading context (Pages, PageActions) */
+    veroPath?: string | null;
+    /** File path for extracting project path if veroPath not provided */
+    filePath?: string | null;
 }
 
 /**
@@ -118,8 +122,26 @@ function errorToMarker(
     model: monacoEditor.editor.ITextModel
 ): monacoEditor.editor.IMarkerData {
     const location = error.location || { line: 1, column: 1 };
-    const endColumn = location.endColumn ||
-        (location.column ? model.getLineLength(location.line) + 1 : 2);
+    const lineLength = model.getLineLength(location.line);
+
+    let startColumn: number;
+    let endColumn: number;
+
+    if (location.column && location.endColumn) {
+        // Exact range provided
+        startColumn = location.column;
+        endColumn = location.endColumn;
+    } else if (location.column) {
+        // Start column provided, mark to end of line
+        startColumn = location.column;
+        endColumn = lineLength + 1;
+    } else {
+        // No column info — mark the entire line content (skip leading whitespace)
+        const lineContent = model.getLineContent(location.line);
+        const trimmedStart = lineContent.search(/\S/);
+        startColumn = trimmedStart >= 0 ? trimmedStart + 1 : 1;
+        endColumn = lineLength + 1;
+    }
 
     // Build user-friendly message
     let message = `${error.title}\n\n${error.whatWentWrong}\n\nHow to fix: ${error.howToFix}`;
@@ -134,7 +156,7 @@ function errorToMarker(
     return {
         severity: severityToMonaco(monaco, error.severity),
         startLineNumber: location.line,
-        startColumn: location.column || 1,
+        startColumn,
         endLineNumber: location.endLine || location.line,
         endColumn,
         message,
@@ -155,7 +177,7 @@ export function useEditorErrors(
     model: monacoEditor.editor.ITextModel | null,
     options: UseEditorErrorsOptions = {}
 ): UseEditorErrorsReturn {
-    const { debounceMs = 300, enableValidation = true, token } = options;
+    const { debounceMs = 300, enableValidation = true, token, veroPath, filePath } = options;
 
     const [errors, setErrors] = useState<VeroError[]>([]);
     const [warnings, setWarnings] = useState<VeroError[]>([]);
@@ -170,30 +192,19 @@ export function useEditorErrors(
      */
     const validateCode = useCallback(
         async (code: string) => {
-            console.log('[useEditorErrors] validateCode called', {
-                hasMonaco: !!monaco,
-                hasModel: !!model,
-                enableValidation,
-                codeLength: code?.length
-            });
-
-            if (!monaco || !model || !enableValidation) {
-                console.log('[useEditorErrors] Skipping validation - missing requirements');
-                return;
-            }
+            if (!monaco || !model || !enableValidation) return;
 
             setIsValidating(true);
             setValidationError(null);
 
             try {
-                console.log('[useEditorErrors] Fetching validation from:', `${API_BASE}/api/vero/validate`);
                 const response = await fetch(`${API_BASE}/api/vero/validate`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         ...(token ? { Authorization: `Bearer ${token}` } : {}),
                     },
-                    body: JSON.stringify({ code }),
+                    body: JSON.stringify({ code, veroPath, filePath }),
                 });
 
                 if (!response.ok) {
@@ -201,11 +212,6 @@ export function useEditorErrors(
                 }
 
                 const result: ValidationResult = await response.json();
-                console.log('[useEditorErrors] Validation result:', {
-                    success: result.success,
-                    errorCount: result.errors?.length,
-                    warningCount: result.warnings?.length
-                });
 
                 if (!mountedRef.current) return;
 
@@ -216,9 +222,6 @@ export function useEditorErrors(
                 // Convert to Monaco markers
                 const allIssues = [...(result.errors || []), ...(result.warnings || [])];
                 const markers = allIssues.map((err) => errorToMarker(monaco, err, model));
-
-                console.log('[useEditorErrors] Setting', markers.length, 'markers on model');
-                // Set markers on the model
                 monaco.editor.setModelMarkers(model, 'vero', markers);
             } catch (err) {
                 if (!mountedRef.current) return;
@@ -234,7 +237,7 @@ export function useEditorErrors(
                 }
             }
         },
-        [monaco, model, enableValidation, token]
+        [monaco, model, enableValidation, token, veroPath, filePath]
     );
 
     /**

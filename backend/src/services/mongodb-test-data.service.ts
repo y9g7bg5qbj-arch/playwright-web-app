@@ -2,7 +2,6 @@
  * MongoDB Test Data Service
  *
  * Provides CRUD operations for test data using MongoDB Atlas.
- * Replaces the Prisma-based test data operations.
  */
 
 import { ObjectId, WithId, Document } from 'mongodb';

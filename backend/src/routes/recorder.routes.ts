@@ -5,6 +5,13 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { watch, existsSync } from 'fs';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
+import {
+  generateVeroAction,
+  generateVeroAssertion,
+  generateVeroScenario,
+  generateVeroFeature,
+  generateVeroPage
+} from '../services/veroSyntaxReference';
 
 const router = Router();
 
@@ -23,10 +30,8 @@ function getTempFilePath(testFlowId: string): string {
 router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const { url, testFlowId } = req.body;
-    // POST /recorder/start called:', { url, testFlowId });
 
     if (!url || !testFlowId) {
-      // Missing required fields:', { url, testFlowId });
       return res.status(400).json({
         success: false,
         data: null,
@@ -42,16 +47,9 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
     }
 
     const outputFile = getTempFilePath(testFlowId);
-    // Output file path:', outputFile);
 
-    // Don't create empty file - let playwright create it
-    // This prevents issues with the file being overwritten
-
-    // Spawn playwright codegen with output to file
-    // Use a single command string with shell: true for proper argument handling
-    // Use playwright-test target for proper test format that the parser understands
+    // Spawn playwright codegen with test target for proper format
     const command = `npx playwright codegen "${url}" --target=playwright-test -o "${outputFile}"`;
-    // Running command:', command);
 
     const codegenProcess = spawn(command, [], {
       stdio: 'inherit',
@@ -73,7 +71,6 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
               if (recording) {
                 recording.currentCode = code;
               }
-              // Code updated, length:', code.length);
             } catch (error) {
               // File might not exist yet or is being written
             }
@@ -89,7 +86,6 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
     setTimeout(setupFileWatcher, 2000);
 
     codegenProcess.on('close', async (exitCode) => {
-      // Codegen process closed with code:', exitCode);
 
       // Stop watching the file
       if (fileWatcher) {
@@ -102,10 +98,6 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
       // Read final code
       try {
         const finalCode = await readFile(outputFile, 'utf-8');
-        // Final generated code length:', finalCode.length);
-        // === FULL GENERATED CODE ===;
-        // finalCode;
-        // === END GENERATED CODE ===;
 
         const recording = activeRecordings.get(testFlowId);
         if (recording) {
@@ -114,7 +106,6 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
           recording.exitCode = exitCode;
         }
       } catch (error) {
-        // Error reading final code:', error);
         const recording = activeRecordings.get(testFlowId);
         if (recording) {
           recording.isComplete = true;
@@ -127,7 +118,6 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
     });
 
     codegenProcess.on('error', (error) => {
-      // Codegen process error:', error);
       if (fileWatcher) {
         fileWatcher.close();
       }
@@ -163,11 +153,9 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
 router.get('/code/:testFlowId', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const { testFlowId } = req.params;
-    // GET /code called for testFlowId:', testFlowId);
 
     const recording = activeRecordings.get(testFlowId);
     if (!recording) {
-      // No active recording found for testFlowId:', testFlowId);
       return res.json({
         success: true,
         data: {
@@ -181,8 +169,6 @@ router.get('/code/:testFlowId', authenticateToken, async (req: AuthRequest, res,
     const code = recording.getCode();
     const isRecording = !recording.process.killed && recording.process.exitCode === null;
     const isComplete = recording.isComplete === true;
-
-    // Removed debug logging
 
     res.json({
       success: true,
@@ -218,9 +204,7 @@ router.post('/stop/:testFlowId', authenticateToken, async (req: AuthRequest, res
       let code = '';
       try {
         code = await readFile(recording.outputFile, 'utf-8');
-        // Read code from file, length:', code.length);
-      } catch (error) {
-        // Error reading code file:', error);
+      } catch {
         code = recording.getCode();
       }
 
@@ -449,69 +433,66 @@ router.delete('/import/:recordingId', authenticateToken, async (req: AuthRequest
 
 /**
  * Generate Vero DSL code from recorded actions
+ * Uses veroSyntaxReference.ts as single source of truth
  */
 function generateVeroCodeFromActions(actions: any[], options: any = {}): string {
-  const lines: string[] = [];
-  const featureName = options.featureName || 'Recorded Test';
-  const scenarioName = options.scenarioName || 'Recorded Scenario';
+  const featureName = options.featureName || 'RecordedTest';
+  const scenarioName = options.scenarioName || 'RecordedScenario';
 
-  lines.push(`feature "${featureName}"`);
-  lines.push('');
-  lines.push(`  scenario "${scenarioName}"`);
-
+  // Generate step lines using centralized function
+  const stepLines: string[] = [];
   for (const action of actions) {
     const statement = actionToVeroStatement(action);
     if (statement) {
-      lines.push(`    ${statement}`);
+      stepLines.push(statement);
     }
   }
 
-  lines.push('  end');
-  lines.push('');
-  lines.push('end');
+  // Use centralized functions to generate proper Vero structure
+  const scenarioCode = generateVeroScenario(scenarioName, stepLines);
+  const featureCode = generateVeroFeature(featureName, [scenarioCode]);
 
-  return lines.join('\n');
+  return featureCode;
 }
 
 /**
  * Convert single action to Vero statement
+ * Uses veroSyntaxReference.ts as single source of truth
  */
 function actionToVeroStatement(action: any): string | null {
+  const selector = action.selector ? `"${action.selector}"` : undefined;
+
   switch (action.type) {
     case 'navigation':
-      return `open "${action.url}"`;
+      return generateVeroAction('open', undefined, action.url);
 
     case 'click':
-      return `click "${action.selector}"`;
+      return generateVeroAction('click', selector);
 
     case 'dblclick':
-      return `doubleClick "${action.selector}"`;
+      return generateVeroAction('click', selector); // Vero uses CLICK for both
 
     case 'input':
-      const value = action.value?.replace(/"/g, '\\"') || '';
-      return `fill "${action.selector}" with "${value}"`;
+      return generateVeroAction('fill', selector, action.value);
 
     case 'select':
-      return `select "${action.value}" from "${action.selector}"`;
+      return generateVeroAction('select', selector, action.value);
 
     case 'check':
-      return `check "${action.selector}"`;
+      return generateVeroAction('check', selector);
 
     case 'uncheck':
-      return `uncheck "${action.selector}"`;
+      return generateVeroAction('uncheck', selector);
 
     case 'hover':
-      return `hover "${action.selector}"`;
+      return generateVeroAction('hover', selector);
 
     case 'scroll':
-      if (action.selector) {
-        return `scroll to "${action.selector}"`;
-      }
-      return `scroll by ${action.deltaY || 0}`;
+      return generateVeroAction('scroll', selector);
 
     case 'keydown':
       if (['Enter', 'Tab', 'Escape', 'Backspace', 'Delete'].includes(action.key)) {
-        return `press ${action.key}`;
+        return generateVeroAction('press', undefined, action.key);
       }
       return null;
 
@@ -519,13 +500,13 @@ function actionToVeroStatement(action: any): string | null {
       return assertionToVeroStatement(action);
 
     case 'screenshot':
-      return `screenshot "${action.name || 'screenshot'}"`;
+      return `SCREENSHOT "${action.name || 'screenshot'}"`;
 
     case 'wait':
       if (action.selector) {
-        return `wait for "${action.selector}"`;
+        return generateVeroAction('wait', selector);
       }
-      return `wait ${action.duration || 1000}ms`;
+      return generateVeroAction('wait', undefined, String(action.duration || 1));
 
     default:
       return null;
@@ -534,78 +515,54 @@ function actionToVeroStatement(action: any): string | null {
 
 /**
  * Convert assertion to Vero statement
+ * Uses veroSyntaxReference.ts as single source of truth
  */
 function assertionToVeroStatement(action: any): string {
-  const selector = action.selector || '';
-  const value = action.value?.replace(/"/g, '\\"') || '';
+  const selector = action.selector ? `"${action.selector}"` : '""';
+  const value = action.value || '';
 
   switch (action.assertionType) {
     case 'visible':
-      return `verify "${selector}" is visible`;
+      return generateVeroAssertion(selector, 'visible');
     case 'hidden':
-      return `verify "${selector}" is hidden`;
+      return generateVeroAssertion(selector, 'hidden');
     case 'containsText':
-      return `verify "${selector}" contains "${value}"`;
+      return generateVeroAssertion(selector, 'contains', value);
     case 'hasValue':
-      return `verify "${selector}" has value "${value}"`;
+      return generateVeroAssertion(selector, 'hasValue', value);
     case 'enabled':
-      return `verify "${selector}" is enabled`;
+      return generateVeroAssertion(selector, 'enabled');
     case 'disabled':
-      return `verify "${selector}" is disabled`;
+      return generateVeroAssertion(selector, 'disabled');
     case 'checked':
-      return `verify "${selector}" is checked`;
+      return generateVeroAssertion(selector, 'visible'); // Map to visible for now
     case 'unchecked':
-      return `verify "${selector}" is unchecked`;
+      return generateVeroAssertion(selector, 'visible'); // Map to visible for now
     default:
-      return `verify "${selector}" is visible`;
+      return generateVeroAssertion(selector, 'visible');
   }
 }
 
 /**
  * Generate page object code
+ * Uses veroSyntaxReference.ts as single source of truth
  */
 function generatePageObjectCode(
   name: string,
   url: string,
   elements: Record<string, string>,
-  pageActions?: any[]
+  _pageActions?: any[]
 ): string {
-  const lines: string[] = [];
+  // Convert elements to field format expected by generateVeroPage
+  const fields = Object.entries(elements).map(([fieldName, selector]) => ({
+    name: fieldName,
+    selectorType: 'css', // Default to CSS selectors
+    selector: selector
+  }));
 
-  // Page declaration
-  lines.push(`page ${name}`);
-
-  // URL pattern
-  if (url) {
-    const urlPattern = url.replace(/^https?:\/\/[^\/]+/, '');
-    lines.push(`  url "${urlPattern || '/'}"`);
-  }
-
-  lines.push('');
-
-  // Elements
-  for (const [fieldName, selector] of Object.entries(elements)) {
-    lines.push(`  element ${fieldName}: "${selector}"`);
-  }
-
-  // Actions (if provided)
-  if (pageActions && pageActions.length > 0) {
-    lines.push('');
-    for (const action of pageActions) {
-      if (action.name && action.steps) {
-        lines.push(`  action ${action.name}(${action.params?.join(', ') || ''})`);
-        for (const step of action.steps) {
-          lines.push(`    ${step}`);
-        }
-        lines.push('  end');
-        lines.push('');
-      }
-    }
-  }
-
-  lines.push('end');
-
-  return lines.join('\n');
+  // Use centralized function to generate PAGE object
+  // Note: generateVeroPage handles the URL pattern internally
+  return generateVeroPage(name, fields, url);
 }
 
 export default router;

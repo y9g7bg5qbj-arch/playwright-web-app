@@ -22,7 +22,7 @@ import {
 } from '../db/repositories/mongo';
 import { browserCaptureService, CapturedAction } from './aiRecorder.browserCapture';
 import { logger } from '../utils/logger';
-import { fixVeroSyntax } from './veroSyntaxReference';
+import { fixVeroSyntax, generateVeroPage, generateVeroFeature, generateVeroAction, generateVeroAssertion } from './veroSyntaxReference';
 
 // TODO: Import from ClaudeAgentService when ready
 // import { ClaudeAgentService } from './claude-agent/ClaudeAgentService';
@@ -806,7 +806,7 @@ export class AIRecorderService extends EventEmitter {
 
         return {
           success: true,
-          veroCode: `open "${url}"`,
+          veroCode: generateVeroAction('open', undefined, url),
           selector: null,
           selectorType: null,
           confidence: 1.0,
@@ -974,6 +974,7 @@ export class AIRecorderService extends EventEmitter {
 
   /**
    * Internal Vero code generation (shared logic)
+   * Uses veroSyntaxReference.ts as single source of truth
    */
   private generateVeroCodeInternal(
     stepType: string,
@@ -989,23 +990,22 @@ export class AIRecorderService extends EventEmitter {
         const urlMatch = desc.match(/(?:to|url)[\s:]+['\"]?([^'\"]+)['\"]?/i) ||
           desc.match(/(?:open|go to|navigate to)[\s:]+(.+)/i);
         const url = urlMatch ? urlMatch[1].trim() : 'https://example.com';
-        return `OPEN "${url}"`;
+        return generateVeroAction('open', undefined, url);
       }
 
       case 'fill': {
-        // First, try to extract a quoted value from the description
-        // Handles: "Enter first name \"John\"", "Enter \"90210\" in the ZIP code field"
+        // Extract value from description using various patterns
         const quotedValueMatch = originalDesc.match(/["']([^"']+)["']/);
         const quotedValue = quotedValueMatch ? quotedValueMatch[1] : null;
 
-        // Pattern 1: "Enter VALUE in the FIELD field" or "Enter VALUE in FIELD"
+        // Pattern 1: "Enter VALUE in the FIELD field"
         const enterInMatch = originalDesc.match(
           /(?:enter|type|input|fill)\s+(.+?)\s+(?:in(?:to)?|on)\s+(?:the\s+)?(.+?)(?:\s+field)?$/i
         );
         if (enterInMatch) {
           const rawValue = enterInMatch[1].trim();
           const value = quotedValue || rawValue.replace(/^["']|["']$/g, '');
-          return `FILL ${pageField} WITH "${value}"`;
+          return generateVeroAction('fill', pageField, value);
         }
 
         // Pattern 2: "Fill FIELD with VALUE"
@@ -1015,119 +1015,7 @@ export class AIRecorderService extends EventEmitter {
         if (fillWithMatch) {
           const rawValue = fillWithMatch[2].trim();
           const value = quotedValue || rawValue.replace(/^["']|["']$/g, '');
-          return `FILL ${pageField} WITH "${value}"`;
-        }
-
-        // Pattern 3: "Select VALUE from DROPDOWN dropdown"
-        const selectFromMatch = originalDesc.match(
-          /select\s+(.+?)\s+from\s+(?:the\s+)?(.+?)(?:\s+dropdown)?$/i
-        );
-        if (selectFromMatch) {
-          const rawValue = selectFromMatch[1].trim();
-          const value = quotedValue || rawValue.replace(/^["']|["']$/g, '');
-          return `SELECT "${value}" FROM ${pageField}`;
-        }
-
-        // Pattern 4: If we have a quoted value, use it directly
-        if (quotedValue) {
-          return `FILL ${pageField} WITH "${quotedValue}"`;
-        }
-
-        // Fallback: use pageField and try to extract value from description
-        const valueMatch = originalDesc.match(/(?:enter|type|fill|input)\s+(?:[\w\s]+?)["']?(\w+)["']?\s*$/i);
-        const value = valueMatch ? valueMatch[1].trim() : '';
-
-        return `FILL ${pageField} WITH "${value || 'value'}"`;
-      }
-
-      case 'click': {
-        return `CLICK ${pageField}`;
-      }
-
-      case 'assert': {
-        const assertMatch = desc.match(
-          /(?:verify|assert|check|expect|confirm)[\s:]+(?:that\s+)?(.+)/i
-        );
-        const condition = assertMatch ? assertMatch[1].trim() : 'element is visible';
-
-        if (condition.includes('visible') || condition.includes('displayed')) {
-          return `VERIFY ${pageField} IS VISIBLE`;
-        }
-        if (condition.includes('text') || condition.includes('contains')) {
-          const textMatch = condition.match(/['\"]([^'\"]+)['\"]/);
-          const text = textMatch ? textMatch[1] : 'text';
-          return `VERIFY ${pageField} CONTAINS "${text}"`;
-        }
-        return `VERIFY ${pageField} IS VISIBLE`;
-      }
-
-      case 'wait': {
-        const timeMatch = desc.match(/(\d+)\s*(?:second|sec|s)/i);
-        if (timeMatch) {
-          return `WAIT ${timeMatch[1]} SECONDS`;
-        }
-        return `WAIT FOR page`;
-      }
-
-      case 'loop': {
-        return `for each item in data {\n  // loop body\n}`;
-      }
-
-      default:
-        return `// ${description}`;
-    }
-  }
-
-  // ----------------------------------------
-  // Vero Code Generation
-  // ----------------------------------------
-
-  /**
-   * Generate Vero code from step information
-   */
-  private generateVeroCode(
-    stepType: string,
-    description: string,
-    selector: string | null
-  ): string {
-    const desc = description.toLowerCase();
-    const originalDesc = description;
-    const sel = selector || '"element"';
-    const pageField = this.formatAsPageField(sel);
-
-    switch (stepType) {
-      case 'navigate': {
-        const urlMatch = desc.match(/(?:to|url)[\s:]+['\"]?([^'\"]+)['\"]?/i) ||
-          desc.match(/(?:open|go to|navigate to)[\s:]+(.+)/i);
-        const url = urlMatch ? urlMatch[1].trim() : 'https://example.com';
-        return `OPEN "${url}"`;
-      }
-
-      case 'fill': {
-        // First, try to extract a quoted value from the description
-        // Handles: "Enter first name \"John\"", "Enter \"90210\" in the ZIP code field"
-        const quotedValueMatch = originalDesc.match(/["']([^"']+)["']/);
-        const quotedValue = quotedValueMatch ? quotedValueMatch[1] : null;
-
-        // Pattern 1: "Enter VALUE in the FIELD field" where VALUE might be quoted
-        const enterInMatch = originalDesc.match(
-          /(?:enter|type|input|fill)\s+(.+?)\s+(?:in(?:to)?|on)\s+(?:the\s+)?(.+?)(?:\s+field)?$/i
-        );
-        if (enterInMatch) {
-          // Use quoted value if found, otherwise use the matched value
-          const rawValue = enterInMatch[1].trim();
-          const value = quotedValue || rawValue.replace(/^["']|["']$/g, '');
-          return `FILL ${pageField} WITH "${value}"`;
-        }
-
-        // Pattern 2: "Fill FIELD with VALUE"
-        const fillWithMatch = originalDesc.match(
-          /(?:fill|enter|type|input)\s+(?:the\s+)?(.+?)\s+(?:with|as|=|:)\s+(.+)/i
-        );
-        if (fillWithMatch) {
-          const rawValue = fillWithMatch[2].trim();
-          const value = quotedValue || rawValue.replace(/^["']|["']$/g, '');
-          return `FILL ${pageField} WITH "${value}"`;
+          return generateVeroAction('fill', pageField, value);
         }
 
         // Pattern 3: "Select VALUE from DROPDOWN"
@@ -1137,23 +1025,22 @@ export class AIRecorderService extends EventEmitter {
         if (selectFromMatch) {
           const rawValue = selectFromMatch[1].trim();
           const value = quotedValue || rawValue.replace(/^["']|["']$/g, '');
-          return `SELECT "${value}" FROM ${pageField}`;
+          return generateVeroAction('select', pageField, value);
         }
 
-        // Pattern 4: "Enter FIELD_NAME VALUE" (e.g., "Enter first name John")
-        // where VALUE is a quoted string at the end
+        // Pattern 4: If we have a quoted value, use it directly
         if (quotedValue) {
-          return `FILL ${pageField} WITH "${quotedValue}"`;
+          return generateVeroAction('fill', pageField, quotedValue);
         }
 
-        // Fallback: extract any word after enter/type/fill/input
+        // Fallback
         const valueMatch = originalDesc.match(/(?:enter|type|fill|input)\s+(?:[\w\s]+?)["']?(\w+)["']?\s*$/i);
         const value = valueMatch ? valueMatch[1].trim() : 'value';
-        return `FILL ${pageField} WITH "${value}"`;
+        return generateVeroAction('fill', pageField, value);
       }
 
       case 'click': {
-        return `CLICK ${pageField}`;
+        return generateVeroAction('click', pageField);
       }
 
       case 'assert': {
@@ -1163,22 +1050,22 @@ export class AIRecorderService extends EventEmitter {
         const condition = assertMatch ? assertMatch[1].trim() : 'element is visible';
 
         if (condition.includes('visible') || condition.includes('displayed')) {
-          return `VERIFY ${pageField} IS VISIBLE`;
+          return generateVeroAssertion(pageField, 'visible');
         }
         if (condition.includes('text') || condition.includes('contains')) {
           const textMatch = condition.match(/['\"]([^'\"]+)['\"]/);
           const text = textMatch ? textMatch[1] : 'text';
-          return `VERIFY ${pageField} CONTAINS "${text}"`;
+          return generateVeroAssertion(pageField, 'contains', text);
         }
-        return `VERIFY ${pageField} IS VISIBLE`;
+        return generateVeroAssertion(pageField, 'visible');
       }
 
       case 'wait': {
         const timeMatch = desc.match(/(\d+)\s*(?:second|sec|s)/i);
         if (timeMatch) {
-          return `WAIT ${timeMatch[1]} SECONDS`;
+          return generateVeroAction('wait', undefined, timeMatch[1]);
         }
-        return `WAIT FOR page`;
+        return generateVeroAction('wait', 'page');
       }
 
       case 'loop': {
@@ -1186,8 +1073,26 @@ export class AIRecorderService extends EventEmitter {
       }
 
       default:
-        return `// ${description}`;
+        return `# ${description}`;
     }
+  }
+
+  // ----------------------------------------
+  // Vero Code Generation
+  // ----------------------------------------
+
+  /**
+   * Generate Vero code from step information
+   * Uses veroSyntaxReference.ts as single source of truth
+   */
+  private generateVeroCode(
+    stepType: string,
+    description: string,
+    selector: string | null
+  ): string {
+    // Delegate to internal method with default selector
+    const sel = selector || '"element"';
+    return this.generateVeroCodeInternal(stepType, description, sel);
   }
 
   // ----------------------------------------
@@ -2873,21 +2778,96 @@ ${stepsCode}
     const testCaseWithSteps = { ...testCase, steps };
 
     const scenarioCode = this.generateVeroScenario(testCaseWithSteps);
-    const fileName = testCase.name.toLowerCase().replace(/\s+/g, '_') + '.vero';
-    const filePath = path.join(targetPath, fileName);
 
-    await fs.mkdir(targetPath, { recursive: true });
+    // Extract page fields to create separate Page files
+    const pageFields = this.extractPageFieldsFromSteps(steps);
+    const pageNames = Object.keys(pageFields);
 
-    // Check for existing file
-    let finalContent: string;
+    // Determine if targetPath is a sandbox folder (has Pages/ and Features/ subfolders)
+    // If targetPath ends with Features/, use parent as sandbox root
+    let sandboxRoot = targetPath;
+    if (targetPath.endsWith('/Features') || targetPath.endsWith('\\Features')) {
+      sandboxRoot = path.dirname(targetPath);
+    } else if (targetPath.includes('/Features/') || targetPath.includes('\\Features\\')) {
+      sandboxRoot = targetPath.split(/[/\\]Features[/\\]/)[0];
+    }
+
+    const pagesDir = path.join(sandboxRoot, 'Pages');
+    const featuresDir = path.join(sandboxRoot, 'Features');
+
+    // Create directories
+    await fs.mkdir(pagesDir, { recursive: true });
+    await fs.mkdir(featuresDir, { recursive: true });
+
+    // Write separate Page files for each referenced page
+    const createdPageFiles: string[] = [];
+    for (const [pageName, fields] of Object.entries(pageFields)) {
+      const pageFilePath = path.join(pagesDir, `${pageName}.vero`);
+
+      // Check if page file already exists
+      let existingPageContent: string | null = null;
+      try {
+        existingPageContent = await fs.readFile(pageFilePath, 'utf-8');
+      } catch {
+        // File doesn't exist
+      }
+
+      if (existingPageContent) {
+        // Merge new fields into existing page
+        const existingFieldNames = new Set<string>();
+        const fieldMatches = existingPageContent.matchAll(/FIELD\s+(\w+)\s*=/g);
+        for (const match of fieldMatches) {
+          existingFieldNames.add(match[1]);
+        }
+
+        // Filter out fields that already exist
+        const newFields = fields.filter(f => !existingFieldNames.has(f.fieldName));
+
+        if (newFields.length > 0) {
+          // Add new fields before the closing brace
+          const newFieldLines = newFields.map(f => {
+            const selectorType = f.selectorType || 'text';
+            const selector = f.selector || f.fieldName;
+            return `    FIELD ${f.fieldName} = ${selectorType} "${selector}"`;
+          }).join('\n');
+
+          const updatedContent = existingPageContent.replace(
+            /(\n\s*})(\s*)$/,
+            `\n${newFieldLines}\n}$2`
+          );
+          await fs.writeFile(pageFilePath, updatedContent, 'utf-8');
+          logger.info(`[AIRecorder] Merged ${newFields.length} new fields into: ${pageFilePath}`);
+          createdPageFiles.push(pageFilePath);
+        }
+      } else {
+        // Create new page file
+        const fieldDefs = fields.map(f => ({
+          name: f.fieldName,
+          selectorType: f.selectorType || 'text',
+          selector: f.selector || f.fieldName
+        }));
+        const pageContent = generateVeroPage(pageName, fieldDefs);
+        await fs.writeFile(pageFilePath, pageContent, 'utf-8');
+        logger.info(`[AIRecorder] Created Page file: ${pageFilePath}`);
+        createdPageFiles.push(pageFilePath);
+      }
+    }
+
+    // Generate Feature file with just the FEATURE wrapper and USE statements
+    const featureName = this.toPascalCaseIdentifier(testCase.name);
+    const featureCode = generateVeroFeature(featureName, [scenarioCode], pageNames);
+    const featureFileName = testCase.name.toLowerCase().replace(/\s+/g, '_') + '.vero';
+    const featureFilePath = path.join(featuresDir, featureFileName);
+
+    // Check for existing feature file
     let existingContent: string | null = null;
-
     try {
-      existingContent = await fs.readFile(filePath, 'utf-8');
+      existingContent = await fs.readFile(featureFilePath, 'utf-8');
     } catch {
       // File doesn't exist
     }
 
+    let finalContent: string;
     if (existingContent) {
       // File exists - decide how to handle
       const scenarioIdent = this.toPascalCaseIdentifier(testCase.name);
@@ -2901,26 +2881,31 @@ ${stepsCode}
         if (options.overwrite) {
           // Replace the existing scenario
           finalContent = existingContent.replace(scenarioPattern, scenarioCode);
-          logger.info(`Overwrote existing scenario in: ${filePath}`);
+          logger.info(`[AIRecorder] Overwrote existing scenario in: ${featureFilePath}`);
         } else {
-          throw new Error(`SCENARIO ${scenarioIdent} already exists in ${fileName}. Use overwrite option to replace.`);
+          throw new Error(`SCENARIO ${scenarioIdent} already exists in ${featureFileName}. Use overwrite option to replace.`);
         }
       } else if (options.merge) {
-        // Append to existing file
-        finalContent = existingContent.trimEnd() + '\n\n' + scenarioCode + '\n';
-        logger.info(`Merged scenario into: ${filePath}`);
+        // Append scenario to existing feature
+        // Find the closing brace of the FEATURE and insert before it
+        finalContent = existingContent.replace(
+          /(\n})(\s*)$/,
+          `\n\n${scenarioCode}\n}$2`
+        );
+        logger.info(`[AIRecorder] Merged scenario into: ${featureFilePath}`);
       } else {
-        // Create new file with just this scenario
-        finalContent = this.generateVeroFileContent(testCase, scenarioCode);
-        logger.info(`Created new Vero file: ${filePath}`);
+        // Create new feature file
+        finalContent = featureCode;
+        logger.info(`[AIRecorder] Created new Feature file: ${featureFilePath}`);
       }
     } else {
       // New file
-      finalContent = this.generateVeroFileContent(testCase, scenarioCode);
-      logger.info(`Created Vero file: ${filePath}`);
+      const header = testCase.description ? `# ${testCase.description}\n\n` : '';
+      finalContent = header + featureCode;
+      logger.info(`[AIRecorder] Created Feature file: ${featureFilePath}`);
     }
 
-    await fs.writeFile(filePath, finalContent, 'utf-8');
+    await fs.writeFile(featureFilePath, finalContent, 'utf-8');
 
     // Update test case status
     await aiRecorderTestCaseRepository.update(testCaseId, {
@@ -2928,17 +2913,90 @@ ${stepsCode}
       veroCode: scenarioCode,
     });
 
-    return filePath;
+    logger.info(`[AIRecorder] Approved test case. Created ${createdPageFiles.length} Page files and 1 Feature file.`);
+    return featureFilePath;
   }
 
   /**
-   * Generate full Vero file content with header
+   * Generate full Vero file content with PAGE objects, FEATURE wrapper, and USE statements
    */
   private generateVeroFileContent(testCase: any, scenarioCode: string): string {
-    return `# ${testCase.name}
-${testCase.description ? `# ${testCase.description}\n` : ''}
-${scenarioCode}
-`;
+    // Extract page references from steps to generate PAGE objects
+    const pageFields = this.extractPageFieldsFromSteps(testCase.steps || []);
+
+    // Generate PAGE objects
+    const pageObjects: string[] = [];
+    const pageNames: string[] = [];
+
+    for (const [pageName, fields] of Object.entries(pageFields)) {
+      pageNames.push(pageName);
+      const fieldDefs = fields.map(f => ({
+        name: f.fieldName,
+        selectorType: f.selectorType || 'text',
+        selector: f.selector || f.fieldName
+      }));
+      pageObjects.push(generateVeroPage(pageName, fieldDefs));
+    }
+
+    // Generate FEATURE with USE statements
+    const featureName = this.toPascalCaseIdentifier(testCase.name);
+    const featureContent = generateVeroFeature(featureName, [scenarioCode], pageNames);
+
+    // Combine PAGE objects and FEATURE
+    const header = testCase.description ? `# ${testCase.description}\n\n` : '';
+    const pages = pageObjects.length > 0 ? pageObjects.join('\n\n') + '\n\n' : '';
+
+    return `${header}${pages}${featureContent}\n`;
+  }
+
+  /**
+   * Extract page field references from steps' veroCode
+   * Returns a map of pageName -> array of field info
+   */
+  private extractPageFieldsFromSteps(steps: any[]): Record<string, Array<{ fieldName: string, selector?: string, selectorType?: string }>> {
+    const pageFields: Record<string, Array<{ fieldName: string, selector?: string, selectorType?: string }>> = {};
+
+    for (const step of steps) {
+      if (!step.veroCode) continue;
+
+      // Match PageName.fieldName patterns
+      const matches = step.veroCode.matchAll(/(\w+Page)\.(\w+)/g);
+
+      for (const match of matches) {
+        const pageName = match[1];
+        const fieldName = match[2];
+
+        if (!pageFields[pageName]) {
+          pageFields[pageName] = [];
+        }
+
+        // Check if field already exists
+        const exists = pageFields[pageName].some(f => f.fieldName === fieldName);
+        if (!exists) {
+          pageFields[pageName].push({
+            fieldName,
+            selector: step.selector || fieldName,
+            selectorType: step.selectorType || this.inferSelectorType(fieldName)
+          });
+        }
+      }
+    }
+
+    return pageFields;
+  }
+
+  /**
+   * Infer selector type from field name
+   */
+  private inferSelectorType(fieldName: string): string {
+    const name = fieldName.toLowerCase();
+    if (name.includes('button') || name.includes('btn')) return 'button';
+    if (name.includes('textbox') || name.includes('input') || name.includes('field')) return 'textbox';
+    if (name.includes('link')) return 'link';
+    if (name.includes('checkbox') || name.includes('check')) return 'checkbox';
+    if (name.includes('dropdown') || name.includes('select')) return 'combobox';
+    if (name.includes('text') || name.includes('label')) return 'text';
+    return 'text';
   }
 
   /**

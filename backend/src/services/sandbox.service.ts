@@ -1,12 +1,14 @@
 /**
  * Sandbox Service
- * NOW USES MONGODB INSTEAD OF PRISMA
+ *
+ * Manages user sandboxes for isolated test development with branching.
  */
 
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { AppError } from '../utils/errors';
-import { findDiffHunks, type DiffHunk, type ConflictFile } from '../utils/diff';
+import { findDiffHunks, type ConflictFile } from '../utils/diff';
+import { logger } from '../utils/logger';
 import {
   sandboxRepository,
   pullRequestRepository,
@@ -67,7 +69,7 @@ async function deleteDirectory(dirPath: string): Promise<void> {
   try {
     await fs.rm(dirPath, { recursive: true, force: true });
   } catch (error) {
-    console.warn(`Could not delete directory ${dirPath}:`, error);
+    logger.warn(`Could not delete directory ${dirPath}:`, error);
   }
 }
 
@@ -368,40 +370,20 @@ export class SandboxService {
 
       return { success: true };
     } catch (error) {
-      console.error('Sync failed:', error);
+      logger.error('Sync failed:', error);
       throw new Error('Failed to sync sandbox with source environment');
     }
   }
 
   /**
-   * Get the project path for a sandbox
+   * Resolve the project path for a sandbox by looking up project and application.
+   * Returns the sandbox record and the resolved project path.
    */
-  async getProjectPath(sandboxId: string): Promise<string> {
+  private async resolveProjectPath(sandboxId: string): Promise<{
+    sandbox: { id: string; folderPath: string; ownerId: string; projectId: string; sourceBranch: string; status: string };
+    projectPath: string;
+  }> {
     const sandbox = await sandboxRepository.findById(sandboxId);
-
-    if (!sandbox) {
-      throw new AppError(404, 'Sandbox not found');
-    }
-
-    const project = await projectRepository.findById(sandbox.projectId);
-    if (!project) {
-      throw new Error('Project not found');
-    }
-
-    const application = await applicationRepository.findById(project.applicationId);
-    if (!application) {
-      throw new Error('Application not found');
-    }
-
-    return project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
-  }
-
-  /**
-   * Get the full path to a sandbox folder
-   */
-  async getSandboxPath(sandboxId: string): Promise<string> {
-    const sandbox = await sandboxRepository.findById(sandboxId);
-
     if (!sandbox) {
       throw new AppError(404, 'Sandbox not found');
     }
@@ -417,7 +399,22 @@ export class SandboxService {
     }
 
     const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
+    return { sandbox, projectPath };
+  }
 
+  /**
+   * Get the project path for a sandbox
+   */
+  async getProjectPath(sandboxId: string): Promise<string> {
+    const { projectPath } = await this.resolveProjectPath(sandboxId);
+    return projectPath;
+  }
+
+  /**
+   * Get the full path to a sandbox folder
+   */
+  async getSandboxPath(sandboxId: string): Promise<string> {
+    const { sandbox, projectPath } = await this.resolveProjectPath(sandboxId);
     return path.join(projectPath, sandbox.folderPath);
   }
 
@@ -535,7 +532,7 @@ export class SandboxService {
         hasBaseFolder = true;
       } catch {
         // .sync-base doesn't exist - old sandbox, will create it after sync
-        console.log(`[syncWithDetails] No .sync-base folder found for sandbox ${sandboxId}, will create after sync`);
+        logger.info(`[syncWithDetails] No .sync-base folder found for sandbox ${sandboxId}, will create after sync`);
       }
 
       // Get list of files in both directories (excluding .sync-base)
@@ -589,12 +586,12 @@ export class SandboxService {
             // Source unchanged from base, only sandbox changed
             // Keep sandbox version - no action needed (sandbox has the changes)
             autoMergedFiles.push(file);
-            console.log(`[syncWithDetails] File ${file}: source unchanged, keeping sandbox changes`);
+            logger.debug(`[syncWithDetails] File ${file}: source unchanged, keeping sandbox changes`);
           } else if (baseContent === sandboxContent) {
             // Sandbox unchanged from base, only source changed
             // Auto-merge: copy source to sandbox
             cleanMerges.push(file);
-            console.log(`[syncWithDetails] File ${file}: sandbox unchanged, pulling source changes`);
+            logger.debug(`[syncWithDetails] File ${file}: sandbox unchanged, pulling source changes`);
           } else {
             // Both changed from base - need to check if same lines were modified
             // For now, treat as conflict and let user resolve
@@ -606,7 +603,7 @@ export class SandboxService {
               yoursContent: sandboxContent,
               hunks,
             });
-            console.log(`[syncWithDetails] File ${file}: both changed, conflict detected`);
+            logger.debug(`[syncWithDetails] File ${file}: both changed, conflict detected`);
           }
         } else {
           // New file in source - can be auto-merged
@@ -636,7 +633,7 @@ export class SandboxService {
 
       // Update .sync-base with current source content (new baseline for next sync)
       // This should happen after successful sync
-      console.log(`[syncWithDetails] Updating .sync-base folder for sandbox ${sandboxId}`);
+      logger.debug(`[syncWithDetails] Updating .sync-base folder for sandbox ${sandboxId}`);
       await deleteDirectory(syncBasePath);
       await copyDirectory(sourceFullPath, syncBasePath);
 
@@ -711,7 +708,7 @@ export class SandboxService {
         await fs.writeFile(fullPath, content, 'utf-8');
         updatedFiles.push(filePath);
 
-        console.log(`[Sandbox] Resolved conflict: ${filePath}`);
+        logger.debug(`[Sandbox] Resolved conflict: ${filePath}`);
       }
 
       // If autoMergeClean is true, also copy non-conflicting files from source
@@ -739,7 +736,7 @@ export class SandboxService {
 
       // Update .sync-base with current source content (new baseline for next sync)
       const syncBasePath = path.join(sandboxFullPath, '.sync-base');
-      console.log(`[resolveConflicts] Updating .sync-base folder for sandbox ${sandboxId}`);
+      logger.debug(`[resolveConflicts] Updating .sync-base folder for sandbox ${sandboxId}`);
       await deleteDirectory(syncBasePath);
       await copyDirectory(sourceFullPath, syncBasePath);
 
@@ -755,7 +752,7 @@ export class SandboxService {
         sandbox: await this.toSandboxWithDetails(updated),
       };
     } catch (error) {
-      console.error('Resolve conflicts failed:', error);
+      logger.error('Resolve conflicts failed:', error);
       throw new AppError(500, 'Failed to resolve conflicts');
     }
   }

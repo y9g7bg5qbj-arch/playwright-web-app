@@ -3,18 +3,21 @@
  *
  * Provides endpoints for managing applications, which are top-level containers
  * for projects, test data, and workflows.
- *
- * NOW USES MONGODB INSTEAD OF PRISMA
  */
 
 import { Router, Response } from 'express';
 import { applicationRepository, projectRepository, workflowRepository } from '../db/repositories/mongo';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
 // Apply authentication to all routes
 router.use(authenticateToken);
+
+function getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : 'Unknown error';
+}
 
 // ============================================
 // APPLICATION CRUD
@@ -64,11 +67,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
             data: applicationsWithDetails
         });
     } catch (error) {
-        console.error('Error listing applications:', error);
-        res.status(500).json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        logger.error('Error listing applications:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
 });
 
@@ -116,12 +116,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
                 createdAt: application.createdAt
             }
         });
-    } catch (error: any) {
-        console.error('Error creating application:', error);
-        res.status(500).json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
+    } catch (error) {
+        logger.error('Error creating application:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
 });
 
@@ -180,11 +177,8 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
             }
         });
     } catch (error) {
-        console.error('Error getting application:', error);
-        res.status(500).json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        logger.error('Error getting application:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
 });
 
@@ -236,11 +230,8 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
             data: updated
         });
     } catch (error) {
-        console.error('Error updating application:', error);
-        res.status(500).json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        logger.error('Error updating application:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
 });
 
@@ -276,11 +267,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
             message: 'Application deleted successfully'
         });
     } catch (error) {
-        console.error('Error deleting application:', error);
-        res.status(500).json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        logger.error('Error deleting application:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
 });
 
@@ -320,11 +308,8 @@ router.get('/:appId/projects', async (req: AuthRequest, res: Response) => {
             data: projects
         });
     } catch (error) {
-        console.error('Error listing projects:', error);
-        res.status(500).json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        logger.error('Error listing projects:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
 });
 
@@ -383,11 +368,8 @@ router.post('/:appId/projects', async (req: AuthRequest, res: Response) => {
             data: project
         });
     } catch (error) {
-        console.error('Error creating project:', error);
-        res.status(500).json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        logger.error('Error creating project:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
 });
 
@@ -423,11 +405,8 @@ router.get('/:appId/projects/:projectId', async (req: AuthRequest, res: Response
             data: project
         });
     } catch (error) {
-        console.error('Error getting project:', error);
-        res.status(500).json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        logger.error('Error getting project:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
 });
 
@@ -470,11 +449,8 @@ router.put('/:appId/projects/:projectId', async (req: AuthRequest, res: Response
             data: updated
         });
     } catch (error) {
-        console.error('Error updating project:', error);
-        res.status(500).json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        logger.error('Error updating project:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
 });
 
@@ -512,11 +488,8 @@ router.delete('/:appId/projects/:projectId', async (req: AuthRequest, res: Respo
             message: 'Project deleted successfully'
         });
     } catch (error) {
-        console.error('Error deleting project:', error);
-        res.status(500).json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        logger.error('Error deleting project:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
 });
 

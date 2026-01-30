@@ -102,10 +102,8 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
         setTimeout(() => setIsResolving(false), 5000);
     }, [resumeWithHint]);
 
-    // Handle skip step from chat
-    const handleSkipStep = useCallback((testCaseId: string, stepId: string) => {
-        skipStep(testCaseId, stepId);
-    }, [skipStep]);
+    // Handle skip step from chat (pass-through to keep consistent handler naming)
+    const handleSkipStep = skipStep;
 
     // Handle take over (manual browser interaction for single step)
     const handleTakeOver = useCallback((testCaseId: string, stepId: string) => {
@@ -119,10 +117,8 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
         startCapture(testCaseId, 'manual');
     }, [startCapture]);
 
-    // Handle stopping manual capture
-    const handleStopCapture = useCallback(() => {
-        stopCapture();
-    }, [stopCapture]);
+    // Handle stopping manual capture (pass-through to keep consistent handler naming)
+    const handleStopCapture = stopCapture;
 
     // UI State
     const [selectedEnv, setSelectedEnv] = useState<Environment>(ENVIRONMENTS[1]);
@@ -194,7 +190,6 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
 
     // Load sessions list when dropdown is opened
     const handleShowSessions = useCallback(async () => {
-        console.log('handleShowSessions called, showSessionsDropdown:', showSessionsDropdown);
         if (showSessionsDropdown) {
             setShowSessionsDropdown(false);
             return;
@@ -202,24 +197,20 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
         setIsLoadingSessions(true);
         try {
             const sessions = await listSessions();
-            console.log('Loaded sessions:', sessions);
             setAvailableSessions(sessions);
             setShowSessionsDropdown(true);
         } catch (error) {
-            console.error('Failed to load sessions:', error);
             alert('Failed to load sessions: ' + (error as Error).message);
         } finally {
             setIsLoadingSessions(false);
         }
     }, [showSessionsDropdown, listSessions]);
 
-    // Handle loading a specific session
     const handleLoadSession = useCallback(async (sessionId: string) => {
         try {
             await loadSession(sessionId);
             setShowSessionsDropdown(false);
-        } catch (error) {
-            console.error('Failed to load session:', error);
+        } catch {
             alert('Failed to load session');
         }
     }, [loadSession]);
@@ -337,9 +328,22 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
 
     // Handle test approval
     const handleApprove = useCallback(async (testCaseId: string) => {
-        const targetPath = projectPath || './tests';
+        // Validate projectPath to ensure files are created in the correct location
+        if (!projectPath) {
+            alert(
+                'No project selected!\n\n' +
+                'Please select a project folder in the Explorer panel before approving.\n\n' +
+                'Files will be created in:\n' +
+                '• Features/ folder for scenarios\n' +
+                '• Pages/ folder for page objects\n' +
+                '• PageActions/ folder for page actions'
+            );
+            console.error('Approval failed: No projectPath provided. User must select a project in Explorer.');
+            return;
+        }
+
         try {
-            const filePath = await approveTestCase(testCaseId, targetPath);
+            const filePath = await approveTestCase(testCaseId, projectPath);
             const testCase = session.testCases.find(tc => tc.id === testCaseId);
             const veroCode = testCase?.steps
                 .filter(s => s.veroCode)
@@ -1117,12 +1121,9 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                                     <Upload size={48} />
                                 )}
                                 <p>
-                                    {isImporting
-                                        ? 'Importing...'
-                                        : importedTests.length > 0
-                                            ? `${importedTests.length} test cases imported`
-                                            : 'Drag & drop your Excel file here'
-                                    }
+                                    {isImporting && 'Importing...'}
+                                    {!isImporting && importedTests.length > 0 && `${importedTests.length} test cases imported`}
+                                    {!isImporting && importedTests.length === 0 && 'Drag & drop your Excel file here'}
                                 </p>
                                 <span>or click to browse</span>
                                 <p className="upload-hint">Format: Test Case Name | Step 1 | Step 2 | ...</p>

@@ -3,6 +3,7 @@ import { Token, TokenType, LexerError } from './tokens.js';
 const KEYWORDS: Record<string, TokenType> = {
     // Structural
     'PAGE': TokenType.PAGE,
+    'PAGEACTIONS': TokenType.PAGEACTIONS,
     'FEATURE': TokenType.FEATURE,
     'SCENARIO': TokenType.SCENARIO,
     'FIELD': TokenType.FIELD,
@@ -87,14 +88,8 @@ const KEYWORDS: Record<string, TokenType> = {
     'CONTAINS': TokenType.CONTAINS,
     'EMPTY': TokenType.EMPTY,
 
-    // Selectors
-    'BUTTON': TokenType.BUTTON,
-    'TEXTBOX': TokenType.TEXTBOX,
-    'LINK': TokenType.LINK,
-    'TESTID': TokenType.TESTID,
-    'ROLE': TokenType.ROLE,
-    'LABEL': TokenType.LABEL,
-    'PLACEHOLDER': TokenType.PLACEHOLDER,
+    // Selectors — handled contextually in parseSelector(), not as global keywords.
+    // This prevents conflicts with field names like: FIELD button = "Submit"
 
     // Connectors
     'WITH': TokenType.WITH,

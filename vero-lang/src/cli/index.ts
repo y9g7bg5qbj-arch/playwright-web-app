@@ -90,6 +90,7 @@ program
         console.log('📝 Compiling Vero files...\n');
 
         const pageFiles = findVeroFiles('pages');
+        const pageActionsFiles = findVeroFiles('PageActions');
         const featureFiles = findVeroFiles('features');
 
         if (pageFiles.length === 0 && featureFiles.length === 0) {
@@ -98,10 +99,10 @@ program
             process.exit(1);
         }
 
-        const combinedAst: ProgramNode = { type: 'Program', pages: [], features: [], fixtures: [] };
+        const combinedAst: ProgramNode = { type: 'Program', pages: [], pageActions: [], features: [], fixtures: [] };
         let hasErrors = false;
 
-        for (const file of [...pageFiles, ...featureFiles]) {
+        for (const file of [...pageFiles, ...pageActionsFiles, ...featureFiles]) {
             console.log(`  Processing ${file}...`);
             const source = readFileSync(file, 'utf-8');
             const { tokens, errors: lexerErrors } = tokenize(source);
@@ -127,6 +128,7 @@ program
             }
 
             combinedAst.pages.push(...ast.pages);
+            combinedAst.pageActions.push(...(ast.pageActions || []));
             combinedAst.features.push(...ast.features);
             combinedAst.fixtures.push(...(ast.fixtures || []));
         }
@@ -174,6 +176,12 @@ program
             console.log(`  ✓ generated/pages/${name}.ts`);
         }
 
+        // Generate PageActions files
+        for (const [name, code] of result.pageActions) {
+            writeFileSync(`generated/pages/${name}.ts`, code);
+            console.log(`  ✓ generated/pages/${name}.ts`);
+        }
+
         // Generate fixture files
         for (const [name, code] of result.fixtures) {
             writeFileSync(`generated/fixtures/${name}.ts`, code);
@@ -204,7 +212,7 @@ program
         const pageFiles = findVeroFiles('pages');
         const featureFiles = findVeroFiles('features');
 
-        const combinedAst: ProgramNode = { type: 'Program', pages: [], features: [], fixtures: [] };
+        const combinedAst: ProgramNode = { type: 'Program', pages: [], pageActions: [], features: [], fixtures: [] };
         let hasErrors = false;
 
         for (const file of [...pageFiles, ...featureFiles]) {
@@ -285,7 +293,7 @@ program
             process.exit(1);
         }
 
-        const combinedAst: ProgramNode = { type: 'Program', pages: [], features: [], fixtures: [] };
+        const combinedAst: ProgramNode = { type: 'Program', pages: [], pageActions: [], features: [], fixtures: [] };
 
         for (const file of [...pageFiles, ...featureFiles]) {
             const source = readFileSync(file, 'utf-8');

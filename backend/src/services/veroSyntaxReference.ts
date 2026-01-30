@@ -197,3 +197,211 @@ export function fixVeroSyntax(code: string): string {
 
   return fixed;
 }
+
+// ============================================
+// VERO CODE GENERATION (Single Source of Truth)
+// ============================================
+
+export type VeroActionType =
+  | 'open' | 'navigate' | 'goto'
+  | 'click'
+  | 'fill'
+  | 'check'
+  | 'uncheck'
+  | 'select'
+  | 'hover'
+  | 'press' | 'keypress'
+  | 'scroll'
+  | 'wait'
+  | 'clear'
+  | 'log'
+  | 'verify' | 'assert' | 'expect';
+
+export type VeroAssertionType = 'visible' | 'hidden' | 'enabled' | 'disabled' | 'contains' | 'hasValue';
+
+/**
+ * Generate Vero action code - SINGLE SOURCE OF TRUTH
+ * All recording services MUST use this function instead of hardcoding syntax
+ */
+export function generateVeroAction(
+  action: VeroActionType | string,
+  target?: string,
+  value?: string,
+  assertionType?: VeroAssertionType
+): string {
+  const normalizedAction = action.toLowerCase();
+
+  // Escape quotes in value
+  const escapedValue = value?.replace(/"/g, '\\"') || '';
+
+  switch (normalizedAction) {
+    // Navigation
+    case 'open':
+    case 'navigate':
+    case 'goto':
+      return `OPEN "${value || target || ''}"`;
+
+    // Click
+    case 'click':
+      return `CLICK ${target}`;
+
+    // Fill/Input
+    case 'fill':
+      return `FILL ${target} WITH "${escapedValue}"`;
+
+    // Checkbox
+    case 'check':
+      return `CHECK ${target}`;
+    case 'uncheck':
+      return `UNCHECK ${target}`;
+
+    // Dropdown
+    case 'select':
+      return `SELECT "${escapedValue}" FROM ${target}`;
+
+    // Hover
+    case 'hover':
+      return `HOVER ${target}`;
+
+    // Keyboard
+    case 'press':
+    case 'keypress':
+      return `PRESS "${value || 'Enter'}"`;
+
+    // Scroll
+    case 'scroll':
+      return `SCROLL TO ${target}`;
+
+    // Wait
+    case 'wait':
+      if (value && /^\d+$/.test(value)) {
+        return `WAIT ${value} SECONDS`;
+      }
+      return `WAIT FOR ${target || 'page'}`;
+
+    // Clear
+    case 'clear':
+      return `CLEAR ${target}`;
+
+    // Log
+    case 'log':
+      return `LOG "${escapedValue}"`;
+
+    // Assertions
+    case 'verify':
+    case 'assert':
+    case 'expect':
+      return generateVeroAssertion(target || '', assertionType || 'visible', value);
+
+    default:
+      return `# Unknown action: ${action} on ${target}`;
+  }
+}
+
+/**
+ * Generate Vero assertion code
+ */
+export function generateVeroAssertion(
+  target: string,
+  type: VeroAssertionType | string,
+  value?: string
+): string {
+  const normalizedType = type.toLowerCase();
+
+  switch (normalizedType) {
+    case 'visible':
+      return `VERIFY ${target} IS VISIBLE`;
+    case 'hidden':
+      return `VERIFY ${target} IS HIDDEN`;
+    case 'enabled':
+      return `VERIFY ${target} IS ENABLED`;
+    case 'disabled':
+      return `VERIFY ${target} IS DISABLED`;
+    case 'contains':
+      return `VERIFY ${target} CONTAINS "${value || ''}"`;
+    case 'hasvalue':
+    case 'has value':
+    case 'value':
+      return `VERIFY ${target} HAS VALUE "${value || ''}"`;
+    default:
+      return `VERIFY ${target} IS VISIBLE`;
+  }
+}
+
+/**
+ * Generate a complete SCENARIO block
+ */
+export function generateVeroScenario(
+  name: string,
+  steps: string[],
+  tags?: string[]
+): string {
+  const scenarioName = toPascalCase(name);
+  const tagStr = tags?.length ? ` ${tags.map(t => t.startsWith('@') ? t : `@${t}`).join(' ')}` : '';
+  const stepsStr = steps.map(s => `    ${s}`).join('\n');
+
+  return `SCENARIO ${scenarioName}${tagStr} {
+${stepsStr}
+}`;
+}
+
+/**
+ * Generate a complete FEATURE block
+ */
+export function generateVeroFeature(
+  name: string,
+  scenarios: string[],
+  pageNames?: string[]
+): string {
+  const featureName = toPascalCase(name);
+  const useStatements = pageNames?.map(p => `    USE ${p}`).join('\n') || '';
+  const scenariosStr = scenarios.join('\n\n');
+
+  return `FEATURE ${featureName} {
+${useStatements ? useStatements + '\n\n' : ''}${scenariosStr}
+}`;
+}
+
+/**
+ * Generate a PAGE object definition
+ * Format: PAGE PageName ("/url-pattern") { FIELD ... }
+ */
+export function generateVeroPage(
+  name: string,
+  fields: Array<{ name: string; selectorType: string; selector: string }>,
+  urlPattern?: string
+): string {
+  const pageName = toPascalCase(name);
+
+  // Extract URL pattern from full URL if provided
+  let pattern = urlPattern || '/';
+  if (pattern.startsWith('http')) {
+    try {
+      const url = new URL(pattern);
+      pattern = url.pathname || '/';
+    } catch {
+      pattern = '/';
+    }
+  }
+
+  const urlPart = ` ("${pattern}")`;
+  const fieldsStr = fields
+    .map(f => `    FIELD ${f.name} = ${f.selectorType} "${f.selector}"`)
+    .join('\n');
+
+  return `PAGE ${pageName}${urlPart} {
+${fieldsStr}
+}`;
+}
+
+/**
+ * Convert string to PascalCase identifier
+ */
+export function toPascalCase(str: string): string {
+  return str
+    .replace(/[^a-zA-Z0-9\s]/g, '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join('');
+}

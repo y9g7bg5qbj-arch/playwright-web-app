@@ -131,39 +131,25 @@ router.post('/sessions/:sessionId/start', async (req: Request, res: Response) =>
       return res.status(400).json({ error: 'AI settings not configured. Please configure in Settings > AI.' });
     }
 
-    // Determine which API key to use
-    let apiKey: string;
-    let modelName: string;
+    // Provider configuration: API key field, model field, default model, and prefix
+    const providerConfig: Record<string, { keyField: string; modelField: string; defaultModel: string; prefix: string }> = {
+      gemini: { keyField: 'geminiApiKey', modelField: 'geminiModel', defaultModel: 'gemini-2.0-flash', prefix: 'google/' },
+      openai: { keyField: 'openaiApiKey', modelField: 'openaiModel', defaultModel: 'gpt-4o', prefix: 'openai/' },
+      anthropic: { keyField: 'anthropicApiKey', modelField: 'anthropicModel', defaultModel: 'claude-sonnet-4-20250514', prefix: 'anthropic/' },
+    };
 
-    // Determine model format: "provider/model"
-    switch (settings.provider) {
-      case 'gemini':
-        if (!settings.geminiApiKey) {
-          return res.status(400).json({ error: 'Gemini API key not configured' });
-        }
-        apiKey = settings.geminiApiKey;
-        const geminiModel = settings.geminiModel || 'gemini-2.0-flash';
-        modelName = geminiModel.startsWith('google/') ? geminiModel : `google/${geminiModel}`;
-        break;
-      case 'openai':
-        if (!settings.openaiApiKey) {
-          return res.status(400).json({ error: 'OpenAI API key not configured' });
-        }
-        apiKey = settings.openaiApiKey;
-        const openaiModel = settings.openaiModel || 'gpt-4o';
-        modelName = openaiModel.startsWith('openai/') ? openaiModel : `openai/${openaiModel}`;
-        break;
-      case 'anthropic':
-        if (!settings.anthropicApiKey) {
-          return res.status(400).json({ error: 'Anthropic API key not configured' });
-        }
-        apiKey = settings.anthropicApiKey;
-        const anthropicModel = settings.anthropicModel || 'claude-sonnet-4-20250514';
-        modelName = anthropicModel.startsWith('anthropic/') ? anthropicModel : `anthropic/${anthropicModel}`;
-        break;
-      default:
-        return res.status(400).json({ error: `Unknown AI provider: ${settings.provider}` });
+    const config = providerConfig[settings.provider];
+    if (!config) {
+      return res.status(400).json({ error: `Unknown AI provider: ${settings.provider}` });
     }
+
+    const apiKey = (settings as any)[config.keyField] as string | undefined;
+    if (!apiKey) {
+      return res.status(400).json({ error: `${settings.provider} API key not configured` });
+    }
+
+    const rawModel = ((settings as any)[config.modelField] as string) || config.defaultModel;
+    const modelName = rawModel.startsWith(config.prefix) ? rawModel : `${config.prefix}${rawModel}`;
 
     // TODO: ClaudeAgentService will be integrated here for browser automation
     // Start processing
@@ -178,8 +164,7 @@ router.post('/sessions/:sessionId/start', async (req: Request, res: Response) =>
     res.json({ success: true, data: { sessionId } });
   } catch (error: any) {
     logger.error('Error starting session:', error);
-    const errorMessage = error.message || 'Failed to start session';
-    res.status(500).json({ error: errorMessage });
+    res.status(500).json({ error: error.message || 'Failed to start session' });
   }
 });
 
@@ -219,8 +204,7 @@ router.get('/sessions', async (req: Request, res: Response) => {
 
     const sessions = await aiRecorderSessionRepository.findByUserId(userId);
 
-    // Manually aggregate data to match expected response format
-    // (Prisma was doing this with 'include')
+    // Aggregate data to match expected response format
     const enrichedSessions = await Promise.all(sessions.map(async (session) => {
       const testCases = await aiRecorderTestCaseRepository.findBySessionId(session.id);
 
@@ -283,19 +267,7 @@ router.delete('/sessions/:sessionId', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
-    // Delete session (cascade deletes test cases and steps)
-    // Note: ensure repository handles cascade or we do it here
-    // The Mongo repository 'delete' probably doesn't cascade automatically unless implemented.
-    // aiRecorderService.deleteSession or just rely on repository?
-    // Let's assume the mongo repository is simple and we should probably use a service method if complex.
-    // However, existing code used one-liner.
-    // Let's check if the service has deleteSession.
-    // The previous service file had: cancelSession, createSession, startSession.
-    // It didn't have deleteSession.
-    // But the mongo repository structure suggests direct DB ops.
-    // To be safe, we should delete children too.
-
-    // Manual Cascade Delete for consistency
+    // Cascade delete: remove steps, test cases, then session
     const testCases = await aiRecorderTestCaseRepository.findBySessionId(sessionId);
     for (const tc of testCases) {
       await aiRecorderStepRepository.deleteByTestCaseId(tc.id);

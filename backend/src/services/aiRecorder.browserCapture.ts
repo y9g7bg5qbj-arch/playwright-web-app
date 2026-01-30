@@ -13,6 +13,7 @@
 import { Page, BrowserContext } from 'playwright';
 import { EventEmitter } from 'events';
 import { logger } from '../utils/logger';
+import { generateVeroAction } from './veroSyntaxReference';
 
 export interface CapturedAction {
   type: 'click' | 'fill' | 'select' | 'check' | 'uncheck' | 'navigate' | 'hover' | 'press';
@@ -355,50 +356,10 @@ class BrowserCaptureService extends EventEmitter {
 
   /**
    * Convert browser action to Vero code
+   * Uses veroSyntaxReference.ts as single source of truth
    */
   private toVeroCode(type: string, target: string, value?: string): string {
-    switch (type) {
-      case 'click':
-        return `click ${target}`;
-
-      case 'fill':
-        if (value !== undefined) {
-          // Escape quotes in value
-          const escapedValue = value.replace(/"/g, '\\"');
-          return `fill ${target} with "${escapedValue}"`;
-        }
-        return `fill ${target} with ""`;
-
-      case 'select':
-        if (value !== undefined) {
-          return `select ${target} option "${value}"`;
-        }
-        return `select ${target} option ""`;
-
-      case 'check':
-        return `check ${target}`;
-
-      case 'uncheck':
-        return `uncheck ${target}`;
-
-      case 'navigate':
-        if (value) {
-          return `navigate to "${value}"`;
-        }
-        return `navigate to ${target}`;
-
-      case 'hover':
-        return `hover over ${target}`;
-
-      case 'press':
-        if (value) {
-          return `press "${value}"`;
-        }
-        return `press "Enter"`;
-
-      default:
-        return `// Unknown action: ${type} on ${target}`;
-    }
+    return generateVeroAction(type, target, value);
   }
 
   /**

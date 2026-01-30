@@ -1,6 +1,7 @@
 /**
  * Pull Request Service
- * NOW USES MONGODB INSTEAD OF PRISMA
+ *
+ * Manages pull requests for sandbox-to-main branch merges.
  */
 
 import * as path from 'path';
@@ -16,6 +17,7 @@ import {
   applicationRepository
 } from '../db/repositories/mongo';
 import { gitService, GitDiffResult, GitFileDiff } from './git.service';
+import { logger } from '../utils/logger';
 
 const VERO_PROJECTS_BASE = process.env.VERO_PROJECTS_PATH || path.join(process.cwd(), 'vero-projects');
 
@@ -87,6 +89,97 @@ export interface PRCommentWithUser {
 }
 
 export class PullRequestService {
+  /**
+   * Build PullRequestWithDetails from a PR record by fetching related entities
+   */
+  private async buildPRWithDetails(pr: {
+    id: string;
+    number: number;
+    title: string;
+    description?: string | null;
+    authorId: string;
+    sandboxId: string;
+    projectId: string;
+    targetBranch: string;
+    status: string;
+    createdAt: Date;
+    updatedAt: Date;
+    mergedAt?: Date | null;
+    mergedById?: string | null;
+    closedAt?: Date | null;
+  }): Promise<PullRequestWithDetails> {
+    const [author, sandbox, mergedBy, reviews, comments, files] = await Promise.all([
+      userRepository.findById(pr.authorId),
+      sandboxRepository.findById(pr.sandboxId),
+      pr.mergedById ? userRepository.findById(pr.mergedById) : null,
+      pullRequestReviewRepository.findByPullRequestId(pr.id),
+      pullRequestCommentRepository.countByPullRequestId(pr.id),
+      pullRequestFileRepository.countByPullRequestId(pr.id),
+    ]);
+
+    const approvalCount = reviews.filter(r => r.status === 'approved').length;
+    const changesRequestedCount = reviews.filter(r => r.status === 'changes_requested').length;
+
+    return {
+      id: pr.id,
+      number: pr.number,
+      title: pr.title,
+      description: pr.description || null,
+      authorId: pr.authorId,
+      authorName: author?.name || null,
+      authorEmail: author?.email || 'unknown',
+      sandboxId: pr.sandboxId,
+      sandboxName: sandbox?.name || 'unknown',
+      projectId: pr.projectId,
+      targetBranch: pr.targetBranch,
+      status: pr.status,
+      createdAt: pr.createdAt,
+      updatedAt: pr.updatedAt,
+      mergedAt: pr.mergedAt || null,
+      mergedById: pr.mergedById || null,
+      mergedByName: mergedBy?.name || null,
+      closedAt: pr.closedAt || null,
+      reviewCount: reviews.length,
+      approvalCount,
+      changesRequestedCount,
+      commentCount: comments,
+      fileCount: files,
+    };
+  }
+
+  /**
+   * Resolve the project path and sandbox details for a PR
+   */
+  private async resolvePRProjectPath(pullRequestId: string): Promise<{
+    pr: { id: string; targetBranch: string; sandboxId: string; projectId: string; authorId: string; status: string };
+    sandbox: { folderPath: string };
+    projectPath: string;
+  }> {
+    const pr = await pullRequestRepository.findById(pullRequestId);
+    if (!pr) {
+      throw new Error('Pull request not found');
+    }
+
+    const sandbox = await sandboxRepository.findById(pr.sandboxId);
+    if (!sandbox) {
+      throw new Error('Sandbox not found');
+    }
+
+    const project = await projectRepository.findById(sandbox.projectId);
+    if (!project) {
+      throw new Error('Project not found');
+    }
+
+    const application = await applicationRepository.findById(project.applicationId);
+    if (!application) {
+      throw new Error('Application not found');
+    }
+
+    const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
+
+    return { pr, sandbox, projectPath };
+  }
+
   /**
    * Create a new pull request from a sandbox
    */
@@ -197,49 +290,7 @@ export class PullRequestService {
    */
   async listByProject(projectId: string, status?: string): Promise<PullRequestWithDetails[]> {
     const pullRequests = await pullRequestRepository.findByProjectId(projectId, status);
-
-    const results: PullRequestWithDetails[] = [];
-    for (const pr of pullRequests) {
-      const [author, sandbox, mergedBy, reviews, comments, files] = await Promise.all([
-        userRepository.findById(pr.authorId),
-        sandboxRepository.findById(pr.sandboxId),
-        pr.mergedById ? userRepository.findById(pr.mergedById) : null,
-        pullRequestReviewRepository.findByPullRequestId(pr.id),
-        pullRequestCommentRepository.countByPullRequestId(pr.id),
-        pullRequestFileRepository.countByPullRequestId(pr.id),
-      ]);
-
-      const approvalCount = reviews.filter(r => r.status === 'approved').length;
-      const changesRequestedCount = reviews.filter(r => r.status === 'changes_requested').length;
-
-      results.push({
-        id: pr.id,
-        number: pr.number,
-        title: pr.title,
-        description: pr.description || null,
-        authorId: pr.authorId,
-        authorName: author?.name || null,
-        authorEmail: author?.email || 'unknown',
-        sandboxId: pr.sandboxId,
-        sandboxName: sandbox?.name || 'unknown',
-        projectId: pr.projectId,
-        targetBranch: pr.targetBranch,
-        status: pr.status,
-        createdAt: pr.createdAt,
-        updatedAt: pr.updatedAt,
-        mergedAt: pr.mergedAt || null,
-        mergedById: pr.mergedById || null,
-        mergedByName: mergedBy?.name || null,
-        closedAt: pr.closedAt || null,
-        reviewCount: reviews.length,
-        approvalCount,
-        changesRequestedCount,
-        commentCount: comments,
-        fileCount: files,
-      });
-    }
-
-    return results;
+    return Promise.all(pullRequests.map(pr => this.buildPRWithDetails(pr)));
   }
 
   /**
@@ -247,46 +298,8 @@ export class PullRequestService {
    */
   async getById(pullRequestId: string): Promise<PullRequestWithDetails | null> {
     const pr = await pullRequestRepository.findById(pullRequestId);
-
     if (!pr) return null;
-
-    const [author, sandbox, mergedBy, reviews, comments, files] = await Promise.all([
-      userRepository.findById(pr.authorId),
-      sandboxRepository.findById(pr.sandboxId),
-      pr.mergedById ? userRepository.findById(pr.mergedById) : null,
-      pullRequestReviewRepository.findByPullRequestId(pr.id),
-      pullRequestCommentRepository.countByPullRequestId(pr.id),
-      pullRequestFileRepository.countByPullRequestId(pr.id),
-    ]);
-
-    const approvalCount = reviews.filter(r => r.status === 'approved').length;
-    const changesRequestedCount = reviews.filter(r => r.status === 'changes_requested').length;
-
-    return {
-      id: pr.id,
-      number: pr.number,
-      title: pr.title,
-      description: pr.description || null,
-      authorId: pr.authorId,
-      authorName: author?.name || null,
-      authorEmail: author?.email || 'unknown',
-      sandboxId: pr.sandboxId,
-      sandboxName: sandbox?.name || 'unknown',
-      projectId: pr.projectId,
-      targetBranch: pr.targetBranch,
-      status: pr.status,
-      createdAt: pr.createdAt,
-      updatedAt: pr.updatedAt,
-      mergedAt: pr.mergedAt || null,
-      mergedById: pr.mergedById || null,
-      mergedByName: mergedBy?.name || null,
-      closedAt: pr.closedAt || null,
-      reviewCount: reviews.length,
-      approvalCount,
-      changesRequestedCount,
-      commentCount: comments,
-      fileCount: files,
-    };
+    return this.buildPRWithDetails(pr);
   }
 
   /**
@@ -536,29 +549,7 @@ export class PullRequestService {
    * Get diff for a PR
    */
   async getDiff(pullRequestId: string): Promise<GitDiffResult> {
-    const pr = await pullRequestRepository.findById(pullRequestId);
-
-    if (!pr) {
-      throw new Error('Pull request not found');
-    }
-
-    const sandbox = await sandboxRepository.findById(pr.sandboxId);
-    if (!sandbox) {
-      throw new Error('Sandbox not found');
-    }
-
-    const project = await projectRepository.findById(sandbox.projectId);
-    if (!project) {
-      throw new Error('Project not found');
-    }
-
-    const application = await applicationRepository.findById(project.applicationId);
-    if (!application) {
-      throw new Error('Application not found');
-    }
-
-    const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
-
+    const { pr, sandbox, projectPath } = await this.resolvePRProjectPath(pullRequestId);
     return gitService.getDiffSummary(projectPath, pr.targetBranch, sandbox.folderPath);
   }
 
@@ -566,29 +557,7 @@ export class PullRequestService {
    * Get detailed diff for a specific file in a PR
    */
   async getFileDiff(pullRequestId: string, filePath: string): Promise<GitFileDiff> {
-    const pr = await pullRequestRepository.findById(pullRequestId);
-
-    if (!pr) {
-      throw new Error('Pull request not found');
-    }
-
-    const sandbox = await sandboxRepository.findById(pr.sandboxId);
-    if (!sandbox) {
-      throw new Error('Sandbox not found');
-    }
-
-    const project = await projectRepository.findById(sandbox.projectId);
-    if (!project) {
-      throw new Error('Project not found');
-    }
-
-    const application = await applicationRepository.findById(project.applicationId);
-    if (!application) {
-      throw new Error('Application not found');
-    }
-
-    const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
-
+    const { pr, sandbox, projectPath } = await this.resolvePRProjectPath(pullRequestId);
     return gitService.getFileDiff(projectPath, pr.targetBranch, sandbox.folderPath, filePath);
   }
 
@@ -596,29 +565,7 @@ export class PullRequestService {
    * Get all file diffs for a PR
    */
   async getAllFileDiffs(pullRequestId: string): Promise<GitFileDiff[]> {
-    const pr = await pullRequestRepository.findById(pullRequestId);
-
-    if (!pr) {
-      throw new Error('Pull request not found');
-    }
-
-    const sandbox = await sandboxRepository.findById(pr.sandboxId);
-    if (!sandbox) {
-      throw new Error('Sandbox not found');
-    }
-
-    const project = await projectRepository.findById(sandbox.projectId);
-    if (!project) {
-      throw new Error('Project not found');
-    }
-
-    const application = await applicationRepository.findById(project.applicationId);
-    if (!application) {
-      throw new Error('Application not found');
-    }
-
-    const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
-
+    const { pr, sandbox, projectPath } = await this.resolvePRProjectPath(pullRequestId);
     return gitService.getAllFileDiffs(projectPath, pr.targetBranch, sandbox.folderPath);
   }
 
@@ -673,7 +620,6 @@ export class PullRequestService {
 
     const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
 
-    // Checkout target branch and merge
     await gitService.checkoutBranch(projectPath, pr.targetBranch);
     const mergeResult = await gitService.mergeBranch(projectPath, sandbox.folderPath);
 
@@ -699,7 +645,7 @@ export class PullRequestService {
       try {
         await gitService.deleteBranch(projectPath, sandbox.folderPath, true);
       } catch (error) {
-        console.error('Failed to delete sandbox branch:', error);
+        logger.error('Failed to delete sandbox branch:', error);
       }
     }
 

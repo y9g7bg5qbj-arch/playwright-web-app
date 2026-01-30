@@ -1,6 +1,7 @@
 /**
  * GitHub Integration Service
- * NOW USES MONGODB INSTEAD OF PRISMA
+ *
+ * Manages GitHub OAuth, repository configs, and workflow run tracking.
  */
 
 import crypto from 'crypto';
@@ -14,9 +15,7 @@ import {
 // Encryption key from environment (should be 32 bytes for AES-256)
 const ENCRYPTION_KEY = process.env.GITHUB_TOKEN_ENCRYPTION_KEY;
 
-if (!ENCRYPTION_KEY) {
-  console.warn('⚠️  GITHUB_TOKEN_ENCRYPTION_KEY not set - GitHub token encryption disabled');
-}
+// Note: If ENCRYPTION_KEY is not set, tokens will be stored base64-encoded (development mode only)
 
 interface GitHubUser {
   login: string;
