@@ -1,6 +1,6 @@
-# E-Commerce Shopping Pages
+# E-Commerce Shopping Pages - Field definitions only (protected)
 
-PAGE ProductPage {
+PAGE ShoppingProductPage {
     FIELD productTitle = "[data-testid='product-title']"
     FIELD productPrice = "[data-testid='product-price']"
     FIELD quantityInput = "[name='quantity'], input[placeholder*='Quantity']"
@@ -9,19 +9,6 @@ PAGE ProductPage {
     FIELD reviewsSection = "[data-testid='reviews']"
     FIELD ratingStars = "[data-testid='rating']"
     FIELD cartBadge = "[data-testid='cart-count']"
-
-    addToCart {
-        CLICK ProductPage.addToCartBtn
-    }
-
-    addToCartWithQuantity WITH quantity {
-        FILL ProductPage.quantityInput WITH quantity
-        CLICK ProductPage.addToCartBtn
-    }
-
-    addToWishlist {
-        CLICK ProductPage.wishlistBtn
-    }
 }
 
 PAGE CartPage {
@@ -35,19 +22,6 @@ PAGE CartPage {
     FIELD applyPromoBtn = "button:has-text('Apply')"
     FIELD promoSuccessMsg = "[data-testid='promo-success']"
     FIELD promoErrorMsg = "[data-testid='promo-error']"
-
-    proceedToCheckout {
-        CLICK CartPage.checkoutBtn
-    }
-
-    removeFirstItem {
-        CLICK CartPage.removeItemBtn
-    }
-
-    applyPromoCode WITH code {
-        FILL CartPage.applyPromoInput WITH code
-        CLICK CartPage.applyPromoBtn
-    }
 }
 
 PAGE CheckoutPage {
@@ -61,21 +35,4 @@ PAGE CheckoutPage {
     FIELD placeOrderBtn = "button:has-text('Place Order')"
     FIELD orderConfirmation = "[data-testid='order-confirmation']"
     FIELD orderNumber = "[data-testid='order-number']"
-
-    fillShippingInfo WITH email, address, city, zip {
-        FILL CheckoutPage.emailInput WITH email
-        FILL CheckoutPage.addressInput WITH address
-        FILL CheckoutPage.cityInput WITH city
-        FILL CheckoutPage.zipInput WITH zip
-    }
-
-    fillPaymentInfo WITH cardNumber, expiry, cvv {
-        FILL CheckoutPage.cardNumberInput WITH cardNumber
-        FILL CheckoutPage.expiryInput WITH expiry
-        FILL CheckoutPage.cvvInput WITH cvv
-    }
-
-    placeOrder {
-        CLICK CheckoutPage.placeOrderBtn
-    }
 }

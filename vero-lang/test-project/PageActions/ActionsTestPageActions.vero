@@ -1,0 +1,61 @@
+# ActionsTestPage PageActions
+
+PAGE ActionsTestPage {
+    FIELD emailInput = "#email"
+    FIELD passwordInput = "#password"
+    FIELD submitBtn = "[type=submit]"
+    FIELD searchBox = "#search"
+    FIELD agreeCheckbox = "#agree"
+    FIELD menuIcon = "[aria-label=Menu]"
+    FIELD welcomeHeading = "h1"
+}
+
+PAGEACTIONS ActionsTestPageActions FOR ActionsTestPage {
+    # ===== SETTERS =====
+    enterEmail WITH value {
+        FILL emailInput WITH value
+    }
+
+    enterPassword WITH value {
+        FILL passwordInput WITH value
+    }
+
+    enterSearchQuery WITH query {
+        FILL searchBox WITH query
+    }
+
+    # ===== ACTIONS =====
+    clickSubmit {
+        CLICK submitBtn
+    }
+
+    checkAgree {
+        CHECK agreeCheckbox
+    }
+
+    hoverMenu {
+        HOVER menuIcon
+    }
+
+    # ===== COMPOSITE ACTIONS =====
+    login WITH email, password {
+        FILL emailInput WITH email
+        FILL passwordInput WITH password
+        CLICK submitBtn
+    }
+
+    search WITH query {
+        FILL searchBox WITH query
+        PRESS "Enter"
+    }
+
+    # ===== GETTERS =====
+    isWelcomeVisible RETURNS FLAG {
+        RETURN VISIBLE OF welcomeHeading
+    }
+
+    # ===== WAITERS =====
+    awaitPage {
+        WAIT FOR welcomeHeading
+    }
+}

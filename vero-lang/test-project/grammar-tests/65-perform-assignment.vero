@@ -1,0 +1,42 @@
+# Grammar Test 65: PERFORM Assignment and Variable Verification
+# Tests FLAG/TEXT = PERFORM and VERIFY variable patterns
+
+# PageActions definition for testing
+PAGEACTIONS TestPageActions FOR TestPage {
+    isElementVisible RETURNS FLAG {
+        RETURN VISIBLE OF element
+    }
+
+    getElementText RETURNS TEXT {
+        RETURN TEXT OF element
+    }
+}
+
+# Page definition for testing
+PAGE TestPage {
+    FIELD element = "#test-element"
+}
+
+# Feature using PERFORM assignment
+FEATURE PerformAssignmentTest {
+    USE TestPage
+    USE TestPageActions
+
+    SCENARIO TestFlagAssignment {
+        OPEN "https://example.com"
+
+        # FLAG = PERFORM pattern
+        FLAG isVisible = PERFORM TestPageActions.isElementVisible
+        VERIFY isVisible IS TRUE
+        VERIFY isVisible IS NOT FALSE
+    }
+
+    SCENARIO TestTextAssignment {
+        OPEN "https://example.com"
+
+        # TEXT = PERFORM pattern
+        TEXT elementText = PERFORM TestPageActions.getElementText
+        VERIFY elementText CONTAINS "Example"
+        VERIFY elementText EQUALS "Example Domain"
+    }
+}

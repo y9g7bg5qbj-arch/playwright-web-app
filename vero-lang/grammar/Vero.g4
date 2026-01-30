@@ -14,6 +14,7 @@ program
 
 declaration
     : pageDeclaration
+    | pageActionsDeclaration
     | featureDeclaration
     | fixtureDeclaration
     ;
@@ -67,11 +68,40 @@ selectorType
 
 // Action: actionName with param1, param2 { ... }
 actionDeclaration
-    : IDENTIFIER (WITH parameterList)? LBRACE statement* RBRACE
+    : IDENTIFIER (WITH parameterList)? (RETURNS returnType)? LBRACE statement* RBRACE
     ;
 
 parameterList
     : IDENTIFIER (COMMA IDENTIFIER)*
+    ;
+
+returnType
+    : TEXT
+    | NUMBER
+    | FLAG
+    | LIST
+    ;
+
+// ==================== PAGEACTIONS DECLARATION ====================
+
+// PAGEACTIONS LoginPageActions FOR LoginPage { ... }
+// Actions class that encapsulates access to a Page's protected fields
+pageActionsDeclaration
+    : PAGEACTIONS IDENTIFIER FOR IDENTIFIER LBRACE pageActionsBody RBRACE
+    ;
+
+pageActionsBody
+    : pageActionsMember*
+    ;
+
+pageActionsMember
+    : pageActionsActionDeclaration
+    ;
+
+// Action in PageActions: actionName WITH params RETURNS type { ... }
+// Actions can access fields from the bound Page
+pageActionsActionDeclaration
+    : IDENTIFIER (WITH parameterList)? (RETURNS returnType)? LBRACE statement* RBRACE
     ;
 
 // ==================== FEATURE DECLARATION ====================
@@ -755,6 +785,7 @@ SERIAL_ANNOTATION : '@' S E R I A L ;
 
 // Keywords (case-insensitive handled by lexer mode or semantic check)
 PAGE        : P A G E ;
+PAGEACTIONS : P A G E A C T I O N S ;
 FEATURE     : F E A T U R E ;
 SCENARIO    : S C E N A R I O ;
 FIELD       : F I E L D ;

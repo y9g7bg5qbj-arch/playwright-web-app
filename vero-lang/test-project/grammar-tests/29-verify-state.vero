@@ -1,28 +1,65 @@
 # Test: State Assertions
-# Category: Assertions - State
+# Category: Assertions - State (Updated to PAGEACTIONS Pattern)
 
-page StatePage {
-    field submitBtn = "Submit"
-    field checkbox = "#agree"
-    field input = "#email"
+PAGE StatePage {
+    FIELD submitBtn = "Submit"
+    FIELD checkbox = "#agree"
+    FIELD input = "#email"
+    FIELD disabledButton = "Disabled Button"
 }
 
-feature StateAssertions {
-    use StatePage
+PAGEACTIONS StatePageActions FOR StatePage {
+    isSubmitEnabled RETURNS FLAG {
+        RETURN ENABLED OF submitBtn
+    }
 
-    scenario "State checks" {
-        # Enabled/Disabled
-        verify "Submit" is enabled
-        verify StatePage.submitBtn is enabled
-        verify "Disabled Button" is disabled
-        verify submitBtn is not disabled
+    isCheckboxChecked RETURNS FLAG {
+        RETURN CHECKED OF checkbox
+    }
 
-        # Checked
-        verify checkbox is checked
-        verify StatePage.checkbox is not checked
+    isInputEmpty RETURNS FLAG {
+        RETURN VISIBLE OF input
+    }
 
-        # Empty
-        verify input is empty
-        verify StatePage.input is not empty
+    isDisabledButtonDisabled RETURNS FLAG {
+        RETURN VISIBLE OF disabledButton
+    }
+
+    checkCheckbox {
+        CHECK checkbox
+    }
+
+    enterEmail WITH value {
+        FILL input WITH value
+    }
+
+    clickSubmit {
+        CLICK submitBtn
+    }
+}
+
+FEATURE StateAssertions {
+    USE StatePageActions
+
+    SCENARIO StateChecks {
+        # Enabled/Disabled via getters
+        FLAG isEnabled = PERFORM StatePageActions.isSubmitEnabled
+        VERIFY isEnabled IS TRUE
+
+        # Checked state via getters
+        FLAG isChecked = PERFORM StatePageActions.isCheckboxChecked
+        VERIFY isChecked IS NOT TRUE
+
+        PERFORM StatePageActions.checkCheckbox
+        FLAG nowChecked = PERFORM StatePageActions.isCheckboxChecked
+        VERIFY nowChecked IS TRUE
+
+        # Empty state
+        FLAG isEmpty = PERFORM StatePageActions.isInputEmpty
+        VERIFY isEmpty IS TRUE
+
+        # Direct verification (still allowed)
+        VERIFY "Submit" IS ENABLED
+        VERIFY "Disabled Button" IS DISABLED
     }
 }

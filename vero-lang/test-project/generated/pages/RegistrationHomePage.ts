@@ -10,21 +10,8 @@ export class RegistrationHomePage {
   constructor(page: Page) {
     this.page = page;
     this.heroHeading = page.getByText('h1.hero-title');
-    this.signUpButton = page.locator('button:has-text('Sign Up')');
-    this.loginLink = page.locator('a:has-text('Log In')');
-    this.searchInput = page.locator('[placeholder='Search...']');
-  }
-
-  async navigateToSignUp() {
-    await test.step('Click RegistrationHomePage.signUpButton', async () => { await this.signUpButton.click(); });
-  }
-
-  async navigateToLogin() {
-    await test.step('Click RegistrationHomePage.loginLink', async () => { await this.loginLink.click(); });
-  }
-
-  async search(query: string) {
-    await test.step('Fill RegistrationHomePage.searchInput', async () => { await this.searchInput.fill(query); });
-    await test.step('Press Enter', async () => { await page.keyboard.press('Enter'); });
+    this.signUpButton = page.locator('button:has-text(\'Sign Up\')');
+    this.loginLink = page.locator('a:has-text(\'Log In\')');
+    this.searchInput = page.locator('[placeholder=\'Search...\']');
   }
 }

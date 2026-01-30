@@ -1,0 +1,26 @@
+FEATURE Login {
+    USE LoginPageActions
+
+    BEFORE EACH {
+        OPEN "/login"
+        PERFORM LoginPageActions.awaitLoginPage
+    }
+
+    SCENARIO UserCanLogin @smoke {
+        PERFORM LoginPageActions.login WITH "test@example.com", "secret"
+
+        # Assertion in scenario
+        FLAG hasError = PERFORM LoginPageActions.isErrorVisible
+        VERIFY hasError IS NOT TRUE
+    }
+
+    SCENARIO LoginWithInvalidCredentials @negative {
+        PERFORM LoginPageActions.login WITH "invalid@example.com", "wrongpass"
+
+        FLAG hasError = PERFORM LoginPageActions.isErrorVisible
+        VERIFY hasError IS TRUE
+
+        TEXT errorMsg = PERFORM LoginPageActions.getErrorText
+        VERIFY errorMsg CONTAINS "Invalid"
+    }
+}

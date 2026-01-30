@@ -1,88 +1,144 @@
 # Test: Complete Search Functionality
-# Category: Integration - Search
+# Category: Integration - Search (New PAGEACTIONS Pattern)
 
-page SearchPage {
-    field searchInput = "#search-input"
-    field searchBtn = "Search"
-    field results = ".search-results"
-    field resultItem = ".result-item"
-    field noResults = ".no-results"
-    field loadMore = "Load More"
-    field filterCategory = "#category-filter"
-    field filterPrice = "#price-filter"
-    field sortDropdown = "#sort-by"
+PAGE SearchPage {
+    FIELD searchInput = "#search-input"
+    FIELD searchBtn = "Search"
+    FIELD results = ".search-results"
+    FIELD resultItem = ".result-item"
+    FIELD noResults = ".no-results"
+    FIELD loadMore = "Load More"
+    FIELD filterCategory = "#category-filter"
+    FIELD filterPrice = "#price-filter"
+    FIELD sortDropdown = "#sort-by"
+}
 
-    search with query {
-        fill searchInput with query
-        click searchBtn
-        wait 2 seconds
+PAGEACTIONS SearchPageActions FOR SearchPage {
+    enterSearchQuery WITH query {
+        FILL searchInput WITH query
+    }
+
+    clickSearch {
+        CLICK searchBtn
+    }
+
+    search WITH query {
+        FILL searchInput WITH query
+        CLICK searchBtn
+        WAIT 2 SECONDS
     }
 
     clearSearch {
-        clear searchInput
+        CLEAR searchInput
     }
 
-    applyFilter with category {
-        select category from filterCategory
-        wait 1 seconds
+    applyFilter WITH category {
+        SELECT category FROM filterCategory
+        WAIT 1 SECONDS
     }
 
-    sortBy with option {
-        select option from sortDropdown
-        wait 1 seconds
+    sortBy WITH option {
+        SELECT option FROM sortDropdown
+        WAIT 1 SECONDS
+    }
+
+    clickLoadMore {
+        CLICK loadMore
+    }
+
+    isResultsVisible RETURNS FLAG {
+        RETURN VISIBLE OF results
+    }
+
+    isResultItemVisible RETURNS FLAG {
+        RETURN VISIBLE OF resultItem
+    }
+
+    isNoResultsVisible RETURNS FLAG {
+        RETURN VISIBLE OF noResults
+    }
+
+    isLoadMoreVisible RETURNS FLAG {
+        RETURN VISIBLE OF loadMore
+    }
+
+    awaitSearchPage {
+        WAIT FOR searchInput
     }
 }
 
-feature SearchFunctionality {
-    use SearchPage
+FEATURE SearchFunctionality {
+    USE SearchPageActions
 
-    before each {
-        open "/search"
-        wait 1 seconds
+    BEFORE EACH {
+        OPEN "/search"
+        WAIT 1 SECONDS
     }
 
-    scenario "Basic search" @smoke {
-        do SearchPage.search with "laptop"
-        verify SearchPage.results is visible
-        verify SearchPage.resultItem is visible
+    SCENARIO BasicSearch @smoke {
+        PERFORM SearchPageActions.search WITH "laptop"
+
+        FLAG hasResults = PERFORM SearchPageActions.isResultsVisible
+        VERIFY hasResults IS TRUE
+
+        FLAG hasItems = PERFORM SearchPageActions.isResultItemVisible
+        VERIFY hasItems IS TRUE
     }
 
-    scenario "No results" @regression {
-        do SearchPage.search with "xyznonexistent123456"
-        verify SearchPage.noResults is visible
-        verify SearchPage.results is not visible
+    SCENARIO NoResults @regression {
+        PERFORM SearchPageActions.search WITH "xyznonexistent123456"
+
+        FLAG noResults = PERFORM SearchPageActions.isNoResultsVisible
+        VERIFY noResults IS TRUE
+
+        FLAG hasResults = PERFORM SearchPageActions.isResultsVisible
+        VERIFY hasResults IS NOT TRUE
     }
 
-    scenario "Search with filter" @regression {
-        do SearchPage.search with "phone"
-        do SearchPage.applyFilter with "Electronics"
-        verify SearchPage.results is visible
+    SCENARIO SearchWithFilter @regression {
+        PERFORM SearchPageActions.search WITH "phone"
+        PERFORM SearchPageActions.applyFilter WITH "Electronics"
+
+        FLAG hasResults = PERFORM SearchPageActions.isResultsVisible
+        VERIFY hasResults IS TRUE
     }
 
-    scenario "Search with sort" @regression {
-        do SearchPage.search with "tablet"
-        do SearchPage.sortBy with "Price: Low to High"
-        verify SearchPage.results is visible
+    SCENARIO SearchWithSort @regression {
+        PERFORM SearchPageActions.search WITH "tablet"
+        PERFORM SearchPageActions.sortBy WITH "Price: Low to High"
+
+        FLAG hasResults = PERFORM SearchPageActions.isResultsVisible
+        VERIFY hasResults IS TRUE
     }
 
-    scenario "Clear and new search" @regression {
-        do SearchPage.search with "keyboard"
-        verify SearchPage.results is visible
-        do SearchPage.clearSearch
-        do SearchPage.search with "mouse"
-        verify SearchPage.results is visible
+    SCENARIO ClearAndNewSearch @regression {
+        PERFORM SearchPageActions.search WITH "keyboard"
+
+        FLAG hasResults = PERFORM SearchPageActions.isResultsVisible
+        VERIFY hasResults IS TRUE
+
+        PERFORM SearchPageActions.clearSearch
+        PERFORM SearchPageActions.search WITH "mouse"
+
+        FLAG hasNewResults = PERFORM SearchPageActions.isResultsVisible
+        VERIFY hasNewResults IS TRUE
     }
 
-    scenario "Pagination" @regression {
-        do SearchPage.search with "accessories"
-        repeat 3 times {
-            scroll down
-            wait 1 seconds
+    SCENARIO Pagination @regression {
+        PERFORM SearchPageActions.search WITH "accessories"
+
+        REPEAT 3 TIMES {
+            SCROLL DOWN
+            WAIT 1 SECONDS
         }
-        if SearchPage.loadMore is visible {
-            click SearchPage.loadMore
-            wait 2 seconds
+
+        FLAG hasLoadMore = PERFORM SearchPageActions.isLoadMoreVisible
+        IF hasLoadMore IS TRUE {
+            PERFORM SearchPageActions.clickLoadMore
+            WAIT 2 SECONDS
         }
-        verify SearchPage.results is visible
+
+        FLAG hasResults = PERFORM SearchPageActions.isResultsVisible
+        VERIFY hasResults IS TRUE
     }
 }

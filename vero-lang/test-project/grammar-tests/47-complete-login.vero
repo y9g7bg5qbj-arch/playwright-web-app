@@ -1,74 +1,144 @@
 # Test: Complete Login Flow
-# Category: Integration - Login
+# Category: Integration - Login (New PAGEACTIONS Pattern)
 
-page LoginPage {
-    field emailInput = "input[type='email']"
-    field passwordInput = "input[type='password']"
-    field submitBtn = "button[type='submit']"
-    field errorMsg = ".error-message"
-    field rememberMe = "#remember"
+PAGE LoginPage {
+    FIELD emailInput = "input[type='email']"
+    FIELD passwordInput = "input[type='password']"
+    FIELD submitBtn = "button[type='submit']"
+    FIELD errorMsg = ".error-message"
+    FIELD rememberMe = "#remember"
+}
 
-    login with email, password {
-        fill emailInput with email
-        fill passwordInput with password
-        click submitBtn
+PAGE DashboardPage {
+    FIELD header = ".dashboard-header"
+    FIELD welcomeMsg = ".welcome-message"
+    FIELD logoutBtn = "Logout"
+}
+
+PAGEACTIONS LoginPageActions FOR LoginPage {
+    enterEmail WITH value {
+        FILL emailInput WITH value
     }
 
-    loginWithRemember with email, password {
-        fill emailInput with email
-        fill passwordInput with password
-        check rememberMe
-        click submitBtn
+    enterPassword WITH value {
+        FILL passwordInput WITH value
+    }
+
+    clickSubmit {
+        CLICK submitBtn
+    }
+
+    checkRememberMe {
+        CHECK rememberMe
+    }
+
+    login WITH email, password {
+        FILL emailInput WITH email
+        FILL passwordInput WITH password
+        CLICK submitBtn
+    }
+
+    loginWithRemember WITH email, password {
+        FILL emailInput WITH email
+        FILL passwordInput WITH password
+        CHECK rememberMe
+        CLICK submitBtn
+    }
+
+    isErrorVisible RETURNS FLAG {
+        RETURN VISIBLE OF errorMsg
+    }
+
+    getErrorText RETURNS TEXT {
+        RETURN TEXT OF errorMsg
+    }
+
+    isEmailEmpty RETURNS FLAG {
+        RETURN VISIBLE OF emailInput
+    }
+
+    getEmailValue RETURNS TEXT {
+        RETURN TEXT OF emailInput
+    }
+
+    awaitLoginPage {
+        WAIT FOR emailInput
     }
 }
 
-page DashboardPage {
-    field header = ".dashboard-header"
-    field welcomeMsg = ".welcome-message"
-    field logoutBtn = "Logout"
+PAGEACTIONS DashboardPageActions FOR DashboardPage {
+    clickLogout {
+        CLICK logoutBtn
+    }
 
     logout {
-        click logoutBtn
-        wait 1 seconds
+        CLICK logoutBtn
+        WAIT 1 SECONDS
+    }
+
+    isHeaderVisible RETURNS FLAG {
+        RETURN VISIBLE OF header
+    }
+
+    getWelcomeText RETURNS TEXT {
+        RETURN TEXT OF welcomeMsg
+    }
+
+    awaitDashboard {
+        WAIT FOR header
     }
 }
 
-feature UserAuthentication {
-    use LoginPage
-    use DashboardPage
+FEATURE UserAuthentication {
+    USE LoginPageActions
+    USE DashboardPageActions
 
-    before each {
-        open "/login"
-        wait 1 seconds
+    BEFORE EACH {
+        OPEN "/login"
+        WAIT 1 SECONDS
     }
 
-    after each {
-        take screenshot "test-result"
+    AFTER EACH {
+        TAKE SCREENSHOT "test-result"
     }
 
-    scenario "Valid login" @smoke @critical {
-        do LoginPage.login with "admin@example.com", "password123"
-        wait 2 seconds
-        verify DashboardPage.header is visible
-        verify DashboardPage.welcomeMsg is contains "Welcome"
+    SCENARIO ValidLogin @smoke @critical {
+        PERFORM LoginPageActions.login WITH "admin@example.com", "password123"
+        WAIT 2 SECONDS
+
+        FLAG isHeader = PERFORM DashboardPageActions.isHeaderVisible
+        VERIFY isHeader IS TRUE
+
+        TEXT welcomeText = PERFORM DashboardPageActions.getWelcomeText
+        VERIFY welcomeText CONTAINS "Welcome"
     }
 
-    scenario "Invalid credentials" @regression {
-        do LoginPage.login with "invalid@example.com", "wrongpassword"
-        verify LoginPage.errorMsg is visible
-        verify LoginPage.errorMsg is contains "Invalid"
+    SCENARIO InvalidCredentials @regression {
+        PERFORM LoginPageActions.login WITH "invalid@example.com", "wrongpassword"
+
+        FLAG hasError = PERFORM LoginPageActions.isErrorVisible
+        VERIFY hasError IS TRUE
+
+        TEXT errorText = PERFORM LoginPageActions.getErrorText
+        VERIFY errorText CONTAINS "Invalid"
     }
 
-    scenario "Empty credentials" @regression {
-        click LoginPage.submitBtn
-        verify LoginPage.emailInput is empty
-        verify LoginPage.errorMsg is visible
+    SCENARIO EmptyCredentials @regression {
+        PERFORM LoginPageActions.clickSubmit
+
+        FLAG hasError = PERFORM LoginPageActions.isErrorVisible
+        VERIFY hasError IS TRUE
     }
 
-    scenario "Remember me" @regression {
-        do LoginPage.loginWithRemember with "user@example.com", "password"
-        verify DashboardPage.header is visible
-        do DashboardPage.logout
-        verify LoginPage.emailInput is contains "user@example.com"
+    SCENARIO RememberMe @regression {
+        PERFORM LoginPageActions.loginWithRemember WITH "user@example.com", "password"
+
+        FLAG isHeader = PERFORM DashboardPageActions.isHeaderVisible
+        VERIFY isHeader IS TRUE
+
+        PERFORM DashboardPageActions.logout
+
+        TEXT emailValue = PERFORM LoginPageActions.getEmailValue
+        VERIFY emailValue CONTAINS "user@example.com"
     }
 }

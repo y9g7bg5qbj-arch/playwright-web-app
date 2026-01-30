@@ -1,0 +1,63 @@
+# Example PageActions
+# PageActions contain ALL interactions with Page fields.
+# Features can only access pages through PageActions.
+
+PAGEACTIONS LoginPageActions FOR LoginPage {
+    # Setters
+    enterUsername WITH value {
+        FILL usernameInput WITH value
+    }
+
+    enterPassword WITH value {
+        FILL passwordInput WITH value
+    }
+
+    # Actions
+    clickSubmit {
+        CLICK submitButton
+    }
+
+    # Composite Actions
+    login WITH username, password {
+        FILL usernameInput WITH username
+        FILL passwordInput WITH password
+        CLICK submitButton
+    }
+
+    # Getters
+    isErrorVisible RETURNS FLAG {
+        RETURN VISIBLE OF errorMessage
+    }
+
+    getErrorText RETURNS TEXT {
+        RETURN TEXT OF errorMessage
+    }
+
+    isWelcomeVisible RETURNS FLAG {
+        RETURN VISIBLE OF welcomeMessage
+    }
+
+    # Waiters
+    awaitLoginPage {
+        WAIT FOR usernameInput
+    }
+}
+
+PAGEACTIONS DashboardPageActions FOR DashboardPage {
+    clickLogout {
+        CLICK logoutButton
+    }
+
+    logout {
+        CLICK userMenu
+        CLICK logoutButton
+    }
+
+    isWelcomeVisible RETURNS FLAG {
+        RETURN VISIBLE OF welcomeMessage
+    }
+
+    awaitDashboard {
+        WAIT FOR welcomeMessage
+    }
+}

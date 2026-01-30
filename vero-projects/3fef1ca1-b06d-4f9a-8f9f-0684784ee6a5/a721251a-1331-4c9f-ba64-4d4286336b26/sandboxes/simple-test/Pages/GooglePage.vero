@@ -1,0 +1,7 @@
+# Simple Google Search Page
+
+PAGE GooglePage {
+    FIELD searchBox = "textarea[name='q']"
+    FIELD searchButton = "input[name='btnK']"
+    FIELD results = "#search"
+}

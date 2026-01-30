@@ -1,17 +1,23 @@
 # Example Page Object
-# Define page elements and actions here
+# Pages contain ONLY field definitions and member variables.
+# All actions belong in PageActions files.
 
-page LoginPage
-  url "/login"
+PAGE LoginPage {
+    # Field definitions (UI element selectors)
+    FIELD usernameInput = "input[name='username']"
+    FIELD passwordInput = "input[name='password']"
+    FIELD submitButton = "button[type='submit']"
+    FIELD errorMessage = ".error-message"
+    FIELD welcomeMessage = ".welcome"
 
-  elements:
-    usernameInput: input[name="username"]
-    passwordInput: input[name="password"]
-    submitButton: button[type="submit"]
+    # Member variables (optional)
+    TEXT defaultUsername = "testuser"
+    NUMBER maxAttempts = 3
+    FLAG rememberEnabled = FALSE
+}
 
-  actions:
-    login(username, password):
-      fill usernameInput with username
-      fill passwordInput with password
-      click submitButton
-end
+PAGE DashboardPage {
+    FIELD welcomeMessage = ".welcome-message"
+    FIELD logoutButton = "button:has-text('Logout')"
+    FIELD userMenu = ".user-menu"
+}

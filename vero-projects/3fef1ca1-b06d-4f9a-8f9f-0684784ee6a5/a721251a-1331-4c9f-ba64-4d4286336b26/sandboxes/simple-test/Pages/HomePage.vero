@@ -1,0 +1,8 @@
+# Home Page - Okta Login
+
+PAGE HomePage {
+    FIELD myidOrUsernametextbox = textbox "MyID or Username"
+    FIELD passwordtextbox = textbox "Password"
+    FIELD verifybutton = button "Verify"
+    FIELD launchAppApexUatlink = link "Launch App Apex UAT"
+}

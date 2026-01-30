@@ -1,106 +1,170 @@
 # Test: Complete E-Commerce Checkout Flow
-# Category: Integration - E-Commerce
+# Category: Integration - E-Commerce (New PAGEACTIONS Pattern)
 
-page ProductPage {
-    field productTitle = ".product-title"
-    field price = ".product-price"
-    field addToCartBtn = "Add to Cart"
-    field quantityInput = "#quantity"
+PAGE ProductPage {
+    FIELD productTitle = ".product-title"
+    FIELD price = ".product-price"
+    FIELD addToCartBtn = "Add to Cart"
+    FIELD quantityInput = "#quantity"
+}
+
+PAGE CartPage {
+    FIELD cartItems = ".cart-item"
+    FIELD cartTotal = ".cart-total"
+    FIELD checkoutBtn = "Proceed to Checkout"
+    FIELD emptyCart = ".empty-cart-message"
+}
+
+PAGE CheckoutPage {
+    FIELD shippingAddress = "#address"
+    FIELD shippingCity = "#city"
+    FIELD shippingZip = "#zip"
+    FIELD cardNumber = "#card-number"
+    FIELD cardExpiry = "#expiry"
+    FIELD cardCvv = "#cvv"
+    FIELD placeOrderBtn = "Place Order"
+    FIELD orderConfirmation = ".order-confirmation"
+    FIELD orderNumber = ".order-number"
+}
+
+PAGEACTIONS ProductPageActions FOR ProductPage {
+    clickAddToCart {
+        CLICK addToCartBtn
+    }
 
     addToCart {
-        click addToCartBtn
-        wait 1 seconds
+        CLICK addToCartBtn
+        WAIT 1 SECONDS
     }
 
-    addMultiple with qty {
-        clear quantityInput
-        fill quantityInput with qty
-        click addToCartBtn
+    addMultiple WITH qty {
+        CLEAR quantityInput
+        FILL quantityInput WITH qty
+        CLICK addToCartBtn
+    }
+
+    getProductTitle RETURNS TEXT {
+        RETURN TEXT OF productTitle
+    }
+
+    getPrice RETURNS TEXT {
+        RETURN TEXT OF price
     }
 }
 
-page CartPage {
-    field cartItems = ".cart-item"
-    field cartTotal = ".cart-total"
-    field checkoutBtn = "Proceed to Checkout"
-    field emptyCart = ".empty-cart-message"
+PAGEACTIONS CartPageActions FOR CartPage {
+    clickCheckout {
+        CLICK checkoutBtn
+    }
 
     proceedToCheckout {
-        click checkoutBtn
-        wait 2 seconds
+        CLICK checkoutBtn
+        WAIT 2 SECONDS
+    }
+
+    isCartItemsVisible RETURNS FLAG {
+        RETURN VISIBLE OF cartItems
+    }
+
+    isCartTotalVisible RETURNS FLAG {
+        RETURN VISIBLE OF cartTotal
+    }
+
+    isEmptyCartVisible RETURNS FLAG {
+        RETURN VISIBLE OF emptyCart
+    }
+
+    isCheckoutDisabled RETURNS FLAG {
+        RETURN VISIBLE OF checkoutBtn
     }
 }
 
-page CheckoutPage {
-    field shippingAddress = "#address"
-    field shippingCity = "#city"
-    field shippingZip = "#zip"
-    field cardNumber = "#card-number"
-    field cardExpiry = "#expiry"
-    field cardCvv = "#cvv"
-    field placeOrderBtn = "Place Order"
-    field orderConfirmation = ".order-confirmation"
-    field orderNumber = ".order-number"
-
-    fillShipping with address, city, zip {
-        fill shippingAddress with address
-        fill shippingCity with city
-        fill shippingZip with zip
+PAGEACTIONS CheckoutPageActions FOR CheckoutPage {
+    fillShipping WITH address, city, zip {
+        FILL shippingAddress WITH address
+        FILL shippingCity WITH city
+        FILL shippingZip WITH zip
     }
 
-    fillPayment with card, expiry, cvv {
-        fill cardNumber with card
-        fill cardExpiry with expiry
-        fill cardCvv with cvv
+    fillPayment WITH card, expiry, cvv {
+        FILL cardNumber WITH card
+        FILL cardExpiry WITH expiry
+        FILL cardCvv WITH cvv
+    }
+
+    clickPlaceOrder {
+        CLICK placeOrderBtn
+    }
+
+    isOrderConfirmationVisible RETURNS FLAG {
+        RETURN VISIBLE OF orderConfirmation
+    }
+
+    isOrderNumberVisible RETURNS FLAG {
+        RETURN VISIBLE OF orderNumber
+    }
+
+    getOrderNumber RETURNS TEXT {
+        RETURN TEXT OF orderNumber
     }
 }
 
-feature CheckoutFlow {
-    use ProductPage
-    use CartPage
-    use CheckoutPage
+FEATURE CheckoutFlow {
+    USE ProductPageActions
+    USE CartPageActions
+    USE CheckoutPageActions
 
-    before each {
-        open "/products"
+    BEFORE EACH {
+        OPEN "/products"
     }
 
-    after each {
-        take screenshot "checkout-result"
+    AFTER EACH {
+        TAKE SCREENSHOT "checkout-result"
     }
 
-    scenario "Complete checkout" @smoke @critical {
+    SCENARIO CompleteCheckout @smoke @critical {
         # Add product to cart
-        do ProductPage.addToCart
-        verify CartPage.cartItems is visible
+        PERFORM ProductPageActions.addToCart
+
+        FLAG hasItems = PERFORM CartPageActions.isCartItemsVisible
+        VERIFY hasItems IS TRUE
 
         # Proceed to checkout
-        do CartPage.proceedToCheckout
+        PERFORM CartPageActions.proceedToCheckout
 
         # Fill shipping info
-        do CheckoutPage.fillShipping with "123 Main St", "New York", "10001"
+        PERFORM CheckoutPageActions.fillShipping WITH "123 Main St", "New York", "10001"
 
         # Fill payment info
-        do CheckoutPage.fillPayment with "4111111111111111", "12/25", "123"
+        PERFORM CheckoutPageActions.fillPayment WITH "4111111111111111", "12/25", "123"
 
         # Place order
-        click CheckoutPage.placeOrderBtn
-        wait 3 seconds
+        PERFORM CheckoutPageActions.clickPlaceOrder
+        WAIT 3 SECONDS
 
         # Verify confirmation
-        verify CheckoutPage.orderConfirmation is visible
-        verify CheckoutPage.orderNumber is visible
-        take screenshot "order-confirmation"
+        FLAG isConfirmed = PERFORM CheckoutPageActions.isOrderConfirmationVisible
+        VERIFY isConfirmed IS TRUE
+
+        FLAG hasOrderNumber = PERFORM CheckoutPageActions.isOrderNumberVisible
+        VERIFY hasOrderNumber IS TRUE
+
+        TAKE SCREENSHOT "order-confirmation"
     }
 
-    scenario "Multiple items checkout" @regression {
-        do ProductPage.addMultiple with 3
-        verify CartPage.cartTotal is visible
-        do CartPage.proceedToCheckout
+    SCENARIO MultipleItemsCheckout @regression {
+        PERFORM ProductPageActions.addMultiple WITH "3"
+
+        FLAG hasTotal = PERFORM CartPageActions.isCartTotalVisible
+        VERIFY hasTotal IS TRUE
+
+        PERFORM CartPageActions.proceedToCheckout
     }
 
-    scenario "Empty cart checkout" @regression {
-        open "/cart"
-        verify CartPage.emptyCart is visible
-        verify CartPage.checkoutBtn is disabled
+    SCENARIO EmptyCartCheckout @regression {
+        OPEN "/cart"
+
+        FLAG isEmpty = PERFORM CartPageActions.isEmptyCartVisible
+        VERIFY isEmpty IS TRUE
     }
 }

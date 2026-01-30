@@ -1,0 +1,68 @@
+# User Registration Feature Tests
+
+FEATURE UserRegistration {
+    USE HomePageActions
+    USE SignUpPageActions
+    USE RegistrationDashboardPageActions
+
+    BEFORE EACH {
+        OPEN "https://example.com"
+    }
+
+    AFTER EACH {
+        TAKE SCREENSHOT
+    }
+
+    SCENARIO UserCanNavigateToSignUpPage @smoke {
+        PERFORM HomePageActions.clickSignUp
+
+        FLAG isFirstNameVisible = PERFORM SignUpPageActions.awaitSignUpPage
+        VERIFY isFirstNameVisible IS TRUE
+    }
+
+    SCENARIO UserCanCompleteRegistration @smoke @critical {
+        PERFORM HomePageActions.clickSignUp
+        PERFORM SignUpPageActions.register WITH "John", "Doe", "john.doe@example.com", "SecurePass123!"
+        WAIT 2 SECONDS
+
+        FLAG isWelcome = PERFORM RegistrationDashboardPageActions.isWelcomeVisible
+        VERIFY isWelcome IS TRUE
+    }
+
+    SCENARIO RegistrationFailsWithoutAcceptingTerms @regression {
+        PERFORM HomePageActions.clickSignUp
+        PERFORM SignUpPageActions.fillRegistrationForm WITH "Jane", "Smith", "jane@example.com", "Password123!"
+        PERFORM SignUpPageActions.clickSubmit
+
+        FLAG hasError = PERFORM SignUpPageActions.isErrorVisible
+        VERIFY hasError IS TRUE
+
+        FLAG isWelcome = PERFORM RegistrationDashboardPageActions.isWelcomeVisible
+        VERIFY isWelcome IS NOT TRUE
+    }
+
+    SCENARIO PasswordFieldsMustMatch @validation {
+        PERFORM HomePageActions.clickSignUp
+        PERFORM SignUpPageActions.enterEmail WITH "test@example.com"
+        PERFORM SignUpPageActions.enterPassword WITH "Password123"
+        PERFORM SignUpPageActions.enterConfirmPassword WITH "DifferentPassword"
+        PERFORM SignUpPageActions.clickSubmit
+
+        FLAG hasError = PERFORM SignUpPageActions.isErrorVisible
+        VERIFY hasError IS TRUE
+    }
+
+    SCENARIO UserCanLogoutAfterRegistration @regression {
+        PERFORM HomePageActions.clickSignUp
+        PERFORM SignUpPageActions.register WITH "Alice", "Wonder", "alice@example.com", "AlicePass123!"
+        WAIT 1 SECONDS
+
+        FLAG isWelcome = PERFORM RegistrationDashboardPageActions.isWelcomeVisible
+        VERIFY isWelcome IS TRUE
+
+        PERFORM RegistrationDashboardPageActions.clickLogout
+
+        FLAG isSignUp = PERFORM HomePageActions.isSignUpVisible
+        VERIFY isSignUp IS TRUE
+    }
+}

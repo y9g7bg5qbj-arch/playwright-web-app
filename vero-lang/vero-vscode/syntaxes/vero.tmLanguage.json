@@ -54,7 +54,7 @@
             "patterns": [
                 {
                     "name": "keyword.control.structure.vero",
-                    "match": "\\b(PAGE|FEATURE|SCENARIO|FIELD|USE)\\b"
+                    "match": "\\b(PAGE|PAGEACTIONS|FEATURE|SCENARIO|FIELD|USE|FOR)\\b"
                 },
                 {
                     "name": "keyword.control.hook.vero",

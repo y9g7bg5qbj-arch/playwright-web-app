@@ -1,11 +1,7 @@
-# Google Search Page
+# SearchHomePage - Field definitions only (protected)
+# Access these fields through SearchHomePageActions
 
-page SearchHomePage {
-    field searchInput = "[name='q']"
-    field searchResults = "#search"
-
-    searchFor with query {
-        fill searchInput with query
-        press "Enter"
-    }
+PAGE SearchHomePage {
+    FIELD searchInput = "[name='q']"
+    FIELD searchResults = "#search"
 }

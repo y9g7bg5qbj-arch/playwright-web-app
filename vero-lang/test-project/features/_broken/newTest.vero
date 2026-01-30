@@ -1,0 +1,13 @@
+# newTest Feature
+
+FEATURE NewTest {
+    USE ExamplePageActions
+
+    BEFORE EACH {
+        OPEN "https://example.com"
+    }
+
+    SCENARIO ExampleTest @smoke {
+        VERIFY "Example" IS VISIBLE
+    }
+}

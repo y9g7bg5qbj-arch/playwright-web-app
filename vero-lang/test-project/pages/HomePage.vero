@@ -7,12 +7,12 @@ PAGE HomePage {
     FIELD aclick = "a:has-text('IANA-managed Reserved Domains')"
     FIELD signUpButton = "button:has-text('Sign Up')"
     FIELD loginLink = "a:has-text('Log In')"
-
-    navigateToSignUp {
-        CLICK HomePage.signUpButton
-    }
-
-    navigateToLogin {
-        CLICK HomePage.loginLink
-    }
+    FIELD myidOrUsernametextbox = "[name='username'], [placeholder*='myID']"
+    FIELD keepMeSignedIntext = "text=Keep me signed in"
+    FIELD nextbutton = "button:has-text('Next')"
+    FIELD passwordtextbox = "[name='password'], [type='password']"
+    FIELD clickelement = "span"
+    FIELD verifybutton = "button:has-text('Verify')"
+    FIELD launchAppApexUatlink = "a:has-text('launch app APEX UAT')"
+    FIELD backToSignInlink = "a:has-text('Back to sign in')"
 }

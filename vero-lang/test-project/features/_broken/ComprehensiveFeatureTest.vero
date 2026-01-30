@@ -1,0 +1,158 @@
+# ============================================
+# COMPREHENSIVE VERO FEATURE FILE
+# Demonstrates ALL working Vero language features
+# ============================================
+
+FEATURE ComprehensiveFeatureTest {
+
+    USE ComprehensivePageActions
+    USE ModalPageActions
+
+    # =====================================================
+    # HOOKS - Setup and teardown
+    # =====================================================
+
+    BEFORE ALL {
+        LOG "Starting ComprehensiveFeatureTest suite"
+    }
+
+    BEFORE EACH {
+        OPEN "https://example.com"
+        WAIT 1 SECONDS
+    }
+
+    AFTER EACH {
+        TAKE SCREENSHOT "after-test"
+    }
+
+    AFTER ALL {
+        LOG "Completed ComprehensiveFeatureTest suite"
+    }
+
+    # =====================================================
+    # NAVIGATION ACTIONS
+    # =====================================================
+
+    SCENARIO TestOpenAndRefreshNavigation @navigation @smoke {
+        OPEN "https://example.com/login"
+        WAIT 1 SECONDS
+        REFRESH
+        LOG "Navigation completed"
+    }
+
+    # =====================================================
+    # CLICK ACTIONS
+    # =====================================================
+
+    SCENARIO TestClickActions @interaction {
+        OPEN "https://example.com"
+        PERFORM ComprehensivePageActions.clickSubmit
+        LOG "Clicked submit button"
+    }
+
+    # =====================================================
+    # FILL ACTIONS
+    # =====================================================
+
+    SCENARIO TestFillActions @interaction @forms {
+        OPEN "https://example.com/form"
+        PERFORM ComprehensivePageActions.enterEmail WITH "test@example.com"
+        PERFORM ComprehensivePageActions.enterPassword WITH "SecurePassword123"
+        PERFORM ComprehensivePageActions.enterUsername WITH "testuser"
+        PERFORM ComprehensivePageActions.enterSearchQuery WITH "search query"
+        LOG "All fill actions completed"
+    }
+
+    # =====================================================
+    # CHECKBOX ACTIONS
+    # =====================================================
+
+    SCENARIO TestCheckActions @interaction @checkboxes {
+        OPEN "https://example.com/preferences"
+        PERFORM ComprehensivePageActions.checkRememberMe
+        PERFORM ComprehensivePageActions.checkTerms
+        LOG "Checkboxes checked"
+    }
+
+    # =====================================================
+    # WAIT ACTIONS
+    # =====================================================
+
+    SCENARIO TestWaitActions @timing {
+        OPEN "https://example.com"
+        WAIT 2 SECONDS
+        WAIT 500 MILLISECONDS
+        LOG "Wait actions completed"
+    }
+
+    # =====================================================
+    # PERFORM (CALL PAGE ACTIONS)
+    # =====================================================
+
+    SCENARIO TestDoPageActions @pageactions {
+        OPEN "https://example.com/login"
+        PERFORM ComprehensivePageActions.login WITH "testuser", "password123"
+        PERFORM ComprehensivePageActions.awaitPageLoad
+        PERFORM ModalPageActions.dismissModal
+        LOG "Page actions completed"
+    }
+
+    # =====================================================
+    # SCREENSHOT AND LOG ACTIONS
+    # =====================================================
+
+    SCENARIO TestTakeScreenshotAndLog @capture @logging {
+        OPEN "https://example.com"
+        LOG "Test started"
+        TAKE SCREENSHOT "homepage-screenshot"
+        PERFORM ComprehensivePageActions.enterSearchQuery WITH "test"
+        TAKE SCREENSHOT "after-search-input"
+        LOG "Test completed successfully"
+    }
+
+    # =====================================================
+    # VERIFY (ASSERTION) ACTIONS
+    # =====================================================
+
+    SCENARIO TestVerifyVisibilityAssertions @assertions {
+        OPEN "https://example.com"
+
+        FLAG isWelcomeVisible = PERFORM ComprehensivePageActions.isWelcomeVisible
+        VERIFY isWelcomeVisible IS TRUE
+
+        FLAG isErrorVisible = PERFORM ComprehensivePageActions.isErrorVisible
+        VERIFY isErrorVisible IS NOT TRUE
+
+        FLAG isLoading = PERFORM ComprehensivePageActions.isLoadingVisible
+        VERIFY isLoading IS NOT TRUE
+
+        LOG "Visibility assertions passed"
+    }
+
+    SCENARIO TestVerifyUrlAssertions @assertions {
+        OPEN "https://example.com/dashboard"
+        VERIFY URL CONTAINS "/dashboard"
+        VERIFY URL EQUAL "https://example.com/dashboard"
+        LOG "URL assertions passed"
+    }
+
+    SCENARIO TestVerifyTitleAssertions @assertions {
+        OPEN "https://example.com"
+        VERIFY TITLE CONTAINS "Example"
+        VERIFY TITLE EQUAL "Example Domain"
+        LOG "Title assertions passed"
+    }
+
+    # =====================================================
+    # TAGS - Multiple tags per scenario
+    # =====================================================
+
+    SCENARIO TestWithMultipleTags @smoke @regression @critical @login {
+        OPEN "https://example.com/login"
+        PERFORM ComprehensivePageActions.enterUsername WITH "admin"
+        PERFORM ComprehensivePageActions.enterPassword WITH "admin123"
+        PERFORM ComprehensivePageActions.clickSubmit
+        WAIT 1 SECONDS
+        LOG "Login test completed"
+    }
+}

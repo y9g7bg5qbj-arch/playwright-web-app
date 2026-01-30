@@ -69,20 +69,20 @@ test.describe('Folder-Based Environment System', () => {
     // Expand project and Production
     await page.locator('text=Production').click();
 
-    // Verify Pages, Features, Data folders exist
+    // Verify Pages, Features, PageActions folders exist
     await expect(page.locator('text=Pages')).toBeVisible();
     await expect(page.locator('text=Features')).toBeVisible();
-    await expect(page.locator('text=Data')).toBeVisible();
+    await expect(page.locator('text=PageActions')).toBeVisible();
   });
 
   test('TC-04: Development Environment Contains Standard Subfolders', async ({ page }) => {
     // Expand project and Development
     await page.locator('text=Development').click();
 
-    // Verify Pages, Features, Data folders exist
+    // Verify Pages, Features, PageActions folders exist
     await expect(page.locator('text=Pages')).toBeVisible();
     await expect(page.locator('text=Features')).toBeVisible();
-    await expect(page.locator('text=Data')).toBeVisible();
+    await expect(page.locator('text=PageActions')).toBeVisible();
   });
 
   test('TC-05: Create First Sandbox Successfully', async ({ page }) => {

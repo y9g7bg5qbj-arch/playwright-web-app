@@ -117,7 +117,7 @@ test.describe('Project Folder Structure', () => {
     nestedProject = await createNestedProject(request, token, applicationId, nestedProjectName);
   });
 
-  test('Test 1: New project has exactly 3 folders (Pages, Features, Data)', async ({ page, request }) => {
+  test('Test 1: New project has exactly 3 folders (Pages, Features, PageActions)', async ({ page, request }) => {
     // Get the files in the project
     const files = await getProjectFiles(request, token, applicationId, nestedProject.veroPath);
 
@@ -127,7 +127,7 @@ test.describe('Project Folder Structure', () => {
     expect(folderNames).toHaveLength(3);
     expect(folderNames).toContain('Pages');
     expect(folderNames).toContain('Features');
-    expect(folderNames).toContain('Data');
+    expect(folderNames).toContain('PageActions');
 
     // Set auth and navigate to editor to take a screenshot
     await setAuthToken(page, token);
@@ -273,7 +273,7 @@ test.describe('Project Folder Structure', () => {
     expect(folderNames).toHaveLength(3);
     expect(folderNames).toContain('Pages');
     expect(folderNames).toContain('Features');
-    expect(folderNames).toContain('Data');
+    expect(folderNames).toContain('PageActions');
 
     // Check Pages folder has example.vero
     const pagesFolder = files.find(f => f.name === 'Pages' && f.type === 'directory');

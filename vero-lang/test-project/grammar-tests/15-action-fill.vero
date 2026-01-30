@@ -1,26 +1,41 @@
 # Test: Fill Action Variations
-# Category: Actions - Fill
+# Category: Actions - Fill (Updated to PAGEACTIONS Pattern)
 
-page FillTestPage {
-    field emailInput = "Email"
-    field passwordInput = "Password"
+PAGE FillTestPage {
+    FIELD emailInput = "Email"
+    FIELD passwordInput = "Password"
+    FIELD quantityInput = "quantity"
 }
 
-feature FillActions {
-    use FillTestPage
+PAGEACTIONS FillTestPageActions FOR FillTestPage {
+    enterEmail WITH value {
+        FILL emailInput WITH value
+    }
 
-    scenario "Fill variations" {
-        # Fill with string value
-        fill "email" with "test@example.com"
+    enterPassword WITH value {
+        FILL passwordInput WITH value
+    }
 
-        # Fill with number
-        fill "quantity" with 5
+    enterQuantity WITH qty {
+        FILL quantityInput WITH qty
+    }
+}
 
-        # Fill with page field
-        fill FillTestPage.emailInput with "user@example.com"
+FEATURE FillActions {
+    USE FillTestPageActions
+
+    SCENARIO FillVariations {
+        # Fill with string value via PageActions
+        PERFORM FillTestPageActions.enterEmail WITH "test@example.com"
+
+        # Fill with number via PageActions
+        PERFORM FillTestPageActions.enterQuantity WITH "5"
 
         # Fill with variable
-        text email = "dynamic@example.com"
-        fill emailInput with email
+        TEXT email = "dynamic@example.com"
+        PERFORM FillTestPageActions.enterEmail WITH email
+
+        # Direct fill (still allowed for simple cases)
+        FILL "email" WITH "direct@example.com"
     }
 }

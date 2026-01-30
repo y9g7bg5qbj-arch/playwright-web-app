@@ -1,0 +1,71 @@
+# Comprehensive Vero DSL Test Scenario
+# Tests major keywords and page actions
+
+PAGE TestPage {
+    FIELD heading = "h1"
+    FIELD contentDiv = ".content"
+    FIELD inputField = "#test-input"
+    FIELD submitBtn = "button"
+    FIELD resultText = ".result"
+    FIELD counter = "#counter"
+}
+
+PAGEACTIONS TestPageActions FOR TestPage {
+    enterInput WITH value {
+        FILL inputField WITH value
+    }
+
+    clickSubmit {
+        CLICK submitBtn
+    }
+
+    fillAndSubmit WITH inputValue {
+        FILL inputField WITH inputValue
+        CLICK submitBtn
+        WAIT 1 SECONDS
+    }
+
+    getHeadingText RETURNS TEXT {
+        RETURN TEXT OF heading
+    }
+
+    isHeadingVisible RETURNS FLAG {
+        RETURN VISIBLE OF heading
+    }
+
+    awaitPage {
+        WAIT FOR heading
+    }
+}
+
+FEATURE ComprehensiveTest {
+    USE TestPageActions
+    USE HomePageActions
+
+    BEFORE EACH {
+        OPEN "https://example.com"
+    }
+
+    SCENARIO TestBasicActionsAndAssertions @smoke @comprehensive {
+        LOG "Starting comprehensive test"
+
+        PERFORM TestPageActions.awaitPage
+        FLAG isVisible = PERFORM TestPageActions.isHeadingVisible
+        VERIFY isVisible IS TRUE
+
+        WAIT 2 SECONDS
+
+        PERFORM TestPageActions.fillAndSubmit WITH "test value"
+        PRESS "Escape"
+
+        LOG "All tests completed successfully"
+    }
+
+    SCENARIO ExamplePageNavigation @smoke {
+        OPEN "https://example.com/"
+        PERFORM HomePageActions.awaitHomePage
+        PERFORM HomePageActions.clickLearnMore
+        WAIT 1 SECONDS
+        PERFORM HomePageActions.clickIanaLink
+    }
+}

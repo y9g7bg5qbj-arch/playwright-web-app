@@ -1,0 +1,145 @@
+# ============================================
+# ALL VERO ASSERTION KEYWORDS TEST
+# Testing all VERIFY assertion patterns
+# ============================================
+
+FEATURE AllAssertionsTest {
+    USE AssertionsTestPageActions
+
+    SCENARIO TestVerifyIsVisible @assertions @visiblestate {
+        OPEN "https://example.com"
+        FLAG isWelcome = PERFORM AssertionsTestPageActions.isWelcomeVisible
+        VERIFY isWelcome IS TRUE
+
+        FLAG isSubmit = PERFORM AssertionsTestPageActions.isSubmitBtnVisible
+        VERIFY isSubmit IS TRUE
+
+        FLAG isTitle = PERFORM AssertionsTestPageActions.isPageTitleVisible
+        VERIFY isTitle IS TRUE
+
+        LOG "Visibility assertions passed"
+    }
+
+    SCENARIO TestVerifyIsNotVisible @assertions @notvisible {
+        OPEN "https://example.com"
+        FLAG isError = PERFORM AssertionsTestPageActions.isErrorBannerVisible
+        VERIFY isError IS NOT TRUE
+
+        FLAG isLoading = PERFORM AssertionsTestPageActions.isLoadingSpinnerVisible
+        VERIFY isLoading IS NOT TRUE
+
+        LOG "Not visible assertions passed"
+    }
+
+    SCENARIO TestVerifyIsHidden @assertions @hiddenstate {
+        OPEN "https://example.com"
+        FLAG isError = PERFORM AssertionsTestPageActions.isErrorBannerVisible
+        VERIFY isError IS NOT TRUE
+
+        FLAG isLoading = PERFORM AssertionsTestPageActions.isLoadingSpinnerVisible
+        VERIFY isLoading IS NOT TRUE
+
+        LOG "Hidden assertions passed"
+    }
+
+    SCENARIO TestVerifyIsEnabled @assertions @enabledstate {
+        OPEN "https://example.com/form"
+        FLAG isEmail = PERFORM AssertionsTestPageActions.isEmailInputEnabled
+        VERIFY isEmail IS TRUE
+
+        FLAG isPassword = PERFORM AssertionsTestPageActions.isPasswordInputEnabled
+        VERIFY isPassword IS TRUE
+
+        LOG "Enabled assertions passed"
+    }
+
+    SCENARIO TestVerifyIsDisabled @assertions @disabledstate {
+        OPEN "https://example.com/form"
+        FLAG isDisabled = PERFORM AssertionsTestPageActions.isDisabledBtnDisabled
+        VERIFY isDisabled IS TRUE
+
+        LOG "Disabled assertions passed"
+    }
+
+    SCENARIO TestVerifyIsNotDisabled @assertions @notdisabled {
+        OPEN "https://example.com/form"
+        FLAG isSubmit = PERFORM AssertionsTestPageActions.isSubmitBtnVisible
+        VERIFY isSubmit IS TRUE
+
+        LOG "Not disabled assertions passed"
+    }
+
+    SCENARIO TestVerifyIsChecked @assertions @checkedstate {
+        OPEN "https://example.com/preferences"
+        PERFORM AssertionsTestPageActions.checkAgree
+        FLAG isChecked = PERFORM AssertionsTestPageActions.isAgreeChecked
+        VERIFY isChecked IS TRUE
+
+        LOG "Checked assertions passed"
+    }
+
+    SCENARIO TestVerifyIsEmpty @assertions @emptystate {
+        OPEN "https://example.com/form"
+        FLAG isEmpty = PERFORM AssertionsTestPageActions.isEmailEmpty
+        VERIFY isEmpty IS TRUE
+
+        LOG "Empty assertions passed"
+    }
+
+    SCENARIO TestVerifyIsNotEmpty @assertions @notempty {
+        OPEN "https://example.com/form"
+        PERFORM AssertionsTestPageActions.enterEmail WITH "test@example.com"
+        FLAG isEmpty = PERFORM AssertionsTestPageActions.isEmailEmpty
+        VERIFY isEmpty IS TRUE
+
+        LOG "Not empty assertions passed"
+    }
+
+    SCENARIO TestVerifyUrlContains @assertions @urlcheck {
+        OPEN "https://example.com/dashboard"
+        VERIFY URL CONTAINS "/dashboard"
+        VERIFY URL CONTAINS "example.com"
+        LOG "URL contains passed"
+    }
+
+    SCENARIO TestVerifyUrlEqual @assertions @urlexact {
+        OPEN "https://example.com/"
+        VERIFY URL EQUAL "https://example.com/"
+        LOG "URL equals passed"
+    }
+
+    SCENARIO TestVerifyUrlMatches @assertions @urlregex {
+        OPEN "https://example.com/users/123"
+        VERIFY URL MATCHES "/users/.*"
+        LOG "URL matches passed"
+    }
+
+    SCENARIO TestVerifyTitleContains @assertions @titlecheck {
+        OPEN "https://example.com"
+        VERIFY TITLE CONTAINS "Example"
+        LOG "Title contains passed"
+    }
+
+    SCENARIO TestVerifyTitleEqual @assertions @titleexact {
+        OPEN "https://example.com"
+        VERIFY TITLE EQUAL "Example Domain"
+        LOG "Title equals passed"
+    }
+
+    SCENARIO TestVerifyHasCount @assertions @counting {
+        OPEN "https://example.com/list"
+        NUMBER menuCount = PERFORM AssertionsTestPageActions.getMenuItemCount
+        VERIFY menuCount IS VISIBLE
+
+        LOG "Count assertions passed"
+    }
+
+    SCENARIO TestVerifyHasValue @assertions @valuecheck {
+        OPEN "https://example.com/form"
+        PERFORM AssertionsTestPageActions.enterEmail WITH "test@example.com"
+        TEXT emailValue = PERFORM AssertionsTestPageActions.getEmailValue
+        VERIFY emailValue CONTAINS "test@example.com"
+
+        LOG "Value assertions passed"
+    }
+}

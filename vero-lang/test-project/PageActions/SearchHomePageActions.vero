@@ -1,0 +1,32 @@
+# SearchHomePageActions - Public interface to SearchHomePage
+
+PAGEACTIONS SearchHomePageActions FOR SearchHomePage {
+    # ===== SETTERS =====
+    enterSearchQuery WITH query {
+        FILL searchInput WITH query
+    }
+
+    # ===== COMPOSITE ACTIONS =====
+    searchFor WITH query {
+        FILL searchInput WITH query
+        PRESS "Enter"
+    }
+
+    # ===== GETTERS =====
+    isResultsVisible RETURNS FLAG {
+        RETURN VISIBLE OF searchResults
+    }
+
+    getResultsCount RETURNS NUMBER {
+        RETURN COUNT OF searchResults
+    }
+
+    # ===== WAITERS =====
+    awaitSearchPage {
+        WAIT FOR searchInput
+    }
+
+    awaitResults {
+        WAIT FOR searchResults
+    }
+}

@@ -1,125 +1,241 @@
 # Test: Complete Form Validation
-# Category: Integration - Forms
+# Category: Integration - Forms (New PAGEACTIONS Pattern)
 
-page RegistrationPage {
-    field firstNameInput = "#first-name"
-    field lastNameInput = "#last-name"
-    field emailInput = "#email"
-    field passwordInput = "#password"
-    field confirmPasswordInput = "#confirm-password"
-    field phoneInput = "#phone"
-    field dateOfBirthInput = "#dob"
-    field termsCheckbox = "#terms"
-    field newsletterCheckbox = "#newsletter"
-    field countryDropdown = "#country"
-    field submitBtn = "Create Account"
+PAGE RegistrationPage {
+    FIELD firstNameInput = "#first-name"
+    FIELD lastNameInput = "#last-name"
+    FIELD emailInput = "#email"
+    FIELD passwordInput = "#password"
+    FIELD confirmPasswordInput = "#confirm-password"
+    FIELD phoneInput = "#phone"
+    FIELD dateOfBirthInput = "#dob"
+    FIELD termsCheckbox = "#terms"
+    FIELD newsletterCheckbox = "#newsletter"
+    FIELD countryDropdown = "#country"
+    FIELD submitBtn = "Create Account"
 
     # Error fields
-    field firstNameError = "#first-name-error"
-    field lastNameError = "#last-name-error"
-    field emailError = "#email-error"
-    field passwordError = "#password-error"
-    field confirmPasswordError = "#confirm-password-error"
-    field termsError = "#terms-error"
+    FIELD firstNameError = "#first-name-error"
+    FIELD lastNameError = "#last-name-error"
+    FIELD emailError = "#email-error"
+    FIELD passwordError = "#password-error"
+    FIELD confirmPasswordError = "#confirm-password-error"
+    FIELD termsError = "#terms-error"
 
     # Success
-    field successMessage = ".success-message"
+    FIELD successMessage = ".success-message"
+}
 
-    fillBasicInfo with firstName, lastName, email {
-        fill firstNameInput with firstName
-        fill lastNameInput with lastName
-        fill emailInput with email
+PAGEACTIONS RegistrationPageActions FOR RegistrationPage {
+    # Setters
+    enterFirstName WITH value {
+        FILL firstNameInput WITH value
     }
 
-    fillPassword with password, confirmPassword {
-        fill passwordInput with password
-        fill confirmPasswordInput with confirmPassword
+    enterLastName WITH value {
+        FILL lastNameInput WITH value
     }
 
-    fillOptional with phone, country {
-        fill phoneInput with phone
-        select country from countryDropdown
+    enterEmail WITH value {
+        FILL emailInput WITH value
+    }
+
+    enterPassword WITH value {
+        FILL passwordInput WITH value
+    }
+
+    enterConfirmPassword WITH value {
+        FILL confirmPasswordInput WITH value
+    }
+
+    enterPhone WITH value {
+        FILL phoneInput WITH value
+    }
+
+    selectCountry WITH country {
+        SELECT country FROM countryDropdown
+    }
+
+    # Actions
+    clickSubmit {
+        CLICK submitBtn
     }
 
     acceptTerms {
-        check termsCheckbox
+        CHECK termsCheckbox
     }
 
     subscribeNewsletter {
-        check newsletterCheckbox
+        CHECK newsletterCheckbox
+    }
+
+    clearEmail {
+        CLEAR emailInput
+    }
+
+    # Composite Actions
+    fillBasicInfo WITH firstName, lastName, email {
+        FILL firstNameInput WITH firstName
+        FILL lastNameInput WITH lastName
+        FILL emailInput WITH email
+    }
+
+    fillPassword WITH password, confirmPassword {
+        FILL passwordInput WITH password
+        FILL confirmPasswordInput WITH confirmPassword
+    }
+
+    fillOptional WITH phone, country {
+        FILL phoneInput WITH phone
+        SELECT country FROM countryDropdown
+    }
+
+    # Getters
+    isFirstNameErrorVisible RETURNS FLAG {
+        RETURN VISIBLE OF firstNameError
+    }
+
+    isLastNameErrorVisible RETURNS FLAG {
+        RETURN VISIBLE OF lastNameError
+    }
+
+    isEmailErrorVisible RETURNS FLAG {
+        RETURN VISIBLE OF emailError
+    }
+
+    isPasswordErrorVisible RETURNS FLAG {
+        RETURN VISIBLE OF passwordError
+    }
+
+    isConfirmPasswordErrorVisible RETURNS FLAG {
+        RETURN VISIBLE OF confirmPasswordError
+    }
+
+    isTermsErrorVisible RETURNS FLAG {
+        RETURN VISIBLE OF termsError
+    }
+
+    isSuccessMessageVisible RETURNS FLAG {
+        RETURN VISIBLE OF successMessage
+    }
+
+    getEmailErrorText RETURNS TEXT {
+        RETURN TEXT OF emailError
+    }
+
+    getPasswordErrorText RETURNS TEXT {
+        RETURN TEXT OF passwordError
+    }
+
+    getConfirmPasswordErrorText RETURNS TEXT {
+        RETURN TEXT OF confirmPasswordError
+    }
+
+    awaitRegistrationPage {
+        WAIT FOR firstNameInput
     }
 }
 
-feature FormValidation {
-    use RegistrationPage
+FEATURE FormValidation {
+    USE RegistrationPageActions
 
-    before each {
-        open "/register"
-        wait 1 seconds
+    BEFORE EACH {
+        OPEN "/register"
+        WAIT 1 SECONDS
     }
 
-    after each {
-        take screenshot "form-state"
+    AFTER EACH {
+        TAKE SCREENSHOT "form-state"
     }
 
-    scenario "Successful registration" @smoke @critical {
-        do RegistrationPage.fillBasicInfo with "John", "Doe", "john.doe@example.com"
-        do RegistrationPage.fillPassword with "SecurePass123!", "SecurePass123!"
-        do RegistrationPage.fillOptional with "+1234567890", "United States"
-        do RegistrationPage.acceptTerms
-        click RegistrationPage.submitBtn
-        wait 2 seconds
-        verify RegistrationPage.successMessage is visible
+    SCENARIO SuccessfulRegistration @smoke @critical {
+        PERFORM RegistrationPageActions.fillBasicInfo WITH "John", "Doe", "john.doe@example.com"
+        PERFORM RegistrationPageActions.fillPassword WITH "SecurePass123!", "SecurePass123!"
+        PERFORM RegistrationPageActions.fillOptional WITH "+1234567890", "United States"
+        PERFORM RegistrationPageActions.acceptTerms
+        PERFORM RegistrationPageActions.clickSubmit
+        WAIT 2 SECONDS
+
+        FLAG isSuccess = PERFORM RegistrationPageActions.isSuccessMessageVisible
+        VERIFY isSuccess IS TRUE
     }
 
-    scenario "All fields required" @regression {
-        click RegistrationPage.submitBtn
-        verify RegistrationPage.firstNameError is visible
-        verify RegistrationPage.lastNameError is visible
-        verify RegistrationPage.emailError is visible
-        verify RegistrationPage.passwordError is visible
-        verify RegistrationPage.termsError is visible
+    SCENARIO AllFieldsRequired @regression {
+        PERFORM RegistrationPageActions.clickSubmit
+
+        FLAG hasFirstNameError = PERFORM RegistrationPageActions.isFirstNameErrorVisible
+        VERIFY hasFirstNameError IS TRUE
+
+        FLAG hasLastNameError = PERFORM RegistrationPageActions.isLastNameErrorVisible
+        VERIFY hasLastNameError IS TRUE
+
+        FLAG hasEmailError = PERFORM RegistrationPageActions.isEmailErrorVisible
+        VERIFY hasEmailError IS TRUE
+
+        FLAG hasPasswordError = PERFORM RegistrationPageActions.isPasswordErrorVisible
+        VERIFY hasPasswordError IS TRUE
+
+        FLAG hasTermsError = PERFORM RegistrationPageActions.isTermsErrorVisible
+        VERIFY hasTermsError IS TRUE
     }
 
-    scenario "Invalid email format" @regression {
-        do RegistrationPage.fillBasicInfo with "John", "Doe", "invalid-email"
-        click RegistrationPage.submitBtn
-        verify RegistrationPage.emailError is visible
-        verify RegistrationPage.emailError is contains "valid email"
+    SCENARIO InvalidEmailFormat @regression {
+        PERFORM RegistrationPageActions.fillBasicInfo WITH "John", "Doe", "invalid-email"
+        PERFORM RegistrationPageActions.clickSubmit
+
+        FLAG hasEmailError = PERFORM RegistrationPageActions.isEmailErrorVisible
+        VERIFY hasEmailError IS TRUE
+
+        TEXT errorText = PERFORM RegistrationPageActions.getEmailErrorText
+        VERIFY errorText CONTAINS "valid email"
     }
 
-    scenario "Password mismatch" @regression {
-        do RegistrationPage.fillBasicInfo with "John", "Doe", "john@example.com"
-        do RegistrationPage.fillPassword with "Password123!", "DifferentPassword!"
-        click RegistrationPage.submitBtn
-        verify RegistrationPage.confirmPasswordError is visible
-        verify RegistrationPage.confirmPasswordError is contains "match"
+    SCENARIO PasswordMismatch @regression {
+        PERFORM RegistrationPageActions.fillBasicInfo WITH "John", "Doe", "john@example.com"
+        PERFORM RegistrationPageActions.fillPassword WITH "Password123!", "DifferentPassword!"
+        PERFORM RegistrationPageActions.clickSubmit
+
+        FLAG hasError = PERFORM RegistrationPageActions.isConfirmPasswordErrorVisible
+        VERIFY hasError IS TRUE
+
+        TEXT errorText = PERFORM RegistrationPageActions.getConfirmPasswordErrorText
+        VERIFY errorText CONTAINS "match"
     }
 
-    scenario "Password too weak" @regression {
-        do RegistrationPage.fillBasicInfo with "John", "Doe", "john@example.com"
-        do RegistrationPage.fillPassword with "weak", "weak"
-        click RegistrationPage.submitBtn
-        verify RegistrationPage.passwordError is visible
-        verify RegistrationPage.passwordError is contains "stronger"
+    SCENARIO PasswordTooWeak @regression {
+        PERFORM RegistrationPageActions.fillBasicInfo WITH "John", "Doe", "john@example.com"
+        PERFORM RegistrationPageActions.fillPassword WITH "weak", "weak"
+        PERFORM RegistrationPageActions.clickSubmit
+
+        FLAG hasError = PERFORM RegistrationPageActions.isPasswordErrorVisible
+        VERIFY hasError IS TRUE
+
+        TEXT errorText = PERFORM RegistrationPageActions.getPasswordErrorText
+        VERIFY errorText CONTAINS "stronger"
     }
 
-    scenario "Terms not accepted" @regression {
-        do RegistrationPage.fillBasicInfo with "John", "Doe", "john@example.com"
-        do RegistrationPage.fillPassword with "SecurePass123!", "SecurePass123!"
-        click RegistrationPage.submitBtn
-        verify RegistrationPage.termsError is visible
+    SCENARIO TermsNotAccepted @regression {
+        PERFORM RegistrationPageActions.fillBasicInfo WITH "John", "Doe", "john@example.com"
+        PERFORM RegistrationPageActions.fillPassword WITH "SecurePass123!", "SecurePass123!"
+        PERFORM RegistrationPageActions.clickSubmit
+
+        FLAG hasError = PERFORM RegistrationPageActions.isTermsErrorVisible
+        VERIFY hasError IS TRUE
     }
 
-    scenario "Clear and refill" @regression {
+    SCENARIO ClearAndRefill @regression {
         # Fill with errors
-        fill RegistrationPage.emailInput with "bad-email"
-        click RegistrationPage.submitBtn
-        verify RegistrationPage.emailError is visible
+        PERFORM RegistrationPageActions.enterEmail WITH "bad-email"
+        PERFORM RegistrationPageActions.clickSubmit
+
+        FLAG hasError = PERFORM RegistrationPageActions.isEmailErrorVisible
+        VERIFY hasError IS TRUE
 
         # Clear and correct
-        clear RegistrationPage.emailInput
-        fill RegistrationPage.emailInput with "good@example.com"
-        verify RegistrationPage.emailError is not visible
+        PERFORM RegistrationPageActions.clearEmail
+        PERFORM RegistrationPageActions.enterEmail WITH "good@example.com"
+
+        FLAG noError = PERFORM RegistrationPageActions.isEmailErrorVisible
+        VERIFY noError IS NOT TRUE
     }
 }

@@ -1,0 +1,42 @@
+# AmazonPageActions - Public interface to AmazonPage
+
+PAGEACTIONS AmazonPageActions FOR AmazonPage {
+    # ===== SETTERS =====
+    enterSearchTerm WITH term {
+        FILL searchBox WITH term
+    }
+
+    # ===== ACTIONS =====
+    clickSearch {
+        CLICK searchButton
+    }
+
+    # ===== COMPOSITE ACTIONS =====
+    search WITH term {
+        FILL searchBox WITH term
+        CLICK searchButton
+        WAIT 2 SECONDS
+    }
+
+    # ===== GETTERS =====
+    getFirstResultTitle RETURNS TEXT {
+        RETURN TEXT OF resultTitle
+    }
+
+    getResultsCount RETURNS NUMBER {
+        RETURN COUNT OF searchResults
+    }
+
+    isResultsVisible RETURNS FLAG {
+        RETURN VISIBLE OF searchResults
+    }
+
+    # ===== WAITERS =====
+    awaitAmazonPage {
+        WAIT FOR searchBox
+    }
+
+    awaitResults {
+        WAIT FOR searchResults
+    }
+}

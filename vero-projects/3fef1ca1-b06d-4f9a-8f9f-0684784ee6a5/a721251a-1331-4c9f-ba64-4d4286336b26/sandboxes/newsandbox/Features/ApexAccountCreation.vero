@@ -1,0 +1,13 @@
+FEATURE ApexAccountCreation {
+
+  scenario apex {
+    OPEN "https://farmers.okta.com/app/UserHome?iss=https%3A%2F%2Ffarmers.okta.com&session_hint=AUTHENTICATED"
+    CLICK HomePage.myidOrUsernametextbox
+    FILL HomePage.myidOrUsernametextbox WITH "capp554_td"
+    CLICK HomePage.nextbutton
+    CLICK HomePage.passwordtextbox
+    FILL HomePage.passwordtextbox WITH "Welcome@123"
+    CLICK HomePage.verifybutton
+    CLICK HomePage.launchAppApexUatlink
+  }
+}

@@ -1,0 +1,88 @@
+# E-Commerce Shopping Feature Tests
+
+FEATURE Shopping {
+    USE ShoppingProductPageActions
+    USE CartPageActions
+    USE CheckoutPageActions
+
+    BEFORE EACH {
+        OPEN "https://shop.example.com/products/laptop"
+    }
+
+    SCENARIO UserCanAddProductToCart @smoke {
+        PERFORM ShoppingProductPageActions.awaitProductPage
+
+        FLAG hasTitle = PERFORM ShoppingProductPageActions.getProductTitle
+        VERIFY hasTitle IS VISIBLE
+
+        PERFORM ShoppingProductPageActions.addToCart
+        WAIT 500 MILLISECONDS
+
+        TEXT badgeCount = PERFORM ShoppingProductPageActions.getCartBadgeCount
+        VERIFY badgeCount IS VISIBLE
+    }
+
+    SCENARIO UserCanAddMultipleQuantities @regression {
+        PERFORM ShoppingProductPageActions.addToCartWithQuantity WITH "3"
+        WAIT 1 SECONDS
+
+        TEXT badgeCount = PERFORM ShoppingProductPageActions.getCartBadgeCount
+        VERIFY badgeCount IS VISIBLE
+
+        LOG "Added 3 items to cart"
+    }
+
+    SCENARIO UserCanCompleteCheckout @smoke @e2e {
+        PERFORM ShoppingProductPageActions.addToCart
+        OPEN "https://shop.example.com/cart"
+
+        PERFORM CartPageActions.awaitCartPage
+        NUMBER itemCount = PERFORM CartPageActions.getCartItemCount
+        VERIFY itemCount IS VISIBLE
+
+        PERFORM CartPageActions.proceedToCheckout
+        PERFORM CheckoutPageActions.fillShippingInfo WITH "buyer@test.com", "123 Main St", "New York", "10001"
+        PERFORM CheckoutPageActions.fillPaymentInfo WITH "4111111111111111", "12/25", "123"
+        PERFORM CheckoutPageActions.placeOrder
+        WAIT 3 SECONDS
+
+        FLAG isConfirmed = PERFORM CheckoutPageActions.isOrderConfirmed
+        VERIFY isConfirmed IS TRUE
+
+        TAKE SCREENSHOT "order_complete.png"
+    }
+
+    SCENARIO PromoCodeAppliesDiscount @regression {
+        PERFORM ShoppingProductPageActions.addToCart
+        OPEN "https://shop.example.com/cart"
+
+        PERFORM CartPageActions.applyPromoCode WITH "SAVE20"
+        WAIT 1 SECONDS
+
+        FLAG isPromoSuccess = PERFORM CartPageActions.isPromoSuccess
+        VERIFY isPromoSuccess IS TRUE
+
+        FLAG isPromoError = PERFORM CartPageActions.isPromoError
+        VERIFY isPromoError IS NOT TRUE
+    }
+
+    SCENARIO InvalidPromoCodeShowsError @negative {
+        PERFORM ShoppingProductPageActions.addToCart
+        OPEN "https://shop.example.com/cart"
+
+        PERFORM CartPageActions.applyPromoCode WITH "INVALIDCODE"
+
+        FLAG isPromoError = PERFORM CartPageActions.isPromoError
+        VERIFY isPromoError IS TRUE
+
+        FLAG isPromoSuccess = PERFORM CartPageActions.isPromoSuccess
+        VERIFY isPromoSuccess IS NOT TRUE
+    }
+
+    SCENARIO EmptyCartDisplaysMessage @edge {
+        OPEN "https://shop.example.com/cart"
+
+        FLAG isEmpty = PERFORM CartPageActions.isCartEmpty
+        VERIFY isEmpty IS TRUE
+    }
+}

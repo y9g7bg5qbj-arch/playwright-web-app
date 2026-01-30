@@ -1,0 +1,9 @@
+# Heroku Test App Login Page
+
+PAGE HerokuLoginPage {
+    FIELD usernameInput = "#username"
+    FIELD passwordInput = "#password"
+    FIELD loginButton = "button[type='submit']"
+    FIELD flashMessage = "#flash"
+    FIELD logoutButton = "a[href='/logout']"
+}

@@ -1,23 +1,46 @@
 # Example Feature Test
-# Write your test scenarios using FEATURE/SCENARIO syntax
+# Features USE PageActions and call them with PERFORM.
+# All assertions belong in SCENARIO blocks.
 
-@testId("TC001")
-FEATURE "User Authentication"
+FEATURE UserAuthentication {
+    USE LoginPageActions
+    USE DashboardPageActions
 
-  SCENARIO UserCanLoginWithValidCredentials
-    navigate to "https://example.com/login"
-    fill "Username" with "testuser"
-    fill "Password" with "password123"
-    click "Login" button
-    assert "Dashboard" is visible
-  END
-yutyuoi
-  SCENARIO UserSeesErrorWithInvalidCredentials
-    navigate to "https://example.com/login"
-    fill "Username" with "invalid"
-    fill "Password" with "wrong"
-    click "Login" button
-    assert "Invalid credentials" is visible
-  END
+    BEFORE EACH {
+        OPEN "https://example.com/login"
+        PERFORM LoginPageActions.awaitLoginPage
+    }
 
-END
+    SCENARIO UserCanLoginWithValidCredentials @smoke {
+        PERFORM LoginPageActions.login WITH "testuser", "password123"
+        WAIT 1 SECONDS
+
+        FLAG isWelcome = PERFORM DashboardPageActions.isWelcomeVisible
+        VERIFY isWelcome IS TRUE
+
+        FLAG hasError = PERFORM LoginPageActions.isErrorVisible
+        VERIFY hasError IS NOT TRUE
+    }
+
+    SCENARIO UserSeesErrorWithInvalidCredentials @negative {
+        PERFORM LoginPageActions.login WITH "invalid", "wrong"
+        WAIT 500 MILLISECONDS
+
+        FLAG hasError = PERFORM LoginPageActions.isErrorVisible
+        VERIFY hasError IS TRUE
+
+        TEXT errorText = PERFORM LoginPageActions.getErrorText
+        VERIFY errorText CONTAINS "Invalid"
+    }
+
+    SCENARIO UserCanLogout @regression {
+        PERFORM LoginPageActions.login WITH "testuser", "password123"
+        WAIT 1 SECONDS
+
+        PERFORM DashboardPageActions.awaitDashboard
+        PERFORM DashboardPageActions.logout
+
+        PERFORM LoginPageActions.awaitLoginPage
+        LOG "User logged out successfully"
+    }
+}

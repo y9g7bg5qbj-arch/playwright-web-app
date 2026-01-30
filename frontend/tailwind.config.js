@@ -49,7 +49,7 @@ export default {
       fontSize: {
         'xxs': ['11px', { lineHeight: '14px', letterSpacing: '0.02em' }],
         'xs': ['12px', { lineHeight: '16px' }],
-        'sm': ['13px', { lineHeight: '20px' }], // Slightly smaller default
+        'sm': ['13px', { lineHeight: '20px' }],
         'base': ['14px', { lineHeight: '24px' }],
         'lg': ['16px', { lineHeight: '24px' }],
         'xl': ['18px', { lineHeight: '28px' }],
@@ -66,14 +66,11 @@ export default {
         'sm': '0 1px 2px rgba(0, 0, 0, 0.4)',
         'md': '0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.3)',
         'lg': '0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3)',
-        'glow': 'var(--brand-glow)',
-        'glass': '0 8px 32px 0 rgba(0, 0, 0, 0.37)',
       },
       animation: {
-        'fade-in': 'fadeIn 150ms var(--ease-out)',
-        'slide-up': 'slideUp 200ms var(--ease-out)',
-        'scale-in': 'scaleIn 150ms var(--ease-out)',
-        'pulse-subtle': 'pulseSubtle 3s ease-in-out infinite',
+        'fade-in': 'fadeIn 150ms ease-out',
+        'slide-up': 'slideUp 200ms ease-out',
+        'scale-in': 'scaleIn 150ms ease-out',
       },
       keyframes: {
         fadeIn: {
@@ -87,10 +84,6 @@ export default {
         scaleIn: {
           '0%': { opacity: '0', transform: 'scale(0.95)' },
           '100%': { opacity: '1', transform: 'scale(1)' },
-        },
-        pulseSubtle: {
-          '0%, 100%': { opacity: '1' },
-          '50%': { opacity: '0.8' },
         },
       },
     },

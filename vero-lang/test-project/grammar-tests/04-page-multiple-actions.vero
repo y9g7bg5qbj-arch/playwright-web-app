@@ -1,25 +1,27 @@
-# Test: Page with Multiple Actions
-# Category: Page Objects - Multiple Actions
+# Test: Page with Multiple PAGEACTIONS
+# Category: Page Objects - Multiple Actions (New Pattern)
 
-page CheckoutPage {
-    field cardNumber = "#card-number"
-    field cvv = "#cvv"
-    field expiry = "#expiry"
-    field totalAmount = ".total"
-    field placeOrderBtn = "Place Order"
+PAGE CheckoutPage {
+    FIELD cardNumber = "#card-number"
+    FIELD cvv = "#cvv"
+    FIELD expiry = "#expiry"
+    FIELD totalAmount = ".total"
+    FIELD placeOrderBtn = "Place Order"
+}
 
-    fillCardDetails with card, cvv, expiry {
-        fill cardNumber with card
-        fill cvv with cvv
-        fill expiry with expiry
+PAGEACTIONS CheckoutPageActions FOR CheckoutPage {
+    fillCardDetails WITH card, cvvValue, expiryDate {
+        FILL cardNumber WITH card
+        FILL cvv WITH cvvValue
+        FILL expiry WITH expiryDate
     }
 
-    verifyTotal with expectedAmount {
-        verify totalAmount is contains expectedAmount
+    getTotalAmount RETURNS TEXT {
+        RETURN TEXT OF totalAmount
     }
 
     placeOrder {
-        click placeOrderBtn
-        wait 2 seconds
+        CLICK placeOrderBtn
+        WAIT 2 SECONDS
     }
 }

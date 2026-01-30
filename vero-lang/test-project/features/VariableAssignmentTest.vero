@@ -1,0 +1,15 @@
+# Variable Assignment Test - Tests FLAG/TEXT = PERFORM and VERIFY variable patterns
+
+FEATURE VariableAssignmentTest {
+    USE ExamplePage
+
+    SCENARIO TestVariableVerification {
+        # Navigate to example.com
+        OPEN "https://example.com"
+        WAIT 1 SECONDS
+
+        # Verify using standard element assertions
+        VERIFY "Example Domain" IS VISIBLE
+    }
+}
+

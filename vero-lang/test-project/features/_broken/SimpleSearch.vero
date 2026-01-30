@@ -1,0 +1,41 @@
+# Simple Search Test - Opens Amazon and searches for "pen"
+
+PAGE AmazonSearchPage {
+    FIELD searchInput = "#twotabsearchtextbox"
+    FIELD searchButton = "#nav-search-submit-button"
+}
+
+PAGEACTIONS AmazonSearchPageActions FOR AmazonSearchPage {
+    enterSearchTerm WITH term {
+        FILL searchInput WITH term
+    }
+
+    clickSearch {
+        CLICK searchButton
+    }
+
+    search WITH term {
+        FILL searchInput WITH term
+        CLICK searchButton
+    }
+
+    awaitSearchPage {
+        WAIT FOR searchInput
+    }
+}
+
+FEATURE SimpleSearch {
+    USE AmazonSearchPageActions
+
+    BEFORE EACH {
+        OPEN "https://www.amazon.com"
+        PERFORM AmazonSearchPageActions.awaitSearchPage
+    }
+
+    SCENARIO SearchForPenOnAmazon @smoke {
+        WAIT 2 SECONDS
+        PERFORM AmazonSearchPageActions.search WITH "pen"
+        WAIT 2 SECONDS
+        VERIFY "pen" IS VISIBLE
+    }
+}

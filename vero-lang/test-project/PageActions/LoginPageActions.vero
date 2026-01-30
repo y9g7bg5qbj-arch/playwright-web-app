@@ -1,0 +1,55 @@
+# LoginPageActions - Public interface to LoginPage
+# All interactions with LoginPage go through these actions
+
+PAGEACTIONS LoginPageActions FOR LoginPage {
+    # ===== SETTERS =====
+    enterEmail WITH value {
+        FILL emailInput WITH value
+    }
+
+    enterPassword WITH value {
+        FILL passwordInput WITH value
+    }
+
+    # ===== ACTIONS =====
+    clickSubmit {
+        CLICK submitBtn
+    }
+
+    checkRememberMe {
+        CHECK rememberMeCheckbox
+    }
+
+    uncheckRememberMe {
+        UNCHECK rememberMeCheckbox
+    }
+
+    # ===== COMPOSITE ACTIONS =====
+    login WITH email, password {
+        FILL emailInput WITH email
+        FILL passwordInput WITH password
+        CLICK submitBtn
+    }
+
+    # ===== GETTERS =====
+    getErrorText RETURNS TEXT {
+        RETURN TEXT OF errorMessage
+    }
+
+    isErrorVisible RETURNS FLAG {
+        RETURN VISIBLE OF errorMessage
+    }
+
+    isSubmitEnabled RETURNS FLAG {
+        RETURN ENABLED OF submitBtn
+    }
+
+    isRememberMeChecked RETURNS FLAG {
+        RETURN CHECKED OF rememberMeCheckbox
+    }
+
+    # ===== WAITERS =====
+    awaitLoginPage {
+        WAIT FOR emailInput
+    }
+}

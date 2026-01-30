@@ -1,0 +1,40 @@
+# Example Feature
+
+FEATURE Example {
+    USE HomePageActions
+
+    SCENARIO ParallelTest1 @parallel {
+        OPEN "https://example.com/"
+        WAIT 3 SECONDS
+        LOG "scenario 1 step"
+    }
+
+    SCENARIO ParallelTest2 @parallel {
+        OPEN "https://example.com/"
+        WAIT 3 SECONDS
+        LOG "scenario 2 step"
+    }
+
+    SCENARIO ParallelTest3 @parallel {
+        OPEN "https://example.com/"
+        WAIT 3 SECONDS
+        LOG "scenario 3 step"
+    }
+
+    SCENARIO ParallelTest4 @parallel {
+        OPEN "https://example.com/"
+        WAIT 3 SECONDS
+        LOG "scenario 4 step"
+    }
+
+    SCENARIO ExampleNavigationTest @smoke {
+        OPEN "https://example.com/"
+        PERFORM HomePageActions.awaitHomePage
+
+        PERFORM HomePageActions.clickLearnMore
+        PERFORM HomePageActions.clickIanaLink
+
+        FLAG isHeaderVisible = PERFORM HomePageActions.isHeaderVisible
+        VERIFY isHeaderVisible IS TRUE
+    }
+}

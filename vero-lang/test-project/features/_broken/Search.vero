@@ -1,0 +1,35 @@
+# Google Search Feature
+
+FEATURE Search {
+    USE SearchHomePageActions
+
+    BEFORE EACH {
+        OPEN "https://www.google.com"
+        PERFORM SearchHomePageActions.awaitSearchPage
+    }
+
+    SCENARIO UserCanSearchForPen @smoke {
+        PERFORM SearchHomePageActions.searchFor WITH "pen"
+        WAIT 2 SECONDS
+
+        # Assertion in scenario
+        FLAG hasResults = PERFORM SearchHomePageActions.isResultsVisible
+        VERIFY hasResults IS TRUE
+    }
+
+    SCENARIO SearchUsingAction @smoke {
+        PERFORM SearchHomePageActions.searchFor WITH "pen"
+        PERFORM SearchHomePageActions.awaitResults
+
+        FLAG hasResults = PERFORM SearchHomePageActions.isResultsVisible
+        VERIFY hasResults IS TRUE
+    }
+
+    SCENARIO MultipleSearchTest @smoke {
+        PERFORM SearchHomePageActions.searchFor WITH "pencil"
+        WAIT 2 SECONDS
+
+        FLAG hasResults = PERFORM SearchHomePageActions.isResultsVisible
+        VERIFY hasResults IS TRUE
+    }
+}

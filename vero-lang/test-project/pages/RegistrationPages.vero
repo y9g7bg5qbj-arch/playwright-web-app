@@ -1,23 +1,10 @@
-# Registration Flow Pages
+# Registration Flow Pages - Field definitions only (protected)
 
 PAGE RegistrationHomePage {
     FIELD heroHeading = "h1.hero-title"
     FIELD signUpButton = "button:has-text('Sign Up')"
     FIELD loginLink = "a:has-text('Log In')"
     FIELD searchInput = "[placeholder='Search...']"
-
-    navigateToSignUp {
-        CLICK RegistrationHomePage.signUpButton
-    }
-
-    navigateToLogin {
-        CLICK RegistrationHomePage.loginLink
-    }
-
-    search WITH query {
-        FILL RegistrationHomePage.searchInput WITH query
-        PRESS "Enter"
-    }
 }
 
 PAGE SignUpPage {
@@ -30,46 +17,12 @@ PAGE SignUpPage {
     FIELD submitBtn = "button:has-text('Create Account')"
     FIELD errorMessage = "[data-testid='error-message']"
     FIELD successMessage = "[data-testid='success-message']"
-
-    fillRegistrationForm WITH firstName, lastName, email, password {
-        FILL SignUpPage.firstNameInput WITH firstName
-        FILL SignUpPage.lastNameInput WITH lastName
-        FILL SignUpPage.emailInput WITH email
-        FILL SignUpPage.passwordInput WITH password
-        FILL SignUpPage.confirmPasswordInput WITH password
-    }
-
-    acceptTerms {
-        CHECK SignUpPage.termsCheckbox
-    }
-
-    submitForm {
-        CLICK SignUpPage.submitBtn
-    }
-
-    register WITH firstName, lastName, email, password {
-        FILL SignUpPage.firstNameInput WITH firstName
-        FILL SignUpPage.lastNameInput WITH lastName
-        FILL SignUpPage.emailInput WITH email
-        FILL SignUpPage.passwordInput WITH password
-        FILL SignUpPage.confirmPasswordInput WITH password
-        CHECK SignUpPage.termsCheckbox
-        CLICK SignUpPage.submitBtn
-    }
 }
 
-PAGE DashboardPage {
+PAGE RegistrationDashboardPage {
     FIELD welcomeMessage = "[data-testid='welcome-message']"
     FIELD userAvatar = "[data-testid='user-avatar']"
     FIELD logoutButton = "button:has-text('Log Out')"
     FIELD settingsLink = "a:has-text('Settings')"
     FIELD notificationBell = "[data-testid='notifications']"
-
-    logout {
-        CLICK DashboardPage.logoutButton
-    }
-
-    openSettings {
-        CLICK DashboardPage.settingsLink
-    }
 }

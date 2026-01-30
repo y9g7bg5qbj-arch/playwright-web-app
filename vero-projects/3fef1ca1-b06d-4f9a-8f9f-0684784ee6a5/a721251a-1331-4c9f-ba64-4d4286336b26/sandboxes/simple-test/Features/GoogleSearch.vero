@@ -1,0 +1,14 @@
+# Simple Google Search Test
+
+FEATURE GoogleSearch {
+    USE GooglePageActions
+
+    SCENARIO SearchForPlaywright @smoke {
+        OPEN "https://www.google.com"
+        PERFORM GooglePageActions.search WITH "Playwright testing"
+        PERFORM GooglePageActions.awaitResults
+
+        FLAG hasResults = PERFORM GooglePageActions.hasResults
+        VERIFY hasResults IS TRUE
+    }
+}

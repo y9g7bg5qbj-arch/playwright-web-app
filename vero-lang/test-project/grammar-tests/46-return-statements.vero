@@ -1,36 +1,39 @@
 # Test: Return Statement Variations
-# Category: Page Actions - Return
+# Category: PageActions - Return (New Pattern)
 
-page ReturnPage {
-    field result = ".result"
+PAGE ReturnPage {
+    FIELD result = ".result"
+    FIELD statusText = ".status"
+}
 
-    # Return without value
-    simpleReturn {
-        click result
-        return
+PAGEACTIONS ReturnPageActions FOR ReturnPage {
+    # Return text of element
+    getResultText RETURNS TEXT {
+        RETURN TEXT OF result
     }
 
-    # Return with string
-    getStringResult {
-        return "success"
+    # Return visibility flag
+    isResultVisible RETURNS FLAG {
+        RETURN VISIBLE OF result
     }
 
-    # Return with number
-    getNumberResult {
-        return 42
+    # Action without return
+    clickResult {
+        CLICK result
     }
 
-    # Return with variable
-    getVariableResult {
-        text value = "computed"
-        return value
+    # Getter with text return
+    getStatusText RETURNS TEXT {
+        RETURN TEXT OF statusText
     }
+}
 
-    # Conditional return
-    conditionalReturn {
-        if result is visible {
-            return "visible"
-        }
-        return "hidden"
+FEATURE ReturnTests {
+    USE ReturnPageActions
+
+    SCENARIO TestReturnStatements {
+        TEXT resultText = PERFORM ReturnPageActions.getResultText
+        FLAG isVisible = PERFORM ReturnPageActions.isResultVisible
+        VERIFY isVisible IS TRUE
     }
 }

@@ -1,22 +1,98 @@
 # P0 Feature Test - Test Annotations, Serial, URL/Title, Upload
+# Updated to PAGEACTIONS Pattern
+
+PAGE LoginPage {
+    FIELD emailInput = "Email"
+    FIELD loginButton = "Login"
+}
+
+PAGE FormPage {
+    FIELD emailField = "#email"
+    FIELD items = ".items"
+    FIELD link = "#link"
+}
+
+PAGE UploadPage {
+    FIELD fileInput = "#fileInput"
+    FIELD multiUpload = "#multiUpload"
+    FIELD submitBtn = "Submit"
+    FIELD uploadAllBtn = "Upload All"
+    FIELD uploadedCount = ".uploaded-count"
+    FIELD successMessage = "Upload successful"
+}
+
+PAGEACTIONS LoginPageActions FOR LoginPage {
+    enterEmail WITH value {
+        FILL emailInput WITH value
+    }
+
+    clickLogin {
+        CLICK loginButton
+    }
+
+    login WITH email {
+        FILL emailInput WITH email
+        CLICK loginButton
+    }
+}
+
+PAGEACTIONS FormPageActions FOR FormPage {
+    getEmailValue RETURNS TEXT {
+        RETURN VALUE OF emailField
+    }
+
+    getItemCount RETURNS NUMBER {
+        RETURN COUNT OF items
+    }
+
+    isEmailVisible RETURNS FLAG {
+        RETURN VISIBLE OF emailField
+    }
+}
+
+PAGEACTIONS UploadPageActions FOR UploadPage {
+    uploadFile WITH filePath {
+        UPLOAD filePath TO fileInput
+    }
+
+    uploadMultipleFiles WITH files {
+        UPLOAD files TO multiUpload
+    }
+
+    clickSubmit {
+        CLICK submitBtn
+    }
+
+    clickUploadAll {
+        CLICK uploadAllBtn
+    }
+
+    isSuccessVisible RETURNS FLAG {
+        RETURN VISIBLE OF successMessage
+    }
+
+    getUploadedCount RETURNS NUMBER {
+        RETURN COUNT OF uploadedCount
+    }
+}
 
 # Feature with @serial annotation - tests run sequentially
 @serial
 FEATURE SerialLoginTests {
+    USE LoginPageActions
+
     SCENARIO FirstLoginTest @smoke {
-        open "https://example.com/login"
-        fill "Email" with "user1@test.com"
-        click "Login"
-        verify url contains "/dashboard"
-        verify title equals "Dashboard"
+        OPEN "https://example.com/login"
+        PERFORM LoginPageActions.login WITH "user1@test.com"
+        VERIFY URL CONTAINS "/dashboard"
+        VERIFY TITLE EQUAL "Dashboard"
     }
 
     SCENARIO SecondLoginTest {
-        open "https://example.com/login"
-        fill "Email" with "user2@test.com"
-        click "Login"
-        verify url equals "https://example.com/dashboard"
-        verify title contains "Dashboard"
+        OPEN "https://example.com/login"
+        PERFORM LoginPageActions.login WITH "user2@test.com"
+        VERIFY URL EQUAL "https://example.com/dashboard"
+        VERIFY TITLE CONTAINS "Dashboard"
     }
 }
 
@@ -24,7 +100,7 @@ FEATURE SerialLoginTests {
 @skip
 FEATURE SkippedFeature {
     SCENARIO ThisTestWillBeSkipped {
-        open "https://example.com"
+        OPEN "https://example.com"
     }
 }
 
@@ -32,7 +108,7 @@ FEATURE SkippedFeature {
 @only
 FEATURE FocusedFeature {
     SCENARIO ThisRuns {
-        open "https://example.com"
+        OPEN "https://example.com"
     }
 }
 
@@ -41,69 +117,80 @@ FEATURE TestAnnotations {
     # @skip - this scenario is skipped
     @skip
     SCENARIO SkippedTest {
-        open "https://example.com"
+        OPEN "https://example.com"
         # This never runs
     }
 
     # @only - run only this test
     @only
     SCENARIO FocusedTest @smoke @regression {
-        open "https://example.com"
-        verify "Welcome" is visible
+        OPEN "https://example.com"
+        VERIFY "Welcome" IS VISIBLE
     }
 
     # @slow - triple the timeout
     @slow
     SCENARIO SlowTest {
-        open "https://example.com/large-page"
-        wait 5 seconds
-        verify "Loaded" is visible
+        OPEN "https://example.com/large-page"
+        WAIT 5 SECONDS
+        VERIFY "Loaded" IS VISIBLE
     }
 
     # @fixme - mark as known issue
     @fixme
     SCENARIO KnownIssueTest {
-        open "https://example.com/buggy"
+        OPEN "https://example.com/buggy"
         # Known to fail, marked as fixme
     }
 }
 
 # Feature testing URL and Title assertions
 FEATURE UrlTitleAssertions {
+    USE FormPageActions
+
     SCENARIO VerifyUrlPatterns {
-        open "https://example.com/dashboard/users"
-        verify url contains "/dashboard"
-        verify url equals "https://example.com/dashboard/users"
-        verify url matches ".*dashboard.*"
+        OPEN "https://example.com/dashboard/users"
+        VERIFY URL CONTAINS "/dashboard"
+        VERIFY URL EQUAL "https://example.com/dashboard/users"
+        VERIFY URL MATCHES ".*dashboard.*"
     }
 
     SCENARIO VerifyTitlePatterns {
-        open "https://example.com"
-        verify title equals "Example Domain"
-        verify title contains "Example"
+        OPEN "https://example.com"
+        VERIFY TITLE EQUAL "Example Domain"
+        VERIFY TITLE CONTAINS "Example"
     }
 
     SCENARIO VerifyElementHasProperties {
-        open "https://example.com/form"
-        verify "#email" has value "test@example.com"
-        verify ".items" has count 5
-        verify "#link" has attribute "href" equal "/home"
+        OPEN "https://example.com/form"
+
+        TEXT emailValue = PERFORM FormPageActions.getEmailValue
+        VERIFY emailValue EQUAL "test@example.com"
+
+        NUMBER itemCount = PERFORM FormPageActions.getItemCount
+        VERIFY itemCount IS 5
     }
 }
 
 # Feature testing file upload
 FEATURE FileUpload {
+    USE UploadPageActions
+
     SCENARIO SingleFileUpload {
-        open "https://example.com/upload"
-        upload "test-files/document.pdf" to "#fileInput"
-        click "Submit"
-        verify "Upload successful" is visible
+        OPEN "https://example.com/upload"
+        PERFORM UploadPageActions.uploadFile WITH "test-files/document.pdf"
+        PERFORM UploadPageActions.clickSubmit
+
+        FLAG isSuccess = PERFORM UploadPageActions.isSuccessVisible
+        VERIFY isSuccess IS TRUE
     }
 
     SCENARIO MultipleFileUpload {
-        open "https://example.com/gallery"
-        upload "images/photo1.jpg", "images/photo2.jpg", "images/photo3.jpg" to "#multiUpload"
-        click "Upload All"
-        verify ".uploaded-count" has count 3
+        OPEN "https://example.com/gallery"
+        PERFORM UploadPageActions.uploadMultipleFiles WITH "images/photo1.jpg", "images/photo2.jpg", "images/photo3.jpg"
+        PERFORM UploadPageActions.clickUploadAll
+
+        NUMBER count = PERFORM UploadPageActions.getUploadedCount
+        VERIFY count IS 3
     }
 }

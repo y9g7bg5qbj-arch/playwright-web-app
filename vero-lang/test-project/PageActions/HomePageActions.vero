@@ -1,0 +1,38 @@
+# HomePageActions - Public interface to HomePage
+
+PAGEACTIONS HomePageActions FOR HomePage {
+    # ===== ACTIONS =====
+    clickSignUp {
+        CLICK signUpButton
+    }
+
+    clickLogin {
+        CLICK loginLink
+    }
+
+    clickLearnMore {
+        CLICK learnMore
+    }
+
+    clickIanaLink {
+        CLICK aclick
+    }
+
+    # ===== GETTERS =====
+    getHeadingText RETURNS TEXT {
+        RETURN TEXT OF heading
+    }
+
+    isHeaderVisible RETURNS FLAG {
+        RETURN VISIBLE OF header
+    }
+
+    isSignUpVisible RETURNS FLAG {
+        RETURN VISIBLE OF signUpButton
+    }
+
+    # ===== WAITERS =====
+    awaitHomePage {
+        WAIT FOR heading
+    }
+}

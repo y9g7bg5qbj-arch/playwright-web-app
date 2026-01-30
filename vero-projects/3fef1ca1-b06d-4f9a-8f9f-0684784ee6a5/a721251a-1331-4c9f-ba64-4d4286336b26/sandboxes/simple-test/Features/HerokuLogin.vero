@@ -1,0 +1,28 @@
+# Heroku App Login Test
+
+FEATURE HerokuLogin {
+    USE HerokuLoginPageActions
+    USE HomePage 
+
+    SCENARIO SuccessfulLogin @smoke {
+        OPEN "https://the-internet.herokuapp.com/login"
+        PERFORM HerokuLoginPageActions.login WITH "tomsmith", "SuperSecretPassword!"
+        PERFORM HerokuLoginPageActions.awaitFlash
+        wait 5 seconds
+        FLAG isLoggedIn = PERFORM HerokuLoginPageActions.isLoggedIn
+        VERIFY isLoggedIn IS TRUE
+
+        TEXT flashText = PERFORM HerokuLoginPageActions.getFlashText
+        VERIFY flashText CONTAINS "secure area"
+    }
+
+  scenario apex {
+    OPEN "https://farmers.okta.com/app/UserHome?iss=https%3A%2F%2Ffarmers.okta.com&session_hint=AUTHENTICATED"
+    CLICK HomePage.myidOrUsernametextbox
+    FILL HomePage.myidOrUsernametextbox WITH "capp554_td"
+    CLICK HomePage.passwordtextbox
+    FILL HomePage.passwordtextbox WITH "Welcome@123"
+    CLICK HomePage.verifybutton
+    CLICK HomePage.launchAppApexUatlink
+  }
+}

@@ -1,16 +1,26 @@
 # Test: Feature with Use Statement
-# Category: Features - Use
+# Category: Features - Use (Updated to PAGEACTIONS Pattern)
 
-page LoginPage {
-    field emailInput = "Email"
-    field submitBtn = "Submit"
+PAGE LoginPage {
+    FIELD emailInput = "Email"
+    FIELD submitBtn = "Submit"
 }
 
-feature FeatureWithUse {
-    use LoginPage
+PAGEACTIONS LoginPageActions FOR LoginPage {
+    enterEmail WITH value {
+        FILL emailInput WITH value
+    }
 
-    scenario "Use login page" {
-        fill LoginPage.emailInput with "test@example.com"
-        click LoginPage.submitBtn
+    clickSubmit {
+        CLICK submitBtn
+    }
+}
+
+FEATURE FeatureWithUse {
+    USE LoginPageActions
+
+    SCENARIO UseLoginPage {
+        PERFORM LoginPageActions.enterEmail WITH "test@example.com"
+        PERFORM LoginPageActions.clickSubmit
     }
 }

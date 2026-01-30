@@ -1,0 +1,143 @@
+# Registration Flow PageActions
+
+PAGEACTIONS RegistrationHomePageActions FOR RegistrationHomePage {
+    # ===== ACTIONS =====
+    clickSignUp {
+        CLICK signUpButton
+    }
+
+    clickLogin {
+        CLICK loginLink
+    }
+
+    # ===== SETTERS =====
+    enterSearchQuery WITH query {
+        FILL searchInput WITH query
+    }
+
+    # ===== COMPOSITE ACTIONS =====
+    search WITH query {
+        FILL searchInput WITH query
+        PRESS "Enter"
+    }
+
+    # ===== GETTERS =====
+    getHeroHeading RETURNS TEXT {
+        RETURN TEXT OF heroHeading
+    }
+
+    isSignUpVisible RETURNS FLAG {
+        RETURN VISIBLE OF signUpButton
+    }
+
+    # ===== WAITERS =====
+    awaitHomePage {
+        WAIT FOR heroHeading
+    }
+}
+
+PAGEACTIONS SignUpPageActions FOR SignUpPage {
+    # ===== SETTERS =====
+    enterFirstName WITH value {
+        FILL firstNameInput WITH value
+    }
+
+    enterLastName WITH value {
+        FILL lastNameInput WITH value
+    }
+
+    enterEmail WITH value {
+        FILL emailInput WITH value
+    }
+
+    enterPassword WITH value {
+        FILL passwordInput WITH value
+    }
+
+    enterConfirmPassword WITH value {
+        FILL confirmPasswordInput WITH value
+    }
+
+    # ===== ACTIONS =====
+    acceptTerms {
+        CHECK termsCheckbox
+    }
+
+    clickSubmit {
+        CLICK submitBtn
+    }
+
+    # ===== COMPOSITE ACTIONS =====
+    fillRegistrationForm WITH firstName, lastName, email, password {
+        FILL firstNameInput WITH firstName
+        FILL lastNameInput WITH lastName
+        FILL emailInput WITH email
+        FILL passwordInput WITH password
+        FILL confirmPasswordInput WITH password
+    }
+
+    register WITH firstName, lastName, email, password {
+        FILL firstNameInput WITH firstName
+        FILL lastNameInput WITH lastName
+        FILL emailInput WITH email
+        FILL passwordInput WITH password
+        FILL confirmPasswordInput WITH password
+        CHECK termsCheckbox
+        CLICK submitBtn
+    }
+
+    # ===== GETTERS =====
+    getErrorText RETURNS TEXT {
+        RETURN TEXT OF errorMessage
+    }
+
+    getSuccessText RETURNS TEXT {
+        RETURN TEXT OF successMessage
+    }
+
+    isErrorVisible RETURNS FLAG {
+        RETURN VISIBLE OF errorMessage
+    }
+
+    isSuccessVisible RETURNS FLAG {
+        RETURN VISIBLE OF successMessage
+    }
+
+    # ===== WAITERS =====
+    awaitSignUpPage {
+        WAIT FOR firstNameInput
+    }
+}
+
+PAGEACTIONS RegistrationDashboardPageActions FOR RegistrationDashboardPage {
+    # ===== ACTIONS =====
+    clickLogout {
+        CLICK logoutButton
+    }
+
+    clickSettings {
+        CLICK settingsLink
+    }
+
+    clickNotifications {
+        CLICK notificationBell
+    }
+
+    # ===== GETTERS =====
+    getWelcomeText RETURNS TEXT {
+        RETURN TEXT OF welcomeMessage
+    }
+
+    isWelcomeVisible RETURNS FLAG {
+        RETURN VISIBLE OF welcomeMessage
+    }
+
+    isAvatarVisible RETURNS FLAG {
+        RETURN VISIBLE OF userAvatar
+    }
+
+    # ===== WAITERS =====
+    awaitDashboard {
+        WAIT FOR welcomeMessage
+    }
+}

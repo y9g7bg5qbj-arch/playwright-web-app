@@ -1,0 +1,21 @@
+# Data-Driven Test Placeholder
+# Note: VDQL queries are defined in grammar but not yet implemented in transpiler
+
+FEATURE DataDrivenTest {
+    USE DataTestPageActions
+
+    SCENARIO BasicFormInteraction @datadriven {
+        OPEN "https://example.com/users"
+        LOG "Data test placeholder"
+
+        FLAG isVisible = PERFORM DataTestPageActions.isUsernameVisible
+        VERIFY isVisible IS TRUE
+    }
+
+    SCENARIO FormSubmissionTest @datadriven {
+        OPEN "https://example.com/form"
+        PERFORM DataTestPageActions.fillAndSubmit WITH "test@example.com"
+        WAIT 1 SECONDS
+        LOG "Form submitted"
+    }
+}

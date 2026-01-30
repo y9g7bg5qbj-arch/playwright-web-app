@@ -1,0 +1,181 @@
+# E-Commerce Shopping PageActions
+
+PAGEACTIONS ShoppingProductPageActions FOR ShoppingProductPage {
+    # ===== SETTERS =====
+    enterQuantity WITH qty {
+        FILL quantityInput WITH qty
+    }
+
+    # ===== ACTIONS =====
+    clickAddToCart {
+        CLICK addToCartBtn
+    }
+
+    clickWishlist {
+        CLICK wishlistBtn
+    }
+
+    # ===== COMPOSITE ACTIONS =====
+    addToCart {
+        CLICK addToCartBtn
+    }
+
+    addToCartWithQuantity WITH quantity {
+        FILL quantityInput WITH quantity
+        CLICK addToCartBtn
+    }
+
+    # ===== GETTERS =====
+    getProductTitle RETURNS TEXT {
+        RETURN TEXT OF productTitle
+    }
+
+    getProductPrice RETURNS TEXT {
+        RETURN TEXT OF productPrice
+    }
+
+    getCartBadgeCount RETURNS TEXT {
+        RETURN TEXT OF cartBadge
+    }
+
+    isReviewsVisible RETURNS FLAG {
+        RETURN VISIBLE OF reviewsSection
+    }
+
+    # ===== WAITERS =====
+    awaitProductPage {
+        WAIT FOR productTitle
+    }
+}
+
+PAGEACTIONS CartPageActions FOR CartPage {
+    # ===== SETTERS =====
+    enterPromoCode WITH code {
+        FILL applyPromoInput WITH code
+    }
+
+    updateQuantity WITH qty {
+        FILL updateQuantityInput WITH qty
+    }
+
+    # ===== ACTIONS =====
+    clickCheckout {
+        CLICK checkoutBtn
+    }
+
+    clickRemoveItem {
+        CLICK removeItemBtn
+    }
+
+    clickApplyPromo {
+        CLICK applyPromoBtn
+    }
+
+    # ===== COMPOSITE ACTIONS =====
+    proceedToCheckout {
+        CLICK checkoutBtn
+    }
+
+    applyPromoCode WITH code {
+        FILL applyPromoInput WITH code
+        CLICK applyPromoBtn
+    }
+
+    # ===== GETTERS =====
+    getCartTotal RETURNS TEXT {
+        RETURN TEXT OF cartTotal
+    }
+
+    isCartEmpty RETURNS FLAG {
+        RETURN VISIBLE OF emptyCartMessage
+    }
+
+    isPromoSuccess RETURNS FLAG {
+        RETURN VISIBLE OF promoSuccessMsg
+    }
+
+    isPromoError RETURNS FLAG {
+        RETURN VISIBLE OF promoErrorMsg
+    }
+
+    getCartItemCount RETURNS NUMBER {
+        RETURN COUNT OF cartItems
+    }
+
+    # ===== WAITERS =====
+    awaitCartPage {
+        WAIT FOR cartItems
+    }
+}
+
+PAGEACTIONS CheckoutPageActions FOR CheckoutPage {
+    # ===== SETTERS =====
+    enterEmail WITH value {
+        FILL emailInput WITH value
+    }
+
+    enterAddress WITH value {
+        FILL addressInput WITH value
+    }
+
+    enterCity WITH value {
+        FILL cityInput WITH value
+    }
+
+    enterZip WITH value {
+        FILL zipInput WITH value
+    }
+
+    enterCardNumber WITH value {
+        FILL cardNumberInput WITH value
+    }
+
+    enterExpiry WITH value {
+        FILL expiryInput WITH value
+    }
+
+    enterCvv WITH value {
+        FILL cvvInput WITH value
+    }
+
+    # ===== ACTIONS =====
+    clickPlaceOrder {
+        CLICK placeOrderBtn
+    }
+
+    # ===== COMPOSITE ACTIONS =====
+    fillShippingInfo WITH email, address, city, zip {
+        FILL emailInput WITH email
+        FILL addressInput WITH address
+        FILL cityInput WITH city
+        FILL zipInput WITH zip
+    }
+
+    fillPaymentInfo WITH cardNumber, expiry, cvv {
+        FILL cardNumberInput WITH cardNumber
+        FILL expiryInput WITH expiry
+        FILL cvvInput WITH cvv
+    }
+
+    placeOrder {
+        CLICK placeOrderBtn
+    }
+
+    # ===== GETTERS =====
+    getOrderNumber RETURNS TEXT {
+        RETURN TEXT OF orderNumber
+    }
+
+    isOrderConfirmed RETURNS FLAG {
+        RETURN VISIBLE OF orderConfirmation
+    }
+
+    # ===== WAITERS =====
+    awaitCheckoutPage {
+        WAIT FOR emailInput
+    }
+
+    awaitOrderConfirmation {
+        WAIT FOR orderConfirmation
+    }
+}

@@ -1,10 +1,7 @@
-# ComprehensivePage - Complete Page Object demonstrating supported Vero field and action syntax
+# ComprehensivePage - Field definitions only (protected)
+# Access these fields through ComprehensivePageActions
 
 PAGE ComprehensivePage {
-    # =====================================================
-    # FIELD DEFINITIONS - Various selector strategies
-    # =====================================================
-
     # Text selectors - matches visible text on page
     FIELD welcomeMessage = "Welcome to Our Site"
     FIELD pageTitle = "Dashboard"
@@ -44,34 +41,6 @@ PAGE ComprehensivePage {
     FIELD itemCount = ".item-count"
     FIELD dataTable = "#data-table"
     FIELD tableRows = "#data-table tbody tr"
-
-    # =====================================================
-    # ACTION DEFINITIONS - Reusable procedures
-    # =====================================================
-
-    verifyPageLoaded {
-        VERIFY ComprehensivePage.welcomeMessage IS VISIBLE
-        VERIFY ComprehensivePage.loadingSpinner IS NOT VISIBLE
-    }
-
-    login WITH username, password {
-        FILL ComprehensivePage.usernameField WITH username
-        FILL ComprehensivePage.passwordInput WITH password
-        CLICK ComprehensivePage.submitButton
-        WAIT 1 SECONDS
-        VERIFY ComprehensivePage.errorMessage IS NOT VISIBLE
-    }
-
-    performSearch WITH query {
-        FILL ComprehensivePage.searchInput WITH query
-        PRESS "Enter"
-        WAIT 2 SECONDS
-    }
-
-    logout {
-        CLICK ComprehensivePage.logoutButton
-        VERIFY ComprehensivePage.loginButton IS VISIBLE
-    }
 }
 
 PAGE ModalPage {
@@ -80,21 +49,4 @@ PAGE ModalPage {
     FIELD closeButton = ".modal .close-btn"
     FIELD confirmButton = ".modal .btn-confirm"
     FIELD inputField = ".modal input[type=text]"
-
-    confirmModal {
-        WAIT 1 SECONDS
-        CLICK ModalPage.confirmButton
-    }
-
-    dismissModal {
-        WAIT 1 SECONDS
-        CLICK ModalPage.closeButton
-        WAIT 500 MILLISECONDS
-    }
-
-    fillAndConfirm WITH inputValue {
-        WAIT 1 SECONDS
-        FILL ModalPage.inputField WITH inputValue
-        CLICK ModalPage.confirmButton
-    }
 }

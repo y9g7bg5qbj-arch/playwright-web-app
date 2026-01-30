@@ -15,7 +15,7 @@ test.describe('ParallelDemo', () => {
     });
   });
 
-  test('GitHub Homepage Check @parallel', async ({ page }, testInfo) => {
+  test('Github Homepage Check @parallel', async ({ page }, testInfo) => {
     await test.step('Navigate to ' + 'https://github.com', async () => { await page.goto('https://github.com'); });
     await test.step('Wait 1 seconds', async () => { await page.waitForTimeout(1000); });
     await expect(page.getByText('GitHub')).toBeVisible();

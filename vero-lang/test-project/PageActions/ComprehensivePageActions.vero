@@ -1,0 +1,169 @@
+# ComprehensivePageActions - Public interface to ComprehensivePage
+
+PAGEACTIONS ComprehensivePageActions FOR ComprehensivePage {
+    # ===== SETTERS =====
+    enterEmail WITH value {
+        FILL emailInput WITH value
+    }
+
+    enterPassword WITH value {
+        FILL passwordInput WITH value
+    }
+
+    enterUsername WITH value {
+        FILL usernameField WITH value
+    }
+
+    enterSearchQuery WITH query {
+        FILL searchInput WITH query
+    }
+
+    selectCountry WITH country {
+        FILL countrySelect WITH country
+    }
+
+    # ===== ACTIONS =====
+    clickSubmit {
+        CLICK submitButton
+    }
+
+    clickLogin {
+        CLICK loginButton
+    }
+
+    clickLogout {
+        CLICK logoutButton
+    }
+
+    clickHome {
+        CLICK homeLink
+    }
+
+    clickDashboard {
+        CLICK dashboardLink
+    }
+
+    checkRememberMe {
+        CHECK rememberMeCheckbox
+    }
+
+    checkTerms {
+        CHECK termsCheckbox
+    }
+
+    # ===== COMPOSITE ACTIONS =====
+    login WITH username, password {
+        FILL usernameField WITH username
+        FILL passwordInput WITH password
+        CLICK submitButton
+        WAIT 1 SECONDS
+    }
+
+    performSearch WITH query {
+        FILL searchInput WITH query
+        PRESS "Enter"
+        WAIT 2 SECONDS
+    }
+
+    logout {
+        CLICK logoutButton
+    }
+
+    # ===== GETTERS =====
+    getWelcomeText RETURNS TEXT {
+        RETURN TEXT OF welcomeMessage
+    }
+
+    getPageTitle RETURNS TEXT {
+        RETURN TEXT OF pageTitle
+    }
+
+    getErrorText RETURNS TEXT {
+        RETURN TEXT OF errorMessage
+    }
+
+    getItemCount RETURNS TEXT {
+        RETURN TEXT OF itemCount
+    }
+
+    isWelcomeVisible RETURNS FLAG {
+        RETURN VISIBLE OF welcomeMessage
+    }
+
+    isLoadingVisible RETURNS FLAG {
+        RETURN VISIBLE OF loadingSpinner
+    }
+
+    isErrorVisible RETURNS FLAG {
+        RETURN VISIBLE OF errorMessage
+    }
+
+    isSuccessVisible RETURNS FLAG {
+        RETURN VISIBLE OF successAlert
+    }
+
+    isLoginButtonVisible RETURNS FLAG {
+        RETURN VISIBLE OF loginButton
+    }
+
+    getTableRowCount RETURNS NUMBER {
+        RETURN COUNT OF tableRows
+    }
+
+    # ===== WAITERS =====
+    awaitPageLoad {
+        WAIT FOR welcomeMessage
+    }
+
+    awaitLoadingComplete {
+        WAIT FOR loadingSpinner
+    }
+}
+
+PAGEACTIONS ModalPageActions FOR ModalPage {
+    # ===== ACTIONS =====
+    clickConfirm {
+        CLICK confirmButton
+    }
+
+    clickClose {
+        CLICK closeButton
+    }
+
+    # ===== SETTERS =====
+    enterInput WITH value {
+        FILL inputField WITH value
+    }
+
+    # ===== COMPOSITE ACTIONS =====
+    confirmModal {
+        WAIT 1 SECONDS
+        CLICK confirmButton
+    }
+
+    dismissModal {
+        WAIT 1 SECONDS
+        CLICK closeButton
+        WAIT 500 MILLISECONDS
+    }
+
+    fillAndConfirm WITH inputValue {
+        WAIT 1 SECONDS
+        FILL inputField WITH inputValue
+        CLICK confirmButton
+    }
+
+    # ===== GETTERS =====
+    getModalTitle RETURNS TEXT {
+        RETURN TEXT OF modalTitle
+    }
+
+    isModalVisible RETURNS FLAG {
+        RETURN VISIBLE OF modalContainer
+    }
+
+    # ===== WAITERS =====
+    awaitModal {
+        WAIT FOR modalContainer
+    }
+}

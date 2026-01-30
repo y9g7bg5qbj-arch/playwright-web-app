@@ -1,13 +1,10 @@
-# LoginPage
+# LoginPage - Field definitions only (protected)
+# Access these fields through LoginPageActions
 
 PAGE LoginPage {
     FIELD emailInput = "[name=email], [type=email], input[placeholder*='Email']"
     FIELD passwordInput = "[name=password], [type=password]"
     FIELD submitBtn = "[type=submit], button:has-text('Sign In')"
-
-    login WITH email, password {
-        FILL LoginPage.emailInput WITH email
-        FILL LoginPage.passwordInput WITH password
-        CLICK LoginPage.submitBtn
-    }
+    FIELD errorMessage = ".error-message, [role=alert]"
+    FIELD rememberMeCheckbox = "[type=checkbox]"
 }

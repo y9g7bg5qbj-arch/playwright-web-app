@@ -1,0 +1,35 @@
+# Test Extended Actions (Phase 1)
+# Tests RIGHT CLICK, DOUBLE CLICK, FORCE CLICK, and DRAG
+
+FEATURE ExtendedActionsDemo {
+
+    SCENARIO TestRightClickForContextMenu @smoke {
+        OPEN "https://example.com"
+        RIGHT CLICK "Menu Item"
+        VERIFY "Context Menu" IS VISIBLE
+    }
+
+    SCENARIO TestDoubleClickForEditMode @smoke {
+        OPEN "https://example.com"
+        DOUBLE CLICK "Editable Cell"
+        VERIFY "Edit Input" IS VISIBLE
+    }
+
+    SCENARIO TestForceClickOnHiddenElement {
+        OPEN "https://example.com"
+        FORCE CLICK "Overlay Button"
+        VERIFY "Action Complete" IS VISIBLE
+    }
+
+    SCENARIO TestDragToAnotherElement @smoke {
+        OPEN "https://example.com"
+        DRAG "Draggable Item" TO "Drop Zone"
+        VERIFY "Item Dropped" IS VISIBLE
+    }
+
+    SCENARIO TestDragToCoordinates {
+        OPEN "https://example.com"
+        DRAG "Movable Element" TO X 200 Y 300
+        VERIFY "Element Moved" IS VISIBLE
+    }
+}

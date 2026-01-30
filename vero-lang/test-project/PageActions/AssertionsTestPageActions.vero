@@ -1,0 +1,95 @@
+# AssertionsTestPage PageActions
+
+PAGE AssertionsTestPage {
+    FIELD welcomeMessage = ".welcome"
+    FIELD errorBanner = ".error-banner"
+    FIELD successAlert = ".success-alert"
+    FIELD pageTitle = "h1"
+    FIELD emailInput = "#email"
+    FIELD passwordInput = "#password"
+    FIELD submitBtn = "[type=submit]"
+    FIELD disabledBtn = ".disabled-btn"
+    FIELD agreeCheckbox = "#agree"
+    FIELD helpLink = "a[href*=help]"
+    FIELD menuItems = ".menu-item"
+    FIELD loadingSpinner = ".loading-spinner"
+    FIELD priceDisplay = ".price"
+}
+
+PAGEACTIONS AssertionsTestPageActions FOR AssertionsTestPage {
+    # ===== SETTERS =====
+    enterEmail WITH value {
+        FILL emailInput WITH value
+    }
+
+    enterPassword WITH value {
+        FILL passwordInput WITH value
+    }
+
+    # ===== ACTIONS =====
+    clickSubmit {
+        CLICK submitBtn
+    }
+
+    checkAgree {
+        CHECK agreeCheckbox
+    }
+
+    # ===== GETTERS =====
+    isWelcomeVisible RETURNS FLAG {
+        RETURN VISIBLE OF welcomeMessage
+    }
+
+    isErrorBannerVisible RETURNS FLAG {
+        RETURN VISIBLE OF errorBanner
+    }
+
+    isSuccessAlertVisible RETURNS FLAG {
+        RETURN VISIBLE OF successAlert
+    }
+
+    isPageTitleVisible RETURNS FLAG {
+        RETURN VISIBLE OF pageTitle
+    }
+
+    isSubmitBtnVisible RETURNS FLAG {
+        RETURN VISIBLE OF submitBtn
+    }
+
+    isLoadingSpinnerVisible RETURNS FLAG {
+        RETURN VISIBLE OF loadingSpinner
+    }
+
+    isEmailInputEnabled RETURNS FLAG {
+        RETURN VISIBLE OF emailInput
+    }
+
+    isPasswordInputEnabled RETURNS FLAG {
+        RETURN VISIBLE OF passwordInput
+    }
+
+    isAgreeChecked RETURNS FLAG {
+        RETURN VISIBLE OF agreeCheckbox
+    }
+
+    isDisabledBtnDisabled RETURNS FLAG {
+        RETURN VISIBLE OF disabledBtn
+    }
+
+    isEmailEmpty RETURNS FLAG {
+        RETURN VISIBLE OF emailInput
+    }
+
+    getMenuItemCount RETURNS NUMBER {
+        RETURN COUNT OF menuItems
+    }
+
+    getEmailValue RETURNS TEXT {
+        RETURN TEXT OF emailInput
+    }
+
+    # ===== WAITERS =====
+    awaitPage {
+        WAIT FOR welcomeMessage
+    }
+}

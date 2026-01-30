@@ -1,0 +1,15 @@
+# Manual Test - Simple Example
+
+FEATURE ManualTest {
+
+    SCENARIO VisitExampleDotCom {
+        OPEN "https://example.com"
+        WAIT 1 SECONDS
+        VERIFY "Example Domain" IS VISIBLE
+    }
+
+    SCENARIO VisitGoogle {
+        OPEN "https://www.google.com"
+        WAIT 1 SECONDS
+    }
+}

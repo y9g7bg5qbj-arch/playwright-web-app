@@ -1,23 +1,67 @@
 # Example Feature Test
 # Write your test scenarios using FEATURE/SCENARIO syntax
 
-@testId("TC001")
-FEATURE "User Authentication"
+PAGE LoginPage {
+    FIELD usernameInput = "Username"
+    FIELD passwordInput = "Password"
+    FIELD loginButton = "Login"
+    FIELD dashboard = "Dashboard"
+    FIELD errorMessage = "Invalid credentials"
+}
 
-  SCENARIO UserCanLoginWithValidCredentials
-    navigate to "https://example.com/login"
-    fill "Username" with "testuser"
-    fill "Password" with "password123"
-    click "Login" button
-    assert "Dashboard" is visible
-  END
-lkjlklk
-  SCENARIO UserSeesErrorWithInvalidCredentials
-    navigate to "https://example.com/login"
-    fill "Username" with "invalid"
-    fill "Password" with "wrong"
-    click "Login" button
-    assert "Invalid credentials" is visible
-  END
+PAGEACTIONS LoginPageActions FOR LoginPage {
+    enterUsername WITH value {
+        FILL usernameInput WITH value
+    }
 
-END
+    enterPassword WITH value {
+        FILL passwordInput WITH value
+    }
+
+    clickLogin {
+        CLICK loginButton
+    }
+
+    login WITH username, password {
+        FILL usernameInput WITH username
+        FILL passwordInput WITH password
+        CLICK loginButton
+    }
+
+    isDashboardVisible RETURNS FLAG {
+        RETURN VISIBLE OF dashboard
+    }
+
+    isErrorVisible RETURNS FLAG {
+        RETURN VISIBLE OF errorMessage
+    }
+
+    awaitLoginPage {
+        WAIT FOR usernameInput
+    }
+}
+
+FEATURE UserAuthentication {
+    USE LoginPageActions
+
+    BEFORE EACH {
+        OPEN "https://example.com/login"
+        PERFORM LoginPageActions.awaitLoginPage
+    }
+
+    SCENARIO UserCanLoginWithValidCredentials @smoke {
+        PERFORM LoginPageActions.login WITH "testuser", "password123"
+        WAIT 1 SECONDS
+
+        FLAG isDashboard = PERFORM LoginPageActions.isDashboardVisible
+        VERIFY isDashboard IS TRUE
+    }
+
+    SCENARIO UserSeesErrorWithInvalidCredentials @negative {
+        PERFORM LoginPageActions.login WITH "invalid", "wrong"
+        WAIT 1 SECONDS
+
+        FLAG hasError = PERFORM LoginPageActions.isErrorVisible
+        VERIFY hasError IS TRUE
+    }
+}

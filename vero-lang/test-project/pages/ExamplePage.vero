@@ -1,4 +1,5 @@
-# Example.com Page
+# Example.com Page - Field definitions only (protected)
+# Access these fields through ExamplePageActions
 
 PAGE ExamplePage {
     FIELD heading = "h1"

@@ -1,25 +1,39 @@
 # Test: Click Action Variations
-# Category: Actions - Click
+# Category: Actions - Click (Updated to PAGEACTIONS Pattern)
 
-page ClickTestPage {
-    field button = "Submit"
-    field link = ".nav-link"
+PAGE ClickTestPage {
+    FIELD button = "Submit"
+    FIELD link = ".nav-link"
+    FIELD primaryButton = ".button-primary"
 }
 
-feature ClickActions {
-    use ClickTestPage
+PAGEACTIONS ClickTestPageActions FOR ClickTestPage {
+    clickButton {
+        CLICK button
+    }
 
-    scenario "Click variations" {
-        # Click with string
-        click "Submit"
+    clickLink {
+        CLICK link
+    }
 
-        # Click with CSS selector
-        click ".button-primary"
+    clickPrimaryButton {
+        CLICK primaryButton
+    }
+}
 
-        # Click with page field
-        click ClickTestPage.button
+FEATURE ClickActions {
+    USE ClickTestPageActions
 
-        # Click with bare identifier
-        click button
+    SCENARIO ClickVariations {
+        # Click with string (direct text)
+        CLICK "Submit"
+
+        # Click with CSS selector (direct)
+        CLICK ".button-primary"
+
+        # Click via PageActions (preferred)
+        PERFORM ClickTestPageActions.clickButton
+        PERFORM ClickTestPageActions.clickLink
+        PERFORM ClickTestPageActions.clickPrimaryButton
     }
 }

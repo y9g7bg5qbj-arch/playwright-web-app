@@ -1,0 +1,22 @@
+# ExamplePageActions - Public interface to ExamplePage
+
+PAGEACTIONS ExamplePageActions FOR ExamplePage {
+    # ===== ACTIONS =====
+    clickLearnMore {
+        CLICK learnMoreLink
+    }
+
+    # ===== GETTERS =====
+    getHeadingText RETURNS TEXT {
+        RETURN TEXT OF heading
+    }
+
+    isHeadingVisible RETURNS FLAG {
+        RETURN VISIBLE OF heading
+    }
+
+    # ===== WAITERS =====
+    awaitExamplePage {
+        WAIT FOR heading
+    }
+}

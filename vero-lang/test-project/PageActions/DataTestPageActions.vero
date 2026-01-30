@@ -1,0 +1,48 @@
+# DataTestPage PageActions
+
+PAGE DataTestPage {
+    FIELD usernameInput = "#username"
+    FIELD emailInput = "#email"
+    FIELD submitBtn = "[type=submit]"
+    FIELD resultMessage = ".result-message"
+}
+
+PAGEACTIONS DataTestPageActions FOR DataTestPage {
+    # ===== SETTERS =====
+    enterUsername WITH value {
+        FILL usernameInput WITH value
+    }
+
+    enterEmail WITH value {
+        FILL emailInput WITH value
+    }
+
+    # ===== ACTIONS =====
+    clickSubmit {
+        CLICK submitBtn
+    }
+
+    # ===== COMPOSITE ACTIONS =====
+    fillAndSubmit WITH email {
+        FILL emailInput WITH email
+        CLICK submitBtn
+    }
+
+    # ===== GETTERS =====
+    isUsernameVisible RETURNS FLAG {
+        RETURN VISIBLE OF usernameInput
+    }
+
+    isResultVisible RETURNS FLAG {
+        RETURN VISIBLE OF resultMessage
+    }
+
+    getResultMessage RETURNS TEXT {
+        RETURN TEXT OF resultMessage
+    }
+
+    # ===== WAITERS =====
+    awaitPage {
+        WAIT FOR usernameInput
+    }
+}

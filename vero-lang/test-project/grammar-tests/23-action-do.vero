@@ -1,43 +1,45 @@
-# Test: Do Action Variations
-# Category: Actions - Do
+# Test: PERFORM Action Variations
+# Category: Actions - PERFORM (formerly DO)
 
-page LoginPage {
-    field emailInput = "Email"
-    field passwordInput = "Password"
-    field submitBtn = "Submit"
+PAGE LoginPage {
+    FIELD emailInput = "Email"
+    FIELD passwordInput = "Password"
+    FIELD submitBtn = "Submit"
+}
 
-    login with email, password {
-        fill emailInput with email
-        fill passwordInput with password
-        click submitBtn
+PAGEACTIONS LoginPageActions FOR LoginPage {
+    login WITH email, password {
+        FILL emailInput WITH email
+        FILL passwordInput WITH password
+        CLICK submitBtn
     }
 
-    quickLogin with email {
-        fill emailInput with email
-        click submitBtn
+    quickLogin WITH email {
+        FILL emailInput WITH email
+        CLICK submitBtn
     }
 
     logout {
-        click "Logout"
+        CLICK "Logout"
     }
 }
 
-feature DoActions {
-    use LoginPage
+FEATURE PerformActions {
+    USE LoginPageActions
 
-    scenario "Do action variations" {
-        # Do without arguments
-        do LoginPage.logout
+    SCENARIO PerformActionVariations {
+        # PERFORM without arguments
+        PERFORM LoginPageActions.logout
 
-        # Do with single argument
-        do LoginPage.quickLogin with "test@example.com"
+        # PERFORM with single argument
+        PERFORM LoginPageActions.quickLogin WITH "test@example.com"
 
-        # Do with multiple arguments
-        do LoginPage.login with "admin@example.com", "password123"
+        # PERFORM with multiple arguments
+        PERFORM LoginPageActions.login WITH "admin@example.com", "password123"
 
-        # Do with variable arguments
-        text email = "user@example.com"
-        text password = "secret"
-        do LoginPage.login with email, password
+        # PERFORM with variable arguments
+        TEXT email = "user@example.com"
+        TEXT password = "secret"
+        PERFORM LoginPageActions.login WITH email, password
     }
 }

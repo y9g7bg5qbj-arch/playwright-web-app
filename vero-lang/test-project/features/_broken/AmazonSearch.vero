@@ -1,0 +1,28 @@
+# Amazon Search Feature
+# Search for soccer ball and get top 3 results
+
+FEATURE AmazonSearch {
+    USE AmazonPageActions
+    USE HomePageActions
+
+    SCENARIO SearchForSoccerBall @smoke {
+        OPEN "https://www.amazon.com"
+        PERFORM AmazonPageActions.awaitAmazonPage
+
+        PERFORM AmazonPageActions.search WITH "soccer ball"
+
+        # Assertion in scenario
+        FLAG hasResults = PERFORM AmazonPageActions.isResultsVisible
+        VERIFY hasResults IS TRUE
+
+        LOG "Search completed - getting top 3 results"
+    }
+
+    SCENARIO ExampleDotComNavigation {
+        OPEN "https://example.com/"
+        PERFORM HomePageActions.awaitHomePage
+
+        PERFORM HomePageActions.clickLearnMore
+        PERFORM HomePageActions.clickIanaLink
+    }
+}

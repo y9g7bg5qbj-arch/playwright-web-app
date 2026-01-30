@@ -1,0 +1,9 @@
+# Simple Test - Minimal Example
+
+FEATURE SimpleTest {
+
+    SCENARIO OpenGoogle {
+        OPEN "https://www.google.com"
+        WAIT 1 SECONDS
+    }
+}

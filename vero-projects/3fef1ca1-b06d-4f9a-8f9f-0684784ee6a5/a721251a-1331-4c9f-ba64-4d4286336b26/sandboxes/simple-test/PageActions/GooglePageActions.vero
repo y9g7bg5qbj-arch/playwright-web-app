@@ -1,0 +1,16 @@
+# Google Page Actions
+
+PAGEACTIONS GooglePageActions FOR GooglePage {
+    search WITH query {
+        FILL searchBox WITH query
+        PRESS "Enter"
+    }
+
+    hasResults RETURNS FLAG {
+        RETURN VISIBLE OF results
+    }
+
+    awaitResults {
+        WAIT FOR results
+    }
+}
