@@ -20,7 +20,7 @@ import {
 const TOKEN_CATEGORIES = {
     keywords: ['page', 'feature', 'scenario', 'field', 'use', 'before', 'after', 'all', 'each', 'if', 'else', 'repeat', 'times', 'with', 'and', 'from', 'to', 'in', 'returns', 'return', 'then', 'as', 'by'],
     selectors: ['button', 'textbox', 'link', 'testId', 'role', 'label', 'placeholder'],
-    actions: ['click', 'fill', 'open', 'check', 'uncheck', 'select', 'hover', 'press', 'scroll', 'wait', 'perform', 'refresh', 'clear', 'take', 'screenshot', 'log'],
+    actions: ['click', 'fill', 'open', 'check', 'uncheck', 'select', 'hover', 'press', 'scroll', 'wait', 'perform', 'do', 'refresh', 'clear', 'take', 'screenshot', 'log'],
     assertions: ['verify', 'is', 'not', 'visible', 'hidden', 'enabled', 'disabled', 'checked', 'contains', 'empty'],
     types: ['text', 'number', 'flag', 'list', 'seconds', 'milliseconds'],
     vdqlKeywords: ['data', 'where', 'order', 'by', 'asc', 'desc', 'limit', 'offset', 'first', 'last', 'random', 'default'],
@@ -135,7 +135,7 @@ export function registerVeroLanguage(monaco: Monaco): void {
                 [/\b(if|else|repeat|times)\b/i, 'keyword.control'],
                 [/\b(with|and|from|to|in|returns|return|then|as|by)\b/i, 'keyword.operator'],
                 [/\b(button|textbox|link|checkbox|heading|combobox|radio|testid|role|label|placeholder|css|xpath|text|alt|title)\b/i, 'type.selector'],
-                [/\b(click|fill|open|check|uncheck|select|hover|press|scroll|wait|do|refresh|clear|take|screenshot|log)\b/i, 'function.action'],
+                [/\b(click|fill|open|check|uncheck|select|hover|press|scroll|wait|perform|do|refresh|clear|take|screenshot|log)\b/i, 'function.action'],
                 [/\b(verify)\b/i, 'keyword.assertion'],
                 [/\b(is|not|visible|hidden|enabled|disabled|checked|contains|empty|has|value|count)\b/i, 'constant.condition'],
                 [/\b(text|number|flag|list|seconds|milliseconds)\b/i, 'type'],
