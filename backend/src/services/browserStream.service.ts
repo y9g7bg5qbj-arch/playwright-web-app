@@ -1231,19 +1231,23 @@ export class BrowserStreamService extends EventEmitter {
     /**
      * Process an action from the iframe proxy (without requiring a browser session)
      * Used when embedding websites via the proxy approach
+     * @param sandboxPath - Optional sandbox directory path (overrides default projectPath)
      */
     async processIframeAction(
         action: CapturedAction,
         currentUrl: string,
-        scenarioName?: string
+        scenarioName?: string,
+        sandboxPath?: string
     ): Promise<{
         veroCode: string;
         pagePath?: string;
         pageCode?: string;
         fieldCreated?: { pageName: string; fieldName: string };
     } | null> {
-        // Initialize registry if needed
-        const registry = initPageObjectRegistry(this.projectPath);
+        // Initialize registry with sandbox path or fallback to default
+        const projectPath = sandboxPath || this.projectPath;
+        logger.debug(`[BrowserStream] processIframeAction using projectPath: ${projectPath}`);
+        const registry = initPageObjectRegistry(projectPath);
         await registry.loadFromDisk();
 
         // Handle keypress actions

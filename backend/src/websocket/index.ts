@@ -410,13 +410,14 @@ export class WebSocketServer {
       };
       url?: string;
       scenarioName?: string;
+      sandboxPath?: string;  // Sandbox directory for field generation
     }) => {
-      logger.info('Iframe action received:', { sessionId: data.sessionId, type: data.action.type });
+      logger.info('Iframe action received:', { sessionId: data.sessionId, type: data.action.type, sandboxPath: data.sandboxPath });
 
       try {
         const { browserStreamService } = await import('../services/browserStream.service');
 
-        // Process the action from iframe
+        // Process the action from iframe - pass sandboxPath for correct field generation
         const result = await browserStreamService.processIframeAction(
           {
             type: data.action.type as any,
@@ -426,7 +427,8 @@ export class WebSocketServer {
             timestamp: data.action.timestamp
           },
           data.url || 'https://example.com',
-          data.scenarioName
+          data.scenarioName,
+          data.sandboxPath  // Pass sandbox path for dynamic project directory
         );
 
         if (result) {

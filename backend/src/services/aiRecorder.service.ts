@@ -2973,16 +2973,45 @@ ${stepsCode}
         // Check if field already exists
         const exists = pageFields[pageName].some(f => f.fieldName === fieldName);
         if (!exists) {
+          // Infer selector type from field name
+          const selectorType = step.selectorType || this.inferSelectorType(fieldName);
+
+          // Generate readable selector from camelCase field name if step.selector is missing
+          // e.g., 'nextbutton' -> 'Next', 'myidOrUsernametextbox' -> 'MyID or Username'
+          let selector = step.selector;
+          if (!selector) {
+            selector = this.fieldNameToReadableSelector(fieldName, selectorType);
+          }
+
           pageFields[pageName].push({
             fieldName,
-            selector: step.selector || fieldName,
-            selectorType: step.selectorType || this.inferSelectorType(fieldName)
+            selector,
+            selectorType
           });
         }
       }
     }
 
     return pageFields;
+  }
+
+  /**
+   * Convert camelCase field name to a human-readable selector
+   * e.g., 'nextbutton' -> 'Next', 'submitBtn' -> 'Submit'
+   * Strips type suffixes like 'button', 'textbox', 'link', 'checkbox'
+   */
+  private fieldNameToReadableSelector(fieldName: string, selectorType: string): string {
+    // Remove common type suffixes (case-insensitive)
+    let cleaned = fieldName.replace(/(button|btn|textbox|input|field|link|checkbox|check|dropdown|select|combobox|text|label)$/i, '');
+
+    // Split camelCase into words: 'myIdOrUsername' -> 'my Id Or Username'
+    cleaned = cleaned.replace(/([a-z])([A-Z])/g, '$1 $2');
+
+    // Capitalize first letter of each word
+    const words = cleaned.split(/\s+/).filter(w => w.length > 0);
+    const readable = words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+
+    return readable || fieldName;
   }
 
   /**
