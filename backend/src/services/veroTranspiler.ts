@@ -485,9 +485,37 @@ function generatePageObject(page: PageDefinition, allPages: PageDefinition[]): s
             const roleName = selector.slice(5);
             output += `    ${name}: (page: Page) => page.getByRole('${roleName}'),\n`;
         } else {
-            // Escape single quotes in selector to avoid JS syntax errors
-            const escapedSelector = selector.replace(/'/g, "\\'");
-            output += `    ${name}: (page: Page) => page.locator('${escapedSelector}'),\n`;
+            // Check for typed selector patterns: textbox "name", button "name", link "name", etc.
+            const typedSelectorMatch = selector.match(/^(textbox|button|link|checkbox|radio|combobox|heading)\s+"([^"]+)"$/i);
+            if (typedSelectorMatch) {
+                const role = typedSelectorMatch[1].toLowerCase();
+                const labelName = typedSelectorMatch[2].replace(/'/g, "\\'");
+                output += `    ${name}: (page: Page) => page.getByRole('${role}', { name: '${labelName}' }),\n`;
+            } else if (selector.match(/^label\s+"([^"]+)"$/i)) {
+                // Handle label "name" -> getByLabel
+                const labelMatch = selector.match(/^label\s+"([^"]+)"$/i)!;
+                const labelText = labelMatch[1].replace(/'/g, "\\'");
+                output += `    ${name}: (page: Page) => page.getByLabel('${labelText}'),\n`;
+            } else if (selector.match(/^placeholder\s+"([^"]+)"$/i)) {
+                // Handle placeholder "name" -> getByPlaceholder
+                const placeholderMatch = selector.match(/^placeholder\s+"([^"]+)"$/i)!;
+                const placeholderText = placeholderMatch[1].replace(/'/g, "\\'");
+                output += `    ${name}: (page: Page) => page.getByPlaceholder('${placeholderText}'),\n`;
+            } else if (selector.match(/^text\s+"([^"]+)"$/i)) {
+                // Handle text "name" -> getByText
+                const textMatch = selector.match(/^text\s+"([^"]+)"$/i)!;
+                const textValue = textMatch[1].replace(/'/g, "\\'");
+                output += `    ${name}: (page: Page) => page.getByText('${textValue}'),\n`;
+            } else if (selector.match(/^testid\s+"([^"]+)"$/i)) {
+                // Handle testid "name" -> getByTestId
+                const testidMatch = selector.match(/^testid\s+"([^"]+)"$/i)!;
+                const testidValue = testidMatch[1].replace(/'/g, "\\'");
+                output += `    ${name}: (page: Page) => page.getByTestId('${testidValue}'),\n`;
+            } else {
+                // Escape single quotes in selector to avoid JS syntax errors
+                const escapedSelector = selector.replace(/'/g, "\\'");
+                output += `    ${name}: (page: Page) => page.locator('${escapedSelector}'),\n`;
+            }
         }
     }
 
@@ -1185,8 +1213,8 @@ function transpileStatement(stmt: string, contextPage?: PageDefinition): string 
 
 /** Console method and prefix mapping for log levels */
 const LOG_LEVEL_CONFIG: Record<string, { consoleMethod: string; prefix: string }> = {
-    info:  { consoleMethod: 'log',   prefix: '[INFO] ' },
-    warn:  { consoleMethod: 'warn',  prefix: '[WARN] ' },
+    info: { consoleMethod: 'log', prefix: '[INFO] ' },
+    warn: { consoleMethod: 'warn', prefix: '[WARN] ' },
     error: { consoleMethod: 'error', prefix: '[ERROR] ' },
     debug: { consoleMethod: 'debug', prefix: '[DEBUG] ' },
 };
