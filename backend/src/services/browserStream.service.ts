@@ -923,7 +923,7 @@ export class BrowserStreamService extends EventEmitter {
         selectorName: string,
         playwrightLocator: string
     ): Promise<{ pagePath: string; pageCode: string }> {
-        const pagePath = join(this.projectPath, 'pages', `${pageName}.vero`);
+        const pagePath = join(this.projectPath, 'Pages', `${pageName}.vero`);
 
         // Convert Playwright locator to Vero selector syntax
         const veroSelector = this.convertPlaywrightLocatorToVero(playwrightLocator);
@@ -993,7 +993,7 @@ export class BrowserStreamService extends EventEmitter {
      * Load existing page objects from .vero files
      */
     private async loadPageObjects(): Promise<void> {
-        const pagesDir = join(this.projectPath, 'pages');
+        const pagesDir = join(this.projectPath, 'Pages');
 
         try {
             const { readdir } = await import('fs/promises');

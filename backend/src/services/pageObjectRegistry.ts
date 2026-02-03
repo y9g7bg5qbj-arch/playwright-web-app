@@ -84,7 +84,7 @@ export class PageObjectRegistry {
      * Load all page objects from the pages directory
      */
     async loadFromDisk(): Promise<void> {
-        const pagesDir = join(this.projectPath, 'pages');
+        const pagesDir = join(this.projectPath, 'Pages');
 
         if (!existsSync(pagesDir)) {
             console.log('[PageObjectRegistry] No pages directory found');
@@ -485,7 +485,7 @@ export class PageObjectRegistry {
 
                     if (lowerNew.includes(lowerExisting) || lowerExisting.includes(lowerNew)) {
                         const similarity = Math.min(lowerNew.length, lowerExisting.length) /
-                                          Math.max(lowerNew.length, lowerExisting.length);
+                            Math.max(lowerNew.length, lowerExisting.length);
 
                         if (similarity >= 0.7) {
                             const ref: PageFieldRef = {
@@ -886,7 +886,7 @@ export class PageObjectRegistry {
 
         // Create new page object with the URL pattern
         const urlPath = this.extractUrlPath(url);
-        const filePath = join(this.projectPath, 'pages', `${suggestedName}.vero`);
+        const filePath = join(this.projectPath, 'Pages', `${suggestedName}.vero`);
         const newPage: PageObject = {
             name: suggestedName,
             filePath,
@@ -1012,7 +1012,7 @@ export class PageObjectRegistry {
         }
 
         // Ensure pages directory exists
-        const pagesDir = join(this.projectPath, 'pages');
+        const pagesDir = join(this.projectPath, 'Pages');
         if (!existsSync(pagesDir)) {
             await mkdir(pagesDir, { recursive: true });
         }
