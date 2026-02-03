@@ -16,6 +16,15 @@ export interface ValidationResult {
     warnings: ValidationError[];
 }
 
+export interface ValidationContext {
+    pages?: PageNode[];
+    pageActions?: PageActionsNode[];
+}
+
+export interface ValidationOptions {
+    context?: ValidationContext;
+}
+
 export class Validator {
     private errors: ValidationError[] = [];
     private warnings: ValidationError[] = [];
@@ -26,15 +35,27 @@ export class Validator {
     private definedVariables: Map<string, Set<string>> = new Map();  // Page -> variable names
     private scenarioVariables: Set<string> = new Set();  // Variables defined in current scenario
 
-    validate(ast: ProgramNode): ValidationResult {
+    validate(ast: ProgramNode, options?: ValidationOptions): ValidationResult {
         this.resetState();
 
-        // First pass: collect definitions
+        // Pre-populate from context (pages/pageActions from other files in the project)
+        if (options?.context?.pages) {
+            for (const page of options.context.pages) {
+                this.collectPageDefinitions(page);
+            }
+        }
+        if (options?.context?.pageActions) {
+            for (const pa of options.context.pageActions) {
+                this.collectPageActionsDefinitions(pa);
+            }
+        }
+
+        // First pass: collect definitions from current AST
         for (const page of ast.pages) {
             this.collectPageDefinitions(page);
         }
 
-        // Collect PageActions definitions
+        // Collect PageActions definitions from current AST
         for (const pa of ast.pageActions) {
             this.collectPageActionsDefinitions(pa);
         }
@@ -330,7 +351,7 @@ export class Validator {
     }
 }
 
-export function validate(ast: ProgramNode): ValidationResult {
+export function validate(ast: ProgramNode, options?: ValidationOptions): ValidationResult {
     const validator = new Validator();
-    return validator.validate(ast);
+    return validator.validate(ast, options);
 }
