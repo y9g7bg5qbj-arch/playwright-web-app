@@ -5,6 +5,7 @@
  */
 
 import { EventEmitter } from 'events';
+import net from 'net';
 import { logger } from '../../utils/logger';
 import { auditService } from '../audit.service';
 import { notificationService, NotificationConfig, ScheduleRunInfo } from '../notification.service';
@@ -48,6 +49,27 @@ class QueueService extends EventEmitter {
     super();
   }
 
+  private async canConnectToRedis(options: RedisOptions): Promise<boolean> {
+    return await new Promise<boolean>((resolve) => {
+      const socket = new net.Socket();
+
+      const finalize = (result: boolean) => {
+        socket.removeAllListeners();
+        if (!socket.destroyed) {
+          socket.destroy();
+        }
+        resolve(result);
+      };
+
+      socket.setTimeout(800);
+      socket.once('connect', () => finalize(true));
+      socket.once('timeout', () => finalize(false));
+      socket.once('error', () => finalize(false));
+
+      socket.connect(options.port, options.host);
+    });
+  }
+
   /**
    * Initialize the queue service
    */
@@ -71,9 +93,10 @@ class QueueService extends EventEmitter {
         maxRetriesPerRequest: null,
       };
 
-      // Test Redis connection by creating a test queue
-      const testQueue = new Queue('test-connection', { connection: this.redisConnection });
-      await testQueue.close();
+      const redisReachable = await this.canConnectToRedis(this.redisConnection);
+      if (!redisReachable) {
+        throw new Error('Redis is not reachable');
+      }
 
       this.isRedisAvailable = true;
       logger.info('Redis connection established - using BullMQ');

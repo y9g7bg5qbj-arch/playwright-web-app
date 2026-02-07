@@ -52,6 +52,22 @@ router.post(
     try {
       const { token, tokenType = 'pat' } = req.body;
 
+      const encryptionKey = (process.env.GITHUB_TOKEN_ENCRYPTION_KEY || '').trim();
+      if (!encryptionKey) {
+        res.status(503).json({
+          success: false,
+          error: 'GitHub integration is disabled until GITHUB_TOKEN_ENCRYPTION_KEY is configured',
+        });
+        return;
+      }
+      if (encryptionKey.length < 32) {
+        res.status(503).json({
+          success: false,
+          error: 'GitHub integration requires GITHUB_TOKEN_ENCRYPTION_KEY to be at least 32 characters',
+        });
+        return;
+      }
+
       // Validate the token
       const validation = await githubService.validateToken(token);
       if (!validation.valid || !validation.user) {
@@ -300,6 +316,11 @@ router.post(
   async (req: AuthRequest, res: Response, next) => {
     try {
       const { owner, repo, workflowPath, ref, inputs } = req.body;
+      const sanitizedInputs = inputs
+        ? Object.fromEntries(
+            Object.entries(inputs).map(([key, value]) => [key, String(value)])
+          )
+        : undefined;
 
       // Get default branch if ref not provided
       let targetRef = ref;
@@ -314,7 +335,7 @@ router.post(
         repo,
         workflowPath,
         targetRef,
-        inputs
+        sanitizedInputs
       );
 
       if (!result.success) {
@@ -379,6 +400,14 @@ router.get(
         })),
       });
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes('github not connected')) {
+        res.json({
+          success: true,
+          data: [],
+        });
+        return;
+      }
       next(error);
     }
   }
