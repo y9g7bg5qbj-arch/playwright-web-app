@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 export interface RunConfiguration {
   id: string;
   name: string;
-  target: 'local' | 'github';
+  target: 'local' | 'github-actions';
   environment: 'Development' | 'Staging' | 'Production' | 'QA';
   browser: 'chromium' | 'firefox' | 'webkit' | 'edge';
   baseUrl: string;
@@ -342,8 +342,8 @@ export function RunConfigurationModal({
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleInputChange('target', 'github')}
-                          className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${editingConfig.target === 'github'
+                          onClick={() => handleInputChange('target', 'github-actions')}
+                          className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${editingConfig.target === 'github-actions'
                               ? 'bg-purple-500/20 border border-purple-500/50 text-purple-400'
                               : 'bg-[#161b22] border border-[#30363d] text-[#8b949e] hover:text-white hover:border-[#484f58]'
                             }`}
@@ -356,7 +356,7 @@ export function RunConfigurationModal({
                   </div>
 
                   {/* GitHub Actions Settings (only shown when target is github) */}
-                  {editingConfig.target === 'github' && (
+                  {editingConfig.target === 'github-actions' && (
                     <div className="grid grid-cols-12 gap-4 items-start mt-4">
                       <label className="col-span-3 text-[13px] text-[#8b949e] font-medium text-right pt-2">
                         GitHub

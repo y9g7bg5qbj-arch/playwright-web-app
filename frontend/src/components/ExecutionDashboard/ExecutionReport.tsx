@@ -125,7 +125,6 @@ export const ExecutionReport: React.FC<ExecutionReportProps> = ({
                 key={scenario.id}
                 scenario={scenario}
                 onViewTrace={() => {
-                  console.log('ExecutionReport onViewTrace called, traceUrl:', scenario.traceUrl);
                   if (scenario.traceUrl) {
                     onViewTrace(scenario.traceUrl, scenario.name);
                   }

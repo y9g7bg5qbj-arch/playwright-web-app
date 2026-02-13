@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { normalizeExecutionTarget } from '@playwright-web-app/shared';
 
 // Run configuration types matching Playwright options
 export interface RunConfiguration {
@@ -7,7 +8,7 @@ export interface RunConfiguration {
   name: string;
 
   // Execution Target
-  target: 'local' | 'github';
+  target: 'local' | 'github-actions';
 
   // Browser & Project
   browser: 'chromium' | 'firefox' | 'webkit';
@@ -80,7 +81,7 @@ export interface RunConfiguration {
 export interface RunConfigSummary {
   id: string;
   name: string;
-  target: 'local' | 'github';
+  target: 'local' | 'github-actions';
   browser: 'chromium' | 'firefox' | 'webkit';
   workers: number;
   lastUsedAt?: string;
@@ -131,7 +132,7 @@ export const PRESET_CONFIGS: Omit<RunConfiguration, 'id' | 'createdAt' | 'update
   {
     ...DEFAULT_CONFIG,
     name: 'GitHub CI',
-    target: 'github',
+    target: 'github-actions',
     workers: 4,
     shards: { current: 1, total: 4 },
     trace: 'retain-on-failure',
@@ -186,6 +187,11 @@ interface RunConfigState {
 
 // Generate unique ID
 const generateId = () => `config_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+
+function normalizeStoreTarget(target: unknown): 'local' | 'github-actions' {
+  const normalized = normalizeExecutionTarget(target as string | null | undefined, 'local');
+  return normalized === 'github-actions' ? 'github-actions' : 'local';
+}
 
 export const useRunConfigStore = create<RunConfigState>()(
   persist(
@@ -307,9 +313,33 @@ export const useRunConfigStore = create<RunConfigState>()(
 
 // Initialize default config if none exists
 export const initializeDefaultConfig = () => {
-  const { configurations, addConfiguration, setActiveConfig } = useRunConfigStore.getState();
+  const {
+    configurations,
+    recentConfigs,
+    addConfiguration,
+    setActiveConfig,
+  } = useRunConfigStore.getState();
 
-  if (configurations.length === 0) {
+  // Migrate legacy persisted target values.
+  const normalizedConfigs = configurations.map((config) => {
+    const target = normalizeStoreTarget((config as any).target);
+    return target === config.target ? config : { ...config, target };
+  });
+  const normalizedRecentConfigs = recentConfigs.map((config) => {
+    const target = normalizeStoreTarget((config as any).target);
+    return target === config.target ? config : { ...config, target };
+  });
+  const changed =
+    normalizedConfigs.some((config, index) => config !== configurations[index]) ||
+    normalizedRecentConfigs.some((config, index) => config !== recentConfigs[index]);
+  if (changed) {
+    useRunConfigStore.setState({
+      configurations: normalizedConfigs,
+      recentConfigs: normalizedRecentConfigs,
+    });
+  }
+
+  if (normalizedConfigs.length === 0) {
     const defaultConfig = addConfiguration(DEFAULT_CONFIG);
     setActiveConfig(defaultConfig.id);
   }

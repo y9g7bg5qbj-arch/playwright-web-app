@@ -32,7 +32,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         {label && (
           <label
             htmlFor={inputId}
-            className="block text-sm font-medium text-text-primary mb-1.5"
+            className="block text-xs font-medium text-text-secondary mb-1"
           >
             {label}
           </label>
@@ -47,14 +47,14 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             ref={ref}
             id={inputId}
             className={`
-              w-full bg-dark-card border border-border-default rounded-md
-              px-3 py-2 text-sm text-text-primary placeholder-text-muted
-              focus:outline-none focus:border-accent-blue focus:ring-1 focus:ring-accent-blue
-              transition-colors duration-200
+              w-full bg-dark-canvas border border-border-default rounded
+              px-3 py-1.5 text-sm text-text-primary placeholder-text-muted
+              focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/15
+              transition-colors duration-fast ease-out
               disabled:opacity-50 disabled:cursor-not-allowed
-              ${leftIcon ? 'pl-10' : ''}
-              ${rightIcon || onClear ? 'pr-10' : ''}
-              ${error ? 'border-accent-red focus:border-accent-red focus:ring-accent-red' : ''}
+              ${leftIcon ? 'pl-9' : ''}
+              ${rightIcon || onClear ? 'pr-9' : ''}
+              ${error ? 'border-status-danger focus:border-status-danger focus:ring-status-danger/15' : ''}
               ${className}
             `}
             {...props}
@@ -76,10 +76,10 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           )}
         </div>
         {error && (
-          <p className="mt-1.5 text-xs text-accent-red">{error}</p>
+          <p className="mt-1 text-xs text-status-danger">{error}</p>
         )}
         {hint && !error && (
-          <p className="mt-1.5 text-xs text-text-muted">{hint}</p>
+          <p className="mt-1 text-xs text-text-muted">{hint}</p>
         )}
       </div>
     );

@@ -10,17 +10,17 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 const variantClasses = {
-  primary: 'bg-accent-blue text-white hover:bg-blue-600 active:bg-blue-700',
-  secondary: 'bg-dark-elevated text-text-primary border border-border-default hover:bg-dark-card hover:border-text-muted',
-  danger: 'bg-status-danger text-white hover:bg-status-danger-emphasis',
-  success: 'bg-status-success text-white hover:bg-status-success-emphasis',
-  ghost: 'bg-transparent text-text-secondary hover:text-text-primary hover:bg-dark-elevated',
+  primary: 'btn-primary-gradient text-white hover:brightness-110 active:brightness-95',
+  secondary: 'bg-dark-elevated text-text-secondary border border-border-default hover:border-border-emphasis hover:text-text-primary',
+  danger: 'bg-status-danger text-white hover:brightness-110',
+  success: 'bg-status-success text-white hover:brightness-110',
+  ghost: 'bg-transparent text-text-muted hover:text-text-primary hover:bg-white/[0.04]',
 };
 
 const sizeClasses = {
-  sm: 'px-3 py-1.5 text-xs gap-1.5',
-  md: 'px-4 py-2 text-sm gap-2',
-  lg: 'px-6 py-3 text-base gap-2',
+  sm: 'px-2.5 py-1 text-xs gap-1',
+  md: 'px-3 py-1.5 text-xs gap-1.5',
+  lg: 'px-4 py-2 text-sm gap-2',
 };
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -42,10 +42,10 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         className={`
-          inline-flex items-center justify-center rounded-md font-medium
-          transition-all duration-200 cursor-pointer
+          inline-flex items-center justify-center rounded font-medium
+          transition-all duration-fast ease-out cursor-pointer
           disabled:opacity-50 disabled:cursor-not-allowed
-          focus:outline-none focus:ring-2 focus:ring-accent-blue focus:ring-offset-2 focus:ring-offset-dark-bg
+          focus:outline-none focus:ring-2 focus:ring-brand-primary/40 focus:ring-offset-1 focus:ring-offset-dark-canvas
           ${variantClasses[variant]}
           ${sizeClasses[size]}
           ${className}

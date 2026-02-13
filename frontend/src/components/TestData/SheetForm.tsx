@@ -56,7 +56,7 @@ export const SheetForm: React.FC<SheetFormProps> = ({
     <form onSubmit={handleSubmit} className="space-y-4">
       {/* Data Table Name */}
       <div>
-        <label className="block text-sm font-medium text-slate-300 mb-1">
+        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-text-secondary">
           Data Table Name
         </label>
         <input
@@ -64,51 +64,51 @@ export const SheetForm: React.FC<SheetFormProps> = ({
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g., Users, Products, Orders"
-          className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500"
+          className="w-full rounded-md border border-border-default bg-dark-canvas px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-border-active focus:ring-2 focus:ring-brand-primary/20"
           required
         />
-        <p className="text-xs text-slate-500 mt-1">
-          Reference in Vero: <code className="text-emerald-400">load $data from "{name || 'TableName'}"</code>
+        <p className="mt-1 text-xs text-text-muted">
+          Reference in Vero: <code className="rounded bg-dark-elevated px-1.5 py-0.5 text-emerald-400">load $data from "{name || 'TableName'}"</code>
         </p>
       </div>
 
       {/* Description */}
       <div>
-        <label className="block text-sm font-medium text-slate-300 mb-1">
-          Description <span className="text-slate-500 font-normal">(optional)</span>
+        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-text-secondary">
+          Description <span className="font-normal normal-case text-text-muted">(optional)</span>
         </label>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="e.g., Test user accounts for login scenarios"
           rows={2}
-          className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500 resize-none"
+          className="w-full resize-none rounded-md border border-border-default bg-dark-canvas px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-border-active focus:ring-2 focus:ring-brand-primary/20"
         />
       </div>
 
       {/* Advanced Options (collapsible) */}
-      <div className="border border-slate-700 rounded">
+      <div className="rounded-lg border border-border-default bg-dark-elevated/40">
         <button
           type="button"
           onClick={() => setShowAdvanced(!showAdvanced)}
-          className="w-full flex items-center justify-between px-3 py-2 text-sm text-slate-400 hover:text-slate-300 transition-colors"
+          className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-text-secondary transition-colors hover:text-text-primary"
         >
           <span>Advanced Options</span>
           {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
         {showAdvanced && (
-          <div className="px-3 pb-3 border-t border-slate-700">
-            <label className="block text-sm font-medium text-slate-300 mb-1 mt-2">
-              Page Object Association <span className="text-slate-500 font-normal">(optional)</span>
+          <div className="border-t border-border-default px-3 pb-3">
+            <label className="mb-1 mt-2 block text-xs font-medium text-text-secondary">
+              Page Object Association <span className="font-normal text-text-muted">(optional)</span>
             </label>
             <input
               type="text"
               value={pageObject}
               onChange={(e) => setPageObject(e.target.value)}
               placeholder="e.g., LoginPage, CheckoutPage"
-              className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500"
+              className="w-full rounded-md border border-border-default bg-dark-canvas px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-border-active focus:ring-2 focus:ring-brand-primary/20"
             />
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="mt-1 text-xs text-text-muted">
               Optional: Link to a page object for page-specific data binding
             </p>
           </div>
@@ -117,23 +117,23 @@ export const SheetForm: React.FC<SheetFormProps> = ({
 
       {/* Columns */}
       <div>
-        <label className="block text-sm font-medium text-slate-300 mb-2">
+        <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-text-secondary">
           Columns
         </label>
         <div className="space-y-2">
           {columns.map((col, index) => (
-            <div key={index} className="flex items-center gap-2">
+            <div key={index} className="flex items-center gap-2 rounded-md border border-border-default bg-dark-elevated/35 p-2">
               <input
                 type="text"
                 value={col.name}
                 onChange={(e) => updateColumn(index, 'name', e.target.value)}
                 placeholder="Column name"
-                className="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500"
+                className="flex-1 rounded-md border border-border-default bg-dark-canvas px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-border-active focus:ring-2 focus:ring-brand-primary/20"
               />
               <select
                 value={col.type}
                 onChange={(e) => updateColumn(index, 'type', e.target.value)}
-                className="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500"
+                className="rounded-md border border-border-default bg-dark-canvas px-3 py-2 text-sm text-text-primary outline-none transition-colors focus:border-border-active focus:ring-2 focus:ring-brand-primary/20"
               >
                 <option value="string">String</option>
                 <option value="number">Number</option>
@@ -144,7 +144,7 @@ export const SheetForm: React.FC<SheetFormProps> = ({
                 type="button"
                 onClick={() => removeColumn(index)}
                 disabled={columns.length === 1}
-                className="p-2 text-slate-500 hover:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="rounded p-2 text-text-muted transition-colors hover:bg-status-danger/10 hover:text-status-danger disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -154,7 +154,7 @@ export const SheetForm: React.FC<SheetFormProps> = ({
         <button
           type="button"
           onClick={addColumn}
-          className="mt-2 flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+          className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-border-default bg-dark-elevated/60 px-2.5 py-1.5 text-xs text-text-secondary transition-colors hover:border-border-emphasis hover:text-text-primary"
         >
           <Plus className="w-4 h-4" />
           Add Column
@@ -162,18 +162,18 @@ export const SheetForm: React.FC<SheetFormProps> = ({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-700">
+      <div className="flex items-center justify-end gap-2 border-t border-border-default pt-4">
         <button
           type="button"
           onClick={onClose}
-          className="flex items-center gap-1.5 px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border-default bg-dark-elevated/60 px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:border-border-emphasis hover:text-text-primary"
         >
           <X className="w-4 h-4" />
           Cancel
         </button>
         <button
           type="submit"
-          className="flex items-center gap-1.5 px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors"
+          className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-b from-brand-primary to-[#2c5fd9] px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-all hover:brightness-110"
         >
           <Save className="w-4 h-4" />
           {sheet ? 'Update' : 'Create'} Data Table

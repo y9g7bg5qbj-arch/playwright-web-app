@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { OutlinePanel } from './OutlinePanel';
 import {
   ChevronRight,
@@ -12,12 +12,6 @@ import {
   Plus,
   Trash2,
   RefreshCw,
-  ShieldCheck,
-  FlaskConical,
-  Box,
-  Database,
-  PlayCircle,
-  Layout
 } from 'lucide-react';
 
 export interface FileNode {
@@ -80,7 +74,7 @@ export function ExplorerPanel({
   onSyncSandbox,
 }: ExplorerPanelProps) {
   const [internalExpandedFolders, setInternalExpandedFolders] = useState<Set<string>>(
-    new Set(['proj:default', 'data', 'features', 'pages'])
+    new Set(['proj:default', 'data', 'features'])
   );
   const [applicationExpanded, setApplicationExpanded] = useState(true);
 
@@ -103,64 +97,141 @@ export function ExplorerPanel({
     }
   };
 
-  // Get file icon based on extension
-  const getFileIcon = (name: string) => {
-    const ext = name.split('.').pop()?.toLowerCase();
-    switch (ext) {
-      case 'vero':
-        return { Icon: FileCode, color: 'text-brand-primary' };
-      case 'json':
-        return { Icon: FileJson, color: 'text-status-warning' };
-      case 'md':
-        return { Icon: FileText, color: 'text-status-info' };
-      case 'ts':
-      case 'tsx':
-        return { Icon: FileCode, color: 'text-status-info' };
-      case 'js':
-      case 'jsx':
-        return { Icon: FileCode, color: 'text-status-warning' };
-      default:
-        return { Icon: File, color: 'text-text-muted' };
-    }
+  type FileVisual = {
+    Icon: typeof File;
+    iconClassName: string;
   };
 
-  // Get folder icon based on folder name
-  const getFolderIcon = (name: string) => {
-    const lowerName = name.toLowerCase();
-    switch (lowerName) {
-      // Environment folders
-      case 'master':
-        return { Icon: ShieldCheck, color: 'text-status-success' };
-      case 'dev':
-        return { Icon: FlaskConical, color: 'text-status-info' };
-      case 'sandboxes':
-        return { Icon: Box, color: 'text-brand-secondary' };
-      // Content folders
-      case 'data':
-        return { Icon: Database, color: 'text-status-success' };
-      case 'features':
-        return { Icon: PlayCircle, color: 'text-brand-primary' };
-      case 'pages':
-        return { Icon: Layout, color: 'text-status-warning' };
-      default:
-        return { Icon: Folder, color: 'text-brand-primary' };
-    }
+  const FILE_VISUALS: Record<string, FileVisual> = {
+    vero: {
+      Icon: FileCode,
+      iconClassName: 'text-cyan-300',
+    },
+    json: {
+      Icon: FileJson,
+      iconClassName: 'text-amber-300',
+    },
+    md: {
+      Icon: FileText,
+      iconClassName: 'text-emerald-300',
+    },
+    ts: {
+      Icon: FileCode,
+      iconClassName: 'text-sky-300',
+    },
+    tsx: {
+      Icon: FileCode,
+      iconClassName: 'text-blue-300',
+    },
+    js: {
+      Icon: FileCode,
+      iconClassName: 'text-yellow-300',
+    },
+    jsx: {
+      Icon: FileCode,
+      iconClassName: 'text-yellow-300',
+    },
   };
+
+  const DEFAULT_FILE_VISUAL: FileVisual = {
+    Icon: File,
+    iconClassName: 'text-slate-300',
+  };
+
+  function getFileVisual(name: string): FileVisual {
+    const ext = name.split('.').pop()?.toLowerCase() ?? '';
+    return FILE_VISUALS[ext] ?? DEFAULT_FILE_VISUAL;
+  }
+
+  type FolderVisual = {
+    iconClassName: string;
+    rowClassName: string;
+  };
+
+  const FOLDER_VISUALS: Record<string, FolderVisual> = {
+    master: {
+      iconClassName: 'text-emerald-300',
+      rowClassName: 'bg-emerald-500/[0.08] hover:bg-emerald-500/[0.14]',
+    },
+    dev: {
+      iconClassName: 'text-sky-300',
+      rowClassName: 'bg-sky-500/[0.08] hover:bg-sky-500/[0.14]',
+    },
+    sandboxes: {
+      iconClassName: 'text-violet-300',
+      rowClassName: 'bg-violet-500/[0.08] hover:bg-violet-500/[0.14]',
+    },
+    sandbox: {
+      iconClassName: 'text-violet-300',
+      rowClassName: 'bg-violet-500/[0.05] hover:bg-violet-500/[0.1]',
+    },
+    features: {
+      iconClassName: 'text-amber-300',
+      rowClassName: 'bg-transparent hover:bg-white/[0.05]',
+    },
+    pages: {
+      iconClassName: 'text-amber-300',
+      rowClassName: 'bg-transparent hover:bg-white/[0.05]',
+    },
+    data: {
+      iconClassName: 'text-amber-300',
+      rowClassName: 'bg-transparent hover:bg-white/[0.05]',
+    },
+  };
+
+  const DEFAULT_FOLDER_VISUAL: FolderVisual = {
+    iconClassName: 'text-amber-300',
+    rowClassName: 'bg-transparent hover:bg-white/[0.05]',
+  };
+
+  function getFolderVisual(name: string): FolderVisual {
+    return FOLDER_VISUALS[name.toLowerCase()] ?? DEFAULT_FOLDER_VISUAL;
+  }
+
+  function sortNodes(nodes: FileNode[]): FileNode[] {
+    return [...nodes].sort((a, b) => {
+      if (a.type !== b.type) {
+        return a.type === 'directory' ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    });
+  }
+
+  function countFiles(nodes: FileNode[]): number {
+    return nodes.reduce((count, node) => {
+      if (node.type === 'file') {
+        return count + 1;
+      }
+
+      return count + countFiles(node.children || []);
+    }, 0);
+  }
+
+  const visibleProjectFiles = useMemo(() => {
+    const byProject: Record<string, FileNode[]> = {};
+    for (const project of projects) {
+      const sourceNodes = Object.prototype.hasOwnProperty.call(projectFiles, project.id)
+        ? projectFiles[project.id]
+        : (project.files || []);
+      byProject[project.id] = sourceNodes;
+    }
+    return byProject;
+  }, [projects, projectFiles]);
 
   const renderFileTree = (nodes: FileNode[], depth: number = 0, projectId?: string, parentPath?: string) => {
-    return nodes.map((node) => {
+    return sortNodes(nodes).map((node) => {
       const nodePath = projectId ? `${projectId}:${node.path}` : node.path;
       const isExpanded = expandedFolders.has(nodePath);
       const isSelected = selectedFile === node.path;
-      const paddingLeft = 20 + depth * 12;
+      const paddingLeft = 12 + depth * 14;
 
       if (node.type === 'directory') {
         const hasChildren = node.children && node.children.length > 0;
         const lowerName = node.name.toLowerCase();
-        const { Icon: FolderIcon, color: folderColor } = getFolderIcon(node.name);
 
         const isEnvFolder = ['master', 'dev', 'sandboxes'].includes(lowerName);
         const isSandbox = parentPath?.endsWith('sandboxes');
+        const folderVisual = getFolderVisual(isSandbox ? 'sandbox' : lowerName);
 
         const ENV_DISPLAY_NAMES: Record<string, string> = {
           master: 'Production',
@@ -168,71 +239,64 @@ export function ExplorerPanel({
           sandboxes: 'Sandboxes',
         };
         const displayName = ENV_DISPLAY_NAMES[lowerName] || node.name;
-
-        // Custom icon logic for expanded state
-        const DisplayIcon = (isExpanded && !isEnvFolder && !isSandbox) ? FolderOpen : FolderIcon;
+        const DisplayIcon = isExpanded ? FolderOpen : Folder;
+        const selectedFolderRowClass = 'bg-brand-primary/22 text-text-primary';
 
         return (
           <div key={nodePath} className="flex flex-col select-none">
             <div
               className={`
-                group/item relative flex items-center w-full py-1 cursor-pointer 
-                hover:bg-dark-elevated border-l-2 border-transparent transition-colors duration-150
-                ${isSelected ? 'bg-brand-primary/10 border-brand-primary' : ''}
+                group/item relative flex w-full cursor-pointer items-center rounded-sm py-1 text-xs
+                transition-all duration-fast
+                ${isSelected
+                  ? selectedFolderRowClass
+                  : folderVisual.rowClassName}
               `}
               onClick={() => toggleFolder(nodePath)}
-              style={{ paddingLeft: `${paddingLeft}px` }}
+              style={{ paddingLeft: `${paddingLeft}px`, paddingRight: '6px' }}
             >
               <ChevronRight
-                size={14}
-                className={`mr-1 text-text-muted transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+                size={12}
+                className={`mr-0.5 text-text-muted transition-transform duration-fast ${isExpanded ? 'rotate-90' : ''}`}
               />
 
               <DisplayIcon
-                size={14}
-                className={`mr-2 ${isSandbox ? 'text-brand-secondary' : isEnvFolder ? folderColor : 'text-brand-primary'}`}
+                size={15}
+                className={`mr-1.5 ${folderVisual.iconClassName}`}
               />
 
-              <span className={`text-sm truncate ${isEnvFolder ? 'font-medium text-text-primary' : 'text-text-secondary group-hover/item:text-text-primary'}`}>
+              <span className={`truncate leading-5 ${isEnvFolder ? 'font-medium text-text-primary' : 'font-normal text-text-secondary group-hover/item:text-text-primary'}`}>
                 {displayName}
               </span>
 
-              {/* Environment Badge */}
-              {isEnvFolder && lowerName === 'master' && (
-                <span className="ml-2 px-1.5 py-0.5 text-[10px] font-bold bg-green-500/10 text-green-400 rounded border border-green-500/20">
-                  PROD
-                </span>
-              )}
-
-              {/* Floating Actions */}
-              <div className="absolute right-2 flex items-center gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
+              <div className="ml-auto flex items-center gap-0.5 opacity-0 transition-opacity duration-fast group-hover/item:opacity-100">
                 {isSandbox && onSyncSandbox && (
                   <button
                     onClick={(e) => { e.stopPropagation(); onSyncSandbox(node.name, projectId || ''); }}
-                    className="p-1 hover:bg-dark-elem-active rounded text-text-muted hover:text-brand-primary"
+                    className="rounded p-0.5 text-text-muted hover:bg-white/[0.08] hover:text-text-primary"
                     title="Sync from source"
                   >
-                    <RefreshCw size={12} />
+                    <RefreshCw size={11} />
                   </button>
                 )}
 
                 {isEnvFolder && lowerName === 'sandboxes' && onCreateSandbox && (
                   <button
                     onClick={(e) => { e.stopPropagation(); onCreateSandbox(projectId || ''); }}
-                    className="p-1 hover:bg-dark-elem-active rounded text-text-muted hover:text-brand-secondary"
+                    className="rounded p-0.5 text-text-muted hover:bg-white/[0.08] hover:text-text-primary"
                     title="New Sandbox"
                   >
-                    <Plus size={12} />
+                    <Plus size={11} />
                   </button>
                 )}
 
                 {onCreateFile && !isEnvFolder && !isSandbox && (
                   <button
                     onClick={(e) => { e.stopPropagation(); onCreateFile(projectId || '', node.path); }}
-                    className="p-1 hover:bg-dark-elem-active rounded text-text-muted hover:text-text-primary"
+                    className="rounded p-0.5 text-text-muted hover:bg-white/[0.08] hover:text-text-primary"
                     title="New File"
                   >
-                    <Plus size={12} />
+                    <Plus size={11} />
                   </button>
                 )}
               </div>
@@ -240,11 +304,6 @@ export function ExplorerPanel({
 
             {isExpanded && hasChildren && (
               <div className="flex flex-col relative">
-                {/* Indentation Guide */}
-                <div
-                  className="absolute left-[calc(var(--padding)+5px)] top-0 bottom-0 w-px bg-border-subtle"
-                  style={{ '--padding': `${paddingLeft}px` } as React.CSSProperties}
-                />
                 {renderFileTree(node.children!, depth + 1, projectId, node.path)}
               </div>
             )}
@@ -253,7 +312,8 @@ export function ExplorerPanel({
       }
 
       // File Node
-      const { Icon, color } = getFileIcon(node.name);
+      const fileVisual = getFileVisual(node.name);
+      const { Icon } = fileVisual;
 
       const handleContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -269,21 +329,17 @@ export function ExplorerPanel({
           onClick={() => onFileSelect(node, projectId)}
           onContextMenu={handleContextMenu}
           className={`
-            group relative flex items-center w-full py-1 pr-2 cursor-pointer 
-            border-l-2 text-sm transition-colors duration-150
+            group relative flex w-full cursor-pointer items-center rounded-sm py-1 pr-2 text-[11px]
+            transition-all duration-fast
             ${isSelected
-              ? 'bg-brand-primary/10 border-brand-primary text-text-primary font-medium'
-              : 'border-transparent text-text-secondary hover:text-text-primary hover:bg-dark-elevated'
+              ? 'bg-brand-primary/22 text-text-primary font-medium'
+              : 'bg-transparent text-text-secondary hover:bg-white/[0.05] hover:text-text-primary'
             }
           `}
-          style={{ paddingLeft: `${paddingLeft + 16}px` }}
+          style={{ paddingLeft: `${paddingLeft + 19}px` }}
         >
-          <Icon size={14} className={`mr-2 ${color}`} />
-          <span className="truncate">{node.name}</span>
-
-          {node.hasChanges && (
-            <span className="ml-auto w-2 h-2 bg-brand-primary rounded-full" />
-          )}
+          <Icon size={14} className={`mr-1.5 ${isSelected ? 'text-text-primary' : fileVisual.iconClassName}`} />
+          <span className="truncate leading-5">{node.name}</span>
         </div>
       );
     });
@@ -294,16 +350,19 @@ export function ExplorerPanel({
     const projPath = `proj:${project.id}`;
     const isExpanded = expandedFolders.has(projPath);
     const isSelected = selectedProjectId === project.id;
-    const files = projectFiles[project.id] || project.files || [];
+    const hasLoadedFiles = Object.prototype.hasOwnProperty.call(projectFiles, project.id);
+    const files = visibleProjectFiles[project.id] || [];
+    const totalFiles = countFiles(files);
 
     return (
       <div key={project.id} className="flex flex-col">
         {/* Project Header */}
         <div
           className={`
-            group flex items-center gap-1 py-1.5 px-3 cursor-pointer 
-            hover:bg-dark-elevated transition-colors
-            ${isSelected ? 'bg-dark-elevated/50' : ''}
+            group flex cursor-pointer items-center gap-1 rounded-sm px-2 py-1 text-[11px]
+            transition-all duration-fast
+            hover:bg-white/[0.05]
+            ${isSelected ? 'bg-brand-primary/22' : ''}
           `}
           onClick={() => {
             toggleFolder(projPath);
@@ -312,32 +371,39 @@ export function ExplorerPanel({
           }}
         >
           <ChevronRight
-            size={14}
-            className={`text-text-muted transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+            size={12}
+            className={`text-text-muted transition-transform duration-fast ${isExpanded ? 'rotate-90' : ''}`}
           />
-          <Folder size={14} className="text-brand-secondary fill-brand-secondary/20" />
-          <span className="flex-1 font-medium text-text-primary truncate ml-1.5">{project.name}</span>
+          <Folder size={14} className="text-amber-300" />
+          <span className="ml-1 flex-1 truncate text-[11px] font-medium text-text-primary">{project.name}</span>
+          <span className="text-[10px] text-text-muted">
+            {totalFiles}
+          </span>
 
           {onDeleteProject && (
             <button
               onClick={(e) => { e.stopPropagation(); onDeleteProject(project.id); }}
-              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-status-danger/20 rounded text-text-muted hover:text-status-danger transition-all"
+              className="rounded p-0.5 text-text-muted opacity-0 transition-all duration-fast hover:bg-status-danger/20 hover:text-status-danger group-hover:opacity-100"
               title="Delete Project"
             >
-              <Trash2 size={12} />
+              <Trash2 size={11} />
             </button>
           )}
         </div>
 
         {/* Project Content */}
         {isExpanded && (
-          <div className="ml-2 border-l border-border-subtle">
+          <div className="ml-2 pl-1">
             {files.length > 0 ? (
               renderFileTree(files, 0, project.id)
             ) : (
-              // Empty State / Default Structure
+              // Distinguish between "still loading" and "loaded but empty"
               <div className="flex flex-col pl-4">
-                <div className="text-xs text-text-muted py-2 italic ml-4">Loading environment...</div>
+                {!hasLoadedFiles ? (
+                  <div className="ml-4 py-2 text-xs italic text-text-muted">Loading environment...</div>
+                ) : (
+                  <div className="ml-4 py-2 text-xs italic text-text-muted">No files found in this environment.</div>
+                )}
               </div>
             )}
           </div>
@@ -347,56 +413,64 @@ export function ExplorerPanel({
   };
 
   return (
-    <div className="w-[260px] bg-dark-card border-r border-border-default flex flex-col shrink-0 h-full overflow-hidden">
-      {/* Title Bar */}
-      <div className="h-10 flex items-center px-4 shrink-0 border-b border-border-subtle bg-dark-bg/30">
-        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
-          Explorer
-        </span>
-        <button className="ml-auto text-text-muted hover:text-text-primary transition-colors">
-          <MoreHorizontal size={16} />
-        </button>
+    <div className="relative flex h-full w-full shrink-0 flex-col overflow-hidden border-r border-border-default bg-dark-bg">
+      {/* Header */}
+      <div className="relative z-10 shrink-0 border-b border-border-default bg-dark-bg px-3 py-2">
+        <div className="flex items-center">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-secondary">
+            Project
+          </span>
+          <button className="ml-auto rounded p-1 text-text-secondary transition-colors duration-fast hover:bg-white/10 hover:text-text-primary">
+            <MoreHorizontal size={14} />
+          </button>
+        </div>
       </div>
 
       {/* File Tree */}
-      <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
+      <div className="custom-scrollbar relative z-10 min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {/* Application Header */}
         <button
           onClick={() => setApplicationExpanded(!applicationExpanded)}
-          className="w-full flex items-center px-2 py-1.5 cursor-pointer hover:bg-dark-elevated text-text-primary text-xs font-bold tracking-wide"
+          className="sticky top-0 z-10 flex w-full items-center rounded-sm px-2 py-1 text-[11px] font-medium tracking-wide text-text-primary transition-all duration-fast hover:bg-white/[0.05]"
         >
           <ChevronRight
-            size={14}
-            className={`mr-1 text-text-muted transition-transform duration-200 ${applicationExpanded ? 'rotate-90' : ''}`}
+            size={12}
+            className={`mr-0.5 text-text-muted transition-transform duration-fast ${applicationExpanded ? 'rotate-90' : ''}`}
           />
-          {applicationName.toUpperCase()}
+          <Folder size={14} className="mr-1 text-amber-300" />
+          <span className="truncate">{applicationName}</span>
+          <span className="ml-auto text-[10px] text-text-muted">
+            {projects.length}
+          </span>
         </button>
 
         {/* Projects List */}
         {applicationExpanded && (
-          <div className="py-1">
-            <div className="flex items-center justify-between px-4 py-1.5 text-text-muted group">
-              <span className="text-[10px] font-semibold uppercase tracking-wider">Projects</span>
+          <div className="mt-1 p-1">
+            <div className="group flex items-center justify-between px-1 py-1 text-text-secondary">
+              <span className="text-[9px] font-semibold uppercase tracking-[0.12em]">Folders</span>
               {onCreateProject && (
                 <button
                   onClick={onCreateProject}
-                  className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-dark-elevated rounded transition-opacity"
+                  className="rounded p-0.5 opacity-0 transition-opacity duration-fast hover:bg-white/10 group-hover:opacity-100"
                   title="New Project"
                 >
-                  <Plus size={14} />
+                  <Plus size={12} />
                 </button>
               )}
             </div>
 
             {projects.length > 0 ? (
-              projects.map(renderProject)
+              <div className="mt-1 space-y-0.5">
+                {projects.map(renderProject)}
+              </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+              <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
                 <p className="text-xs text-text-muted mb-3">No projects found</p>
                 {onCreateProject && (
                   <button
                     onClick={onCreateProject}
-                    className="btn btn-primary text-xs"
+                    className="inline-flex items-center rounded-md border border-border-default bg-dark-elevated px-2.5 py-1 text-xs font-medium text-text-primary transition-colors hover:border-border-emphasis"
                   >
                     <Plus size={14} className="mr-1" />
                     Create Project
@@ -409,11 +483,13 @@ export function ExplorerPanel({
       </div>
 
       {/* Outline Panel */}
-      <OutlinePanel
-        fileContent={activeFileContent || null}
-        fileName={activeFileName || null}
-        onNavigateToLine={onNavigateToLine}
-      />
+      <div className="relative z-10 border-t border-border-default bg-dark-bg">
+        <OutlinePanel
+          fileContent={activeFileContent || null}
+          fileName={activeFileName || null}
+          onNavigateToLine={onNavigateToLine}
+        />
+      </div>
     </div>
   );
 }

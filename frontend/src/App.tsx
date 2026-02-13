@@ -4,8 +4,6 @@ import { useAuthStore } from './store/authStore';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { VeroWorkspace } from './components/workspace';
-import { ExecutionReportPage } from './pages/ExecutionReportPage';
-import { ExecutionHistoryPage } from './pages/ExecutionHistoryPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
@@ -46,27 +44,9 @@ export function App() {
           }
         />
 
-        {/* Execution detail pages (need separate routes for deep linking) */}
-        <Route
-          path="/execution/:executionId"
-          element={
-            <ProtectedRoute>
-              <ErrorBoundary>
-                <ExecutionReportPage />
-              </ErrorBoundary>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/test-flow/:testFlowId/executions"
-          element={
-            <ProtectedRoute>
-              <ErrorBoundary>
-                <ExecutionHistoryPage />
-              </ErrorBoundary>
-            </ProtectedRoute>
-          }
-        />
+        {/* Legacy execution pages now redirect to unified workspace */}
+        <Route path="/execution/:executionId" element={<Navigate to="/" replace />} />
+        <Route path="/test-flow/:testFlowId/executions" element={<Navigate to="/" replace />} />
 
         {/* Legacy route redirects - all go to unified workspace */}
         <Route path="/workspace" element={<Navigate to="/" replace />} />

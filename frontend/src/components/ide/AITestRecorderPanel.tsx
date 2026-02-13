@@ -35,12 +35,20 @@ interface Environment {
 }
 
 interface AITestRecorderPanelProps {
-    onClose?: () => void;
     onTestApproved?: (testId: string, veroCode: string, filePath: string) => void;
     projectPath?: string;
     /** Session ID to auto-load when specified (from ReviewSidePanel) */
     selectedSessionId?: string | null;
 }
+
+// Template chips for the quick-create modal
+const QUICK_CREATE_TEMPLATES = [
+    { icon: ExternalLink, label: 'Navigate', text: 'Navigate to the login page' },
+    { icon: Edit3, label: 'Fill', text: "Fill the email field with 'test@example.com'" },
+    { icon: Play, label: 'Click', text: 'Click the Submit button' },
+    { icon: CheckCircle, label: 'Assert', text: 'Verify the success message is visible' },
+    { icon: RefreshCw, label: 'Loop', text: 'Loop through each user in the list' },
+];
 
 const ENVIRONMENTS: Environment[] = [
     { name: 'Production', color: '#7cb342', baseUrl: 'https://app.example.com', value: 'production' },
@@ -49,7 +57,7 @@ const ENVIRONMENTS: Environment[] = [
     { name: 'Local', color: '#a0a0a0', baseUrl: 'http://localhost:3000', value: 'local' },
 ];
 
-export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, projectPath, selectedSessionId }: AITestRecorderPanelProps) {
+export function AITestRecorderPanel({ onTestApproved, projectPath, selectedSessionId }: AITestRecorderPanelProps) {
     const {
         session,
         capture,
@@ -67,7 +75,6 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
         // Recovery (Stuck State)
         resumeWithHint,
         skipStep,
-        captureAction: _captureAction, // Used when manually typing code
         getStuckStep,
         // Browser Capture (Human Takeover)
         startCapture,
@@ -102,9 +109,6 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
         setTimeout(() => setIsResolving(false), 5000);
     }, [resumeWithHint]);
 
-    // Handle skip step from chat (pass-through to keep consistent handler naming)
-    const handleSkipStep = skipStep;
-
     // Handle take over (manual browser interaction for single step)
     const handleTakeOver = useCallback((testCaseId: string, stepId: string) => {
         // Start browser capture in 'single' mode - capture one action to replace this step
@@ -116,9 +120,6 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
         // Start browser capture in 'manual' mode - capture multiple actions until stopped
         startCapture(testCaseId, 'manual');
     }, [startCapture]);
-
-    // Handle stopping manual capture (pass-through to keep consistent handler naming)
-    const handleStopCapture = stopCapture;
 
     // UI State
     const [selectedEnv, setSelectedEnv] = useState<Environment>(ENVIRONMENTS[1]);
@@ -241,6 +242,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
             await createAndStart(importedTests, {
                 environment: selectedEnv.value,
                 baseUrl: selectedEnv.baseUrl,
+                sandboxPath: projectPath,
             });
             setShowImportModal(false);
             setImportedTests([]);
@@ -293,6 +295,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
             await createAndStart([testCase], {
                 environment: selectedEnv.value,
                 baseUrl: selectedEnv.baseUrl,
+                sandboxPath: projectPath,
             });
             setShowQuickCreate(false);
             setQcTestName('');
@@ -387,15 +390,6 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
         }
     };
 
-    // Template chips for quick create
-    const templates = [
-        { icon: ExternalLink, label: 'Navigate', text: 'Navigate to the login page' },
-        { icon: Edit3, label: 'Fill', text: "Fill the email field with 'test@example.com'" },
-        { icon: Play, label: 'Click', text: 'Click the Submit button' },
-        { icon: CheckCircle, label: 'Assert', text: 'Verify the success message is visible' },
-        { icon: RefreshCw, label: 'Loop', text: 'Loop through each user in the list' },
-    ];
-
     return (
         <div className="ai-recorder">
             {/* Toolbar */}
@@ -406,7 +400,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                 </div>
 
                 <button
-                    className="btn btn-secondary"
+                    className="ai-btn ai-btn-secondary"
                     onClick={() => setShowImportModal(true)}
                     disabled={isProcessing}
                 >
@@ -415,7 +409,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                 </button>
 
                 <button
-                    className="btn btn-primary"
+                    className="ai-btn ai-btn-primary"
                     onClick={() => setShowQuickCreate(true)}
                     disabled={isProcessing}
                 >
@@ -426,7 +420,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                 {/* Sessions History Dropdown */}
                 <div className="sessions-dropdown-container" style={{ position: 'relative' }}>
                     <button
-                        className="btn btn-secondary"
+                        className="ai-btn ai-btn-secondary"
                         onClick={handleShowSessions}
                         disabled={isLoadingSessions}
                     >
@@ -496,7 +490,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
 
                 {session.sessionId && (
                     <button
-                        className="btn btn-secondary"
+                        className="ai-btn ai-btn-secondary"
                         onClick={reset}
                         disabled={isProcessing}
                     >
@@ -542,7 +536,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
 
                 {/* Cancel button when processing */}
                 {isProcessing && (
-                    <button className="btn btn-secondary" onClick={cancelSession}>
+                    <button className="ai-btn ai-btn-secondary" onClick={cancelSession}>
                         <X size={16} />
                         Cancel
                     </button>
@@ -661,8 +655,8 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                                     )}
                                     {capture.mode === 'manual' && (
                                         <button
-                                            className="btn btn-primary capture-done-btn"
-                                            onClick={handleStopCapture}
+                                            className="ai-btn ai-btn-primary capture-done-btn"
+                                            onClick={stopCapture}
                                         >
                                             <StopCircle size={16} /> Done Recording
                                         </button>
@@ -747,7 +741,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                     <div className="tests-header">
                         <h3><FileText size={18} /> Generated Test Cases</h3>
                         {session.testCases.length > 0 && (
-                            <button className="btn btn-icon" onClick={refreshProgress} title="Refresh">
+                            <button className="ai-btn ai-btn-icon" onClick={refreshProgress} title="Refresh">
                                 <RefreshCw size={16} />
                             </button>
                         )}
@@ -774,7 +768,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                                                 {test.name}
                                             </div>
                                             <button
-                                                className="btn btn-sm btn-run"
+                                                className="ai-btn ai-btn-sm ai-btn-run"
                                                 onClick={() => runTestCase(test.id)}
                                                 disabled={run.isRunning || test.steps.length === 0}
                                                 title="Run all steps in browser"
@@ -844,21 +838,21 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                                                                 />
                                                                 <div className="step-edit-actions">
                                                                     <button
-                                                                        className="btn btn-sm btn-primary"
+                                                                        className="ai-btn ai-btn-sm ai-btn-primary"
                                                                         onClick={handleSaveEdit}
                                                                         title="Save (Cmd+Enter)"
                                                                     >
                                                                         <Check size={12} /> Save
                                                                     </button>
                                                                     <button
-                                                                        className="btn btn-sm"
+                                                                        className="ai-btn ai-btn-sm"
                                                                         onClick={() => handleTakeOver(test.id, step.stepId)}
                                                                         title="Replace by clicking in browser"
                                                                     >
                                                                         <Video size={12} /> Record
                                                                     </button>
                                                                     <button
-                                                                        className="btn btn-sm"
+                                                                        className="ai-btn ai-btn-sm"
                                                                         onClick={() => setEditingStepId(null)}
                                                                         title="Cancel (Escape)"
                                                                     >
@@ -937,7 +931,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                                             </div>
                                             <div className="test-card-actions">
                                                 <button
-                                                    className="btn btn-primary"
+                                                    className="ai-btn ai-btn-primary"
                                                     onClick={() => handleApprove(test.id)}
                                                     disabled={test.status !== 'human_review' && test.status !== 'complete'}
                                                 >
@@ -967,7 +961,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                             testCase={stuckTestCase}
                             stuckStep={stuckStep}
                             onResumeWithHint={handleResumeWithHint}
-                            onSkipStep={handleSkipStep}
+                            onSkipStep={skipStep}
                             onTakeOver={handleTakeOver}
                             onFinishManually={handleFinishManually}
                             isResolving={isResolving}
@@ -989,7 +983,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                                 <h4><CheckCircle size={16} className="success" /> Generated Vero Code</h4>
                                 <div className="generated-vero-actions">
                                     <button
-                                        className="btn btn-sm btn-primary"
+                                        className="ai-btn ai-btn-sm ai-btn-primary"
                                         onClick={() => {
                                             navigator.clipboard.writeText(generatedVeroCode);
                                             alert('Copied to clipboard!');
@@ -998,7 +992,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                                         Copy
                                     </button>
                                     <button
-                                        className="btn btn-sm"
+                                        className="ai-btn ai-btn-sm"
                                         onClick={() => setGeneratedVeroCode(null)}
                                     >
                                         <X size={14} /> Clear
@@ -1052,7 +1046,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                                     disabled={isCreating}
                                 />
                                 <div className="qc-templates">
-                                    {templates.map(t => (
+                                    {QUICK_CREATE_TEMPLATES.map(t => (
                                         <button
                                             key={t.label}
                                             className="template-chip"
@@ -1067,14 +1061,14 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                         </div>
                         <div className="modal-footer">
                             <button
-                                className="btn btn-secondary"
+                                className="ai-btn ai-btn-secondary"
                                 onClick={() => setShowQuickCreate(false)}
                                 disabled={isCreating}
                             >
                                 Cancel
                             </button>
                             <button
-                                className="btn btn-primary"
+                                className="ai-btn ai-btn-primary"
                                 onClick={handleQuickCreate}
                                 disabled={isCreating || !qcSteps.trim()}
                             >
@@ -1149,7 +1143,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                         </div>
                         <div className="modal-footer">
                             <button
-                                className="btn btn-secondary"
+                                className="ai-btn ai-btn-secondary"
                                 onClick={() => {
                                     setShowImportModal(false);
                                     setImportedTests([]);
@@ -1159,7 +1153,7 @@ export function AITestRecorderPanel({ onClose: _onClose, onTestApproved, project
                                 Cancel
                             </button>
                             <button
-                                className="btn btn-primary"
+                                className="ai-btn ai-btn-primary"
                                 onClick={handleStartImported}
                                 disabled={importedTests.length === 0 || isCreating}
                             >

@@ -1,19 +1,9 @@
-/**
- * ExecutionReportView - Matching Google Stitch design exactly
- *
- * Structure:
- * - Session cards with expand/collapse
- * - "View Full Allure Report" button at session level
- * - Scenarios with progress bars
- * - Steps as rounded cards with hover effects
- * - Console/Network/DOM Map tabs for expanded steps
- * - Screenshot panel with selector highlight
- * - Right sidebar with VERTICAL TEXT scenario tabs
- */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useGitHubExecutionStore, GitHubExecution } from '@/store/useGitHubExecutionStore';
 import { useLocalExecutionStore } from '@/store/useLocalExecutionStore';
 import type { ExecutionWithDetails } from './ExecutionDashboard';
+import { humanizePlaywrightError } from '@/utils/playwrightParser';
+import { ListOrdered, TestTube2 } from 'lucide-react';
 
 interface ExecutionReportViewProps {
   onJumpToEditor?: (line: number) => void;
@@ -22,80 +12,329 @@ interface ExecutionReportViewProps {
 }
 
 type ExecutionSource = 'local' | 'github';
-type LogTab = 'console' | 'network' | 'dommap';
+type RunState = 'queued' | 'running' | 'completed' | 'canceled' | 'error';
+type RunOutcome = 'passed' | 'unstable' | 'failed' | 'no-tests' | null;
+type RunFilter = 'all' | 'active' | 'passed' | 'unstable' | 'failed' | 'no-tests';
+type ScenarioFilter = 'all' | 'passed' | 'failed' | 'running' | 'skipped' | 'flaky';
+type DetailTab = 'steps' | 'errors' | 'screenshots' | 'logs';
 
-interface SessionData {
+interface StepData {
   id: string;
-  date: string;
-  time: string;
-  status: 'passed' | 'failed' | 'running' | 'pending';
-  triggeredBy: string;
-  triggerType: 'Manual' | 'Scheduled' | 'API' | 'Webhook';
-  duration: string;
-  environment: string;
-  allureUrl?: string;
-  scenarios: ScenarioData[];
-  source: ExecutionSource;
-  runId?: number;
-  owner?: string;
-  repo?: string;
+  number: number;
+  action?: string;
+  description?: string;
+  name: string;
+  status: 'passed' | 'failed' | 'running' | 'pending' | 'skipped';
+  durationMs?: number;
+  error?: string;
+  line?: number;
+  page?: string;
+  url?: string;
+  screenshot?: string;
 }
 
 interface ScenarioData {
   id: string;
   name: string;
   status: 'passed' | 'failed' | 'running' | 'pending' | 'skipped';
-  duration: string;
   durationMs: number;
-  progress: number;
+  durationLabel: string;
   traceUrl?: string;
-  steps: StepData[];
   error?: string;
   screenshot?: string;
+  retries?: number;
+  steps: StepData[];
 }
 
-interface StepData {
+interface RunData {
   id: string;
-  number: number;
-  name: string;
-  status: 'passed' | 'failed' | 'running' | 'pending' | 'skipped';
-  duration?: string;
-  error?: string;
-  line?: number;
-  screenshot?: string;
+  source: ExecutionSource;
+  title: string;
+  state: RunState;
+  outcome: RunOutcome;
+  startedAtMs: number;
+  dateLabel: string;
+  timeLabel: string;
+  durationLabel: string;
+  triggeredBy: string;
+  triggerType: 'Manual' | 'Scheduled' | 'API' | 'Webhook';
+  environment: string;
+  allureUrl?: string;
+  runId?: number;
+  owner?: string;
+  repo?: string;
+  metrics: {
+    total: number;
+    passed: number;
+    failed: number;
+    skipped: number;
+    running: number;
+    flaky: number;
+  };
+  scenarios: ScenarioData[];
+}
+
+const panelClass = 'bg-[#151d28] border border-[#2c3745] rounded-md';
+
+function toTitleCase(value: string): string {
+  return value
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+function formatDurationMs(ms?: number): string {
+  if (!ms || ms <= 0) return '0s';
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remaining = seconds % 60;
+  return `${minutes}m ${remaining}s`;
+}
+
+function extractVeroScenarioName(playwrightName: string): string {
+  if (!playwrightName) return 'Scenario';
+
+  const parts = playwrightName.split('>').map((p) => p.trim()).filter(Boolean);
+  if (parts.length > 1) {
+    return toTitleCase(parts[parts.length - 1]);
+  }
+
+  const cleaned = playwrightName.replace(/[._-]/g, ' ').trim();
+  return cleaned.endsWith('.vero') ? cleaned : toTitleCase(cleaned);
+}
+
+function getAuthHeaders(json = false): Record<string, string> {
+  const token = localStorage.getItem('auth_token');
+  const headers: Record<string, string> = json ? { 'Content-Type': 'application/json' } : {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+function getBackendOrigin(): string {
+  if (typeof window === 'undefined') return '';
+  const { protocol, hostname, port, origin } = window.location;
+  if (port === '5173' || port === '5174' || port === '5175' || port === '5176') {
+    return `${protocol}//${hostname}:3000`;
+  }
+  return origin;
+}
+
+function toBackendUrl(url: string): string {
+  if (!url) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  const base = getBackendOrigin();
+  if (!base) return url;
+  return url.startsWith('/') ? `${base}${url}` : `${base}/${url}`;
+}
+
+const REQUEST_TIMEOUT_MS = 15000;
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs: number = REQUEST_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+function navigateOrOpenPopup(popup: Window | null, targetUrl: string): void {
+  if (popup && !popup.closed) {
+    popup.location.href = targetUrl;
+    return;
+  }
+  window.open(targetUrl, '_blank', 'noopener,noreferrer');
+}
+
+function closePopup(popup: Window | null): void {
+  if (popup && !popup.closed) {
+    popup.close();
+  }
+}
+
+function computeRunMetrics(
+  scenarios: ScenarioData[],
+  fallback?: Partial<RunData['metrics']>
+): RunData['metrics'] {
+  if (scenarios.length === 0) {
+    return {
+      total: fallback?.total || 0,
+      passed: fallback?.passed || 0,
+      failed: fallback?.failed || 0,
+      skipped: fallback?.skipped || 0,
+      running: fallback?.running || 0,
+      flaky: fallback?.flaky || 0,
+    };
+  }
+
+  const passed = scenarios.filter((s) => s.status === 'passed' && !isFlakyScenario(s)).length;
+  const failed = scenarios.filter((s) => s.status === 'failed').length;
+  const skipped = scenarios.filter((s) => s.status === 'skipped' || s.status === 'pending').length;
+  const running = scenarios.filter((s) => s.status === 'running').length;
+  const flaky = scenarios.filter((s) => isFlakyScenario(s)).length;
+
+  return {
+    total: scenarios.length,
+    passed,
+    failed,
+    skipped,
+    running,
+    flaky,
+  };
+}
+
+function deriveRunOutcome(state: RunState, metrics: RunData['metrics']): RunOutcome {
+  if (state === 'running' || state === 'queued') return null;
+  if (state === 'error') return 'failed';
+  if (state === 'canceled') return metrics.total > 0 && metrics.failed > 0 ? 'failed' : 'no-tests';
+  if (metrics.total === 0) return 'no-tests';
+  if (metrics.failed > 0) {
+    return metrics.passed > 0 ? 'unstable' : 'failed';
+  }
+  if (metrics.flaky > 0) return 'unstable';
+  return 'passed';
+}
+
+function getRunStatusBadge(run: RunData): { label: string; className: string } {
+  if (run.state === 'running') {
+    return { label: 'RUNNING', className: 'bg-[#1f3f62] text-[#a9d0ff] border-[#33608f]' };
+  }
+  if (run.state === 'queued') {
+    return { label: 'QUEUED', className: 'bg-[#253242] text-[#b7c8da] border-[#3f556d]' };
+  }
+  if (run.state === 'canceled') {
+    return { label: 'CANCELED', className: 'bg-[#2a313c] text-[#b3c0cf] border-[#3c4a5a]' };
+  }
+  if (run.state === 'error') {
+    return { label: 'ERROR', className: 'bg-[#5a2328] text-[#ffb4bc] border-[#8a3a44]' };
+  }
+
+  if (run.outcome === 'passed') {
+    return { label: 'PASSED', className: 'bg-[#1f4f2a] text-[#9be9a8] border-[#2f6f3a]' };
+  }
+  if (run.outcome === 'unstable') {
+    return { label: 'UNSTABLE', className: 'bg-[#4a3b1c] text-[#ffd391] border-[#7a5d2a]' };
+  }
+  if (run.outcome === 'failed') {
+    return { label: 'FAILED', className: 'bg-[#5a2328] text-[#ffb4bc] border-[#8a3a44]' };
+  }
+  if (run.outcome === 'no-tests') {
+    return { label: 'NO TESTS', className: 'bg-[#28313d] text-[#b3c0cf] border-[#3c4a5a]' };
+  }
+
+  return { label: 'COMPLETED', className: 'bg-[#28313d] text-[#b3c0cf] border-[#3c4a5a]' };
+}
+
+function getScenarioStatusDot(status: ScenarioData['status']): string {
+  if (status === 'passed') return 'bg-[#3fb950]';
+  if (status === 'failed') return 'bg-[#f85149]';
+  if (status === 'running') return 'bg-[#58a6ff]';
+  if (status === 'skipped' || status === 'pending') return 'bg-[#d29922]';
+  return 'bg-[#8b949e]';
+}
+
+function isFlakyScenario(scenario: ScenarioData): boolean {
+  return typeof scenario.retries === 'number' && scenario.retries > 0;
+}
+
+function extractUrlFromText(value?: string): string | undefined {
+  if (!value) return undefined;
+  const match = value.match(/https?:\/\/[^\s"'`<>]+/i);
+  return match?.[0];
+}
+
+function getStepDisplayTitle(step: StepData): string {
+  const action = step.action?.trim();
+  const description = step.description?.trim();
+  if (action && description && action.toLowerCase() !== description.toLowerCase()) {
+    return `${toTitleCase(action)} - ${description}`;
+  }
+  return step.name || description || action || `Step ${step.number}`;
+}
+
+function getStepPageLabel(step: StepData): string {
+  const raw = step.url || step.page || extractUrlFromText(step.error) || extractUrlFromText(step.name);
+  if (!raw) return 'N/A';
+  try {
+    const parsed = new URL(raw);
+    return `${parsed.hostname}${parsed.pathname === '/' ? '' : parsed.pathname}`;
+  } catch {
+    return raw;
+  }
+}
+
+interface HorizontalScrollState {
+  canLeft: boolean;
+  canRight: boolean;
+}
+
+function getHorizontalScrollState(element: HTMLDivElement | null): HorizontalScrollState {
+  if (!element) {
+    return { canLeft: false, canRight: false };
+  }
+
+  const { scrollLeft, scrollWidth, clientWidth } = element;
+  return {
+    canLeft: scrollLeft > 2,
+    canRight: scrollLeft + clientWidth < scrollWidth - 2,
+  };
 }
 
 export const ExecutionReportView: React.FC<ExecutionReportViewProps> = ({
-  onJumpToEditor: _onJumpToEditor,
-  onViewTrace: _onViewTrace,
+  onJumpToEditor,
+  onViewTrace,
   onOpenAllure,
 }) => {
   const [activeSource, setActiveSource] = useState<ExecutionSource>('github');
-  const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set());
-  const [expandedScenarios, setExpandedScenarios] = useState<Set<string>>(new Set());
-  const [_expandedSteps, _setExpandedSteps] = useState<Set<string>>(new Set());
-  const [activeLogTab, setActiveLogTab] = useState<LogTab>('console');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [runsPaneCollapsed, setRunsPaneCollapsed] = useState(false);
+  const [scenariosPaneCollapsed, setScenariosPaneCollapsed] = useState(false);
+  const [runSearch, setRunSearch] = useState('');
+  const [scenarioSearch, setScenarioSearch] = useState('');
+  const [runFilter, setRunFilter] = useState<RunFilter>('all');
+  const [scenarioFilter, setScenarioFilter] = useState<ScenarioFilter>('all');
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
-  const [sessionStatusFilter, setSessionStatusFilter] = useState<Record<string, 'all' | 'passed' | 'failed' | 'flaky' | 'skipped' | null>>({});
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState<DetailTab>('steps');
+  const [preparingAllureRunId, setPreparingAllureRunId] = useState<string | null>(null);
+  const [openingTraceScenarioId, setOpeningTraceScenarioId] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ type: 'info' | 'error'; text: string } | null>(null);
+  const [fullScreenshot, setFullScreenshot] = useState<string | null>(null);
+  const [runFilterScroll, setRunFilterScroll] = useState<HorizontalScrollState>({ canLeft: false, canRight: false });
+  const [scenarioFilterScroll, setScenarioFilterScroll] = useState<HorizontalScrollState>({
+    canLeft: false,
+    canRight: false,
+  });
+  const runFilterScrollRef = useRef<HTMLDivElement | null>(null);
+  const scenarioFilterScrollRef = useRef<HTMLDivElement | null>(null);
 
-  // Local executions from store
   const localExecutions = useLocalExecutionStore((state) => state.executions);
   const fetchLocalExecutions = useLocalExecutionStore((state) => state.fetchExecutions);
 
-  // GitHub executions from store
   const githubExecutions = useGitHubExecutionStore((state) => state.executions);
   const addExecution = useGitHubExecutionStore((state) => state.addExecution);
   const updateExecution = useGitHubExecutionStore((state) => state.updateExecution);
 
-  // Fetch GitHub runs
   const fetchGitHubRuns = useCallback(async () => {
     try {
-      const authToken = localStorage.getItem('auth_token');
-      const headers: Record<string, string> = authToken
-        ? { 'Authorization': `Bearer ${authToken}` }
-        : {};
-
       const savedSettings = localStorage.getItem('github-settings');
       let owner = 'y9g7bg5qbj-arch';
       let repo = 'playwright-web-app';
@@ -106,1148 +345,1334 @@ export const ExecutionReportView: React.FC<ExecutionReportViewProps> = ({
         repo = settings.repo || repo;
       }
 
-      const response = await fetch(`/api/github/runs?owner=${owner}&repo=${repo}&limit=20`, { headers });
+      const response = await fetch(`/api/github/runs?owner=${owner}&repo=${repo}&limit=20`, {
+        headers: getAuthHeaders(),
+      });
+
       if (!response.ok) {
-        throw new Error(`Failed to fetch runs: ${response.status}`);
+        throw new Error(`Failed to fetch GitHub runs (HTTP ${response.status})`);
       }
 
       const data = await response.json();
-      if (data.success && data.data) {
-        for (const run of data.data) {
-          const newId = `github-${run.id}`;
-          const existingRun = githubExecutions.find(e =>
-            e.runId === run.id || e.id === newId
-          );
+      if (!data.success || !Array.isArray(data.data)) {
+        return;
+      }
 
-          const mapStatus = (status: string): 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled' => {
-            if (status === 'completed') return 'completed';
-            if (status === 'in_progress') return 'in_progress';
-            if (status === 'queued') return 'queued';
-            if (status === 'failure') return 'failed';
-            if (status === 'cancelled') return 'cancelled';
-            return 'completed';
-          };
+      for (const run of data.data) {
+        const executionId = `github-${run.id}`;
+        const existing = githubExecutions.find((item) => item.id === executionId || item.runId === run.id);
 
-          const execution: Partial<GitHubExecution> = {
-            id: newId,
-            runId: run.id,
-            runNumber: run.runNumber,
-            workflowName: run.name,
-            status: mapStatus(run.status),
-            conclusion: run.conclusion,
-            browsers: ['chromium'],
-            workers: run.jobs?.length || 2,
-            shards: run.jobs?.length || 1,
-            triggeredAt: run.createdAt,
-            startedAt: run.createdAt,
-            completedAt: run.updatedAt,
-            totalTests: existingRun?.totalTests || 0,
-            passedTests: existingRun?.passedTests || 0,
-            failedTests: existingRun?.failedTests || 0,
-            skippedTests: existingRun?.skippedTests || 0,
-            scenarios: existingRun?.scenarios,
-            htmlUrl: run.htmlUrl,
-            owner,
-            repo,
-          };
+        const mapStatus = (status: string): GitHubExecution['status'] => {
+          if (status === 'in_progress') return 'in_progress';
+          if (status === 'queued') return 'queued';
+          if (status === 'failure') return 'failed';
+          if (status === 'cancelled') return 'cancelled';
+          return 'completed';
+        };
 
-          if (existingRun) {
-            updateExecution(existingRun.id, execution);
-          } else {
-            addExecution(execution as GitHubExecution);
-          }
+        const mapped: Partial<GitHubExecution> = {
+          id: executionId,
+          runId: run.id,
+          runNumber: run.runNumber,
+          workflowName: run.name,
+          status: mapStatus(run.status),
+          conclusion: run.conclusion,
+          browsers: ['chromium'],
+          workers: run.jobs?.length || 1,
+          shards: run.jobs?.length || 1,
+          triggeredAt: run.createdAt,
+          startedAt: run.createdAt,
+          completedAt: run.updatedAt,
+          totalTests: existing?.totalTests || 0,
+          passedTests: existing?.passedTests || 0,
+          failedTests: existing?.failedTests || 0,
+          skippedTests: existing?.skippedTests || 0,
+          scenarios: existing?.scenarios,
+          htmlUrl: run.htmlUrl,
+          owner,
+          repo,
+        };
 
-          // Fetch report data for completed runs
-          const isCompleted = run.status === 'completed' || run.conclusion;
-          const needsReport = isCompleted && (!existingRun?.scenarios || existingRun.scenarios.length === 0);
+        if (existing) {
+          updateExecution(existing.id, mapped);
+        } else {
+          addExecution(mapped as GitHubExecution);
+        }
 
-          if (needsReport) {
-            fetch(`/api/github/runs/${run.id}/report?owner=${owner}&repo=${repo}`, { headers })
-              .then(res => res.json())
-              .then(reportData => {
-                if (reportData.success && reportData.data) {
-                  const { summary, scenarios } = reportData.data;
-                  updateExecution(newId, {
-                    totalTests: summary.total,
-                    passedTests: summary.passed,
-                    failedTests: summary.failed,
-                    skippedTests: summary.skipped,
-                    scenarios: scenarios?.map((s: any) => ({
-                      id: s.id,
-                      name: s.name,
-                      status: s.status,
-                      duration: s.duration,
-                      error: s.error,
-                      traceUrl: s.traceUrl,
-                      screenshot: s.screenshot, // Evidence or failure screenshot
-                      steps: s.steps?.map((step: any) => ({
+        const completed = run.status === 'completed' || run.conclusion;
+        const missingDetails = !existing?.scenarios || existing.scenarios.length === 0;
+
+        if (completed && missingDetails) {
+          fetch(`/api/github/runs/${run.id}/report?owner=${owner}&repo=${repo}`, {
+            headers: getAuthHeaders(),
+          })
+            .then((res) => res.json())
+            .then((report) => {
+              if (!report.success || !report.data) return;
+              const summary = report.data.summary || {};
+              const scenarios = Array.isArray(report.data.scenarios) ? report.data.scenarios : [];
+
+              updateExecution(executionId, {
+                totalTests: summary.total || 0,
+                passedTests: summary.passed || 0,
+                failedTests: summary.failed || 0,
+                skippedTests: summary.skipped || 0,
+                scenarios: scenarios.map((scenario: any) => ({
+                  id: scenario.id,
+                  name: scenario.name,
+                  status: scenario.status,
+                  duration: scenario.duration,
+                  error: scenario.error,
+                  traceUrl: scenario.traceUrl,
+                  screenshot: scenario.screenshot,
+                  retries: scenario.retries,
+                  steps: Array.isArray(scenario.steps)
+                    ? scenario.steps.map((step: any) => ({
                         ...step,
-                        screenshot: step.screenshot, // Step-level screenshot
-                      })),
-                    })),
-                  });
-                }
-              })
-              .catch(err => console.warn(`[ExecutionReportView] Failed to fetch report for run ${run.id}:`, err));
-          }
+                        screenshot: step.screenshot,
+                      }))
+                    : [],
+                })),
+              });
+            })
+            .catch(() => {
+              // Ignore background report fetch errors
+            });
         }
       }
     } catch (error) {
-      console.error('[ExecutionReportView] Failed to fetch GitHub runs:', error);
+      setMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Failed to refresh GitHub executions',
+      });
     }
-  }, [githubExecutions, addExecution, updateExecution]);
+  }, [addExecution, githubExecutions, updateExecution]);
+
+  const refreshActiveSource = useCallback(async () => {
+    if (activeSource === 'local') {
+      await fetchLocalExecutions();
+    } else {
+      await fetchGitHubRuns();
+    }
+  }, [activeSource, fetchGitHubRuns, fetchLocalExecutions]);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      if (activeSource === 'github') {
-        await fetchGitHubRuns();
-      } else {
-        await fetchLocalExecutions();
-      }
-    } catch (error) {
-      console.error('Failed to refresh:', error);
+      await refreshActiveSource();
     } finally {
       setIsRefreshing(false);
     }
-  }, [activeSource, fetchGitHubRuns, fetchLocalExecutions]);
+  }, [refreshActiveSource]);
 
   useEffect(() => {
     handleRefresh();
-  }, [activeSource]);
+  }, [activeSource, handleRefresh]);
 
-  // Convert local executions to session data
-  const convertLocalToSession = (exec: ExecutionWithDetails): SessionData => {
-    const date = new Date(exec.startedAt);
-    const duration = exec.duration
-      ? `${Math.floor(exec.duration / 1000)}s`
-      : exec.finishedAt
-        ? `${Math.floor((new Date(exec.finishedAt).getTime() - new Date(exec.startedAt).getTime()) / 1000)}s`
-        : 'Running...';
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshActiveSource().catch(() => {
+        // silent polling failure
+      });
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [refreshActiveSource]);
 
-    return {
-      id: exec.id,
-      date: date.toLocaleDateString('en-CA'),
-      time: date.toLocaleTimeString('en-US', { hour12: true, hour: 'numeric', minute: '2-digit', second: '2-digit' }),
-      status: exec.status as 'passed' | 'failed' | 'running' | 'pending',
-      triggeredBy: exec.triggeredBy.name || 'System',
-      triggerType: exec.triggeredBy.type === 'user' ? 'Manual' :
-        exec.triggeredBy.type === 'scheduled' ? 'Scheduled' :
-          exec.triggeredBy.type === 'api' ? 'API' : 'Webhook',
-      duration,
-      environment: 'Local',
-      source: 'local',
-      scenarios: (exec.scenarios || []).map((s, idx) => ({
-        id: s.id || `scenario-${idx}`,
-        name: extractVeroScenarioName(s.name),
-        status: s.status as ScenarioData['status'],
-        duration: s.duration ? `${(s.duration / 1000).toFixed(1)}s` : '0s',
-        durationMs: s.duration || 0,
-        progress: s.status === 'passed' ? 100 : s.status === 'failed' ? 100 : 50,
-        traceUrl: s.traceUrl,
-        error: s.error,
-        screenshot: s.screenshot,
-        steps: (s.steps || []).map((step, stepIdx) => ({
-          id: step.id || `step-${stepIdx}`,
-          number: step.stepNumber,
-          name: step.action || step.description || `Step ${step.stepNumber}`,
-          status: step.status as StepData['status'],
-          duration: step.duration ? `${step.duration}ms` : undefined,
-          error: step.error,
-          line: stepIdx + 1,
-          screenshot: step.screenshot,
-        })),
+  const convertLocalToRunData = useCallback((exec: ExecutionWithDetails): RunData => {
+    const startedAt = new Date(exec.startedAt);
+    const durationMs =
+      typeof exec.duration === 'number'
+        ? exec.duration
+        : exec.finishedAt
+        ? new Date(exec.finishedAt).getTime() - new Date(exec.startedAt).getTime()
+        : 0;
+
+    const triggerType: RunData['triggerType'] =
+      exec.triggeredBy.type === 'scheduled'
+        ? 'Scheduled'
+        : exec.triggeredBy.type === 'api'
+        ? 'API'
+        : exec.triggeredBy.type === 'webhook'
+        ? 'Webhook'
+        : 'Manual';
+
+    const localState: RunState =
+      exec.status === 'running'
+        ? 'running'
+        : exec.status === 'pending'
+        ? 'queued'
+        : exec.status === 'cancelled'
+        ? 'canceled'
+        : exec.status === 'passed' || exec.status === 'failed'
+        ? 'completed'
+        : 'error';
+
+    const scenarios: ScenarioData[] = (exec.scenarios || []).map((scenario, scenarioIndex) => ({
+      id: scenario.id || `${exec.id}-scenario-${scenarioIndex}`,
+      name: extractVeroScenarioName(scenario.name),
+      status: scenario.status,
+      durationMs: scenario.duration || 0,
+      durationLabel: formatDurationMs(scenario.duration),
+      traceUrl: scenario.traceUrl,
+      error: scenario.error,
+      screenshot: scenario.screenshot,
+      retries: (scenario as any).retries,
+      steps: (scenario.steps || []).map((step, stepIndex) => ({
+        id: step.id || `${exec.id}-step-${stepIndex}`,
+        number: step.stepNumber || stepIndex + 1,
+        action: step.action,
+        description: step.description,
+        name: step.description || step.action || `Step ${step.stepNumber || stepIndex + 1}`,
+        status: step.status,
+        durationMs: step.duration,
+        error: step.error,
+        line: stepIndex + 1,
+        page: (step as any).page,
+        url: (step as any).url,
+        screenshot: step.screenshot || (step.status === 'failed' ? scenario.screenshot : undefined),
       })),
-    };
-  };
+    }));
 
-  // Convert GitHub executions to session data
-  const convertGitHubToSession = (exec: GitHubExecution): SessionData => {
-    const date = new Date(exec.triggeredAt || exec.startedAt || Date.now());
-    const duration = exec.completedAt && exec.startedAt
-      ? formatDuration(new Date(exec.completedAt).getTime() - new Date(exec.startedAt).getTime())
-      : exec.status === 'in_progress' || exec.status === 'queued'
-        ? 'Running...'
-        : '0s';
+    const inferredPassed =
+      exec.status === 'passed' &&
+      (exec.passedCount || 0) === 0 &&
+      (exec.failedCount || 0) === 0 &&
+      (exec.skippedCount || 0) === 0
+        ? 1
+        : exec.passedCount || 0;
+    const inferredFailed =
+      exec.status === 'failed' ? Math.max(exec.failedCount || 0, 1) : exec.failedCount || 0;
 
-    const status: SessionData['status'] =
-      exec.status === 'completed'
-        ? exec.conclusion === 'success' ? 'passed' : 'failed'
-        : exec.status === 'in_progress' || exec.status === 'queued'
-          ? 'running'
-          : exec.status === 'failed'
-            ? 'failed'
-            : 'pending';
+    const metrics = computeRunMetrics(scenarios, {
+      total: inferredPassed + inferredFailed + (exec.skippedCount || 0) || scenarios.length,
+      passed: inferredPassed,
+      failed: inferredFailed,
+      skipped: exec.skippedCount || 0,
+      running: exec.status === 'running' ? 1 : 0,
+      flaky: 0,
+    });
 
     return {
       id: exec.id,
-      date: date.toLocaleDateString('en-CA'),
-      time: date.toLocaleTimeString('en-US', { hour12: true, hour: 'numeric', minute: '2-digit', second: '2-digit' }),
-      status,
+      source: 'local',
+      title: exec.testFlowName || 'Local Execution',
+      state: localState,
+      outcome: deriveRunOutcome(localState, metrics),
+      startedAtMs: startedAt.getTime(),
+      dateLabel: startedAt.toLocaleDateString('en-CA'),
+      timeLabel: startedAt.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }),
+      durationLabel: localState === 'running' || localState === 'queued' ? 'Running' : formatDurationMs(durationMs),
+      triggeredBy: exec.triggeredBy.name || 'System',
+      triggerType,
+      environment: 'Local',
+      metrics,
+      scenarios,
+    };
+  }, []);
+
+  const convertGitHubToRunData = useCallback((exec: GitHubExecution): RunData => {
+    const startedAt = new Date(exec.triggeredAt || exec.startedAt || Date.now());
+    const completedAt = exec.completedAt ? new Date(exec.completedAt).getTime() : undefined;
+    const startedAtMs = startedAt.getTime();
+    const durationMs =
+      typeof completedAt === 'number'
+        ? completedAt - startedAtMs
+        : typeof exec.duration === 'number'
+        ? exec.duration
+        : 0;
+
+    const state: RunState =
+      exec.status === 'in_progress'
+        ? 'running'
+        : exec.status === 'queued'
+        ? 'queued'
+        : exec.status === 'cancelled'
+        ? 'canceled'
+        : exec.status === 'failed'
+        ? 'error'
+        : 'completed';
+
+    const scenarios: ScenarioData[] = (exec.scenarios || []).map((scenario, scenarioIndex) => {
+      const scenarioSteps = Array.isArray(scenario.steps)
+        ? scenario.steps.map((step, stepIndex) => ({
+            id: step.id || `${exec.id}-step-${stepIndex}`,
+            number: step.stepNumber || stepIndex + 1,
+            action: step.action,
+            description: (step as any).description,
+            name:
+              (step as any).description ||
+              step.action ||
+              `Step ${step.stepNumber || stepIndex + 1}`,
+            status: step.status,
+            durationMs: step.duration,
+            error: step.error,
+            line: stepIndex + 1,
+            page: (step as any).page,
+            url: (step as any).url,
+            screenshot: step.screenshot || (step.status === 'failed' ? scenario.screenshot : undefined),
+          }))
+        : [];
+
+      const fallbackSteps: StepData[] =
+        scenarioSteps.length > 0
+          ? scenarioSteps
+          : [
+              {
+                id: `${exec.id}-synthetic-step-${scenarioIndex}`,
+                number: 1,
+                action: 'execute',
+                description: extractVeroScenarioName(scenario.name),
+                name: `Execute ${extractVeroScenarioName(scenario.name)}`,
+                status: scenario.status,
+                durationMs: scenario.duration,
+                error: scenario.error,
+                screenshot: scenario.screenshot,
+              },
+            ];
+
+      return {
+        id: scenario.id || `${exec.id}-scenario-${scenarioIndex}`,
+        name: extractVeroScenarioName(scenario.name),
+        status: scenario.status,
+        durationMs: scenario.duration || 0,
+        durationLabel: formatDurationMs(scenario.duration),
+        traceUrl: scenario.traceUrl,
+        error: scenario.error,
+        screenshot: scenario.screenshot,
+        retries: (scenario as any).retries,
+        steps: fallbackSteps,
+      };
+    });
+
+    const metrics = computeRunMetrics(scenarios, {
+      total:
+        exec.totalTests ||
+        (exec.conclusion === 'success' ? 1 : 0) +
+          (exec.conclusion && exec.conclusion !== 'success' ? 1 : 0) ||
+        scenarios.length,
+      passed:
+        exec.passedTests ||
+        (exec.conclusion === 'success' && exec.totalTests === 0 && exec.failedTests === 0 ? 1 : 0),
+      failed:
+        exec.failedTests ||
+        (exec.conclusion && exec.conclusion !== 'success' && exec.totalTests === 0 ? 1 : 0),
+      skipped: exec.skippedTests || 0,
+      running: exec.status === 'in_progress' ? 1 : 0,
+      flaky: 0,
+    });
+
+    return {
+      id: exec.id,
+      source: 'github',
+      title: exec.workflowName || 'GitHub Run',
+      state,
+      outcome: deriveRunOutcome(state, metrics),
+      startedAtMs,
+      dateLabel: startedAt.toLocaleDateString('en-CA'),
+      timeLabel: startedAt.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }),
+      durationLabel: state === 'running' || state === 'queued' ? 'Running' : formatDurationMs(durationMs),
       triggeredBy: 'GitHub Actions',
       triggerType: 'API',
-      duration,
-      environment: 'Production',
+      environment: 'GitHub Actions',
       allureUrl: exec.htmlUrl,
-      source: 'github',
       runId: exec.runId,
       owner: exec.owner,
       repo: exec.repo,
-      scenarios: (exec.scenarios || []).map((s, idx) => {
-        // Generate steps - use actual steps if available, otherwise create synthetic steps
-        let steps: StepData[] = [];
+      metrics,
+      scenarios,
+    };
+  }, []);
 
-        if (s.steps && s.steps.length > 0) {
-          // Use actual Playwright steps
-          steps = s.steps.map((step, stepIdx) => ({
-            id: step.id || `step-${stepIdx}`,
-            number: step.stepNumber || stepIdx + 1,
-            name: step.action || `Step ${stepIdx + 1}`,
-            status: step.status as StepData['status'],
-            duration: step.duration ? `${step.duration}ms` : undefined,
-            error: step.error,
-            line: stepIdx + 1,
-            screenshot: step.screenshot,
-          }));
-        } else {
-          // Create synthetic steps based on scenario info
-          const scenarioName = extractVeroScenarioName(s.name);
-          steps = [
+  const sourceRuns = useMemo(() => {
+    const runs =
+      activeSource === 'local'
+        ? localExecutions.map(convertLocalToRunData)
+        : githubExecutions.map(convertGitHubToRunData);
+
+    return runs.sort((a, b) => {
+      const aActive = a.state === 'running' || a.state === 'queued';
+      const bActive = b.state === 'running' || b.state === 'queued';
+      if (aActive && !bActive) return -1;
+      if (!aActive && bActive) return 1;
+      return b.startedAtMs - a.startedAtMs;
+    });
+  }, [activeSource, convertGitHubToRunData, convertLocalToRunData, githubExecutions, localExecutions]);
+
+  const runNumbers = useMemo(() => {
+    const map = new Map<string, string>();
+    const total = sourceRuns.length;
+    sourceRuns.forEach((run, index) => {
+      map.set(run.id, `Execution ${total - index}`);
+    });
+    return map;
+  }, [sourceRuns]);
+
+  const filteredRuns = useMemo(() => {
+    const query = runSearch.trim().toLowerCase();
+    return sourceRuns.filter((run) => {
+      if (runFilter === 'active' && !(run.state === 'running' || run.state === 'queued')) return false;
+      if (runFilter === 'passed' && run.outcome !== 'passed') return false;
+      if (runFilter === 'unstable' && run.outcome !== 'unstable') return false;
+      if (runFilter === 'failed' && run.outcome !== 'failed' && run.state !== 'error') return false;
+      if (runFilter === 'no-tests' && run.outcome !== 'no-tests') return false;
+      if (!query) return true;
+
+      const numberLabel = runNumbers.get(run.id) || run.id;
+      const haystack = [
+        numberLabel,
+        run.title,
+        run.triggeredBy,
+        run.triggerType,
+        run.state,
+        run.outcome || '',
+        run.dateLabel,
+        run.timeLabel,
+      ]
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(query);
+    });
+  }, [runFilter, runNumbers, runSearch, sourceRuns]);
+
+  useEffect(() => {
+    if (!selectedRunId || !filteredRuns.some((run) => run.id === selectedRunId)) {
+      setSelectedRunId(filteredRuns[0]?.id || null);
+    }
+  }, [filteredRuns, selectedRunId]);
+
+  const selectedRun = useMemo(
+    () => filteredRuns.find((run) => run.id === selectedRunId) || null,
+    [filteredRuns, selectedRunId]
+  );
+
+  const scenarioCounts = useMemo(() => {
+    const scenarios = selectedRun?.scenarios || [];
+    const passed = scenarios.filter((s) => s.status === 'passed' && !isFlakyScenario(s)).length;
+    const failed = scenarios.filter((s) => s.status === 'failed').length;
+    const running = scenarios.filter((s) => s.status === 'running').length;
+    const skipped = scenarios.filter((s) => s.status === 'skipped' || s.status === 'pending').length;
+    const flaky = scenarios.filter((s) => isFlakyScenario(s)).length;
+    return { all: scenarios.length, passed, failed, running, skipped, flaky };
+  }, [selectedRun]);
+
+  const filteredScenarios = useMemo(() => {
+    const scenarios = selectedRun?.scenarios || [];
+    const query = scenarioSearch.trim().toLowerCase();
+
+    return scenarios.filter((scenario) => {
+      if (scenarioFilter === 'failed' && scenario.status !== 'failed') return false;
+      if (scenarioFilter === 'passed' && scenario.status !== 'passed') return false;
+      if (scenarioFilter === 'running' && scenario.status !== 'running') return false;
+      if (scenarioFilter === 'skipped' && !(scenario.status === 'skipped' || scenario.status === 'pending')) return false;
+      if (scenarioFilter === 'flaky' && !isFlakyScenario(scenario)) return false;
+
+      if (!query) return true;
+
+      const haystack = [
+        scenario.name,
+        scenario.error,
+        scenario.steps.map((step) => step.name).join(' '),
+        scenario.steps.map((step) => step.page).join(' '),
+      ]
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(query);
+    });
+  }, [scenarioFilter, scenarioSearch, selectedRun]);
+
+  useEffect(() => {
+    if (!selectedScenarioId || !filteredScenarios.some((scenario) => scenario.id === selectedScenarioId)) {
+      const failedScenario = filteredScenarios.find((scenario) => scenario.status === 'failed');
+      setSelectedScenarioId((failedScenario || filteredScenarios[0] || null)?.id || null);
+    }
+  }, [filteredScenarios, selectedScenarioId]);
+
+  const selectedScenario = useMemo(
+    () => filteredScenarios.find((scenario) => scenario.id === selectedScenarioId) || null,
+    [filteredScenarios, selectedScenarioId]
+  );
+
+  useEffect(() => {
+    if (!selectedScenario) {
+      setSelectedStepId(null);
+      return;
+    }
+
+    if (!selectedStepId || !selectedScenario.steps.some((step) => step.id === selectedStepId)) {
+      setSelectedStepId(selectedScenario.steps[0]?.id || null);
+    }
+  }, [selectedScenario, selectedStepId]);
+
+  const selectedStep = useMemo(
+    () => selectedScenario?.steps.find((step) => step.id === selectedStepId) || null,
+    [selectedScenario, selectedStepId]
+  );
+
+  const openTraceForScenario = useCallback(
+    async (run: RunData, scenario: ScenarioData) => {
+      const popup = window.open('', '_blank', 'noopener,noreferrer');
+      setOpeningTraceScenarioId(scenario.id);
+      setMessage({ type: 'info', text: `Opening trace for ${scenario.name}...` });
+      try {
+        if (run.source === 'local') {
+          const response = await fetchWithTimeout(
+            `/api/executions/local/trace/${encodeURIComponent(scenario.name)}/open`,
             {
-              id: `synthetic-step-1-${idx}`,
-              number: 1,
-              name: `Execute "${scenarioName}"`,
-              status: s.status as StepData['status'],
-              duration: s.duration ? formatDuration(s.duration) : undefined,
-              error: s.error,
-              line: 1,
-              screenshot: s.screenshot,
-            },
-          ];
+              method: 'POST',
+              headers: getAuthHeaders(),
+            }
+          );
+          const data = await response.json().catch(() => ({}));
 
-          // If there's an error, add it as context
-          if (s.error) {
-            steps[0].name = `Execute "${scenarioName}" - ${s.status === 'failed' ? 'Failed' : s.status}`;
+          if (!response.ok || !data.success) {
+            throw new Error(data.error || `Failed to open local trace (HTTP ${response.status})`);
           }
-        }
 
-        return {
-          id: s.id || `scenario-${idx}`,
-          name: extractVeroScenarioName(s.name),
-          status: s.status as ScenarioData['status'],
-          duration: s.duration ? formatDuration(s.duration) : '0s',
-          durationMs: s.duration || 0,
-          progress: s.status === 'passed' ? 100 : s.status === 'failed' ? 100 : 50,
-          traceUrl: s.traceUrl,
-          error: s.error,
-          screenshot: s.screenshot,
-          steps,
-        };
-      }),
-    };
-  };
+          if (data.traceUrl) {
+            navigateOrOpenPopup(popup, toBackendUrl(data.traceUrl));
+          } else if (scenario.traceUrl && onViewTrace) {
+            closePopup(popup);
+            onViewTrace(scenario.traceUrl, scenario.name);
+          } else {
+            closePopup(popup);
+          }
 
-  // Format duration in human-readable format
-  const formatDuration = (ms: number): string => {
-    const seconds = Math.floor(ms / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}m ${remainingSeconds}s`;
-  };
-
-  // Extract Vero scenario name from Playwright test name
-  // Input: "guaranteed-pass.spec.ts > Super Simple Pass Tests > basic math works correctly"
-  // Output: "Basic Math Works Correctly" (the actual test/scenario name)
-  const extractVeroScenarioName = (playwrightName: string): string => {
-    // Check if there's a .vero file path in the name - use that scenario
-    const veroFileMatch = playwrightName.match(/([a-zA-Z0-9_-]+\.vero)/i);
-    if (veroFileMatch) {
-      // If we have parts after the .vero file, use the last part as scenario name
-      const parts = playwrightName.split('>').map(p => p.trim());
-      if (parts.length > 1) {
-        const lastPart = parts[parts.length - 1];
-        // Title case the scenario name
-        return toTitleCase(lastPart);
-      }
-      return veroFileMatch[1];
-    }
-
-    // Split by ">" to get parts: [file, suite, test]
-    const parts = playwrightName.split('>').map(p => p.trim());
-
-    if (parts.length >= 2) {
-      // Get the last part (actual test/scenario name)
-      const scenarioName = parts[parts.length - 1];
-      return toTitleCase(scenarioName);
-    }
-
-    // If no ">", just clean up the name
-    if (playwrightName.endsWith('.vero')) {
-      return playwrightName;
-    }
-
-    // For single names, title case them
-    return toTitleCase(playwrightName.replace(/[._-]/g, ' '));
-  };
-
-  // Helper to convert string to Title Case
-  const toTitleCase = (str: string): string => {
-    return str
-      .toLowerCase()
-      .split(' ')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-  };
-
-  // Get sessions based on active source
-  const sessions: SessionData[] = activeSource === 'local'
-    ? localExecutions.map(convertLocalToSession)
-    : githubExecutions.map(convertGitHubToSession);
-
-  // Sort sessions by date (newest first), running first
-  const sortedSessions = [...sessions].sort((a, b) => {
-    if (a.status === 'running' && b.status !== 'running') return -1;
-    if (a.status !== 'running' && b.status === 'running') return 1;
-    return new Date(b.date + ' ' + b.time).getTime() - new Date(a.date + ' ' + a.time).getTime();
-  });
-
-  // Get all scenarios from expanded sessions for sidebar
-  const allScenariosForSidebar = sortedSessions
-    .filter(s => expandedSessions.has(s.id))
-    .flatMap(s => s.scenarios);
-
-  const toggleSession = (id: string) => {
-    setExpandedSessions(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-        // Auto-select first scenario
-        const session = sortedSessions.find(s => s.id === id);
-        if (session?.scenarios.length) {
-          setSelectedScenarioId(session.scenarios[0].id);
-        }
-      }
-      return next;
-    });
-  };
-
-  const toggleScenario = (id: string) => {
-    setSelectedScenarioId(id);
-    setExpandedScenarios(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
-
-  const toggleStep = (_id: string) => {
-    // Step expansion is handled automatically for last step
-    // This function is kept for future use if needed
-  };
-
-  const toggleStatusFilter = (sessionId: string, status: 'all' | 'passed' | 'failed' | 'flaky' | 'skipped') => {
-    setSessionStatusFilter(prev => {
-      const currentFilter = prev[sessionId];
-      // If clicking 'all' or the same filter, clear the filter
-      if (status === 'all' || currentFilter === status) {
-        return { ...prev, [sessionId]: null };
-      }
-      // Otherwise, set the new filter
-      return { ...prev, [sessionId]: status };
-    });
-  };
-
-  const getFilteredScenarios = (sessionId: string, scenarios: ScenarioData[]) => {
-    const filter = sessionStatusFilter[sessionId];
-    if (!filter || filter === 'all') return scenarios;
-    if (filter === 'flaky') {
-      // Flaky tests are those that have been retried
-      return scenarios.filter(s => s.status === 'passed' && (s as any).retries > 0);
-    }
-    return scenarios.filter(s => s.status === filter);
-  };
-
-  const getScenarioCounts = (scenarios: ScenarioData[]) => {
-    const flaky = scenarios.filter(s => s.status === 'passed' && (s as any).retries > 0).length;
-    return {
-      all: scenarios.length,
-      passed: scenarios.filter(s => s.status === 'passed').length - flaky,
-      failed: scenarios.filter(s => s.status === 'failed').length,
-      flaky,
-      skipped: scenarios.filter(s => s.status === 'skipped' || s.status === 'pending').length,
-    };
-  };
-
-  const [preparingAllure, setPreparingAllure] = useState<string | null>(null);
-
-  const handleOpenAllure = async (session: SessionData) => {
-    const authToken = localStorage.getItem('auth_token');
-    const headers: Record<string, string> = authToken
-      ? { 'Authorization': `Bearer ${authToken}` }
-      : {};
-
-    if (session.source === 'github' && session.runId && session.owner && session.repo) {
-      // GitHub execution - download and extract artifact
-      try {
-        // First check if Allure report is already prepared
-        const statusResponse = await fetch(
-          `/api/github/runs/${session.runId}/allure/status`,
-          { headers }
-        );
-        const statusData = await statusResponse.json();
-
-        if (statusData.success && statusData.data?.ready && statusData.data?.reportUrl) {
-          // Report is ready, open it
-          window.open(statusData.data.reportUrl, '_blank');
+          setMessage({ type: 'info', text: `Opened trace viewer for ${scenario.name}` });
           return;
         }
 
-        // Report not ready, need to prepare it
-        setPreparingAllure(session.id);
-
-        const prepareResponse = await fetch(
-          `/api/github/runs/${session.runId}/allure/prepare`,
-          {
+        if (run.source === 'github' && run.runId && run.owner && run.repo) {
+          const response = await fetchWithTimeout(`/api/github/runs/${run.runId}/trace/open`, {
             method: 'POST',
-            headers: {
-              ...headers,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              owner: session.owner,
-              repo: session.repo,
-            }),
+            headers: getAuthHeaders(true),
+            body: JSON.stringify({ owner: run.owner, repo: run.repo }),
+          });
+
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.success) {
+            throw new Error(data.error || `Failed to open GitHub trace (HTTP ${response.status})`);
           }
-        );
-        const prepareData = await prepareResponse.json();
 
-        setPreparingAllure(null);
-
-        if (prepareData.success && prepareData.data?.reportUrl) {
-          window.open(prepareData.data.reportUrl, '_blank');
-        } else {
-          console.error('Failed to prepare Allure report:', prepareData.error);
-          // Fallback to GitHub Actions URL
-          if (session.allureUrl) {
-            window.open(session.allureUrl, '_blank');
-          }
-        }
-      } catch (error) {
-        setPreparingAllure(null);
-        console.error('Failed to open Allure report:', error);
-        if (session.allureUrl) {
-          window.open(session.allureUrl, '_blank');
-        }
-      }
-    } else if (session.source === 'local') {
-      // Local execution - generate Allure report from local results
-      try {
-        // First check if Allure report is already generated
-        const statusResponse = await fetch('/api/executions/local/allure/status');
-        const statusData = await statusResponse.json();
-
-        if (statusData.success && statusData.data?.ready && statusData.data?.reportUrl) {
-          // Report is ready, open it
-          window.open(statusData.data.reportUrl, '_blank');
+          closePopup(popup);
+          setMessage({ type: 'info', text: `Opening trace viewer for run #${run.runId}` });
           return;
         }
 
-        // Report not ready, need to generate it
-        setPreparingAllure(session.id);
-
-        const generateResponse = await fetch('/api/executions/local/allure/generate', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
-        const generateData = await generateResponse.json();
-
-        setPreparingAllure(null);
-
-        if (generateData.success && generateData.data?.reportUrl) {
-          window.open(generateData.data.reportUrl, '_blank');
-        } else {
-          console.error('Failed to generate Allure report:', generateData.error);
-          alert('Failed to generate Allure report: ' + (generateData.error || 'Unknown error'));
+        if (scenario.traceUrl && onViewTrace) {
+          closePopup(popup);
+          onViewTrace(scenario.traceUrl, scenario.name);
+          return;
         }
+
+        throw new Error('Trace is not available for this scenario');
       } catch (error) {
-        setPreparingAllure(null);
-        console.error('Failed to open Allure report:', error);
-        alert('Failed to open Allure report. Please check that tests have been run.');
+        closePopup(popup);
+        setMessage({
+          type: 'error',
+          text: error instanceof Error ? error.message : 'Failed to open trace viewer',
+        });
+      } finally {
+        setOpeningTraceScenarioId(null);
       }
-    } else if (onOpenAllure) {
-      onOpenAllure(session.id);
-    }
-  };
+    },
+    [onViewTrace]
+  );
+
+  const openAllureForRun = useCallback(
+    async (run: RunData) => {
+      const popup = window.open('', '_blank', 'noopener,noreferrer');
+      setPreparingAllureRunId(run.id);
+      setMessage({ type: 'info', text: 'Opening execution report...' });
+      try {
+        if (run.source === 'github' && run.runId && run.owner && run.repo) {
+          const statusResponse = await fetchWithTimeout(`/api/github/runs/${run.runId}/allure/status`, {
+            headers: getAuthHeaders(),
+          });
+          const statusData = await statusResponse.json().catch(() => ({}));
+
+          if (statusResponse.ok && statusData.success && statusData.data?.ready && statusData.data?.reportUrl) {
+            navigateOrOpenPopup(popup, toBackendUrl(statusData.data.reportUrl));
+            return;
+          }
+
+          const prepareResponse = await fetchWithTimeout(`/api/github/runs/${run.runId}/allure/prepare`, {
+            method: 'POST',
+            headers: getAuthHeaders(true),
+            body: JSON.stringify({ owner: run.owner, repo: run.repo }),
+          });
+          const prepareData = await prepareResponse.json().catch(() => ({}));
+
+          if (prepareResponse.ok && prepareData.success && prepareData.data?.reportUrl) {
+            navigateOrOpenPopup(popup, toBackendUrl(prepareData.data.reportUrl));
+            return;
+          }
+
+          if (run.allureUrl) {
+            navigateOrOpenPopup(popup, toBackendUrl(run.allureUrl));
+            return;
+          }
+
+          throw new Error(prepareData.error || 'Unable to prepare report for this run');
+        }
+
+        if (run.source === 'local') {
+          const statusResponse = await fetchWithTimeout('/api/executions/local/allure/status', {
+            headers: getAuthHeaders(),
+          });
+          const statusData = await statusResponse.json().catch(() => ({}));
+
+          if (statusResponse.ok && statusData.success && statusData.data?.ready && statusData.data?.reportUrl) {
+            navigateOrOpenPopup(popup, toBackendUrl(statusData.data.reportUrl));
+            return;
+          }
+
+          const generateResponse = await fetchWithTimeout('/api/executions/local/allure/generate', {
+            method: 'POST',
+            headers: getAuthHeaders(true),
+          });
+          const generateData = await generateResponse.json().catch(() => ({}));
+
+          if (generateResponse.ok && generateData.success && generateData.data?.reportUrl) {
+            navigateOrOpenPopup(popup, toBackendUrl(generateData.data.reportUrl));
+            return;
+          }
+
+          throw new Error(generateData.error || 'Unable to generate local report');
+        }
+
+        if (onOpenAllure) {
+          closePopup(popup);
+          onOpenAllure(run.id);
+          return;
+        }
+        closePopup(popup);
+      } catch (error) {
+        closePopup(popup);
+        setMessage({
+          type: 'error',
+          text: error instanceof Error ? error.message : 'Failed to open report',
+        });
+      } finally {
+        setPreparingAllureRunId(null);
+      }
+    },
+    [onOpenAllure]
+  );
+
+  const networkHints = useMemo(() => {
+    if (!selectedScenario) return [] as string[];
+
+    const hints = new Set<string>();
+    selectedScenario.steps.forEach((step) => {
+      if (step.url) hints.add(step.url);
+      const inError = extractUrlFromText(step.error);
+      if (inError) hints.add(inError);
+    });
+
+    return Array.from(hints).slice(0, 8);
+  }, [selectedScenario]);
+
+  const errorSteps = useMemo(() => {
+    if (!selectedScenario) return [] as StepData[];
+    return selectedScenario.steps.filter((step) => step.error || step.status === 'failed');
+  }, [selectedScenario]);
+
+  const summary = useMemo(() => {
+    const runs = sourceRuns;
+    return {
+      total: runs.length,
+      passed: runs.filter((run) => run.outcome === 'passed').length,
+      unstable: runs.filter((run) => run.outcome === 'unstable').length,
+      failed: runs.filter((run) => run.outcome === 'failed' || run.state === 'error').length,
+      active: runs.filter((run) => run.state === 'running' || run.state === 'queued').length,
+    };
+  }, [sourceRuns]);
+
+  const syncRunFilterScroll = useCallback(() => {
+    setRunFilterScroll(getHorizontalScrollState(runFilterScrollRef.current));
+  }, []);
+
+  const syncScenarioFilterScroll = useCallback(() => {
+    setScenarioFilterScroll(getHorizontalScrollState(scenarioFilterScrollRef.current));
+  }, []);
+
+  useEffect(() => {
+    syncRunFilterScroll();
+    syncScenarioFilterScroll();
+
+    const onResize = () => {
+      syncRunFilterScroll();
+      syncScenarioFilterScroll();
+    };
+
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [
+    syncRunFilterScroll,
+    syncScenarioFilterScroll,
+    runsPaneCollapsed,
+    scenariosPaneCollapsed,
+    runFilter,
+    scenarioFilter,
+    filteredRuns.length,
+    scenarioCounts.all,
+  ]);
+
+  const scrollFilterRow = useCallback(
+    (ref: React.RefObject<HTMLDivElement>, direction: 'left' | 'right', onAfterScroll: () => void) => {
+      const element = ref.current;
+      if (!element) return;
+      const delta = direction === 'right' ? 180 : -180;
+      element.scrollBy({ left: delta, behavior: 'smooth' });
+      window.setTimeout(onAfterScroll, 200);
+    },
+    []
+  );
 
   return (
-    <div className="flex-1 flex bg-[#0d1117] overflow-hidden h-full font-['Inter']">
-      {/* Main Content Area */}
-      <aside className="flex-1 bg-[#161b22] flex flex-col min-w-0">
-        {/* Header */}
-        <div className="h-9 px-4 flex items-center border-b border-[#30363d]/50 bg-[#0d1117] shrink-0">
-          {/* Left - Title */}
-          <span className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider">Executions Report</span>
+    <div className="h-full min-h-0 flex flex-col bg-[#0d1117] text-[#c9d1d9]">
+      <header className="h-14 shrink-0 border-b border-[#2b3643] bg-[#111923] px-3">
+        <div className="h-full flex items-center gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold tracking-wide text-[#d6dce4]">Execution Results</div>
+            <div className="text-[11px] text-[#7f8b99]">
+              {summary.total} executions · {summary.passed} passed · {summary.unstable} unstable · {summary.failed} failed · {summary.active} active
+            </div>
+          </div>
 
-          {/* Center - Source Toggle */}
-          <div className="flex-1 flex justify-center">
-            <div className="flex items-center gap-1 bg-[#161b22] rounded p-0.5 border border-[#30363d]">
+          <div className="ml-auto flex items-center gap-2">
+            <div className="inline-flex rounded border border-[#3a4554] bg-[#151d28] p-0.5">
               <button
+                type="button"
                 onClick={() => setActiveSource('local')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${activeSource === 'local'
-                  ? 'bg-[#21262d] text-[#c9d1d9]'
-                  : 'text-[#8b949e] hover:text-[#c9d1d9]'
-                  }`}
+                className={`px-3 py-1 text-xs font-medium rounded ${
+                  activeSource === 'local'
+                    ? 'bg-[#293a4f] text-[#d6e8ff]'
+                    : 'text-[#9aa7b5] hover:text-[#d3dce6]'
+                }`}
               >
-                <span className="material-symbols-outlined text-[14px]">computer</span>
                 Local
               </button>
               <button
+                type="button"
                 onClick={() => setActiveSource('github')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${activeSource === 'github'
-                  ? 'bg-[#21262d] text-[#c9d1d9]'
-                  : 'text-[#8b949e] hover:text-[#c9d1d9]'
-                  }`}
+                className={`px-3 py-1 text-xs font-medium rounded ${
+                  activeSource === 'github'
+                    ? 'bg-[#293a4f] text-[#d6e8ff]'
+                    : 'text-[#9aa7b5] hover:text-[#d3dce6]'
+                }`}
               >
-                <span className="material-symbols-outlined text-[14px]">cloud</span>
                 GitHub Actions
               </button>
             </div>
-          </div>
 
-          {/* Right - Actions */}
-          <div className="flex gap-4">
             <button
+              type="button"
               onClick={handleRefresh}
-              className="text-[#8b949e] hover:text-white text-xs flex items-center gap-1"
+              className="h-7 px-2.5 text-xs border border-[#3a4554] rounded bg-[#151d28] text-[#9aa7b5] hover:text-[#d6dce4]"
             >
-              <span className={`material-symbols-outlined text-[16px] ${isRefreshing ? 'animate-spin' : ''}`}>refresh</span>
-            </button>
-            <button className="text-[#8b949e] hover:text-white text-xs flex items-center gap-1">
-              <span className="material-symbols-outlined text-[16px]">filter_list</span> Filter
-            </button>
-            <button className="text-[#8b949e] hover:text-white text-xs flex items-center gap-1">
-              <span className="material-symbols-outlined text-[16px]">download</span> Export
+              {isRefreshing ? 'Refreshing…' : 'Refresh'}
             </button>
           </div>
         </div>
+      </header>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {sortedSessions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-center">
-              <div className="w-16 h-16 bg-[#21262d] rounded-full flex items-center justify-center mb-4 border border-[#30363d]">
-                <span className="material-symbols-outlined text-[32px] text-[#8b949e]">play_circle</span>
+      {message && (
+        <div className={`shrink-0 px-3 py-1.5 text-xs border-b ${message.type === 'error' ? 'bg-[#3a1f25] border-[#6f3a45] text-[#ffbec7]' : 'bg-[#1f334a] border-[#365272] text-[#b8d9ff]'}`}>
+          {message.text}
+        </div>
+      )}
+
+      <div className="flex-1 min-h-0 flex gap-2 p-2">
+        <section className={`${panelClass} ${runsPaneCollapsed ? 'w-11' : 'w-[265px]'} shrink-0 transition-all duration-150 flex flex-col min-h-0`}>
+          <div className="h-9 px-2 border-b border-[#2c3745] flex items-center gap-2">
+            {!runsPaneCollapsed && (
+              <>
+                <ListOrdered className="h-3.5 w-3.5 text-[#95a7bb]" />
+                <span className="text-[11px] font-semibold tracking-wide text-[#aab4c1] uppercase">Executions</span>
+              </>
+            )}
+            {!runsPaneCollapsed && selectedRun && (
+              <button
+                type="button"
+                onClick={() => void openAllureForRun(selectedRun)}
+                disabled={preparingAllureRunId === selectedRun.id}
+                className={`ml-auto h-6 px-2 rounded border text-[10px] ${
+                  preparingAllureRunId === selectedRun.id
+                    ? 'border-[#5e6c7b] bg-[#2a3340] text-[#9aa7b5]'
+                    : 'border-[#3a4554] bg-[#1b2431] text-[#c8d5e2] hover:bg-[#253246]'
+                }`}
+              >
+                {preparingAllureRunId === selectedRun.id ? 'Preparing…' : 'Open Allure'}
+              </button>
+            )}
+            <button
+              type="button"
+              className="h-6 w-6 rounded border border-[#3a4554] text-[#9aa7b5] hover:text-[#d6dce4]"
+              onClick={() => setRunsPaneCollapsed((prev) => !prev)}
+              title={runsPaneCollapsed ? 'Expand executions pane' : 'Collapse executions pane'}
+            >
+              {runsPaneCollapsed ? '›' : '‹'}
+            </button>
+          </div>
+
+          {runsPaneCollapsed ? (
+            <div className="flex-1 min-h-0 flex flex-col items-center justify-start py-2 gap-1">
+              <div
+                className="h-7 w-7 rounded border border-[#334153] bg-[#171f2b] text-[#9aa7b5] flex items-center justify-center"
+                title="Executions"
+              >
+                <ListOrdered className="h-3.5 w-3.5" />
               </div>
-              <p className="text-[#c9d1d9] font-medium">No executions found</p>
-              <p className="text-[13px] text-[#8b949e] mt-1">
-                {activeSource === 'github'
-                  ? 'Run tests with GitHub Actions to see execution history'
-                  : 'Run a test locally to see execution history'}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {sortedSessions.map((session) => (
-                <div key={session.id} className="bg-[#0d1117] rounded-xl border border-[#30363d] shadow-xl overflow-hidden">
-                  {/* Session Header */}
-                  <div className="p-5 border-b border-[#30363d]/60">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-3">
-                          <span
-                            className="material-symbols-outlined text-[24px] text-[#8b949e] cursor-pointer hover:text-white"
-                            onClick={() => toggleSession(session.id)}
-                          >
-                            {expandedSessions.has(session.id) ? 'expand_more' : 'chevron_right'}
-                          </span>
-                          <h2 className="text-xl font-bold text-[#c9d1d9] tracking-tight">Session {session.date}</h2>
-                          {session.status === 'passed' && (
-                            <span className="px-2.5 py-0.5 rounded-full bg-[#238636]/10 text-[#238636] text-[11px] font-bold border border-[#238636]/30 uppercase tracking-wider">
-                              Passed
-                            </span>
-                          )}
-                          {session.status === 'failed' && (
-                            <span className="px-2.5 py-0.5 rounded-full bg-[#da3633]/10 text-[#da3633] text-[11px] font-bold border border-[#da3633]/30 uppercase tracking-wider">
-                              Failed
-                            </span>
-                          )}
-                          {session.status === 'running' && (
-                            <span className="px-2.5 py-0.5 rounded-full bg-[#2f81f7]/10 text-[#2f81f7] text-[11px] font-bold border border-[#2f81f7]/30 uppercase tracking-wider flex items-center gap-1">
-                              <span className="material-symbols-outlined text-[12px] animate-spin">progress_activity</span>
-                              Running
-                            </span>
-                          )}
-                        </div>
-                        <div className="pl-9 text-xs font-mono text-[#8b949e] flex items-center gap-6">
-                          <span className="flex items-center gap-1.5">
-                            <span className="material-symbols-outlined text-[14px]">calendar_today</span>
-                            Triggered by: {session.triggerType}
-                          </span>
-                          <span className="flex items-center gap-1.5">
-                            <span className="material-symbols-outlined text-[14px]">timer</span>
-                            Duration: {session.duration}
-                          </span>
-                          <span className="flex items-center gap-1.5">
-                            <span className="material-symbols-outlined text-[14px]">computer</span>
-                            Environment: {session.environment}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end gap-3">
-                        <span className="text-sm text-[#8b949e] font-mono">{session.time}</span>
-                        <div className="flex items-center gap-2">
-                          {/* View on GitHub button - only for GitHub source sessions */}
-                          {session.source === 'github' && session.allureUrl && (
-                            <a
-                              href={session.allureUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold text-white bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded transition-all shadow-lg active:scale-95"
-                            >
-                              <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
-                              </svg>
-                              View on GitHub
-                            </a>
-                          )}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenAllure(session);
-                            }}
-                            disabled={preparingAllure === session.id}
-                            className={`w-[200px] flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold text-white rounded transition-all shadow-lg ${preparingAllure === session.id
-                              ? 'bg-[#2f81f7]/60 cursor-wait'
-                              : 'bg-[#2f81f7] hover:bg-[#2f81f7]/90 active:scale-95'
-                              }`}
-                          >
-                            {preparingAllure === session.id ? (
-                              <>
-                                <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
-                                Preparing Report...
-                              </>
-                            ) : (
-                              <>
-                                <span className="material-symbols-outlined text-[18px]">bar_chart_4_bars</span>
-                                View Full Allure Report
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Session Content (expanded) */}
-                  {expandedSessions.has(session.id) && (
-                    <div className="p-4 space-y-4">
-                      {session.scenarios.length === 0 ? (
-                        <div className="text-center py-8 text-[#8b949e]">
-                          <p className="text-sm">No scenario data available</p>
-                          <p className="text-xs mt-1 text-[#6e7681]">Run completed but no test details were captured</p>
-                        </div>
-                      ) : (
-                        <>
-                          {/* Status Summary Bar */}
-                          {(() => {
-                            const counts = getScenarioCounts(session.scenarios);
-                            const currentFilter = sessionStatusFilter[session.id];
-                            return (
-                              <div className="flex items-center gap-3 mb-4 pb-4 border-b border-[#30363d]/50 flex-wrap">
-                                <span className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider">Filter:</span>
-
-                                {/* All Icon */}
-                                <button
-                                  onClick={() => toggleStatusFilter(session.id, 'all')}
-                                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all cursor-pointer ${!currentFilter || currentFilter === 'all'
-                                    ? 'bg-[#58a6ff]/20 border-2 border-[#58a6ff] shadow-[0_0_12px_rgba(88,166,255,0.4)]'
-                                    : 'bg-[#58a6ff]/10 border border-[#58a6ff]/30 hover:bg-[#58a6ff]/20 hover:shadow-[0_4px_12px_rgba(88,166,255,0.3)]'
-                                    }`}
-                                >
-                                  <span className="material-symbols-outlined text-[24px] text-[#58a6ff]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                                    apps
-                                  </span>
-                                  <div className="flex flex-col items-start">
-                                    <span className="text-xl font-bold text-[#58a6ff] leading-none">{counts.all}</span>
-                                    <span className="text-[10px] font-semibold text-[#58a6ff]/80 uppercase tracking-wider">All</span>
-                                  </div>
-                                </button>
-
-                                {/* Passed Icon */}
-                                <button
-                                  onClick={() => toggleStatusFilter(session.id, 'passed')}
-                                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all cursor-pointer ${currentFilter === 'passed'
-                                    ? 'bg-[#238636]/20 border-2 border-[#238636] shadow-[0_0_12px_rgba(35,134,54,0.4)]'
-                                    : 'bg-[#238636]/10 border border-[#238636]/30 hover:bg-[#238636]/20 hover:shadow-[0_4px_12px_rgba(35,134,54,0.3)]'
-                                    } ${counts.passed === 0 ? 'opacity-60' : ''}`}
-                                >
-                                  <span className="material-symbols-outlined text-[24px] text-[#238636]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                                    check_circle
-                                  </span>
-                                  <div className="flex flex-col items-start">
-                                    <span className="text-xl font-bold text-[#238636] leading-none">{counts.passed}</span>
-                                    <span className="text-[10px] font-semibold text-[#238636]/80 uppercase tracking-wider">Passed</span>
-                                  </div>
-                                </button>
-
-                                {/* Failed Icon */}
-                                <button
-                                  onClick={() => toggleStatusFilter(session.id, 'failed')}
-                                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all cursor-pointer ${currentFilter === 'failed'
-                                    ? 'bg-[#da3633]/20 border-2 border-[#da3633] shadow-[0_0_12px_rgba(218,54,51,0.4)]'
-                                    : 'bg-[#da3633]/10 border border-[#da3633]/30 hover:bg-[#da3633]/20 hover:shadow-[0_4px_12px_rgba(218,54,51,0.3)]'
-                                    } ${counts.failed === 0 ? 'opacity-60' : ''}`}
-                                >
-                                  <span className="material-symbols-outlined text-[24px] text-[#da3633]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                                    cancel
-                                  </span>
-                                  <div className="flex flex-col items-start">
-                                    <span className="text-xl font-bold text-[#da3633] leading-none">{counts.failed}</span>
-                                    <span className="text-[10px] font-semibold text-[#da3633]/80 uppercase tracking-wider">Failed</span>
-                                  </div>
-                                </button>
-
-                                {/* Flaky Icon */}
-                                <button
-                                  onClick={() => toggleStatusFilter(session.id, 'flaky')}
-                                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all cursor-pointer ${currentFilter === 'flaky'
-                                    ? 'bg-[#a371f7]/20 border-2 border-[#a371f7] shadow-[0_0_12px_rgba(163,113,247,0.4)]'
-                                    : 'bg-[#a371f7]/10 border border-[#a371f7]/30 hover:bg-[#a371f7]/20 hover:shadow-[0_4px_12px_rgba(163,113,247,0.3)]'
-                                    } ${counts.flaky === 0 ? 'opacity-60' : ''}`}
-                                >
-                                  <span className="material-symbols-outlined text-[24px] text-[#a371f7]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                                    autorenew
-                                  </span>
-                                  <div className="flex flex-col items-start">
-                                    <span className="text-xl font-bold text-[#a371f7] leading-none">{counts.flaky}</span>
-                                    <span className="text-[10px] font-semibold text-[#a371f7]/80 uppercase tracking-wider">Flaky</span>
-                                  </div>
-                                </button>
-
-                                {/* Skipped Icon */}
-                                <button
-                                  onClick={() => toggleStatusFilter(session.id, 'skipped')}
-                                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all cursor-pointer ${currentFilter === 'skipped'
-                                    ? 'bg-[#d29922]/20 border-2 border-[#d29922] shadow-[0_0_12px_rgba(210,153,34,0.4)]'
-                                    : 'bg-[#d29922]/10 border border-[#d29922]/30 hover:bg-[#d29922]/20 hover:shadow-[0_4px_12px_rgba(210,153,34,0.3)]'
-                                    } ${counts.skipped === 0 ? 'opacity-60' : ''}`}
-                                >
-                                  <span className="material-symbols-outlined text-[24px] text-[#d29922]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                                    block
-                                  </span>
-                                  <div className="flex flex-col items-start">
-                                    <span className="text-xl font-bold text-[#d29922] leading-none">{counts.skipped}</span>
-                                    <span className="text-[10px] font-semibold text-[#d29922]/80 uppercase tracking-wider">Skipped</span>
-                                  </div>
-                                </button>
-
-
-                                {/* Clear Filter Button */}
-                                {currentFilter && (
-                                  <button
-                                    onClick={() => setSessionStatusFilter(prev => ({ ...prev, [session.id]: null }))}
-                                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#21262d] border border-[#30363d] text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#30363d] transition-all text-xs font-medium"
-                                  >
-                                    <span className="material-symbols-outlined text-[16px]">close</span>
-                                    Clear Filter
-                                  </button>
-                                )}
-
-                                {/* Total count */}
-                                <div className="ml-auto text-xs text-[#8b949e]">
-                                  {currentFilter ? (
-                                    <span>Showing {getFilteredScenarios(session.id, session.scenarios).length} of {session.scenarios.length} scenarios</span>
-                                  ) : (
-                                    <span>Total: {session.scenarios.length} scenarios</span>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })()}
-
-                          {/* Scenarios List */}
-                          {getFilteredScenarios(session.id, session.scenarios).map((scenario) => (
-                            <div key={scenario.id} className="bg-[#161b22] rounded-lg border border-[#30363d] overflow-hidden">
-                              {/* Scenario Header */}
-                              <div
-                                className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-white/5 border-b border-[#30363d]/30 bg-[#161b22]"
-                                onClick={() => toggleScenario(scenario.id)}
-                              >
-                                <span className="material-symbols-outlined text-[20px] text-[#8b949e]">
-                                  {expandedScenarios.has(scenario.id) ? 'expand_more' : 'chevron_right'}
-                                </span>
-                                <span className={`material-symbols-outlined text-[18px] ${scenario.status === 'passed' ? 'text-[#238636]' :
-                                  scenario.status === 'failed' ? 'text-[#da3633]' : 'text-[#8b949e]'
-                                  }`} style={{ fontVariationSettings: "'FILL' 1" }}>
-                                  {scenario.status === 'passed' ? 'check_circle' :
-                                    scenario.status === 'failed' ? 'cancel' : 'pending'}
-                                </span>
-                                <span className="text-base font-semibold text-[#c9d1d9]">{scenario.name}</span>
-                                <div className="ml-auto flex items-center gap-4">
-                                  <span className="text-xs text-[#8b949e] font-mono">{scenario.duration}</span>
-                                  <div className="h-1.5 w-20 bg-[#30363d] rounded-full overflow-hidden">
-                                    <div
-                                      className={`h-full ${scenario.status === 'passed' ? 'bg-[#238636]' :
-                                        scenario.status === 'failed' ? 'bg-[#da3633]' : 'bg-[#2f81f7]'
-                                        }`}
-                                      style={{ width: `${scenario.progress}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Scenario Steps (expanded) */}
-                              {expandedScenarios.has(scenario.id) && (
-                                <div className="p-4 space-y-3 bg-[#0d1117]/40">
-                                  {/* Trace Viewer Button - Show for local executions */}
-                                  {session.source === 'local' && (
-                                    <div className="flex items-center gap-3 mb-4 pb-4 border-b border-[#30363d]/50">
-                                      <button
-                                        onClick={async (e) => {
-                                          e.stopPropagation();
-                                          // For local executions, open Playwright's built-in trace viewer locally
-                                          // This avoids the HTTPS mixed content issue with trace.playwright.dev
-                                          const scenarioSlug = scenario.name.toLowerCase().replace(/\s+/g, '-');
-                                          try {
-                                            const response = await fetch(`/api/executions/local/trace/${encodeURIComponent(scenarioSlug)}/open`, {
-                                              method: 'POST',
-                                            });
-                                            const data = await response.json();
-                                            if (data.success && data.traceUrl) {
-                                              console.log('Trace viewer opened:', data.tracePath);
-                                              // Open the trace URL in a new tab as backup
-                                              window.open(data.traceUrl, '_blank');
-                                            } else {
-                                              console.error('Failed to open trace:', data.error);
-                                              alert(`Failed to open trace: ${data.error}`);
-                                            }
-                                          } catch (err) {
-                                            console.error('Failed to open trace viewer:', err);
-                                            alert('Failed to open trace viewer. Check console for details.');
-                                          }
-                                        }}
-                                        className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-[#8957e5] hover:bg-[#8957e5]/90 rounded transition-all shadow-lg active:scale-95"
-                                      >
-                                        <span className="material-symbols-outlined text-[18px]">bug_report</span>
-                                        Open Trace Viewer
-                                      </button>
-                                      <span className="text-xs text-[#8b949e]">
-                                        Opens Playwright's trace viewer locally at http://localhost:9323
-                                      </span>
-                                    </div>
-                                  )}
-                                  {/* Trace Viewer Button - Show for GitHub executions with trace URL */}
-                                  {session.source === 'github' && scenario.traceUrl && (
-                                    <div className="flex items-center gap-3 mb-4 pb-4 border-b border-[#30363d]/50">
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (!scenario.traceUrl) return;
-                                          const fullTraceUrl = scenario.traceUrl.startsWith('http')
-                                            ? scenario.traceUrl
-                                            : `${window.location.origin}${scenario.traceUrl}`;
-                                          window.open(`https://trace.playwright.dev/?trace=${encodeURIComponent(fullTraceUrl)}`, '_blank');
-                                        }}
-                                        className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-[#8957e5] hover:bg-[#8957e5]/90 rounded transition-all shadow-lg active:scale-95"
-                                      >
-                                        <span className="material-symbols-outlined text-[18px]">bug_report</span>
-                                        Open Trace Viewer
-                                      </button>
-                                      <span className="text-xs text-[#8b949e]">
-                                        View detailed execution timeline, network calls, and DOM snapshots
-                                      </span>
-                                    </div>
-                                  )}
-
-                                  {scenario.steps.length === 0 ? (
-                                    <div className="text-center py-4 text-[#8b949e] text-sm">
-                                      No step details available
-                                    </div>
-                                  ) : (
-                                    scenario.steps.map((step, stepIdx) => {
-                                      const isLast = stepIdx === scenario.steps.length - 1;
-
-                                      return (
-                                        <div key={step.id}>
-                                          {/* Regular step */}
-                                          {!isLast && (
-                                            <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-[#21262d] border border-[#30363d]/40 hover:bg-[#21262d]/80 transition-colors group">
-                                              <span className={`material-symbols-outlined text-[18px] ${step.status === 'passed' ? 'text-[#238636]' :
-                                                step.status === 'failed' ? 'text-[#da3633]' : 'text-[#8b949e]'
-                                                }`}>
-                                                {step.status === 'passed' ? 'check_circle' :
-                                                  step.status === 'failed' ? 'cancel' : 'radio_button_unchecked'}
-                                              </span>
-                                              <span className="text-sm text-[#c9d1d9] font-medium">
-                                                Step {step.number}: {step.name}
-                                              </span>
-                                              <span className="ml-auto text-[10px] text-[#8b949e] font-mono opacity-0 group-hover:opacity-100 transition-opacity">
-                                                {step.duration}
-                                              </span>
-                                            </div>
-                                          )}
-
-                                          {/* Last step with expanded details */}
-                                          {isLast && (
-                                            <div className={`rounded-lg overflow-hidden ${step.status === 'passed'
-                                              ? 'bg-[#238636]/5 border border-[#238636]/30'
-                                              : 'bg-[#da3633]/5 border border-[#da3633]/30'
-                                              }`}>
-                                              <div
-                                                className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer ${step.status === 'passed'
-                                                  ? 'bg-[#238636]/10 border-b border-[#238636]/20'
-                                                  : 'bg-[#da3633]/10 border-b border-[#da3633]/20'
-                                                  }`}
-                                                onClick={() => toggleStep(step.id)}
-                                              >
-                                                <span className={`material-symbols-outlined text-[18px] ${step.status === 'passed' ? 'text-[#238636]' : 'text-[#da3633]'
-                                                  }`}>
-                                                  {step.status === 'passed' ? 'check_circle' : 'cancel'}
-                                                </span>
-                                                <span className="text-sm font-bold text-[#c9d1d9]">
-                                                  Step {step.number}: {step.name}
-                                                </span>
-                                                <span className={`ml-auto text-xs font-mono font-medium ${step.status === 'passed' ? 'text-[#238636]' : 'text-[#da3633]'
-                                                  }`}>
-                                                  {step.status === 'passed' ? 'Success' : 'Failed'} ({step.duration})
-                                                </span>
-                                              </div>
-
-                                              {/* Step Details Panel */}
-                                              <div className="p-4 grid grid-cols-12 gap-6">
-                                                {/* Left: Console/Network/DOM tabs */}
-                                                <div className="col-span-7 flex flex-col gap-3">
-                                                  <div className="flex-1 bg-[#161b22] rounded-lg border border-[#30363d] flex flex-col min-h-[180px]">
-                                                    <div className="flex border-b border-[#30363d] bg-[#0d1117]">
-                                                      <button
-                                                        onClick={() => setActiveLogTab('console')}
-                                                        className={`px-4 py-2 text-[11px] font-bold ${activeLogTab === 'console'
-                                                          ? 'text-[#c9d1d9] border-b-2 border-[#58a6ff]'
-                                                          : 'text-[#8b949e] hover:text-[#c9d1d9]'
-                                                          }`}
-                                                      >
-                                                        Console
-                                                      </button>
-                                                      <button
-                                                        onClick={() => setActiveLogTab('network')}
-                                                        className={`px-4 py-2 text-[11px] font-medium ${activeLogTab === 'network'
-                                                          ? 'text-[#c9d1d9] border-b-2 border-[#58a6ff]'
-                                                          : 'text-[#8b949e] hover:text-[#c9d1d9]'
-                                                          }`}
-                                                      >
-                                                        Network
-                                                      </button>
-                                                      <button
-                                                        onClick={() => setActiveLogTab('dommap')}
-                                                        className={`px-4 py-2 text-[11px] font-medium ${activeLogTab === 'dommap'
-                                                          ? 'text-[#c9d1d9] border-b-2 border-[#58a6ff]'
-                                                          : 'text-[#8b949e] hover:text-[#c9d1d9]'
-                                                          }`}
-                                                      >
-                                                        Details
-                                                      </button>
-                                                    </div>
-                                                    <div className="p-3 font-mono text-[11px] space-y-1 overflow-y-auto max-h-[140px]">
-                                                      {activeLogTab === 'console' && (
-                                                        <>
-                                                          <div className="text-[#8b949e]">[{session.time}] <span className="text-[#58a6ff]">INFO</span> Starting scenario: <span className="text-orange-400">{scenario.name}</span></div>
-                                                          <div className="text-[#8b949e]">[{session.time}] <span className="text-[#58a6ff]">INFO</span> Executing step: {step.name}</div>
-                                                          {step.status === 'passed' ? (
-                                                            <>
-                                                              <div className="text-[#8b949e]">[{session.time}] <span className="text-[#238636]">OK</span> All assertions passed</div>
-                                                              <div className="text-[#238636] font-bold">[{session.time}] SUCCESS Test completed in {step.duration}</div>
-                                                            </>
-                                                          ) : (
-                                                            <>
-                                                              <div className="text-[#8b949e]">[{session.time}] <span className="text-[#da3633]">ERROR</span> {step.error || scenario.error || 'Test assertion failed'}</div>
-                                                              <div className="text-[#da3633] font-bold">[{session.time}] FAILED Test failed after {step.duration}</div>
-                                                            </>
-                                                          )}
-                                                        </>
-                                                      )}
-                                                      {activeLogTab === 'network' && (
-                                                        <div className="flex flex-col items-center justify-center h-full py-4 text-center">
-                                                          <span className="material-symbols-outlined text-[24px] text-[#30363d] mb-2">wifi_off</span>
-                                                          <span className="text-[#6e7681]">No network activity recorded</span>
-                                                          <span className="text-[#484f58] text-[10px] mt-1">Network logs require browser automation tests</span>
-                                                        </div>
-                                                      )}
-                                                      {activeLogTab === 'dommap' && (
-                                                        <>
-                                                          <div className="text-[#c9d1d9] font-bold mb-2">Test Details</div>
-                                                          <div className="text-[#8b949e]">Scenario: <span className="text-[#c9d1d9]">{scenario.name}</span></div>
-                                                          <div className="text-[#8b949e]">Status: <span className={step.status === 'passed' ? 'text-[#238636]' : 'text-[#da3633]'}>{step.status.toUpperCase()}</span></div>
-                                                          <div className="text-[#8b949e]">Duration: <span className="text-[#c9d1d9]">{scenario.duration}</span></div>
-                                                          {scenario.error && (
-                                                            <div className="text-[#8b949e] mt-2">Error: <span className="text-[#da3633]">{scenario.error}</span></div>
-                                                          )}
-                                                        </>
-                                                      )}
-                                                    </div>
-                                                  </div>
-                                                </div>
-
-                                                {/* Right: Screenshot */}
-                                                <div className="col-span-5 flex flex-col gap-2">
-                                                  <div className="flex items-center justify-between text-[11px] text-[#8b949e] px-1">
-                                                    <span className="font-bold uppercase tracking-wider">
-                                                      {step.status === 'passed' ? 'Evidence Screenshot' : 'Failure Screenshot'}
-                                                    </span>
-                                                    {step.screenshot && (
-                                                      <button className="hover:text-[#58a6ff] flex items-center gap-1 transition-colors">
-                                                        <span className="material-symbols-outlined text-[14px]">zoom_in</span> View Large
-                                                      </button>
-                                                    )}
-                                                  </div>
-                                                  <div className="relative w-full aspect-video bg-black rounded border border-[#30363d] overflow-hidden group shadow-xl">
-                                                    {step.screenshot || scenario.screenshot ? (
-                                                      <>
-                                                        <img src={step.screenshot || scenario.screenshot} alt="Screenshot" className="w-full h-full object-cover" />
-                                                        {/* Selector highlight overlay - only show with real screenshot */}
-                                                        <div className={`absolute top-[20%] left-[30%] w-[40%] h-[15%] border-2 rounded-sm shadow-[0_0_15px_rgba(35,134,54,0.4)] z-10 ${step.status === 'passed'
-                                                          ? 'bg-[#238636]/10 border-[#238636]'
-                                                          : 'bg-[#da3633]/10 border-[#da3633]'
-                                                          }`} />
-                                                        {/* Badge */}
-                                                        <div className="absolute top-[8%] left-[30%] z-20 flex flex-col items-start">
-                                                          <div className={`text-white text-[9px] font-black px-2 py-0.5 rounded shadow-lg flex items-center gap-1 uppercase tracking-tighter ${step.status === 'passed' ? 'bg-[#238636]' : 'bg-[#da3633]'
-                                                            }`}>
-                                                            <span className="material-symbols-outlined text-[11px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                                                              {step.status === 'passed' ? 'verified' : 'error'}
-                                                            </span>
-                                                            {step.status === 'passed' ? 'Test Passed' : 'Test Failed'}
-                                                          </div>
-                                                          <div className={`w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[4px] ml-3 ${step.status === 'passed' ? 'border-t-[#238636]' : 'border-t-[#da3633]'
-                                                            }`} />
-                                                        </div>
-                                                        {/* Hover overlay */}
-                                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-30 cursor-pointer">
-                                                          <span className="bg-[#0d1117]/80 text-white px-3 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md border border-[#30363d]">
-                                                            Open Full Resolution
-                                                          </span>
-                                                        </div>
-                                                      </>
-                                                    ) : (
-                                                      <div className="absolute inset-0 bg-gradient-to-br from-[#161b22] to-[#0d1117] flex flex-col items-center justify-center text-center p-4">
-                                                        <span className={`material-symbols-outlined text-[40px] mb-2 ${step.status === 'passed' ? 'text-[#238636]' : 'text-[#da3633]'
-                                                          }`} style={{ fontVariationSettings: "'FILL' 1" }}>
-                                                          {step.status === 'passed' ? 'check_circle' : 'cancel'}
-                                                        </span>
-                                                        <span className={`text-sm font-bold ${step.status === 'passed' ? 'text-[#238636]' : 'text-[#da3633]'
-                                                          }`}>
-                                                          {step.status === 'passed' ? 'Test Passed' : 'Test Failed'}
-                                                        </span>
-                                                        <span className="text-[10px] text-[#6e7681] mt-2">
-                                                          No screenshot captured
-                                                        </span>
-                                                        <span className="text-[9px] text-[#484f58] mt-1">
-                                                          Browser tests automatically capture screenshots
-                                                        </span>
-                                                      </div>
-                                                    )}
-                                                  </div>
-                                                  <div className="text-[9px] text-[#8b949e] text-center font-mono">
-                                                    {step.screenshot || scenario.screenshot ? (
-                                                      <>1920x1080 • {session.time}</>
-                                                    ) : (
-                                                      <>Duration: {scenario.duration}</>
-                                                    )}
-                                                  </div>
-                                                </div>
-                                              </div>
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
+              {filteredRuns.slice(0, 10).map((run) => (
+                <button
+                  key={run.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedRunId(run.id);
+                    setRunsPaneCollapsed(false);
+                  }}
+                  className={`h-7 w-7 rounded border text-[10px] ${selectedRunId === run.id ? 'border-[#4f79a8] bg-[#24364b] text-[#d7ebff]' : 'border-[#334153] bg-[#171f2b] text-[#9aa7b5]'}`}
+                  title={runNumbers.get(run.id) || run.id}
+                >
+                  {(runNumbers.get(run.id) || 'R').replace('Execution ', '')}
+                </button>
               ))}
             </div>
-          )}
-        </div>
-      </aside>
-
-      {/* Right Sidebar - Vertical Text Scenario Tabs */}
-      <aside className="w-12 bg-[#0d1117] border-l border-[#30363d] flex flex-col shrink-0 z-10">
-        <button className="h-10 w-full flex items-center justify-center text-[#8b949e] hover:text-white hover:bg-[#161b22] transition-colors border-b border-[#30363d]" title="Show Editor">
-          <span className="material-symbols-outlined text-[20px]">chevron_left</span>
-        </button>
-
-        <div className="flex-1 flex flex-col items-center py-4 gap-2 overflow-hidden">
-          {allScenariosForSidebar.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[20px] text-[#30363d]">playlist_remove</span>
-            </div>
           ) : (
-            allScenariosForSidebar.map((scenario) => (
-              <div
-                key={scenario.id}
-                onClick={() => {
-                  setSelectedScenarioId(scenario.id);
-                  setExpandedScenarios(prev => {
-                    const next = new Set(prev);
-                    next.add(scenario.id);
-                    return next;
-                  });
-                }}
-                className={`w-full py-6 flex flex-col items-center justify-center gap-3 relative cursor-pointer group transition-colors ${selectedScenarioId === scenario.id
-                  ? 'bg-[#161b22]/50 border-l-2 border-[#58a6ff]'
-                  : 'hover:bg-[#161b22]/30 text-[#8b949e] hover:text-[#c9d1d9] border-l-2 border-transparent'
-                  }`}
-              >
-                <span className={`material-symbols-outlined text-[18px] ${selectedScenarioId === scenario.id ? 'text-[#58a6ff]' : ''
-                  }`}>
-                  {scenario.status === 'passed' ? 'check_circle' :
-                    scenario.status === 'failed' ? 'cancel' : 'code'}
-                </span>
-                <div
-                  className={`text-[11px] font-bold tracking-widest whitespace-nowrap uppercase ${selectedScenarioId === scenario.id ? 'text-[#c9d1d9]' : 'font-medium'
+            <>
+              <div className="p-2 space-y-2 border-b border-[#2c3745]">
+                <input
+                  value={runSearch}
+                  onChange={(event) => setRunSearch(event.target.value)}
+                  placeholder="Search executions..."
+                  className="w-full h-7 px-2 rounded border border-[#3a4554] bg-[#0f151d] text-xs text-[#c9d1d9] placeholder-[#647282] outline-none"
+                />
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => scrollFilterRow(runFilterScrollRef, 'left', syncRunFilterScroll)}
+                    disabled={!runFilterScroll.canLeft}
+                    className={`h-6 w-6 shrink-0 rounded border text-[11px] ${
+                      runFilterScroll.canLeft
+                        ? 'border-[#3a4554] bg-[#171f2b] text-[#b8c6d4] hover:bg-[#253246]'
+                        : 'border-[#2e3a48] bg-[#141a23] text-[#5f6f82] opacity-50 cursor-not-allowed'
                     }`}
-                  style={{
-                    writingMode: 'vertical-rl',
-                    textOrientation: 'mixed',
-                    transform: 'rotate(180deg)',
-                    maxHeight: '80px',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {scenario.name.length > 12 ? scenario.name.substring(0, 12) + '...' : scenario.name}
+                    title="Scroll filters left"
+                    aria-label="Scroll filters left"
+                  >
+                    ‹
+                  </button>
+                  <div
+                    ref={runFilterScrollRef}
+                    onScroll={syncRunFilterScroll}
+                    className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  >
+                    <div className="inline-flex items-center gap-1 pr-1">
+                  {(
+                    [
+                      { key: 'all', label: 'all' },
+                      { key: 'active', label: 'active' },
+                      { key: 'failed', label: 'failed' },
+                      { key: 'unstable', label: 'unstable' },
+                      { key: 'passed', label: 'passed' },
+                      { key: 'no-tests', label: 'no tests' },
+                    ] as Array<{ key: RunFilter; label: string }>
+                  ).map((filter) => (
+                    <button
+                      key={filter.key}
+                      type="button"
+                      onClick={() => setRunFilter(filter.key)}
+                      className={`h-6 px-2 rounded border text-[10px] uppercase tracking-wide ${
+                        runFilter === filter.key
+                          ? 'border-[#4f79a8] bg-[#24364b] text-[#d7ebff]'
+                          : 'border-[#3a4554] bg-[#171f2b] text-[#9aa7b5]'
+                      }`}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => scrollFilterRow(runFilterScrollRef, 'right', syncRunFilterScroll)}
+                    disabled={!runFilterScroll.canRight}
+                    className={`h-6 w-6 shrink-0 rounded border text-[11px] ${
+                      runFilterScroll.canRight
+                        ? 'border-[#3a4554] bg-[#171f2b] text-[#b8c6d4] hover:bg-[#253246]'
+                        : 'border-[#2e3a48] bg-[#141a23] text-[#5f6f82] opacity-50 cursor-not-allowed'
+                    }`}
+                    title="Scroll filters right"
+                    aria-label="Scroll filters right"
+                  >
+                    ›
+                  </button>
                 </div>
               </div>
-            ))
-          )}
-        </div>
 
-        <div className="border-t border-[#30363d] w-full py-4 flex flex-col items-center gap-4 text-[#8b949e]">
-          <span className="material-symbols-outlined text-[20px] hover:text-[#58a6ff] cursor-pointer" title="Quality Metrics">analytics</span>
-          <div className={`size-2 rounded-full ${sortedSessions.some(s => s.status === 'running')
-            ? 'bg-[#2f81f7] shadow-[0_0_8px_rgba(47,129,247,0.6)]'
-            : sortedSessions.some(s => s.status === 'failed')
-              ? 'bg-[#da3633] shadow-[0_0_8px_rgba(218,54,51,0.6)]'
-              : 'bg-[#238636] shadow-[0_0_8px_rgba(35,134,54,0.6)]'
-            }`} />
+              <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1.5">
+                {filteredRuns.map((run) => {
+                  const selected = selectedRunId === run.id;
+                  const executionLabel = runNumbers.get(run.id) || run.id;
+                  const badge = getRunStatusBadge(run);
+                  return (
+                    <button
+                      key={run.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedRunId(run.id);
+                        setSelectedScenarioId(null);
+                      }}
+                      className={`w-full text-left rounded border px-2.5 py-2 transition-colors ${
+                        selected
+                          ? 'bg-[#24364b] border-[#4f79a8]'
+                          : 'bg-[#171f2b] border-[#344354] hover:border-[#4a5a6d]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-[#d6dce4]">{executionLabel}</span>
+                        <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded border ${badge.className}`}>
+                          {badge.label}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-[10px] font-mono text-[#94a3b3]">
+                        {run.dateLabel} {run.timeLabel} · {run.durationLabel}
+                      </div>
+                      <div className="mt-1 text-[10px] text-[#7f8b99] truncate">
+                        {run.metrics.passed} passed · {run.metrics.failed} failed · {run.metrics.skipped} skipped · {run.triggerType}
+                      </div>
+                    </button>
+                  );
+                })}
+                {filteredRuns.length === 0 && (
+                  <div className="text-xs text-[#7f8b99] py-4 text-center">No executions found</div>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+
+        <section className={`${panelClass} ${scenariosPaneCollapsed ? 'w-11' : 'w-[360px]'} shrink-0 transition-all duration-150 flex flex-col min-h-0`}>
+          <div className="h-9 px-2 border-b border-[#2c3745] flex items-center gap-2">
+            {!scenariosPaneCollapsed && (
+              <>
+                <TestTube2 className="h-3.5 w-3.5 text-[#95a7bb]" />
+                <span className="text-[11px] font-semibold tracking-wide text-[#aab4c1] uppercase">Scenarios</span>
+              </>
+            )}
+            <button
+              type="button"
+              className="ml-auto h-6 w-6 rounded border border-[#3a4554] text-[#9aa7b5] hover:text-[#d6dce4]"
+              onClick={() => setScenariosPaneCollapsed((prev) => !prev)}
+              title={scenariosPaneCollapsed ? 'Expand scenarios pane' : 'Collapse scenarios pane'}
+            >
+              {scenariosPaneCollapsed ? '›' : '‹'}
+            </button>
+          </div>
+
+          {scenariosPaneCollapsed ? (
+            <div className="flex-1 min-h-0 flex flex-col items-center py-2 gap-1">
+              <div
+                className="h-7 w-7 rounded border border-[#334153] bg-[#171f2b] text-[#9aa7b5] flex items-center justify-center"
+                title="Scenarios"
+              >
+                <TestTube2 className="h-3.5 w-3.5" />
+              </div>
+              {filteredScenarios.slice(0, 14).map((scenario) => (
+                <button
+                  key={scenario.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedScenarioId(scenario.id);
+                    setScenariosPaneCollapsed(false);
+                  }}
+                  className={`h-7 w-7 rounded-full border ${selectedScenarioId === scenario.id ? 'border-[#4f79a8] bg-[#24364b]' : 'border-[#334153] bg-[#171f2b]'}`}
+                  title={scenario.name}
+                >
+                  <span className={`inline-block h-2.5 w-2.5 rounded-full ${getScenarioStatusDot(scenario.status)}`} />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="p-2 space-y-2 border-b border-[#2c3745]">
+                <input
+                  value={scenarioSearch}
+                  onChange={(event) => setScenarioSearch(event.target.value)}
+                  placeholder="Search scenarios..."
+                  className="w-full h-7 px-2 rounded border border-[#3a4554] bg-[#0f151d] text-xs text-[#c9d1d9] placeholder-[#647282] outline-none"
+                />
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => scrollFilterRow(scenarioFilterScrollRef, 'left', syncScenarioFilterScroll)}
+                    disabled={!scenarioFilterScroll.canLeft}
+                    className={`h-6 w-6 shrink-0 rounded border text-[11px] ${
+                      scenarioFilterScroll.canLeft
+                        ? 'border-[#3a4554] bg-[#171f2b] text-[#b8c6d4] hover:bg-[#253246]'
+                        : 'border-[#2e3a48] bg-[#141a23] text-[#5f6f82] opacity-50 cursor-not-allowed'
+                    }`}
+                    title="Scroll scenario filters left"
+                    aria-label="Scroll scenario filters left"
+                  >
+                    ‹
+                  </button>
+                  <div
+                    ref={scenarioFilterScrollRef}
+                    onScroll={syncScenarioFilterScroll}
+                    className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  >
+                    <div className="inline-flex items-center gap-1 pr-1">
+                  {(
+                    [
+                      ['all', scenarioCounts.all],
+                      ['failed', scenarioCounts.failed],
+                      ['running', scenarioCounts.running],
+                      ['passed', scenarioCounts.passed],
+                      ['flaky', scenarioCounts.flaky],
+                      ['skipped', scenarioCounts.skipped],
+                    ] as Array<[ScenarioFilter, number]>
+                  ).map(([filter, count]) => (
+                    <button
+                      key={filter}
+                      type="button"
+                      onClick={() => setScenarioFilter(filter)}
+                      className={`h-6 px-2 rounded border text-[10px] uppercase tracking-wide ${
+                        scenarioFilter === filter
+                          ? 'border-[#4f79a8] bg-[#24364b] text-[#d7ebff]'
+                          : 'border-[#3a4554] bg-[#171f2b] text-[#9aa7b5]'
+                      } ${count === 0 ? 'opacity-50' : ''}`}
+                    >
+                      {filter} {count}
+                    </button>
+                  ))}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => scrollFilterRow(scenarioFilterScrollRef, 'right', syncScenarioFilterScroll)}
+                    disabled={!scenarioFilterScroll.canRight}
+                    className={`h-6 w-6 shrink-0 rounded border text-[11px] ${
+                      scenarioFilterScroll.canRight
+                        ? 'border-[#3a4554] bg-[#171f2b] text-[#b8c6d4] hover:bg-[#253246]'
+                        : 'border-[#2e3a48] bg-[#141a23] text-[#5f6f82] opacity-50 cursor-not-allowed'
+                    }`}
+                    title="Scroll scenario filters right"
+                    aria-label="Scroll scenario filters right"
+                  >
+                    ›
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1.5">
+                {filteredScenarios.map((scenario) => {
+                  const selected = selectedScenarioId === scenario.id;
+                  return (
+                    <div
+                      key={scenario.id}
+                      className={`rounded border px-2.5 py-2 ${selected ? 'bg-[#24364b] border-[#4f79a8]' : 'bg-[#171f2b] border-[#344354]'}`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setSelectedScenarioId(scenario.id)}
+                        className="w-full text-left"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className={`h-2.5 w-2.5 rounded-full ${getScenarioStatusDot(scenario.status)}`} />
+                          <span className="text-xs font-semibold text-[#d6dce4] truncate">{scenario.name}</span>
+                        </div>
+                        <div className="mt-1 text-[10px] text-[#8da0b4] font-mono">
+                          {scenario.steps.length} steps · {scenario.durationLabel}
+                          {isFlakyScenario(scenario) ? ' · Flaky' : ''}
+                        </div>
+                      </button>
+
+                      <div className="mt-2 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (selectedRun) {
+                              void openTraceForScenario(selectedRun, scenario);
+                            }
+                          }}
+                          disabled={openingTraceScenarioId === scenario.id}
+                          className={`h-6 px-2 rounded border text-[10px] ${
+                            openingTraceScenarioId === scenario.id
+                              ? 'border-[#5e6c7b] bg-[#2a3340] text-[#9aa7b5]'
+                              : 'border-[#3a4554] bg-[#1b2431] text-[#c8d5e2] hover:bg-[#253246]'
+                          }`}
+                        >
+                          {openingTraceScenarioId === scenario.id ? 'Opening…' : 'Open Trace'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {filteredScenarios.length === 0 && (
+                  <div className="text-xs text-[#7f8b99] py-4 text-center">No scenarios found</div>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+
+        <section className={`${panelClass} flex-1 min-w-0 flex flex-col min-h-0`}>
+          <div className="h-10 px-3 border-b border-[#2c3745] flex items-center gap-2">
+            <span className="text-xs font-semibold text-[#d6dce4] truncate">
+              {selectedScenario ? selectedScenario.name : selectedRun ? runNumbers.get(selectedRun.id) : 'Execution Detail'}
+            </span>
+            {selectedRun && (
+              <span className="ml-1 text-[10px] font-mono text-[#7f8b99]">
+                {runNumbers.get(selectedRun.id)} · {selectedRun.dateLabel} {selectedRun.timeLabel}
+              </span>
+            )}
+
+            <div className="ml-auto flex items-center gap-1.5">
+              {selectedRun && selectedScenario && (
+                <button
+                  type="button"
+                  onClick={() => void openTraceForScenario(selectedRun, selectedScenario)}
+                  disabled={openingTraceScenarioId === selectedScenario.id}
+                  className={`h-7 px-2.5 text-xs border rounded ${
+                    openingTraceScenarioId === selectedScenario.id
+                      ? 'border-[#5e6c7b] bg-[#2a3340] text-[#9aa7b5]'
+                      : 'border-[#4c3f7a] bg-[#3d3264] text-[#e2dbff] hover:bg-[#4a3a7a]'
+                  }`}
+                >
+                  {openingTraceScenarioId === selectedScenario.id ? 'Opening…' : 'Open Trace'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="h-9 px-3 border-b border-[#2c3745] flex items-center gap-1">
+            {(['steps', 'errors', 'screenshots', 'logs'] as DetailTab[]).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setDetailTab(tab)}
+                className={`h-6 px-2.5 rounded border text-[10px] uppercase tracking-wide ${
+                  detailTab === tab
+                    ? 'border-[#4f79a8] bg-[#24364b] text-[#d7ebff]'
+                    : 'border-[#3a4554] bg-[#171f2b] text-[#9aa7b5]'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex-1 min-h-0 p-2">
+            {!selectedRun ? (
+              <div className="h-full flex items-center justify-center text-sm text-[#7f8b99]">No execution selected</div>
+            ) : !selectedScenario ? (
+              <div className="h-full flex items-center justify-center text-sm text-[#7f8b99]">No scenario selected</div>
+            ) : detailTab === 'steps' ? (
+              <div className="h-full min-h-0 grid grid-cols-[minmax(0,1fr)_280px] gap-2">
+                <div className={`${panelClass} min-h-0 overflow-hidden flex flex-col`}>
+                  <div className="h-8 px-2.5 border-b border-[#2c3745] flex items-center text-[11px] text-[#9aa7b5]">
+                    Steps ({selectedScenario.steps.length})
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
+                    {selectedScenario.steps.map((step) => {
+                      const selected = selectedStepId === step.id;
+                      return (
+                        <button
+                          key={step.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedStepId(step.id);
+                            if (typeof step.line === 'number' && onJumpToEditor) {
+                              onJumpToEditor(step.line);
+                            }
+                          }}
+                          className={`w-full text-left rounded border px-2 py-1.5 ${
+                            selected
+                              ? 'bg-[#24364b] border-[#4f79a8]'
+                              : step.status === 'failed'
+                              ? 'bg-[#2b1c22] border-[#6f3a45]'
+                              : 'bg-[#171f2b] border-[#344354]'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex min-w-[24px] justify-center rounded border border-[#3a4554] bg-[#0f151d] text-[10px] font-mono text-[#9aa7b5]">
+                              {String(step.number).padStart(2, '0')}
+                            </span>
+                            <span className={`h-2.5 w-2.5 rounded-full ${getScenarioStatusDot(step.status)}`} />
+                            <span className="text-xs font-medium text-[#d6dce4] truncate">
+                              {getStepDisplayTitle(step)}
+                            </span>
+                            <span className="ml-auto text-[10px] font-mono text-[#8ea4b7]">
+                              {formatDurationMs(step.durationMs)}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-[10px] font-mono text-[#7f8b99] truncate">
+                            {getStepPageLabel(step)}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className={`${panelClass} min-h-0 overflow-hidden flex flex-col`}>
+                  <div className="h-8 px-2.5 border-b border-[#2c3745] flex items-center text-[11px] text-[#9aa7b5]">
+                    Evidence
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
+                    <div className="rounded border border-[#344354] bg-[#0f151d] p-2">
+                      <div className="text-[10px] uppercase tracking-wide text-[#7f8b99]">Current Step</div>
+                      <div className="mt-1 text-xs text-[#d6dce4]">
+                        {selectedStep ? getStepDisplayTitle(selectedStep) : 'No step selected'}
+                      </div>
+                    </div>
+
+                    <div className="rounded border border-[#344354] bg-[#0f151d] p-2">
+                      <div className="text-[10px] uppercase tracking-wide text-[#7f8b99]">Screenshot</div>
+                      {selectedStep?.screenshot || selectedScenario.screenshot ? (
+                        <button
+                          type="button"
+                          onClick={() => setFullScreenshot(selectedStep?.screenshot || selectedScenario.screenshot || null)}
+                          className="mt-1 w-full aspect-video overflow-hidden rounded border border-[#3a4554]"
+                        >
+                          <img
+                            src={selectedStep?.screenshot || selectedScenario.screenshot}
+                            alt="Step screenshot"
+                            className="w-full h-full object-cover"
+                          />
+                        </button>
+                      ) : (
+                        <div className="mt-1 w-full aspect-video rounded border border-dashed border-[#3a4554] flex items-center justify-center text-[10px] text-[#7f8b99]">
+                          No screenshot
+                        </div>
+                      )}
+                    </div>
+
+                    {(selectedStep?.error || selectedScenario.error) && (
+                      <div className="rounded border border-[#6f3a45] bg-[#2b1c22] p-2">
+                        <div className="text-[10px] uppercase tracking-wide text-[#f2b3bc]">Error</div>
+                        <div className="mt-1 text-[11px] font-mono text-[#ffcad1] whitespace-pre-wrap break-words">
+                          {humanizePlaywrightError(selectedStep?.error || selectedScenario.error || 'Step failed')}
+                        </div>
+                      </div>
+                    )}
+
+                    {networkHints.length > 0 && (
+                      <div className="rounded border border-[#344354] bg-[#0f151d] p-2">
+                        <div className="text-[10px] uppercase tracking-wide text-[#7f8b99]">Network Hints</div>
+                        <div className="mt-1 space-y-1">
+                          {networkHints.slice(0, 4).map((hint) => (
+                            <div key={hint} className="text-[10px] font-mono text-[#8ea4b7] truncate" title={hint}>
+                              {hint}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : detailTab === 'errors' ? (
+              <div className={`${panelClass} h-full overflow-y-auto p-3 space-y-2`}>
+                {errorSteps.length === 0 ? (
+                  <div className="text-sm text-[#7f8b99]">No errors captured for this scenario.</div>
+                ) : (
+                  errorSteps.map((step) => (
+                    <div key={step.id} className="rounded border border-[#6f3a45] bg-[#2b1c22] p-2.5">
+                      <div className="text-xs font-semibold text-[#ffcad1]">Step {step.number} · {getStepDisplayTitle(step)}</div>
+                      <div className="mt-1 text-[11px] font-mono text-[#ffcad1] whitespace-pre-wrap break-words">
+                        {humanizePlaywrightError(step.error || 'Step failed')}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : detailTab === 'screenshots' ? (
+              <div className={`${panelClass} h-full overflow-y-auto p-3`}>
+                <div className="grid grid-cols-2 xl:grid-cols-3 gap-2">
+                  {[
+                    ...selectedScenario.steps
+                      .filter((step) => Boolean(step.screenshot))
+                      .map((step) => ({
+                        id: step.id,
+                        label: `Step ${step.number}`,
+                        src: step.screenshot as string,
+                      })),
+                    ...(selectedScenario.screenshot
+                      ? [
+                          {
+                            id: `${selectedScenario.id}-scenario-shot`,
+                            label: 'Scenario',
+                            src: selectedScenario.screenshot,
+                          },
+                        ]
+                      : []),
+                  ].map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      onClick={() => setFullScreenshot(entry.src)}
+                      className="rounded border border-[#344354] overflow-hidden bg-[#0f151d]"
+                    >
+                      <img src={entry.src} alt={entry.label} className="w-full aspect-video object-cover" />
+                      <div className="px-2 py-1 text-[10px] text-[#9aa7b5] text-left">{entry.label}</div>
+                    </button>
+                  ))}
+                </div>
+                {!selectedScenario.screenshot && !selectedScenario.steps.some((step) => Boolean(step.screenshot)) && (
+                  <div className="text-sm text-[#7f8b99]">No screenshots available.</div>
+                )}
+              </div>
+            ) : (
+              <div className={`${panelClass} h-full overflow-y-auto p-3 space-y-2`}>
+                {selectedScenario.steps.length === 0 ? (
+                  <div className="text-sm text-[#7f8b99]">No logs available.</div>
+                ) : (
+                  selectedScenario.steps.map((step) => (
+                    <div key={step.id} className="rounded border border-[#344354] bg-[#0f151d] p-2">
+                      <div className="text-[10px] uppercase tracking-wide text-[#7f8b99]">
+                        Step {step.number} · {step.status.toUpperCase()}
+                      </div>
+                      <div className="mt-1 text-[11px] font-mono text-[#9fb5c9]">{getStepDisplayTitle(step)}</div>
+                      {step.error && (
+                        <div className="mt-1 text-[11px] font-mono text-[#ffcad1] whitespace-pre-wrap break-words">
+                          {humanizePlaywrightError(step.error)}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+
+      {fullScreenshot && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-6"
+          onClick={() => setFullScreenshot(null)}
+        >
+          <img
+            src={fullScreenshot}
+            alt="Screenshot"
+            className="max-w-[90vw] max-h-[88vh] object-contain rounded border border-[#3a4554]"
+          />
         </div>
-      </aside>
+      )}
     </div>
   );
 };

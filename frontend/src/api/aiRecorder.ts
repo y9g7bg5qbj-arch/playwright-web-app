@@ -24,6 +24,7 @@ export interface CreateSessionParams {
   baseUrl?: string;
   headless?: boolean;
   applicationId?: string;
+  sandboxPath?: string;
 }
 
 export interface AIRecorderStep {
@@ -112,11 +113,12 @@ export interface AIRecorderHealth {
 // API Functions
 // ============================================
 
+const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '/api';
+
 /**
  * Check AI Recorder availability (Stagehand compatibility)
  */
 export async function checkHealth(): Promise<AIRecorderHealth> {
-  const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '/api';
   const response = await fetch(`${API_BASE_URL}/ai-recorder/health`);
   return response.json();
 }
@@ -128,7 +130,6 @@ export async function importExcel(file: File): Promise<{ testCases: TestCaseInpu
   const formData = new FormData();
   formData.append('file', file);
 
-  const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '/api';
   const token = localStorage.getItem('auth_token');
 
   const response = await fetch(`${API_BASE_URL}/ai-recorder/import-excel`, {
@@ -270,6 +271,5 @@ export async function deleteStep(stepId: string): Promise<void> {
  * Get step screenshot URL
  */
 export function getStepScreenshotUrl(stepId: string): string {
-  const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '/api';
   return `${API_BASE_URL}/ai-recorder/steps/${stepId}/screenshot`;
 }

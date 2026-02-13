@@ -75,8 +75,8 @@ export function RunConfigDropdown({
   };
 
   // Get icon for config target
-  const getTargetIcon = (target: 'local' | 'github') => {
-    return target === 'github' ? (
+  const getTargetIcon = (target: 'local' | 'github-actions') => {
+    return target === 'github-actions' ? (
       <Github className="w-3.5 h-3.5" />
     ) : (
       <Monitor className="w-3.5 h-3.5" />
@@ -188,7 +188,7 @@ export function RunConfigDropdown({
                         )}
                       </div>
                       <div className="text-xs text-[#6e7681]">
-                        {config.target === 'github' ? 'GitHub Actions' : 'Local'} · {config.browser} · {config.workers} worker{config.workers !== 1 ? 's' : ''}
+                        {config.target === 'github-actions' ? 'GitHub Actions' : 'Local'} · {config.browser} · {config.workers} worker{config.workers !== 1 ? 's' : ''}
                       </div>
                     </div>
                   </button>

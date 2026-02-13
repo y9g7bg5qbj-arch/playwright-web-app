@@ -4,6 +4,7 @@ name: Vero Tests
 on:
   workflow_dispatch:
     inputs:
+      # --- Generic inputs (manual GitHub UI dispatch) ---
       browsers:
         description: 'Browsers (comma-separated: chromium,firefox,webkit)'
         required: false
@@ -13,26 +14,102 @@ on:
         description: 'Parallel browser instances per job'
         required: false
         default: '2'
-        type: choice
-        options:
-          - '1'
-          - '2'
-          - '3'
-          - '4'
+        type: string
       shards:
         description: 'Number of parallel jobs'
         required: false
         default: '1'
-        type: choice
-        options:
-          - '1'
-          - '2'
-          - '3'
-          - '4'
+        type: string
       testPattern:
-        description: 'Test file pattern to run (e.g., guaranteed-pass, simple-pass, homepage)'
+        description: 'Test file pattern (generic mode only)'
         required: false
         default: 'guaranteed-pass'
+        type: string
+      # --- Vero-specific inputs (IDE-triggered dispatch) ---
+      runMode:
+        description: 'Execution mode: "vero" for IDE content, empty for generic'
+        required: false
+        default: ''
+        type: string
+      veroFilePath:
+        description: 'Relative path to .vero file'
+        required: false
+        default: ''
+        type: string
+      veroContentB64:
+        description: 'Base64-encoded Vero file content'
+        required: false
+        default: ''
+        type: string
+      retries:
+        description: 'Test retry count'
+        required: false
+        default: '0'
+        type: string
+      timeoutMs:
+        description: 'Test timeout in milliseconds'
+        required: false
+        default: '60000'
+        type: string
+      headless:
+        description: 'Run headless'
+        required: false
+        default: 'true'
+        type: string
+      scenarioName:
+        description: 'Specific Vero scenario name to run'
+        required: false
+        default: ''
+        type: string
+      tagExpression:
+        description: 'Cucumber-style tag expression (e.g., (@smoke and @login) and not @dashboard)'
+        required: false
+        default: ''
+        type: string
+      namePatternsB64:
+        description: 'Base64-encoded JSON array of scenario name regex patterns'
+        required: false
+        default: ''
+        type: string
+      tagsB64:
+        description: 'Base64-encoded JSON array of legacy include tags'
+        required: false
+        default: ''
+        type: string
+      tagMode:
+        description: 'Legacy include tag mode: any/all'
+        required: false
+        default: 'any'
+        type: string
+      excludeTagsB64:
+        description: 'Base64-encoded JSON array of legacy exclude tags'
+        required: false
+        default: ''
+        type: string
+      grep:
+        description: 'Secondary Playwright --grep filter'
+        required: false
+        default: ''
+        type: string
+      grepInvert:
+        description: 'Secondary Playwright --grep-invert filter'
+        required: false
+        default: ''
+        type: string
+      lastFailed:
+        description: 'Run Playwright last-failed tests only'
+        required: false
+        default: 'false'
+        type: string
+      baseUrl:
+        description: 'Base URL for tests'
+        required: false
+        default: ''
+        type: string
+      envVarsB64:
+        description: 'Base64-encoded JSON environment variables'
+        required: false
+        default: ''
         type: string
 
 jobs:
@@ -53,11 +130,14 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install dependencies
+      # --- Generic mode dependencies ---
+      - name: Install test dependencies (generic mode)
+        if: ${{ inputs.runMode != 'vero' }}
         working-directory: ./tests
         run: npm ci
 
-      - name: Install Playwright browsers
+      - name: Install Playwright browsers (generic mode)
+        if: ${{ inputs.runMode != 'vero' }}
         working-directory: ./tests
         run: |
           BROWSERS="${{ inputs.browsers || 'chromium' }}"
@@ -65,7 +145,43 @@ jobs:
             npx playwright install --with-deps $browser
           done
 
-      - name: Run Playwright tests
+      # --- Vero mode dependencies ---
+      - name: Install backend dependencies (Vero mode)
+        if: ${{ inputs.runMode == 'vero' }}
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Install Playwright browsers (Vero mode)
+        if: ${{ inputs.runMode == 'vero' }}
+        run: npx playwright install --with-deps chromium
+
+      # --- Dual-mode test execution ---
+      - name: Run Vero tests (IDE mode)
+        if: ${{ inputs.runMode == 'vero' }}
+        working-directory: ./backend
+        run: npx ts-node scripts/run-vero-workflow.ts
+        env:
+          CI: true
+          VERO_FILE_PATH: ${{ inputs.veroFilePath }}
+          VERO_CONTENT_B64: ${{ inputs.veroContentB64 }}
+          WORKERS: ${{ inputs.workers || '1' }}
+          RETRIES: ${{ inputs.retries || '0' }}
+          TIMEOUT_MS: ${{ inputs.timeoutMs || '60000' }}
+          HEADLESS: ${{ inputs.headless || 'true' }}
+          SCENARIO_NAME: ${{ inputs.scenarioName }}
+          TAG_EXPRESSION: ${{ inputs.tagExpression }}
+          NAME_PATTERNS_B64: ${{ inputs.namePatternsB64 }}
+          TAGS_B64: ${{ inputs.tagsB64 }}
+          TAG_MODE: ${{ inputs.tagMode || 'any' }}
+          EXCLUDE_TAGS_B64: ${{ inputs.excludeTagsB64 }}
+          GREP: ${{ inputs.grep }}
+          GREP_INVERT: ${{ inputs.grepInvert }}
+          LAST_FAILED: ${{ inputs.lastFailed || 'false' }}
+          ENV_VARS_B64: ${{ inputs.envVarsB64 }}
+          BASE_URL: ${{ inputs.baseUrl }}
+
+      - name: Run Playwright tests (generic mode)
+        if: ${{ inputs.runMode != 'vero' }}
         working-directory: ./tests
         run: |
           BROWSERS="${{ inputs.browsers || 'chromium' }}"

@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
-import { Monitor, Github, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Monitor, Github, CheckCircle2, AlertCircle, Globe, Rocket } from 'lucide-react';
 import type { RunConfiguration } from '@/store/runConfigStore';
 import { useEnvironmentStore } from '@/store/environmentStore';
 import { useGitHubStore } from '@/store/useGitHubStore';
+import { runConfigTheme, cardSelectClass, chipClass, cx } from './theme';
 
 interface GeneralTabProps {
   config: RunConfiguration;
@@ -16,259 +17,208 @@ export function GeneralTab({ config, onChange }: GeneralTabProps) {
     integration,
     selectedRepository,
     selectedBranch,
-    loadIntegration
+    loadIntegration,
   } = useGitHubStore();
 
-  // Load GitHub integration on mount
   useEffect(() => {
     loadIntegration();
   }, [loadIntegration]);
 
-  // Auto-populate GitHub settings when switching to github target if connected
   useEffect(() => {
-    if (config.target === 'github' && isConnected() && selectedRepository) {
-      // Only auto-populate if the fields are empty (not already set by user)
-      if (!config.github?.repository) {
-        onChange('github', {
-          ...config.github,
-          repository: selectedRepository.fullName,
-          branch: selectedBranch || selectedRepository.defaultBranch,
-          workflowFile: config.github?.workflowFile || '.github/workflows/vero-tests.yml',
-        });
-      }
-    }
+    if (config.target !== 'github-actions' || !isConnected() || !selectedRepository) return;
+
+    if (config.github?.repository) return;
+
+    onChange('github', {
+      ...config.github,
+      repository: selectedRepository.fullName,
+      branch: selectedBranch || selectedRepository.defaultBranch,
+      workflowFile: config.github?.workflowFile || '.github/workflows/vero-tests.yml',
+    });
   }, [config.target, isConnected, selectedRepository, selectedBranch]);
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      {/* Name */}
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-[#c9d1d9]">
-          Configuration Name
-        </label>
+    <div className="mx-auto max-w-3xl space-y-5">
+      <section className={runConfigTheme.section}>
+        <div className="mb-2 flex items-center gap-2">
+          <Rocket className="h-4 w-4 text-brand-secondary" />
+          <label className={runConfigTheme.label}>Configuration Name</label>
+        </div>
         <input
           type="text"
           value={config.name}
-          onChange={(e) => onChange('name', e.target.value)}
-          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 placeholder-[#6e7681]"
-          placeholder="My Configuration"
+          onChange={(event) => onChange('name', event.target.value)}
+          className={runConfigTheme.input}
+          placeholder="Nightly regression - chrome"
         />
-      </div>
+      </section>
 
-      {/* Environment Selection (Postman-style) */}
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-[#c9d1d9]">
-          Environment
-        </label>
+      <section className={runConfigTheme.section}>
+        <div className="mb-2 flex items-center gap-2">
+          <Globe className="h-4 w-4 text-brand-secondary" />
+          <label className={runConfigTheme.label}>Environment</label>
+        </div>
         <select
           value={config.environmentId || ''}
-          onChange={(e) => onChange('environmentId', e.target.value || undefined)}
-          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+          onChange={(event) => onChange('environmentId', event.target.value || undefined)}
+          className={runConfigTheme.select}
         >
           <option value="">Use active environment</option>
-          {environments.map((env) => (
-            <option key={env.id} value={env.id}>
-              {env.name} {env.isActive && '(Active)'}
+          {environments.map((environment) => (
+            <option key={environment.id} value={environment.id}>
+              {environment.name} {environment.isActive && '(Active)'}
             </option>
           ))}
         </select>
-        <p className="text-xs text-[#6e7681]">
-          Select an environment to use for this configuration. Variables like{' '}
-          <code className="px-1 py-0.5 bg-[#21262d] rounded text-[#58a6ff]">{'{{baseUrl}}'}</code>{' '}
-          will be resolved from this environment.
+        <p className="mt-2 text-xs text-text-muted">
+          Variables like{' '}
+          <code className="rounded bg-dark-elevated px-1 py-0.5 font-mono text-brand-secondary">{'{{baseUrl}}'}</code>{' '}
+          resolve from this environment.
         </p>
         {environments.length === 0 && (
-          <p className="text-xs text-[#f0883e]">
-            No environments defined. Click the environment dropdown in the header to create one.
+          <p className="mt-1 text-xs text-status-warning">
+            No environments found. Create one from the environment selector in the IDE header.
           </p>
         )}
-      </div>
+      </section>
 
-      {/* Target Selection */}
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-[#c9d1d9]">
-          Execution Target
-        </label>
-        <div className="flex gap-4">
+      <section className={runConfigTheme.section}>
+        <p className={runConfigTheme.label}>Execution Target</p>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
           <button
             type="button"
             onClick={() => onChange('target', 'local')}
-            className={`flex-1 flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${
-              config.target === 'local'
-                ? 'border-sky-500 bg-sky-500/10'
-                : 'border-[#30363d] hover:border-[#484f58]'
-            }`}
+            className={cardSelectClass(config.target === 'local')}
           >
-            <Monitor className={`w-6 h-6 ${config.target === 'local' ? 'text-sky-500' : 'text-[#8b949e]'}`} />
-            <div className="text-left">
-              <div className={`font-medium ${config.target === 'local' ? 'text-white' : 'text-[#8b949e]'}`}>
-                Local
-              </div>
-              <div className="text-xs text-[#6e7681]">
-                Run tests on your machine
+            <div className="flex items-center gap-3">
+              <Monitor className={cx('h-5 w-5', config.target === 'local' ? 'text-brand-secondary' : 'text-text-muted')} />
+              <div>
+                <p className="text-sm font-semibold text-text-primary">Local Runtime</p>
+                <p className="text-xs text-text-secondary">Run Playwright directly from your machine.</p>
               </div>
             </div>
           </button>
 
           <button
             type="button"
-            onClick={() => onChange('target', 'github')}
-            className={`flex-1 flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${
-              config.target === 'github'
-                ? 'border-sky-500 bg-sky-500/10'
-                : 'border-[#30363d] hover:border-[#484f58]'
-            }`}
+            onClick={() => onChange('target', 'github-actions')}
+            className={cardSelectClass(config.target === 'github-actions')}
           >
-            <Github className={`w-6 h-6 ${config.target === 'github' ? 'text-sky-500' : 'text-[#8b949e]'}`} />
-            <div className="text-left">
-              <div className={`font-medium ${config.target === 'github' ? 'text-white' : 'text-[#8b949e]'}`}>
-                GitHub Actions
-              </div>
-              <div className="text-xs text-[#6e7681]">
-                Run tests in CI/CD pipeline
+            <div className="flex items-center gap-3">
+              <Github className={cx('h-5 w-5', config.target === 'github-actions' ? 'text-brand-secondary' : 'text-text-muted')} />
+              <div>
+                <p className="text-sm font-semibold text-text-primary">GitHub Actions</p>
+                <p className="text-xs text-text-secondary">Run in CI with artifacts and workflow history.</p>
               </div>
             </div>
           </button>
         </div>
-      </div>
+      </section>
 
-      {/* GitHub-specific settings */}
-      {config.target === 'github' && (
-        <div className="space-y-4 p-4 bg-[#0d1117] rounded-lg border border-[#30363d]">
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-medium text-[#c9d1d9] flex items-center gap-2">
-              <Github className="w-4 h-4" />
-              GitHub Actions Settings
-            </h4>
-            {/* Connection status indicator */}
+      {config.target === 'github-actions' && (
+        <section className={runConfigTheme.section}>
+          <div className="mb-3 flex items-center justify-between">
+            <p className={runConfigTheme.label}>GitHub Settings</p>
             {isConnected() ? (
-              <div className="flex items-center gap-2 text-xs text-[#3fb950]">
-                <CheckCircle2 className="w-4 h-4" />
+              <div className="inline-flex items-center gap-1 text-xs text-status-success">
+                <CheckCircle2 className="h-3.5 w-3.5" />
                 Connected as {integration?.login}
               </div>
             ) : (
-              <div className="flex items-center gap-2 text-xs text-[#f0883e]">
-                <AlertCircle className="w-4 h-4" />
+              <div className="inline-flex items-center gap-1 text-xs text-status-warning">
+                <AlertCircle className="h-3.5 w-3.5" />
                 Not connected
               </div>
             )}
           </div>
 
-          {/* Auto-fill from connected repo button */}
           {isConnected() && selectedRepository && (
             <button
               type="button"
-              onClick={() => onChange('github', {
-                ...config.github,
-                repository: selectedRepository.fullName,
-                branch: selectedBranch || selectedRepository.defaultBranch,
-                workflowFile: config.github?.workflowFile || '.github/workflows/vero-tests.yml',
-              })}
-              className="w-full py-2 px-3 bg-[#238636] hover:bg-[#2ea043] text-white text-sm rounded flex items-center justify-center gap-2 transition-colors"
+              onClick={() =>
+                onChange('github', {
+                  ...config.github,
+                  repository: selectedRepository.fullName,
+                  branch: selectedBranch || selectedRepository.defaultBranch,
+                  workflowFile: config.github?.workflowFile || '.github/workflows/vero-tests.yml',
+                })
+              }
+              className="mb-3 inline-flex items-center gap-1.5 rounded-md bg-brand-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-brand-hover"
             >
-              <Github className="w-4 h-4" />
-              Use connected repository: {selectedRepository.fullName}
+              <Github className="h-3.5 w-3.5" />
+              Use {selectedRepository.fullName}
             </button>
           )}
 
-          {/* Not connected message */}
           {!isConnected() && (
-            <div className="p-3 bg-[#161b22] border border-[#f0883e]/30 rounded text-xs text-[#8b949e]">
-              <p className="mb-1">
-                Connect your GitHub account in <strong>Settings &gt; GitHub</strong> to auto-populate repository details.
-              </p>
-              <p className="text-[#6e7681]">
-                Or enter the repository details manually below.
-              </p>
+            <div className="mb-3 rounded-md border border-status-warning/30 bg-status-warning/10 px-3 py-2 text-xs text-text-secondary">
+              Connect GitHub in settings to auto-fill repository and branch.
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="block text-xs text-[#8b949e]">Repository</label>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <label className={runConfigTheme.label}>Repository</label>
               <input
                 type="text"
                 value={config.github?.repository || ''}
-                onChange={(e) => onChange('github', { ...config.github, repository: e.target.value })}
-                className="w-full bg-[#161b22] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
-                placeholder="owner/repo"
+                onChange={(event) => onChange('github', { ...config.github, repository: event.target.value })}
+                className={cx(runConfigTheme.input, 'mt-2')}
+                placeholder="owner/repository"
               />
             </div>
-
-            <div className="space-y-2">
-              <label className="block text-xs text-[#8b949e]">Branch</label>
+            <div>
+              <label className={runConfigTheme.label}>Branch</label>
               <input
                 type="text"
                 value={config.github?.branch || ''}
-                onChange={(e) => onChange('github', { ...config.github, branch: e.target.value })}
-                className="w-full bg-[#161b22] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
+                onChange={(event) => onChange('github', { ...config.github, branch: event.target.value })}
+                className={cx(runConfigTheme.input, 'mt-2')}
                 placeholder="main"
               />
             </div>
           </div>
 
-          <div className="space-y-2">
-            <label className="block text-xs text-[#8b949e]">Workflow File (optional)</label>
+          <div className="mt-3">
+            <label className={runConfigTheme.label}>Workflow File</label>
             <input
               type="text"
               value={config.github?.workflowFile || ''}
-              onChange={(e) => onChange('github', { ...config.github, workflowFile: e.target.value })}
-              className="w-full bg-[#161b22] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
-              placeholder=".github/workflows/test.yml"
+              onChange={(event) => onChange('github', { ...config.github, workflowFile: event.target.value })}
+              className={cx(runConfigTheme.input, 'mt-2 font-mono')}
+              placeholder=".github/workflows/vero-tests.yml"
             />
           </div>
-
-          {/* Show current config summary */}
-          {config.github?.repository && (
-            <div className="pt-2 border-t border-[#30363d]">
-              <p className="text-xs text-[#6e7681]">
-                Tests will run on <span className="text-[#58a6ff]">{config.github.repository}</span>
-                {config.github.branch && <> branch <span className="text-[#58a6ff]">{config.github.branch}</span></>}
-              </p>
-            </div>
-          )}
-        </div>
+        </section>
       )}
 
-      {/* Browser Selection */}
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-[#c9d1d9]">
-          Browser
-        </label>
-        <div className="flex gap-2">
+      <section className={runConfigTheme.section}>
+        <p className={runConfigTheme.label}>Browser</p>
+        <div className="mt-3 flex flex-wrap gap-2">
           {(['chromium', 'firefox', 'webkit'] as const).map((browser) => (
             <button
               key={browser}
               type="button"
               onClick={() => onChange('browser', browser)}
-              className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-                config.browser === browser
-                  ? 'bg-sky-500 text-white'
-                  : 'bg-[#21262d] text-[#8b949e] hover:text-white hover:bg-[#30363d]'
-              }`}
+              className={chipClass(config.browser === browser)}
             >
               {browser.charAt(0).toUpperCase() + browser.slice(1)}
             </button>
           ))}
         </div>
-      </div>
+      </section>
 
-      {/* Base URL */}
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-[#c9d1d9]">
-          Base URL
-        </label>
+      <section className={runConfigTheme.section}>
+        <p className={runConfigTheme.label}>Base URL</p>
         <input
           type="text"
           value={config.baseURL || ''}
-          onChange={(e) => onChange('baseURL', e.target.value)}
-          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 placeholder-[#6e7681]"
+          onChange={(event) => onChange('baseURL', event.target.value)}
+          className={cx(runConfigTheme.input, 'mt-2 font-mono')}
           placeholder="http://localhost:3000"
         />
-        <p className="text-xs text-[#6e7681]">
-          Base URL used for all relative navigation in tests
-        </p>
-      </div>
+        <p className="mt-2 text-xs text-text-muted">Used by relative `page.goto()` calls in generated Playwright tests.</p>
+      </section>
     </div>
   );
 }

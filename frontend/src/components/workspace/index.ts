@@ -7,7 +7,6 @@ export { CompareWithModal, type CompareWithModalProps } from './CompareWithModal
 export { FileContextMenu, type FileContextMenuProps } from './FileContextMenu';
 export { Header, type HeaderProps } from './Header';
 export { ExplorerPanel, type FileNode, type ExplorerPanelProps } from './ExplorerPanel';
-export { RunConfigurationModal, type RunConfiguration, type RunConfigurationModalProps } from './RunConfigurationModal';
 export { ExecutionsPanel, type Execution, type ExecutionScenario, type ExecutionStep, type ExecutionsPanelProps } from './ExecutionsPanel';
 export { SchedulePanel, type Schedule, type SchedulePanelProps } from './SchedulePanel';
 export { VeroWorkspace } from './VeroWorkspace';

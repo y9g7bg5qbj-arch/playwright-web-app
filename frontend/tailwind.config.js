@@ -56,21 +56,32 @@ export default {
         '2xl': ['24px', { lineHeight: '32px' }],
       },
       borderRadius: {
-        'sm': '4px',
-        'DEFAULT': '6px',
-        'md': '8px',
-        'lg': '10px',
-        'xl': '14px',
+        'sm': '2px',
+        'DEFAULT': '4px',
+        'md': '6px',
+        'lg': '8px',
+        'xl': '12px',
       },
       boxShadow: {
-        'sm': '0 1px 2px rgba(0, 0, 0, 0.4)',
-        'md': '0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.3)',
-        'lg': '0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3)',
+        'none': 'none',
+        'sm': '0 1px 2px rgba(0, 0, 0, 0.2)',
+        'md': '0 2px 4px rgba(0, 0, 0, 0.25)',
+        'lg': '0 4px 8px rgba(0, 0, 0, 0.3)',
+        'xl': '0 8px 16px rgba(0, 0, 0, 0.35)',
+        '2xl': '0 12px 24px rgba(0, 0, 0, 0.4)',
+      },
+      transitionDuration: {
+        'fast': '100ms',
+        'normal': '150ms',
+      },
+      transitionTimingFunction: {
+        'out': 'cubic-bezier(0.16, 1, 0.3, 1)',
       },
       animation: {
-        'fade-in': 'fadeIn 150ms ease-out',
-        'slide-up': 'slideUp 200ms ease-out',
-        'scale-in': 'scaleIn 150ms ease-out',
+        'fade-in': 'fadeIn 100ms ease-out',
+        'slide-up': 'slideUp 150ms ease-out',
+        'scale-in': 'scaleIn 100ms ease-out',
+        'pulse-recording': 'pulseRecording 1.5s ease-in-out infinite',
       },
       keyframes: {
         fadeIn: {
@@ -78,12 +89,16 @@ export default {
           '100%': { opacity: '1' },
         },
         slideUp: {
-          '0%': { opacity: '0', transform: 'translateY(8px)' },
+          '0%': { opacity: '0', transform: 'translateY(4px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
         scaleIn: {
-          '0%': { opacity: '0', transform: 'scale(0.95)' },
+          '0%': { opacity: '0', transform: 'scale(0.97)' },
           '100%': { opacity: '1', transform: 'scale(1)' },
+        },
+        pulseRecording: {
+          '0%, 100%': { opacity: '1', boxShadow: '0 0 0 0 rgba(248, 81, 73, 0.4)' },
+          '50%': { opacity: '0.8', boxShadow: '0 0 0 8px rgba(248, 81, 73, 0)' },
         },
       },
     },

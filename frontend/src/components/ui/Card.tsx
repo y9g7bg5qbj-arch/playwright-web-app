@@ -8,7 +8,7 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
 
 const variantClasses = {
   default: 'bg-dark-card border border-border-default',
-  elevated: 'bg-dark-elevated border border-border-default shadow-md',
+  elevated: 'bg-dark-elevated border border-border-default',
   outlined: 'bg-transparent border border-border-default',
 };
 
@@ -35,10 +35,10 @@ export const Card = React.forwardRef<HTMLDivElement, CardProps>(
       <div
         ref={ref}
         className={`
-          rounded-lg
+          rounded
           ${variantClasses[variant]}
           ${paddingClasses[padding]}
-          ${hover ? 'transition-all duration-200 hover:bg-dark-elevated hover:border-text-muted cursor-pointer' : ''}
+          ${hover ? 'transition-colors duration-fast ease-out hover:border-border-emphasis cursor-pointer' : ''}
           ${className}
         `}
         {...props}
@@ -74,7 +74,7 @@ export const CardTitle: React.FC<CardTitleProps> = ({
   ...props
 }) => (
   <h3
-    className={`text-lg font-semibold text-text-primary ${className}`}
+    className={`text-sm font-semibold text-text-primary tracking-tight ${className}`}
     {...props}
   >
     {children}

@@ -5,16 +5,21 @@ import { registerVeroLanguage, registerVeroCompletionProvider, registerVeroLSPPr
 import { useEditorErrors } from '../../errors/useEditorErrors';
 import { ErrorPanel } from '../../errors/ErrorPanel';
 
+interface DebugVariable {
+    name: string;
+    value: any;
+    type: string;
+}
+
 interface VeroEditorProps {
     initialValue?: string;
     onChange?: (value: string) => void;
     onRunScenario?: (scenarioName: string) => void;
     onRunFeature?: (featureName: string) => void;
+    onGutterContextMenu?: (info: { x: number; y: number; itemType: 'scenario' | 'feature'; itemName: string }) => void;
     onAddScenario?: () => void;
     onStartRecording?: (scenarioName: string) => void;
     isRecording?: boolean;
-    activeRecordingScenario?: string | null;
-    onAppendCode?: (code: string) => void;
     readOnly?: boolean;
     theme?: 'vero-camel' | 'vero-light';
     // Debug props
@@ -22,6 +27,8 @@ interface VeroEditorProps {
     onToggleBreakpoint?: (line: number) => void;
     debugCurrentLine?: number | null;
     isDebugging?: boolean;
+    // Variables for inline display
+    debugVariables?: DebugVariable[];
     // Error panel props
     showErrorPanel?: boolean;
     errorPanelCollapsed?: boolean;
@@ -30,10 +37,32 @@ interface VeroEditorProps {
     veroPath?: string | null;
     // File path for extracting project path if veroPath not provided
     filePath?: string | null;
+    // Nested project ID for cross-file definition lookups
+    projectId?: string | null;
+    // Callback for cross-file "Go to Definition" navigation
+    onNavigateToDefinition?: (filePath: string, line: number, column: number) => void;
 }
 
 export interface VeroEditorHandle {
     goToLine: (line: number) => void;
+}
+
+function formatDebugValue(value: unknown): string {
+    if (value === null) return 'null';
+    if (value === undefined) return 'undefined';
+    if (typeof value === 'string') {
+        const truncated = value.length > 50 ? value.substring(0, 50) + '...' : value;
+        return `"${truncated}"`;
+    }
+    if (typeof value === 'object') {
+        try {
+            const json = JSON.stringify(value);
+            return json.length > 50 ? json.substring(0, 50) + '...' : json;
+        } catch {
+            return '[Object]';
+        }
+    }
+    return String(value);
 }
 
 export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function VeroEditor({
@@ -41,10 +70,10 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
     onChange,
     onRunScenario,
     onRunFeature,
+    onGutterContextMenu,
     onAddScenario,
     onStartRecording,
     isRecording = false,
-    activeRecordingScenario: _activeRecordingScenario = null,
     readOnly = false,
     theme = 'vero-camel',
     // Debug props
@@ -52,12 +81,15 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
     onToggleBreakpoint,
     debugCurrentLine = null,
     isDebugging = false,
+    debugVariables = [],
     // Error panel props
     showErrorPanel = true,
     errorPanelCollapsed = false,
     token = null,
     veroPath = null,
     filePath = null,
+    projectId = null,
+    onNavigateToDefinition,
 }, ref) {
     const [code, setCode] = useState(initialValue);
     const [codeItems, setCodeItems] = useState<VeroCodeItem[]>([]);
@@ -66,6 +98,10 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
     const decorationsRef = useRef<string[]>([]);
     const debugDecorationsRef = useRef<string[]>([]);
     const errorDecorationsRef = useRef<string[]>([]);
+    const inlineValueDecorationsRef = useRef<string[]>([]);
+    const editorOpenerDisposableRef = useRef<{ dispose: () => void } | null>(null);
+    const projectIdRef = useRef(projectId);
+    useEffect(() => { projectIdRef.current = projectId; }, [projectId]);
 
     // State for Monaco instance (needed for error validation hook - use state not ref to trigger re-render)
     const [monacoInstance, setMonacoInstance] = useState<Monaco | null>(null);
@@ -173,8 +209,16 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         monacoRef.current = monaco;
         registerVeroLanguage(monaco);
         registerVeroCompletionProvider(monaco);
-        registerVeroLSPProviders(monaco);  // Register LSP features: hover, definition, references, outline, folding
+        registerVeroLSPProviders(monaco, {
+            getProjectId: () => projectIdRef.current ?? null,
+        });
     }, []);
+
+    // Store latest onNavigateToDefinition in a ref so the editor opener always sees the latest
+    const onNavigateToDefinitionRef = useRef(onNavigateToDefinition);
+    useEffect(() => {
+        onNavigateToDefinitionRef.current = onNavigateToDefinition;
+    }, [onNavigateToDefinition]);
 
     // Setup editor after mount
     const handleEditorDidMount: OnMount = useCallback((editor, monaco) => {
@@ -187,6 +231,47 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         if (model) {
             setEditorModel(model);
         }
+
+        // Register editor opener to intercept cross-file "Go to Definition" navigation
+        // When Monaco resolves a definition to a different file URI, this opener fires
+        // the callback to VeroWorkspace instead of trying to open it in Monaco directly.
+        // Dispose any previously registered opener to avoid duplicates across editor instances.
+        editorOpenerDisposableRef.current?.dispose();
+        editorOpenerDisposableRef.current = monaco.editor.registerEditorOpener({
+            openCodeEditor(
+                _source: monacoEditor.editor.ICodeEditor,
+                resource: monacoEditor.Uri,
+                selectionOrPosition?: monacoEditor.IRange | monacoEditor.IPosition
+            ) {
+                const currentUri = editor.getModel()?.uri?.toString();
+                const targetUri = resource.toString();
+
+                // Only intercept if navigating to a different file
+                if (targetUri !== currentUri && onNavigateToDefinitionRef.current) {
+                    // Extract the file path from the URI (strip scheme like file:// or inmemory://)
+                    const targetPath = resource.path;
+
+                    // Extract line/column from selectionOrPosition
+                    let line = 1;
+                    let column = 1;
+                    if (selectionOrPosition) {
+                        if ('startLineNumber' in selectionOrPosition) {
+                            // IRange
+                            line = selectionOrPosition.startLineNumber;
+                            column = selectionOrPosition.startColumn;
+                        } else if ('lineNumber' in selectionOrPosition) {
+                            // IPosition
+                            line = selectionOrPosition.lineNumber;
+                            column = selectionOrPosition.column;
+                        }
+                    }
+
+                    onNavigateToDefinitionRef.current(targetPath, line, column);
+                    return true; // handled — prevent Monaco's default behavior
+                }
+                return false; // same-file navigation, let Monaco handle it
+            },
+        });
 
         // Update code items when content changes
         editor.onDidChangeModelContent(() => {
@@ -276,7 +361,18 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
                 }
 
                 if (item) {
-                    if (item.type === 'scenario') {
+                    if (onGutterContextMenu) {
+                        // Position the context menu next to the gutter icon using the element's rect
+                        // (more reliable than browserEvent coordinates across Monaco versions)
+                        const glyphEl = e.target.element as HTMLElement | null;
+                        const rect = glyphEl?.getBoundingClientRect();
+                        onGutterContextMenu({
+                            x: rect ? rect.right + 4 : e.event.browserEvent.clientX,
+                            y: rect ? rect.top : e.event.browserEvent.clientY,
+                            itemType: item.type as 'scenario' | 'feature',
+                            itemName: item.name,
+                        });
+                    } else if (item.type === 'scenario') {
                         onRunScenario?.(item.name);
                     } else if (item.type === 'feature') {
                         onRunFeature?.(item.name);
@@ -302,7 +398,7 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         });
 
         return () => disposable.dispose();
-    }, [codeItems, onRunScenario, onRunFeature, onAddScenario, onStartRecording, onToggleBreakpoint]);
+    }, [codeItems, onRunScenario, onRunFeature, onGutterContextMenu, onAddScenario, onStartRecording, onToggleBreakpoint]);
 
     // Update debug decorations (breakpoints and current line)
     useEffect(() => {
@@ -342,50 +438,75 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         debugDecorationsRef.current = editor.deltaDecorations(debugDecorationsRef.current, debugDecorations);
     }, [breakpoints, debugCurrentLine, isDebugging]);
 
-    // Append code at cursor position (for live recording)
-    const appendAtCursor = useCallback((newCode: string) => {
-        const editor = editorRef.current;
-        if (!editor) return;
-
-        const position = editor.getPosition();
-        if (position) {
-            const lineContent = editor.getModel()?.getLineContent(position.lineNumber) || '';
-            const endOfLine = lineContent.length + 1;
-
-            editor.executeEdits('vero-recording', [{
-                range: new monacoEditor.Range(
-                    position.lineNumber,
-                    endOfLine,
-                    position.lineNumber,
-                    endOfLine
-                ),
-                text: '\n' + newCode,
-            }]);
-
-            // Move cursor to end of inserted text
-            const newLines = newCode.split('\n').length;
-            editor.setPosition({
-                lineNumber: position.lineNumber + newLines,
-                column: 1,
-            });
-        }
-    }, []);
-
-    // Expose appendAtCursor for external use
+    // Inline variable values when debugging and paused
     useEffect(() => {
-        if (editorRef.current) {
-            (editorRef.current as any).appendAtCursor = appendAtCursor;
+        const editor = editorRef.current;
+        const monaco = monacoRef.current;
+        if (!editor || !monaco) return;
+
+        // Only show inline values when debugging and we have variables
+        if (!isDebugging || debugVariables.length === 0 || debugCurrentLine === null) {
+            inlineValueDecorationsRef.current = editor.deltaDecorations(
+                inlineValueDecorationsRef.current,
+                []
+            );
+            return;
         }
-    }, [appendAtCursor]);
+
+        const inlineDecorations: monacoEditor.editor.IModelDeltaDecoration[] = [];
+        const model = editor.getModel();
+        if (!model) return;
+
+        // Get the content of the current line and surrounding lines
+        const startLine = Math.max(1, debugCurrentLine - 2);
+        const endLine = Math.min(model.getLineCount(), debugCurrentLine + 2);
+
+        for (let lineNum = startLine; lineNum <= endLine; lineNum++) {
+            const lineContent = model.getLineContent(lineNum);
+
+            // Find variable references in the line (e.g., $username, _pageUrl)
+            for (const variable of debugVariables) {
+                // Check for $variable or variable name directly
+                const varPatterns = [
+                    `$${variable.name}`,
+                    variable.name,
+                ];
+
+                for (const pattern of varPatterns) {
+                    const varIndex = lineContent.indexOf(pattern);
+                    if (varIndex !== -1) {
+                        const displayValue = formatDebugValue(variable.value);
+
+                        // Add inline decoration at end of line
+                        inlineDecorations.push({
+                            range: new monaco.Range(lineNum, lineContent.length + 1, lineNum, lineContent.length + 1),
+                            options: {
+                                after: {
+                                    content: `  = ${displayValue}`,
+                                    inlineClassName: 'vero-inline-value',
+                                },
+                            },
+                        });
+                        break; // Only one decoration per line
+                    }
+                }
+            }
+        }
+
+        inlineValueDecorationsRef.current = editor.deltaDecorations(
+            inlineValueDecorationsRef.current,
+            inlineDecorations
+        );
+    }, [isDebugging, debugVariables, debugCurrentLine]);
 
     return (
         <div className="vero-editor-container h-full flex flex-col">
-            {/* Recording indicator */}
+            {/* Recording indicator - Signature element */}
             {isRecording && (
-                <div className="recording-indicator flex items-center gap-2 px-3 py-2 bg-red-600 text-white text-sm">
-                    <span className="w-3 h-3 rounded-full bg-current animate-pulse" />
-                    <span>Recording...</span>
-                    <span className="text-red-200 text-xs">Actions will appear in editor</span>
+                <div className="recording-indicator flex items-center gap-2 px-3 py-1.5 bg-[rgba(248,81,73,0.15)] border-b border-[rgba(248,81,73,0.3)] text-[#f85149] text-xs">
+                    <span className="w-2 h-2 rounded-full bg-[#f85149] animate-pulse-recording" />
+                    <span className="font-medium">Recording</span>
+                    <span className="text-[#f85149]/70 text-[10px]">Actions will appear in editor</span>
                 </div>
             )}
 
@@ -484,10 +605,17 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
           background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='%23eab308'%3E%3Cpolygon points='4 4 20 12 4 20 4 4'/%3E%3C/svg%3E") center center no-repeat;
         }
 
-        /* Debug current line highlight */
+        /* Debug current line highlight - Amber pause indicator */
         .vero-debug-current-line {
-          background-color: rgba(234, 179, 8, 0.15) !important;
+          background-color: rgba(234, 179, 8, 0.12) !important;
           border-left: 2px solid #eab308 !important;
+        }
+
+        /* Execution trace line - Terminal green glow (success state) */
+        .vero-execution-trace {
+          background: linear-gradient(90deg, rgba(63, 185, 80, 0.15) 0%, transparent 100%) !important;
+          border-left: 2px solid #3fb950 !important;
+          box-shadow: inset 0 0 8px rgba(63, 185, 80, 0.2);
         }
 
         /* Error line highlight (IntelliJ-style) */
@@ -506,6 +634,29 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         }
         .vero-warning-glyph {
           background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24'%3E%3Cpolygon points='12 2 22 22 2 22' fill='%23d29922'/%3E%3Ctext x='12' y='19' text-anchor='middle' font-size='12' font-weight='bold' fill='white'%3E!%3C/text%3E%3C/svg%3E") center center no-repeat;
+        }
+
+        /* Inline debug values (shown after code on same line) */
+        .vero-inline-value {
+          color: #6e7681;
+          font-style: italic;
+          font-size: 0.9em;
+          background-color: rgba(88, 166, 255, 0.1);
+          padding: 0 4px;
+          border-radius: 2px;
+          margin-left: 8px;
+          border: 1px solid rgba(88, 166, 255, 0.15);
+        }
+
+        /* Monaco editor refinements */
+        .monaco-editor .line-numbers {
+          color: #6e7681 !important;
+        }
+        .monaco-editor .margin {
+          background-color: #14151a !important;
+        }
+        .monaco-editor .current-line ~ .line-numbers {
+          color: #e6edf3 !important;
         }
       `}</style>
         </div>

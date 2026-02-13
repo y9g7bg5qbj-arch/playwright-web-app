@@ -10,56 +10,80 @@
    ========================================================================== */
 
 :root {
-  /* Color Palette: Deep Space Blue */
+  /* ==========================================================================
+     PRECISION DENSITY DESIGN SYSTEM
+     Personality: Cold precision, high density, flight console / trading terminal
+     ========================================================================== */
 
-  /* Backgrounds */
-  --bg-canvas: #111216;
-  --bg-primary: #18191e;
-  --bg-secondary: #212229;
-  --bg-elevated: #2b2d36;
-  --bg-overlay: rgba(17, 18, 22, 0.85);
+  /* Backgrounds - Darker, more contrast, subtle layering */
+  --bg-canvas: #0d0e12;
+  --bg-primary: #14151a;
+  --bg-secondary: #1c1d24;
+  --bg-elevated: #24262e;
+  --bg-overlay: rgba(13, 14, 18, 0.90);
 
-  /* Brand Identity */
+  /* Brand Identity - Blueprint blue */
   --brand-primary: #3574f0;
-  --brand-secondary: #5c8ef2;
-  --brand-gradient: linear-gradient(135deg, #3574f0, #2c62c9);
+  --brand-secondary: #58a6ff;
+  --brand-gradient: linear-gradient(180deg, #3574f0 0%, #2c5fd9 100%);
   --brand-hover: #4582f5;
 
   /* Accent Colors */
-  --accent-purple: #9f7efe;
-  --accent-teal: #4cb2c0;
+  --accent-purple: #a371f7;
+  --accent-teal: #3fb4c0;
   --accent-orange: #e57f49;
 
   /* Text Colors */
-  --text-primary: #ecedee;
-  --text-secondary: #9aa0a6;
-  --text-muted: #6b717b;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #6e7681;
   --text-inverted: #ffffff;
 
-  /* Borders */
-  --border-subtle: #2b2d36;
-  --border-default: #393b44;
-  --border-emphasis: #4f525e;
+  /* Borders - Whisper-quiet, rgba-based for subtlety */
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-emphasis: rgba(255, 255, 255, 0.12);
   --border-active: #3574f0;
 
-  /* Status Colors */
-  --status-success: #57ab5a;
-  --status-warning: #c69026;
-  --status-danger: #e5534b;
-  --status-info: #539bf5;
+  /* Status Colors - Terminal aesthetic */
+  --status-success: #3fb950;
+  --status-warning: #d29922;
+  --status-danger: #f85149;
+  --status-info: #58a6ff;
 
   /* Status Backgrounds */
-  --bg-success: rgba(87, 171, 90, 0.15);
-  --bg-warning: rgba(198, 144, 38, 0.15);
-  --bg-danger: rgba(229, 83, 75, 0.15);
-  --bg-info: rgba(83, 155, 245, 0.15);
+  --bg-success: rgba(63, 185, 80, 0.15);
+  --bg-warning: rgba(210, 153, 34, 0.15);
+  --bg-danger: rgba(248, 81, 73, 0.15);
+  --bg-info: rgba(88, 166, 255, 0.15);
 
   /* --- Typography --- */
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 
-  /* --- Animation --- */
+  /* --- Border Radius - Sharp precision (4px default) --- */
+  --radius-sm: 2px;
+  --radius-default: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* --- Animation - Faster for responsive feel --- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  --duration-fast: 100ms;
+  --duration-normal: 150ms;
+
+  /* Legacy token aliases to keep older screens rendering safely while migrating */
+  --dark-bg: var(--bg-canvas);
+  --dark-header: var(--bg-primary);
+  --dark-card: var(--bg-secondary);
+  --dark-elevated: var(--bg-elevated);
+  --dark-hover: var(--bg-elevated);
+  --dark-elem-hover: rgba(255, 255, 255, 0.08);
+  --dark-elem-active: rgba(255, 255, 255, 0.12);
+  --border-hover: var(--border-emphasis);
+  --shadow-xl: 0 14px 34px rgba(0, 0, 0, 0.38);
+  --shadow-2xl: 0 22px 42px rgba(0, 0, 0, 0.45);
 }
 
 /* ==========================================================================
@@ -82,7 +106,25 @@ body {
   color: var(--text-primary);
   font-size: 13px;
   line-height: 1.5;
+  letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Typography - Tighter tracking for headings */
+h1, h2, h3, h4, h5, h6,
+.heading {
+  letter-spacing: -0.02em;
+}
+
+/* Data display - Tabular numbers for alignment */
+.data, .mono, .font-mono,
+code, pre {
+  font-variant-numeric: tabular-nums;
 }
 
 code,
@@ -143,63 +185,103 @@ pre,
   .focus-ring {
     @apply outline-none ring-2 ring-brand-primary/40 ring-offset-2 ring-offset-[#111216];
   }
+
+  .ide-shell {
+    @apply bg-dark-canvas text-text-primary;
+  }
+
+  .ide-surface {
+    @apply bg-dark-bg border border-border-default;
+  }
+
+  .ide-panel {
+    @apply bg-dark-card border border-border-default;
+  }
+
+  .ide-panel-muted {
+    @apply bg-dark-elevated border border-border-muted;
+  }
+
+  .ide-toolbar {
+    @apply bg-dark-bg border-b border-border-default;
+  }
+
+  .ide-subtle {
+    @apply text-text-muted;
+  }
+
+  .ide-hover {
+    @apply transition-colors duration-fast hover:bg-white/[0.05];
+  }
 }
 
 /* ==========================================================================
    Component Overrides (The "Creative" Part)
    ========================================================================== */
 
-/* Buttons - Tactile & Modern */
+/* Buttons - Precision & Density */
 .btn {
-  @apply inline-flex items-center justify-center gap-2 px-4 py-1.5 rounded-[6px] font-semibold text-xs transition-all duration-200;
-  letter-spacing: 0.01em;
+  @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 font-medium text-xs;
+  border-radius: var(--radius-default);
+  letter-spacing: 0;
+  transition: all var(--duration-fast) var(--ease-out);
 }
 
 .btn-primary {
-  background: var(--brand-primary);
+  background: linear-gradient(180deg, var(--brand-primary) 0%, #2c5fd9 100%);
   color: white;
-  border: 1px solid transparent;
+  border: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--brand-secondary);
+  filter: brightness(1.1);
 }
 
-.btn-primary:active {
-  background: #2c62c9;
+.btn-primary:active:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+/* Primary button gradient class for Tailwind usage */
+.btn-primary-gradient {
+  background: linear-gradient(180deg, var(--brand-primary) 0%, #2c5fd9 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .btn-secondary {
   background: var(--bg-elevated);
-  color: var(--text-primary);
+  color: var(--text-secondary);
   border: 1px solid var(--border-default);
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: #363942;
+  background: var(--bg-elevated);
   border-color: var(--border-emphasis);
+  color: var(--text-primary);
 }
 
 .btn-ghost {
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--text-muted);
+  border: none;
 }
 
 .btn-ghost:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text-primary);
 }
 
-/* Inputs - Distinct Field Look */
+/* Inputs - Inset precision feel */
 input[type="text"],
 input[type="search"],
 input[type="password"],
 textarea,
 select {
-  @apply rounded-[6px] px-3 py-2 text-sm text-text-primary;
-  background-color: #1e1f24;
+  @apply px-3 py-2 text-sm text-text-primary;
+  border-radius: var(--radius-default);
+  background-color: var(--bg-canvas);
   border: 1px solid var(--border-default);
-  transition: all 0.2s ease;
+  transition: all var(--duration-fast) var(--ease-out);
 }
 
 input:focus,
@@ -207,51 +289,52 @@ textarea:focus,
 select:focus {
   @apply outline-none;
   border-color: var(--brand-primary);
-  background-color: #26282f;
-  box-shadow: 0 0 0 3px rgba(53, 116, 240, 0.15);
+  box-shadow: 0 0 0 2px rgba(53, 116, 240, 0.15);
 }
 
+/* Cards - Borders-only depth, no shadows */
 .card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
-  border-radius: 6px;
+  border-radius: var(--radius-default);
+  transition: border-color var(--duration-fast) var(--ease-out);
 }
 
 .card:hover {
   border-color: var(--border-emphasis);
 }
 
-/* Activity Bar - Modern Tab Style */
+/* Activity Bar - Tighter, precision feel */
 .activity-bar-item {
   position: relative;
   opacity: 0.6;
-  border-left: 3px solid transparent;
-  transition: all 0.2s;
+  border-left: 2px solid transparent;
+  transition: all var(--duration-fast) var(--ease-out);
 }
 
 .activity-bar-item:hover {
-  opacity: 0.9;
+  opacity: 1;
   background-color: rgba(255, 255, 255, 0.03);
 }
 
 .activity-bar-item.active {
   opacity: 1;
-  background-color: rgba(53, 116, 240, 0.1);
+  background-color: rgba(53, 116, 240, 0.08);
   border-left-color: var(--brand-primary);
 }
 
-/* File Tree - Selection with Rounded Corners */
+/* File Tree - Subtle selection, tighter rows */
 .file-tree-item:hover {
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: rgba(255, 255, 255, 0.03);
 }
 
 .file-tree-item.selected {
-  background-color: rgba(53, 116, 240, 0.15);
-  color: #fff;
-  border-radius: 4px;
+  background-color: rgba(53, 116, 240, 0.12);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
 }
 
-/* Monaco & Grid */
+/* Monaco Editor - Matching precision palette */
 .monaco-editor-background {
   background-color: var(--bg-primary) !important;
 }
@@ -259,6 +342,93 @@ select:focus {
 .monaco-editor .margin {
   background-color: var(--bg-primary) !important;
   border-right: 1px solid var(--border-subtle) !important;
+}
+
+.monaco-editor .current-line {
+  background-color: rgba(255, 255, 255, 0.02) !important;
+  border: none !important;
+}
+
+.monaco-editor .selected-text {
+  background-color: rgba(53, 116, 240, 0.15) !important;
+}
+
+/* ==========================================================================
+   SIGNATURE ELEMENTS - Unique to Vero IDE
+   ========================================================================== */
+
+/* Execution Trace Line - Glowing indicator when running/debugging */
+.execution-line,
+.vero-execution-line {
+  background: linear-gradient(90deg,
+    rgba(63, 185, 80, 0.15) 0%,
+    transparent 100%
+  ) !important;
+  border-left: 2px solid var(--status-success) !important;
+  box-shadow: 0 0 8px rgba(63, 185, 80, 0.3);
+}
+
+/* Recording Indicator - Pulsing red dot */
+.recording-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recording-indicator::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-danger);
+  animation: pulse-recording 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-recording {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(248, 81, 73, 0.4);
+  }
+  50% {
+    opacity: 0.8;
+    box-shadow: 0 0 0 8px rgba(248, 81, 73, 0);
+  }
+}
+
+/* Test Status Pills - Terminal aesthetic */
+.test-passed,
+.status-passed {
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+  border: 1px solid rgba(63, 185, 80, 0.2);
+}
+
+.test-failed,
+.status-failed {
+  background: rgba(248, 81, 73, 0.15);
+  color: #f85149;
+  border: 1px solid rgba(248, 81, 73, 0.2);
+}
+
+.test-running,
+.status-running {
+  background: rgba(88, 166, 255, 0.15);
+  color: #58a6ff;
+  border: 1px solid rgba(88, 166, 255, 0.2);
+}
+
+.test-pending,
+.status-pending {
+  background: rgba(210, 153, 34, 0.15);
+  color: #d29922;
+  border: 1px solid rgba(210, 153, 34, 0.2);
+}
+
+/* Focus States - Thin, offset ring */
+.focus-visible:focus,
+[data-focus-visible]:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-canvas), 0 0 0 4px rgba(53, 116, 240, 0.4);
 }
 
 /* Tables */

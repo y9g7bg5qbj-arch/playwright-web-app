@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, MapPin, MonitorSmartphone, Languages, Clock3 } from 'lucide-react';
 import type { RunConfiguration } from '@/store/runConfigStore';
+import { runConfigTheme, chipClass, cx } from './theme';
 
 interface AdvancedTabProps {
   config: RunConfiguration;
@@ -11,82 +12,85 @@ export function AdvancedTab({ config, onChange }: AdvancedTabProps) {
   const [newEnvKey, setNewEnvKey] = useState('');
   const [newEnvValue, setNewEnvValue] = useState('');
 
-  // Handle adding new environment variable
   const handleAddEnvVar = () => {
-    if (newEnvKey.trim()) {
-      onChange('envVars', {
-        ...config.envVars,
-        [newEnvKey.trim()]: newEnvValue,
-      });
-      setNewEnvKey('');
-      setNewEnvValue('');
-    }
+    if (!newEnvKey.trim()) return;
+
+    onChange('envVars', {
+      ...config.envVars,
+      [newEnvKey.trim()]: newEnvValue,
+    });
+
+    setNewEnvKey('');
+    setNewEnvValue('');
   };
 
-  // Handle removing environment variable
   const handleRemoveEnvVar = (key: string) => {
-    const newEnvVars = { ...config.envVars };
-    delete newEnvVars[key];
-    onChange('envVars', Object.keys(newEnvVars).length > 0 ? newEnvVars : undefined);
+    const next = { ...config.envVars };
+    delete next[key];
+    onChange('envVars', Object.keys(next).length > 0 ? next : undefined);
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      {/* Viewport */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <label className="text-sm font-medium text-[#c9d1d9]">Viewport</label>
-          <label className="flex items-center gap-2 cursor-pointer">
+    <div className="mx-auto max-w-3xl space-y-5">
+      <section className={runConfigTheme.section}>
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <MonitorSmartphone className="h-4 w-4 text-brand-secondary" />
+            <p className={runConfigTheme.label}>Viewport</p>
+          </div>
+          <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-text-secondary">
             <input
               type="checkbox"
-              checked={!!config.viewport}
-              onChange={(e) => {
-                if (e.target.checked) {
+              checked={Boolean(config.viewport)}
+              onChange={(event) => {
+                if (event.target.checked) {
                   onChange('viewport', { width: 1280, height: 720 });
-                } else {
-                  onChange('viewport', undefined);
+                  return;
                 }
+                onChange('viewport', undefined);
               }}
-              className="w-4 h-4 rounded border-[#30363d] bg-[#0d1117] text-sky-500 focus:ring-sky-500 focus:ring-offset-[#161b22]"
+              className={runConfigTheme.toggle}
             />
-            <span className="text-sm text-[#8b949e]">Custom viewport</span>
+            Custom viewport
           </label>
         </div>
 
-        {config.viewport && (
-          <div className="p-4 bg-[#0d1117] rounded-lg border border-[#30363d] space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="block text-xs text-[#8b949e]">Width (px)</label>
+        {config.viewport ? (
+          <div className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className={runConfigTheme.label}>Width (px)</label>
                 <input
                   type="number"
                   min={320}
                   max={3840}
                   value={config.viewport.width}
-                  onChange={(e) => onChange('viewport', {
-                    ...config.viewport!,
-                    width: parseInt(e.target.value) || 1280
-                  })}
-                  className="w-full bg-[#161b22] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
+                  onChange={(event) =>
+                    onChange('viewport', {
+                      ...config.viewport!,
+                      width: parseInt(event.target.value, 10) || 1280,
+                    })
+                  }
+                  className={cx(runConfigTheme.input, 'mt-2')}
                 />
               </div>
-              <div className="space-y-2">
-                <label className="block text-xs text-[#8b949e]">Height (px)</label>
+              <div>
+                <label className={runConfigTheme.label}>Height (px)</label>
                 <input
                   type="number"
                   min={240}
                   max={2160}
                   value={config.viewport.height}
-                  onChange={(e) => onChange('viewport', {
-                    ...config.viewport!,
-                    height: parseInt(e.target.value) || 720
-                  })}
-                  className="w-full bg-[#161b22] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
+                  onChange={(event) =>
+                    onChange('viewport', {
+                      ...config.viewport!,
+                      height: parseInt(event.target.value, 10) || 720,
+                    })
+                  }
+                  className={cx(runConfigTheme.input, 'mt-2')}
                 />
               </div>
             </div>
-
-            {/* Viewport presets */}
             <div className="flex flex-wrap gap-2">
               {[
                 { label: 'Desktop', width: 1920, height: 1080 },
@@ -98,29 +102,29 @@ export function AdvancedTab({ config, onChange }: AdvancedTabProps) {
                   key={preset.label}
                   type="button"
                   onClick={() => onChange('viewport', { width: preset.width, height: preset.height })}
-                  className={`px-3 py-1 rounded text-xs transition-colors ${
+                  className={chipClass(
                     config.viewport?.width === preset.width && config.viewport?.height === preset.height
-                      ? 'bg-sky-500 text-white'
-                      : 'bg-[#21262d] text-[#8b949e] hover:text-white hover:bg-[#30363d]'
-                  }`}
+                  )}
                 >
-                  {preset.label} ({preset.width}x{preset.height})
+                  {preset.label} ({preset.width}×{preset.height})
                 </button>
               ))}
             </div>
           </div>
+        ) : (
+          <p className="text-xs text-text-muted">Use the default viewport from your Playwright configuration.</p>
         )}
-      </div>
+      </section>
 
-      {/* Locale */}
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-[#c9d1d9]">
-          Locale
-        </label>
+      <section className={runConfigTheme.section}>
+        <div className="mb-2 flex items-center gap-2">
+          <Languages className="h-4 w-4 text-brand-secondary" />
+          <label className={runConfigTheme.label}>Locale</label>
+        </div>
         <select
           value={config.locale || ''}
-          onChange={(e) => onChange('locale', e.target.value || undefined)}
-          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
+          onChange={(event) => onChange('locale', event.target.value || undefined)}
+          className={runConfigTheme.select}
         >
           <option value="">Default</option>
           <option value="en-US">English (US)</option>
@@ -136,20 +140,17 @@ export function AdvancedTab({ config, onChange }: AdvancedTabProps) {
           <option value="pt-BR">Portuguese (Brazil)</option>
           <option value="ru-RU">Russian</option>
         </select>
-        <p className="text-xs text-[#6e7681]">
-          Browser locale for number formatting, date, and navigation Accept-Language header
-        </p>
-      </div>
+      </section>
 
-      {/* Timezone */}
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-[#c9d1d9]">
-          Timezone
-        </label>
+      <section className={runConfigTheme.section}>
+        <div className="mb-2 flex items-center gap-2">
+          <Clock3 className="h-4 w-4 text-brand-secondary" />
+          <label className={runConfigTheme.label}>Timezone</label>
+        </div>
         <select
           value={config.timezoneId || ''}
-          onChange={(e) => onChange('timezoneId', e.target.value || undefined)}
-          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
+          onChange={(event) => onChange('timezoneId', event.target.value || undefined)}
+          className={runConfigTheme.select}
         >
           <option value="">Default (System)</option>
           <option value="America/New_York">Eastern Time (US)</option>
@@ -165,149 +166,156 @@ export function AdvancedTab({ config, onChange }: AdvancedTabProps) {
           <option value="Australia/Sydney">Sydney (AEST/AEDT)</option>
           <option value="UTC">UTC</option>
         </select>
-        <p className="text-xs text-[#6e7681]">
-          Emulate browser timezone for consistent test behavior
-        </p>
-      </div>
+      </section>
 
-      {/* Geolocation */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <label className="text-sm font-medium text-[#c9d1d9]">Geolocation</label>
-          <label className="flex items-center gap-2 cursor-pointer">
+      <section className={runConfigTheme.section}>
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <MapPin className="h-4 w-4 text-brand-secondary" />
+            <p className={runConfigTheme.label}>Geolocation</p>
+          </div>
+          <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-text-secondary">
             <input
               type="checkbox"
-              checked={!!config.geolocation}
-              onChange={(e) => {
-                if (e.target.checked) {
+              checked={Boolean(config.geolocation)}
+              onChange={(event) => {
+                if (event.target.checked) {
                   onChange('geolocation', { latitude: 37.7749, longitude: -122.4194 });
-                } else {
-                  onChange('geolocation', undefined);
+                  return;
                 }
+                onChange('geolocation', undefined);
               }}
-              className="w-4 h-4 rounded border-[#30363d] bg-[#0d1117] text-sky-500 focus:ring-sky-500 focus:ring-offset-[#161b22]"
+              className={runConfigTheme.toggle}
             />
-            <span className="text-sm text-[#8b949e]">Mock geolocation</span>
+            Mock location
           </label>
         </div>
 
-        {config.geolocation && (
-          <div className="p-4 bg-[#0d1117] rounded-lg border border-[#30363d] space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="block text-xs text-[#8b949e]">Latitude</label>
+        {config.geolocation ? (
+          <div className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className={runConfigTheme.label}>Latitude</label>
                 <input
                   type="number"
                   step="0.0001"
                   min={-90}
                   max={90}
                   value={config.geolocation.latitude}
-                  onChange={(e) => onChange('geolocation', {
-                    ...config.geolocation!,
-                    latitude: parseFloat(e.target.value) || 0
-                  })}
-                  className="w-full bg-[#161b22] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
+                  onChange={(event) =>
+                    onChange('geolocation', {
+                      ...config.geolocation!,
+                      latitude: parseFloat(event.target.value) || 0,
+                    })
+                  }
+                  className={cx(runConfigTheme.input, 'mt-2')}
                 />
               </div>
-              <div className="space-y-2">
-                <label className="block text-xs text-[#8b949e]">Longitude</label>
+              <div>
+                <label className={runConfigTheme.label}>Longitude</label>
                 <input
                   type="number"
                   step="0.0001"
                   min={-180}
                   max={180}
                   value={config.geolocation.longitude}
-                  onChange={(e) => onChange('geolocation', {
-                    ...config.geolocation!,
-                    longitude: parseFloat(e.target.value) || 0
-                  })}
-                  className="w-full bg-[#161b22] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
+                  onChange={(event) =>
+                    onChange('geolocation', {
+                      ...config.geolocation!,
+                      longitude: parseFloat(event.target.value) || 0,
+                    })
+                  }
+                  className={cx(runConfigTheme.input, 'mt-2')}
                 />
               </div>
             </div>
-
-            {/* Location presets */}
             <div className="flex flex-wrap gap-2">
               {[
-                { label: 'San Francisco', lat: 37.7749, lng: -122.4194 },
-                { label: 'New York', lat: 40.7128, lng: -74.0060 },
-                { label: 'London', lat: 51.5074, lng: -0.1278 },
-                { label: 'Tokyo', lat: 35.6762, lng: 139.6503 },
-              ].map((preset) => (
+                { label: 'San Francisco', latitude: 37.7749, longitude: -122.4194 },
+                { label: 'New York', latitude: 40.7128, longitude: -74.006 },
+                { label: 'London', latitude: 51.5074, longitude: -0.1278 },
+                { label: 'Tokyo', latitude: 35.6762, longitude: 139.6503 },
+              ].map((location) => (
                 <button
-                  key={preset.label}
+                  key={location.label}
                   type="button"
-                  onClick={() => onChange('geolocation', { latitude: preset.lat, longitude: preset.lng })}
-                  className="px-3 py-1 rounded text-xs bg-[#21262d] text-[#8b949e] hover:text-white hover:bg-[#30363d] transition-colors"
+                  onClick={() =>
+                    onChange('geolocation', {
+                      latitude: location.latitude,
+                      longitude: location.longitude,
+                    })
+                  }
+                  className={chipClass(
+                    config.geolocation?.latitude === location.latitude &&
+                      config.geolocation?.longitude === location.longitude
+                  )}
                 >
-                  {preset.label}
+                  {location.label}
                 </button>
               ))}
             </div>
           </div>
+        ) : (
+          <p className="text-xs text-text-muted">Uses browser/system geolocation defaults.</p>
         )}
-      </div>
+      </section>
 
-      {/* Environment Variables */}
-      <div className="space-y-3">
-        <label className="block text-sm font-medium text-[#c9d1d9]">
-          Environment Variables
-        </label>
-        <p className="text-xs text-[#6e7681]">
-          Set environment variables available during test execution
-        </p>
+      <section className={runConfigTheme.section}>
+        <p className={runConfigTheme.label}>Environment Variables</p>
+        <p className="mt-1 text-xs text-text-muted">Injected into the test process while this run config executes.</p>
 
-        {/* Existing env vars */}
         {config.envVars && Object.entries(config.envVars).length > 0 && (
-          <div className="space-y-2">
+          <div className="mt-3 space-y-2">
             {Object.entries(config.envVars).map(([key, value]) => (
               <div key={key} className="flex items-center gap-2">
                 <input
                   type="text"
-                  value={key}
                   readOnly
-                  className="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-sm text-white font-mono"
+                  value={key}
+                  className={cx(runConfigTheme.input, 'w-1/3 font-mono')}
                 />
-                <span className="text-[#6e7681]">=</span>
+                <span className="text-text-muted">=</span>
                 <input
                   type="text"
                   value={value}
-                  onChange={(e) => onChange('envVars', {
-                    ...config.envVars,
-                    [key]: e.target.value
-                  })}
-                  className="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-sky-500"
+                  onChange={(event) =>
+                    onChange('envVars', {
+                      ...config.envVars,
+                      [key]: event.target.value,
+                    })
+                  }
+                  className={cx(runConfigTheme.input, 'flex-1 font-mono')}
                 />
                 <button
                   type="button"
                   onClick={() => handleRemoveEnvVar(key)}
-                  className="p-2 text-[#8b949e] hover:text-red-400 transition-colors"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded border border-border-default text-text-secondary transition-colors hover:border-status-danger/40 hover:text-status-danger"
+                  title="Remove variable"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="h-4 w-4" />
                 </button>
               </div>
             ))}
           </div>
         )}
 
-        {/* Add new env var */}
-        <div className="flex items-center gap-2">
+        <div className="mt-3 flex items-center gap-2">
           <input
             type="text"
             value={newEnvKey}
-            onChange={(e) => setNewEnvKey(e.target.value)}
+            onChange={(event) => setNewEnvKey(event.target.value)}
             placeholder="KEY"
-            className="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-sky-500 placeholder-[#6e7681]"
+            className={cx(runConfigTheme.input, 'w-1/3 font-mono')}
           />
-          <span className="text-[#6e7681]">=</span>
+          <span className="text-text-muted">=</span>
           <input
             type="text"
             value={newEnvValue}
-            onChange={(e) => setNewEnvValue(e.target.value)}
+            onChange={(event) => setNewEnvValue(event.target.value)}
             placeholder="value"
-            className="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-sky-500 placeholder-[#6e7681]"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
+            className={cx(runConfigTheme.input, 'flex-1 font-mono')}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
                 handleAddEnvVar();
               }
             }}
@@ -316,16 +324,18 @@ export function AdvancedTab({ config, onChange }: AdvancedTabProps) {
             type="button"
             onClick={handleAddEnvVar}
             disabled={!newEnvKey.trim()}
-            className={`p-2 rounded transition-colors ${
+            className={cx(
+              'inline-flex h-8 w-8 items-center justify-center rounded border transition-colors',
               newEnvKey.trim()
-                ? 'text-[#8b949e] hover:text-white hover:bg-[#30363d]'
-                : 'text-[#484f58] cursor-not-allowed'
-            }`}
+                ? 'border-border-default text-text-secondary hover:border-border-emphasis hover:text-text-primary'
+                : 'cursor-not-allowed border-border-default/40 text-text-muted/50'
+            )}
+            title="Add environment variable"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="h-4 w-4" />
           </button>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

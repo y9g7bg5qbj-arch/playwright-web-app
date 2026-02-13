@@ -7,30 +7,20 @@ import {
     provideDefinition,
     provideReferences,
     parseVeroPages,
+    provideQuickFixes,
+    formatDocument,
     type VeroPageDefinition,
     type HoverContext,
     type DefinitionContext,
     type ReferencesContext,
+    type CodeActionContext,
+    type FormattingOptions,
+    type FormattingTextEdit,
 } from 'vero-lang';
 
 // =============================================================================
 // Token Categories
 // =============================================================================
-
-const TOKEN_CATEGORIES = {
-    keywords: ['page', 'feature', 'scenario', 'field', 'use', 'before', 'after', 'all', 'each', 'if', 'else', 'repeat', 'times', 'with', 'and', 'from', 'to', 'in', 'returns', 'return', 'then', 'as', 'by'],
-    selectors: ['button', 'textbox', 'link', 'testId', 'role', 'label', 'placeholder'],
-    actions: ['click', 'fill', 'open', 'check', 'uncheck', 'select', 'hover', 'press', 'scroll', 'wait', 'perform', 'do', 'refresh', 'clear', 'take', 'screenshot', 'log'],
-    assertions: ['verify', 'is', 'not', 'visible', 'hidden', 'enabled', 'disabled', 'checked', 'contains', 'empty'],
-    types: ['text', 'number', 'flag', 'list', 'seconds', 'milliseconds'],
-    vdqlKeywords: ['data', 'where', 'order', 'by', 'asc', 'desc', 'limit', 'offset', 'first', 'last', 'random', 'default'],
-    vdqlOperators: ['or', 'starts', 'ends', 'matches', 'null'],
-    vdqlFunctions: ['count', 'sum', 'average', 'min', 'max', 'distinct', 'rows', 'columns', 'headers'],
-    utilityString: ['trim', 'convert', 'uppercase', 'lowercase', 'extract', 'replace', 'split', 'join', 'length', 'pad'],
-    utilityDate: ['today', 'now', 'add', 'subtract', 'day', 'days', 'month', 'months', 'year', 'years', 'format'],
-    utilityNumber: ['round', 'decimals', 'up', 'down', 'absolute', 'currency', 'percent'],
-    utilityGenerate: ['generate', 'uuid'],
-} as const;
 
 // =============================================================================
 // Theme Definitions
@@ -122,7 +112,6 @@ export function registerVeroLanguage(monaco: Monaco): void {
 
     monaco.languages.setMonarchTokensProvider('vero', {
         ignoreCase: true,
-        ...TOKEN_CATEGORIES,
         tokenizer: {
             root: [
                 [/#.*$/, 'comment'],
@@ -134,10 +123,11 @@ export function registerVeroLanguage(monaco: Monaco): void {
                 [/\b(before|after|all|each)\b/i, 'keyword.hook'],
                 [/\b(if|else|repeat|times)\b/i, 'keyword.control'],
                 [/\b(with|and|from|to|in|returns|return|then|as|by)\b/i, 'keyword.operator'],
-                [/\b(button|textbox|link|checkbox|heading|combobox|radio|testid|role|label|placeholder|css|xpath|text|alt|title)\b/i, 'type.selector'],
-                [/\b(click|fill|open|check|uncheck|select|hover|press|scroll|wait|perform|do|refresh|clear|take|screenshot|log)\b/i, 'function.action'],
+                // The 9 Vero selector keywords + 'name' modifier
+                [/\b(role|text|label|placeholder|alt|title|testid|css|xpath|name)\b/i, 'type.selector'],
+                [/\b(click|fill|open|check|uncheck|select|hover|press|scroll|wait|perform|do|refresh|clear|take|screenshot|log|switch|new|tab|close|other|tabs)\b/i, 'function.action'],
                 [/\b(verify)\b/i, 'keyword.assertion'],
-                [/\b(is|not|visible|hidden|enabled|disabled|checked|contains|empty|has|value|count)\b/i, 'constant.condition'],
+                [/\b(is|not|visible|hidden|enabled|disabled|checked|contains|empty|has|value|count|nth|without|exact)\b/i, 'constant.condition'],
                 [/\b(text|number|flag|list|seconds|milliseconds)\b/i, 'type'],
                 [/\b(data|where|order|by|asc|desc|limit|offset|first|last|random|default)\b/i, 'keyword.vdql'],
                 [/\b(or|starts|ends|matches|null)\b/i, 'keyword.vdql.operator'],
@@ -219,27 +209,7 @@ export { parseVeroPages };
 export type { VeroPageDefinition };
 
 // =============================================================================
-// Page Registry
-// =============================================================================
-
-const globalPageRegistry = new Map<string, VeroPageDefinition>();
-
-export function updatePageRegistry(fileContent: string, _filePath?: string): VeroPageDefinition[] {
-    const pages = parseVeroPages(fileContent);
-    pages.forEach((page: VeroPageDefinition) => globalPageRegistry.set(page.name, page));
-    return pages;
-}
-
-export function getRegisteredPages(): VeroPageDefinition[] {
-    return Array.from(globalPageRegistry.values());
-}
-
-export function clearPageRegistry(): void {
-    globalPageRegistry.clear();
-}
-
-// =============================================================================
-// Test Data Registry
+// Page & Test Data Registries (used by completion providers)
 // =============================================================================
 
 export interface TestDataSheetDefinition {
@@ -247,23 +217,17 @@ export interface TestDataSheetDefinition {
     columns: { name: string; type: string }[];
 }
 
+// Registries are populated externally when project files are loaded.
+// Completion providers read from these to offer contextual suggestions.
+const globalPageRegistry = new Map<string, VeroPageDefinition>();
 const testDataRegistry = new Map<string, TestDataSheetDefinition>();
 
-export function updateTestDataRegistry(sheets: TestDataSheetDefinition[]): void {
-    testDataRegistry.clear();
-    sheets.forEach(sheet => testDataRegistry.set(sheet.name, sheet));
+export function getRegisteredPages(): VeroPageDefinition[] {
+    return Array.from(globalPageRegistry.values());
 }
 
 export function getRegisteredTestDataSheets(): TestDataSheetDefinition[] {
     return Array.from(testDataRegistry.values());
-}
-
-export function getTestDataSheet(name: string): TestDataSheetDefinition | undefined {
-    return testDataRegistry.get(name);
-}
-
-export function clearTestDataRegistry(): void {
-    testDataRegistry.clear();
 }
 
 // =============================================================================
@@ -479,6 +443,7 @@ export function registerVeroCompletionProvider(monaco: Monaco): void {
 
     registerVDQLCompletionProvider(monaco);
     registerUtilityCompletionProvider(monaco);
+    registerModifierCompletionProvider(monaco);
 }
 
 function registerUtilityCompletionProvider(monaco: Monaco): void {
@@ -695,11 +660,46 @@ function registerVDQLCompletionProvider(monaco: Monaco): void {
     });
 }
 
+function registerModifierCompletionProvider(monaco: Monaco): void {
+    monaco.languages.registerCompletionItemProvider('vero', {
+        triggerCharacters: [' ', '"'],
+        provideCompletionItems: (model: MonacoEditor.editor.ITextModel, position: MonacoEditor.Position) => {
+            const lineContent = model.getLineContent(position.lineNumber);
+            const textBeforeCursor = lineContent.substring(0, position.column - 1).trim();
+            const suggestions: CompletionSuggestion[] = [];
+
+            // After a selector string (FIELD x = css ".foo" | role "button" name "Submit")
+            // Suggest locator refinement modifiers
+            if (textBeforeCursor.match(/\b(css|xpath|text|label|placeholder|alt|title|testid)\s+"[^"]*"\s*$/i) ||
+                textBeforeCursor.match(/\brole\s+"[^"]*"\s+name\s+"[^"]*"\s*$/i) ||
+                textBeforeCursor.match(/\brole\s+"[^"]*"\s*$/i)) {
+                suggestions.push(
+                    createKeyword(monaco, 'FIRST', 'FIRST', 'Select first matching element'),
+                    createKeyword(monaco, 'LAST', 'LAST', 'Select last matching element'),
+                    createSnippet(monaco, 'NTH', 'NTH ${1:0}', 'Select nth matching element', 'NTH 2 → .nth(2)'),
+                    createSnippet(monaco, 'WITH TEXT', 'WITH TEXT "${1:text}"', 'Filter by text content', 'WITH TEXT "Person" → .filter({ hasText: \'Person\' })'),
+                    createSnippet(monaco, 'WITHOUT TEXT', 'WITHOUT TEXT "${1:text}"', 'Filter by absence of text', 'WITHOUT TEXT "Out of stock" → .filter({ hasNotText: \'Out of stock\' })'),
+                    createSnippet(monaco, 'HAS', 'HAS ${1|role,css,text|} "${2:value}"', 'Filter by child locator', 'HAS role "heading" name "Title"'),
+                    createSnippet(monaco, 'HAS NOT', 'HAS NOT ${1|role,css,text|} "${2:value}"', 'Filter by absence of child', 'HAS NOT role "heading" name "Title"'),
+                    createKeyword(monaco, 'EXACT', 'EXACT', 'Enable exact name matching (e.g., role "textbox" EXACT name "First Name")'),
+                );
+            }
+
+            return { suggestions };
+        },
+    });
+}
+
 // =============================================================================
 // LSP Providers
 // =============================================================================
 
-export function registerVeroLSPProviders(monaco: Monaco): void {
+let lspProvidersRegistered = false;
+
+export function registerVeroLSPProviders(monaco: Monaco, options?: { apiBase?: string; getProjectId?: () => string | null }): void {
+    if (lspProvidersRegistered) return;
+    lspProvidersRegistered = true;
+
     monaco.languages.registerDocumentSymbolProvider('vero', {
         provideDocumentSymbols: (model: MonacoEditor.editor.ITextModel) => provideDocumentSymbols(model.getValue()),
     });
@@ -733,9 +733,11 @@ export function registerVeroLSPProviders(monaco: Monaco): void {
     });
 
     monaco.languages.registerDefinitionProvider('vero', {
-        provideDefinition: (model: MonacoEditor.editor.ITextModel, position: MonacoEditor.Position) => {
+        provideDefinition: async (model: MonacoEditor.editor.ITextModel, position: MonacoEditor.Position) => {
             const wordAtPosition = model.getWordAtPosition(position);
             if (!wordAtPosition) return null;
+
+            const lineContent = model.getLineContent(position.lineNumber);
 
             const ctx: DefinitionContext = {
                 code: model.getValue(),
@@ -743,17 +745,72 @@ export function registerVeroLSPProviders(monaco: Monaco): void {
                 lineNumber: position.lineNumber,
                 column: position.column,
                 wordAtPosition: wordAtPosition.word,
-                lineContent: model.getLineContent(position.lineNumber),
+                lineContent,
                 registeredPages: parseVeroPages(model.getValue()),
             };
 
-            const result = provideDefinition(ctx);
-            if (!result.locations.length) return null;
+            // 1. Try local (same-file) definition lookup first — instant
+            const localResult = provideDefinition(ctx);
+            if (localResult.locations.length > 0) {
+                return localResult.locations.map((loc: { uri: string; range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } }) => ({
+                    uri: monaco.Uri.parse(loc.uri),
+                    range: new monaco.Range(loc.range.startLineNumber, loc.range.startColumn, loc.range.endLineNumber, loc.range.endColumn),
+                }));
+            }
 
-            return result.locations.map((loc: { uri: string; range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } }) => ({
-                uri: monaco.Uri.parse(loc.uri),
-                range: new monaco.Range(loc.range.startLineNumber, loc.range.startColumn, loc.range.endLineNumber, loc.range.endColumn),
-            }));
+            // 2. Fall back to backend API for cross-file lookup
+            const projectId = options?.getProjectId?.();
+            if (!projectId) return null;
+
+            try {
+                // Build the "word" the backend expects:
+                // - For "PageName.fieldName" references, send "PageName.fieldName"
+                // - For page names in USE statements, send just the page name
+                const word = wordAtPosition.word;
+                let lookupWord = word;
+
+                // Check if this word is part of a Page.member reference
+                const memberMatch = lineContent.match(new RegExp(`(\\w+)\\.${word}\\b`));
+                if (memberMatch) {
+                    lookupWord = `${memberMatch[1]}.${word}`;
+                }
+
+                const apiBase = options?.apiBase || '';
+                const response = await fetch(
+                    `${apiBase}/api/vero/definition?projectId=${encodeURIComponent(projectId)}`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                        body: JSON.stringify({
+                            filePath: model.uri.toString(),
+                            line: position.lineNumber,
+                            column: position.column,
+                            word: lookupWord,
+                        }),
+                    }
+                );
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.location) {
+                        const loc = data.location;
+                        return [{
+                            uri: monaco.Uri.parse(`file://${loc.filePath}`),
+                            range: new monaco.Range(
+                                loc.line,
+                                loc.column || 1,
+                                loc.endLine || loc.line,
+                                loc.endColumn || 100,
+                            ),
+                        }];
+                    }
+                }
+            } catch (err) {
+                console.warn('[Vero] Cross-file definition lookup failed:', err);
+            }
+
+            return null;
         },
     });
 
@@ -776,6 +833,217 @@ export function registerVeroLSPProviders(monaco: Monaco): void {
             return provideReferences(ctx).map((ref: { uri: string; range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } }) => ({
                 uri: monaco.Uri.parse(ref.uri),
                 range: new monaco.Range(ref.range.startLineNumber, ref.range.startColumn, ref.range.endLineNumber, ref.range.endColumn),
+            }));
+        },
+    });
+
+    // Rename Provider (F2) - Rename symbol across file
+    monaco.languages.registerRenameProvider('vero', {
+        provideRenameEdits: (
+            model: MonacoEditor.editor.ITextModel,
+            position: MonacoEditor.Position,
+            newName: string
+        ): MonacoEditor.languages.ProviderResult<MonacoEditor.languages.WorkspaceEdit> => {
+            const wordAtPosition = model.getWordAtPosition(position);
+            if (!wordAtPosition) return null;
+
+            const oldName = wordAtPosition.word;
+
+            // Find all references (including declaration)
+            const ctx: ReferencesContext = {
+                code: model.getValue(),
+                filePath: model.uri.toString(),
+                lineNumber: position.lineNumber,
+                column: position.column,
+                wordAtPosition: oldName,
+                lineContent: model.getLineContent(position.lineNumber),
+                includeDeclaration: true,
+                registeredPages: parseVeroPages(model.getValue()),
+            };
+
+            const references = provideReferences(ctx);
+
+            if (references.length === 0) {
+                return null;
+            }
+
+            // Group edits by file URI
+            const editsByUri = new Map<string, MonacoEditor.languages.IWorkspaceTextEdit[]>();
+
+            for (const ref of references) {
+                const uri = ref.uri;
+                if (!editsByUri.has(uri)) {
+                    editsByUri.set(uri, []);
+                }
+
+                editsByUri.get(uri)!.push({
+                    resource: monaco.Uri.parse(uri),
+                    versionId: undefined,
+                    textEdit: {
+                        range: new monaco.Range(
+                            ref.range.startLineNumber,
+                            ref.range.startColumn,
+                            ref.range.endLineNumber,
+                            ref.range.endColumn
+                        ),
+                        text: newName,
+                    },
+                });
+            }
+
+            // Convert to WorkspaceEdit format
+            const edits: (MonacoEditor.languages.IWorkspaceTextEdit | MonacoEditor.languages.IWorkspaceFileEdit)[] = [];
+            for (const [_uri, fileEdits] of editsByUri) {
+                edits.push(...fileEdits);
+            }
+
+            return { edits };
+        },
+
+        resolveRenameLocation: (
+            model: MonacoEditor.editor.ITextModel,
+            position: MonacoEditor.Position
+        ): MonacoEditor.languages.ProviderResult<MonacoEditor.languages.RenameLocation & MonacoEditor.languages.Rejection> => {
+            const wordAtPosition = model.getWordAtPosition(position);
+            if (!wordAtPosition) {
+                return {
+                    rejectReason: 'No symbol at cursor position',
+                    range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
+                    text: '',
+                };
+            }
+
+            // Check if this is a renameable symbol (field name, page name, scenario name)
+            const lineContent = model.getLineContent(position.lineNumber);
+            const word = wordAtPosition.word;
+
+            // Check patterns for renameable symbols
+            const isFieldDefinition = lineContent.match(new RegExp(`\\b${word}\\s*=\\s*`));
+            const isFieldReference = lineContent.match(new RegExp(`\\.(${word})\\b`));
+            const isPageName = lineContent.match(new RegExp(`(page|use)\\s+"${word}"`));
+            const isScenarioName = lineContent.match(new RegExp(`scenario\\s+"${word}"`));
+            const isFeatureName = lineContent.match(new RegExp(`feature\\s+"${word}"`));
+
+            if (isFieldDefinition || isFieldReference || isPageName || isScenarioName || isFeatureName) {
+                return {
+                    range: new monaco.Range(
+                        position.lineNumber,
+                        wordAtPosition.startColumn,
+                        position.lineNumber,
+                        wordAtPosition.endColumn
+                    ),
+                    text: word,
+                };
+            }
+
+            return {
+                rejectReason: 'Cannot rename this symbol',
+                range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
+                text: '',
+            };
+        },
+    });
+
+    // Code Action Provider (Quick Fixes) - Shows lightbulb with fixes for errors
+    monaco.languages.registerCodeActionProvider('vero', {
+        provideCodeActions: (
+            model: MonacoEditor.editor.ITextModel,
+            _range: MonacoEditor.Range,
+            context: MonacoEditor.languages.CodeActionContext,
+            _token: MonacoEditor.CancellationToken
+        ): MonacoEditor.languages.ProviderResult<MonacoEditor.languages.CodeActionList> => {
+            const markers = context.markers;
+            if (!markers || markers.length === 0) {
+                return { actions: [], dispose: () => {} };
+            }
+
+            const actions: MonacoEditor.languages.CodeAction[] = [];
+
+            // Get quick fixes for each marker (error/warning) in the selection
+            for (const marker of markers) {
+                const ctx: CodeActionContext = {
+                    markers: [{
+                        startLineNumber: marker.startLineNumber,
+                        startColumn: marker.startColumn,
+                        endLineNumber: marker.endLineNumber,
+                        endColumn: marker.endColumn,
+                        message: marker.message,
+                        severity: marker.severity,
+                        code: marker.code?.toString(),
+                    }],
+                    filePath: model.uri.toString(),
+                    lineContent: model.getLineContent(marker.startLineNumber),
+                    definedPages: parseVeroPages(model.getValue()).map(p => p.name),
+                };
+
+                const fixes = provideQuickFixes(ctx.markers[0], ctx);
+
+                for (const fix of fixes) {
+                    // Convert vero-lang CodeAction to Monaco CodeAction
+                    const monacoAction: MonacoEditor.languages.CodeAction = {
+                        title: fix.title,
+                        kind: fix.kind,
+                        diagnostics: [marker],
+                        isPreferred: fix.isPreferred,
+                    };
+
+                    // Convert WorkspaceEdit to Monaco WorkspaceEdit
+                    if (fix.edit) {
+                        const edits: MonacoEditor.languages.IWorkspaceTextEdit[] = [];
+                        for (const resourceEdit of fix.edit.edits) {
+                            for (const textEdit of resourceEdit.edits) {
+                                edits.push({
+                                    resource: model.uri,
+                                    versionId: undefined,
+                                    textEdit: {
+                                        range: new monaco.Range(
+                                            textEdit.range.startLineNumber,
+                                            textEdit.range.startColumn,
+                                            textEdit.range.endLineNumber,
+                                            textEdit.range.endColumn
+                                        ),
+                                        text: textEdit.text,
+                                    },
+                                });
+                            }
+                        }
+                        monacoAction.edit = { edits };
+                    }
+
+                    actions.push(monacoAction);
+                }
+            }
+
+            return {
+                actions,
+                dispose: () => {},
+            };
+        },
+    });
+
+    // Document Formatting Provider (Ctrl+Shift+F or right-click -> Format Document)
+    monaco.languages.registerDocumentFormattingEditProvider('vero', {
+        provideDocumentFormattingEdits: (
+            model: MonacoEditor.editor.ITextModel,
+            options: MonacoEditor.languages.FormattingOptions,
+            _token: MonacoEditor.CancellationToken
+        ): MonacoEditor.languages.TextEdit[] => {
+            const source = model.getValue();
+            const formatOptions: FormattingOptions = {
+                tabSize: options.tabSize,
+                insertSpaces: options.insertSpaces,
+            };
+
+            const edits = formatDocument(source, formatOptions);
+
+            return edits.map((edit: FormattingTextEdit) => ({
+                range: new monaco.Range(
+                    edit.range.startLineNumber,
+                    edit.range.startColumn,
+                    edit.range.endLineNumber,
+                    edit.range.endColumn
+                ),
+                text: edit.text,
             }));
         },
     });

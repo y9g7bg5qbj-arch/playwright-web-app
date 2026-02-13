@@ -346,7 +346,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
 
     const validateCron = async () => {
       try {
-        const result = await schedulesApi.validateCron(cronExpression);
+        const result = await schedulesApi.validateCron(cronExpression, 5, timezone);
         if (result.valid) {
           setCronError(null);
           setCronDescription(result.description || null);
@@ -363,7 +363,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
 
     const timer = setTimeout(validateCron, 500);
     return () => clearTimeout(timer);
-  }, [cronExpression]);
+  }, [cronExpression, timezone]);
 
   const handlePresetSelect = (preset: SchedulePreset) => {
     setSelectedPreset(preset.label);

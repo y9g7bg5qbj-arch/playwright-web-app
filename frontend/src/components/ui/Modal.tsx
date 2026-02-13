@@ -66,11 +66,11 @@ export const Modal: React.FC<ModalProps> = ({
         onClick={closeOnOverlayClick ? onClose : undefined}
       />
 
-      {/* Modal */}
+      {/* Modal - Borders-only depth */}
       <div
         className={`
           relative w-full ${sizeClasses[size]}
-          bg-dark-card border border-border-default rounded-lg shadow-xl
+          bg-dark-card border border-border-default rounded
           animate-slide-up
         `}
         role="dialog"
@@ -79,38 +79,38 @@ export const Modal: React.FC<ModalProps> = ({
       >
         {/* Header */}
         {(title || showCloseButton) && (
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border-default">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border-default">
             <div>
               {title && (
                 <h2
                   id="modal-title"
-                  className="text-lg font-semibold text-text-primary"
+                  className="text-sm font-semibold text-text-primary tracking-tight"
                 >
                   {title}
                 </h2>
               )}
               {description && (
-                <p className="mt-1 text-sm text-text-secondary">{description}</p>
+                <p className="mt-0.5 text-xs text-text-secondary">{description}</p>
               )}
             </div>
             {showCloseButton && (
               <button
                 onClick={onClose}
-                className="p-1 text-text-muted hover:text-text-primary hover:bg-dark-elevated rounded transition-colors"
+                className="p-1 text-text-muted hover:text-text-primary hover:bg-white/[0.06] rounded transition-colors duration-fast"
                 aria-label="Close modal"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             )}
           </div>
         )}
 
         {/* Body */}
-        <div className="px-6 py-4 max-h-[60vh] overflow-y-auto">{children}</div>
+        <div className="px-4 py-3 max-h-[60vh] overflow-y-auto">{children}</div>
 
         {/* Footer */}
         {footer && (
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border-default">
+          <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border-default">
             {footer}
           </div>
         )}
@@ -146,9 +146,9 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   isLoading = false,
 }) => {
   const confirmButtonClass = {
-    danger: 'bg-status-danger hover:bg-status-danger-emphasis',
-    warning: 'bg-status-warning hover:bg-status-warning-emphasis',
-    default: 'bg-accent-blue hover:bg-blue-600',
+    danger: 'bg-status-danger hover:brightness-110',
+    warning: 'bg-status-warning hover:brightness-110',
+    default: 'btn-primary-gradient hover:brightness-110',
   };
 
   return (
@@ -161,14 +161,14 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         <>
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-text-primary bg-dark-elevated border border-border-default rounded-md hover:bg-dark-card transition-colors"
+            className="px-3 py-1.5 text-xs font-medium text-text-secondary bg-dark-elevated border border-border-default rounded hover:border-border-emphasis hover:text-text-primary transition-colors duration-fast"
             disabled={isLoading}
           >
             {cancelText}
           </button>
           <button
             onClick={onConfirm}
-            className={`px-4 py-2 text-sm font-medium text-white rounded-md transition-colors disabled:opacity-50 ${confirmButtonClass[variant]}`}
+            className={`px-3 py-1.5 text-xs font-medium text-white rounded transition-all duration-fast disabled:opacity-50 ${confirmButtonClass[variant]}`}
             disabled={isLoading}
           >
             {isLoading ? 'Loading...' : confirmText}

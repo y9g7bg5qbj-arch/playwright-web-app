@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
-import { useRunConfigStore, initializeDefaultConfig, type RunConfigSummary } from '@/store/runConfigStore';
+import { useState, useEffect } from 'react';
 import { useEnvironmentStore } from '@/store/environmentStore';
-import { EnvironmentSelector, EnvironmentQuickLook } from './EnvironmentQuickLook';
+import { EnvironmentSelector } from './EnvironmentQuickLook';
+import { IntelliJRunToolbar } from '../ide/IntelliJRunToolbar';
+import { LayoutDashboard, Plus, FolderX, ChevronRight } from 'lucide-react';
 
 export interface Application {
   id: string;
@@ -16,13 +17,15 @@ export interface HeaderProps {
   onApplicationSelect: (applicationId: string) => void;
   onCreateApplication: () => void;
   isRunning: boolean;
+  isDebugging: boolean;
   isRecording: boolean;
   onRun: () => void;
+  onDebug: () => void;
   onStop: () => void;
   onRecord: () => void;
   onStopRecording: () => void;
-  onOpenSearch?: () => void;
   showRunControls?: boolean;
+  currentFileName?: string;
 }
 
 // App colors - solid semantic colors (no gradients)
@@ -50,52 +53,23 @@ function getAppInitials(name: string): string {
     .slice(0, 2);
 }
 
-function formatLastUsed(lastUsedAt?: string): string {
-  if (!lastUsedAt) return '';
-
-  const diffMs = Date.now() - new Date(lastUsedAt).getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return new Date(lastUsedAt).toLocaleDateString();
-}
-
 export function Header({
   applications,
   selectedApplicationId,
   onApplicationSelect,
   onCreateApplication,
   isRunning,
+  isDebugging,
   isRecording,
   onRun,
+  onDebug,
   onStop,
   onRecord,
   onStopRecording,
-  onOpenSearch,
   showRunControls = true,
+  currentFileName,
 }: HeaderProps): JSX.Element {
   const [showAppLauncher, setShowAppLauncher] = useState(false);
-  const [showRunDropdown, setShowRunDropdown] = useState(false);
-  const runDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Zustand store for run configurations
-  const {
-    recentConfigs,
-    activeConfigId,
-    setModalOpen,
-    setActiveConfig,
-    markConfigUsed,
-  } = useRunConfigStore();
-
-  // Initialize default config on mount
-  useEffect(() => {
-    initializeDefaultConfig();
-  }, []);
 
   // Initialize environment store when application changes
   useEffect(() => {
@@ -104,59 +78,27 @@ export function Header({
     }
   }, [selectedApplicationId]);
 
-  // Close run dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (runDropdownRef.current && !runDropdownRef.current.contains(event.target as Node)) {
-        setShowRunDropdown(false);
-      }
-    };
-
-    if (showRunDropdown) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showRunDropdown]);
-
   const selectedApplication = applications.find(app => app.id === selectedApplicationId);
-
-  // Handle selecting a config from dropdown (does NOT trigger run)
-  const handleSelectConfig = (configId: string) => {
-    setActiveConfig(configId);
-    setShowRunDropdown(false);
-  };
-
-  // Handle Run button click - marks config as used and runs
-  const handleRun = () => {
-    if (activeConfigId) {
-      markConfigUsed(activeConfigId);
-    }
-    onRun();
-  };
+  const selectedAppColor = selectedApplication
+    ? selectedApplication.color || getAppColor(applications.findIndex((app) => app.id === selectedApplicationId))
+    : 'bg-dark-elevated';
 
   return (
-    <header className="h-14 flex items-center justify-between px-4 border-b border-border-default bg-dark-canvas shrink-0">
+    <header className="h-11 flex items-center justify-between px-3 border-b border-border-default bg-dark-bg shrink-0">
       {/* Left Section - App Launcher, Logo, and Current App */}
-      <div className="flex items-center gap-3">
-        {/* 9-Dot App Launcher */}
+      <div className="flex items-center gap-2.5">
+        {/* Application Launcher */}
         <div className="relative">
           <button
             onClick={() => setShowAppLauncher(!showAppLauncher)}
-            className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${showAppLauncher
-                ? 'bg-dark-elevated text-text-primary'
-                : 'hover:bg-dark-elevated text-text-muted hover:text-text-primary'
+            className={`w-8 h-8 rounded-md border flex items-center justify-center transition-colors duration-fast ease-out ${
+              showAppLauncher
+                ? 'border-border-emphasis bg-dark-elevated text-text-primary'
+                : 'border-border-default bg-dark-card text-text-muted hover:border-border-emphasis hover:text-text-primary'
               }`}
-            title="App Launcher"
+            title="Applications"
           >
-            {/* 9-dot grid icon */}
-            <div className="grid grid-cols-3 gap-[3px]">
-              {[...Array(9)].map((_, i) => (
-                <div
-                  key={i}
-                  className="w-[5px] h-[5px] rounded-full bg-current"
-                />
-              ))}
-            </div>
+            <LayoutDashboard size={14} />
           </button>
 
           {/* App Launcher Popup */}
@@ -220,9 +162,7 @@ export function Header({
                         className="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-dark-elevated transition-colors"
                       >
                         <div className="w-12 h-12 rounded-xl border-2 border-dashed border-border-emphasis flex items-center justify-center hover:border-brand-primary transition-colors">
-                          <span className="material-symbols-outlined text-text-muted text-xl">
-                            add
-                          </span>
+                          <Plus size={18} className="text-text-muted" />
                         </div>
                         <span className="text-[11px] text-text-muted text-center">
                           New App
@@ -232,9 +172,7 @@ export function Header({
                   ) : (
                     <div className="py-8 text-center">
                       <div className="w-16 h-16 mx-auto mb-3 rounded-xl bg-dark-elevated flex items-center justify-center">
-                        <span className="material-symbols-outlined text-text-muted text-3xl">
-                          folder_off
-                        </span>
+                        <FolderX size={28} className="text-text-muted" />
                       </div>
                       <p className="text-text-muted text-sm mb-3">No applications yet</p>
                       <button
@@ -254,217 +192,80 @@ export function Header({
           )}
         </div>
 
-        {/* Separator */}
-        <div className="h-6 w-px bg-border-default" />
-
-        {/* Logo */}
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-brand-primary flex items-center justify-center">
-            <span className="text-white font-bold text-sm">V</span>
+        {/* IntelliJ-style product + application breadcrumb */}
+        <div className="flex items-center rounded-md border border-border-default bg-dark-card px-2 py-1">
+          <div className="flex items-center gap-2">
+            <div className="h-5 w-5 rounded-sm bg-brand-primary/90 flex items-center justify-center">
+              <span className="text-white font-semibold text-[10px]">V</span>
+            </div>
+            <span className="text-text-primary font-semibold text-xs tracking-tight">Vero IDE</span>
           </div>
-          <span className="text-text-primary font-bold text-lg tracking-tight">Vero IDE</span>
-        </div>
 
-        {/* Current Application Badge */}
-        {selectedApplication && (
-          <>
-            <span className="text-border-emphasis">/</span>
-            <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-dark-elevated">
-              <div
-                className={`w-5 h-5 rounded bg-gradient-to-br ${selectedApplication.color || getAppColor(applications.findIndex(a => a.id === selectedApplicationId))
-                  } flex items-center justify-center`}
-              >
-                <span className="text-white text-[10px] font-bold">
+          <ChevronRight className="mx-2 h-3.5 w-3.5 text-text-muted" />
+
+          {selectedApplication ? (
+            <div className="flex items-center gap-1.5 rounded-sm bg-dark-elevated/70 px-1.5 py-0.5">
+              <div className={`h-4 w-4 rounded-sm ${selectedAppColor} flex items-center justify-center`}>
+                <span className="text-white text-[9px] font-semibold">
                   {getAppInitials(selectedApplication.name)}
                 </span>
               </div>
-              <span className="text-text-primary text-sm font-medium">{selectedApplication.name}</span>
+              <span className="text-text-primary text-xs font-medium">{selectedApplication.name}</span>
             </div>
-          </>
-        )}
-      </div>
-
-      {/* Center Section - Search */}
-      <div className="flex-1 max-w-xl mx-8">
-        <button
-          onClick={onOpenSearch}
-          className="w-full flex items-center gap-2 px-4 py-2 rounded-md bg-dark-canvas border border-border-default text-text-muted text-sm hover:border-brand-primary transition-colors"
-        >
-          <span className="material-symbols-outlined text-[18px]">search</span>
-          <span className="flex-1 text-left">Search commands and files...</span>
-          <kbd className="hidden md:flex items-center gap-1 px-2 py-0.5 text-xs bg-dark-elevated border border-border-default rounded">
-            <span>⌘</span>
-            <span>K</span>
-          </kbd>
-        </button>
+          ) : (
+            <span className="text-text-muted text-xs">No Application</span>
+          )}
+        </div>
       </div>
 
       {/* Right Section - Run Controls */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         {showRunControls && (
-          <>
-            {/* Run/Stop Button with Dropdown */}
-            {isRunning ? (
-              <button
-                onClick={onStop}
-                className="flex items-center gap-2 px-4 py-2 rounded-md bg-status-danger hover:bg-status-danger/90 text-white text-sm font-medium transition-colors"
-              >
-                <span className="material-symbols-outlined text-[18px]">stop</span>
-                <span>Stop</span>
-              </button>
-            ) : (
-              <div className="relative" ref={runDropdownRef}>
-                {/* Unified Split Button */}
-                <div className="inline-flex rounded-md shadow-md">
-                  {/* Run Button */}
-                  <button
-                    onClick={handleRun}
-                    className="flex items-center gap-2 px-4 py-2 bg-status-success hover:bg-status-success/90 text-white text-sm font-medium transition-colors rounded-l-md"
-                  >
-                    <span className="material-symbols-outlined text-[18px] icon-filled">
-                      play_arrow
-                    </span>
-                    <span>Run</span>
-                  </button>
-                  {/* Dropdown Arrow - Same green, subtle divider */}
-                  <button
-                    onClick={() => setShowRunDropdown(!showRunDropdown)}
-                    className={`flex items-center px-2 py-2 text-white text-sm font-medium transition-colors rounded-r-md border-l border-status-success/50 ${showRunDropdown ? 'bg-status-success/90' : 'bg-status-success hover:bg-status-success/90'
-                      }`}
-                    title="Run Configuration"
-                  >
-                    <span className={`material-symbols-outlined text-[16px] transition-transform ${showRunDropdown ? 'rotate-180' : ''}`}>
-                      expand_more
-                    </span>
-                  </button>
-                </div>
-
-                {/* Run Config Dropdown Menu */}
-                {showRunDropdown && (
-                  <div className="absolute right-0 top-full mt-2 w-80 bg-dark-bg border border-border-default rounded-lg shadow-xl z-50 overflow-hidden">
-                    {/* Recent Configurations */}
-                    {recentConfigs.length > 0 && (
-                      <>
-                        <div className="px-3 py-2 border-b border-border-default">
-                          <div className="flex items-center gap-2 text-xs font-medium text-text-muted uppercase tracking-wider">
-                            <span className="material-symbols-outlined text-[14px]">schedule</span>
-                            Recent
-                          </div>
-                        </div>
-                        <div className="py-1">
-                          {recentConfigs.slice(0, 5).map((config: RunConfigSummary) => (
-                            <button
-                              key={config.id}
-                              onClick={() => handleSelectConfig(config.id)}
-                              className={`w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-dark-elevated transition-colors ${config.id === activeConfigId ? 'bg-dark-elevated/50' : ''
-                                }`}
-                            >
-                              {/* Checkmark for active config */}
-                              <span className="w-5 flex justify-center shrink-0">
-                                {config.id === activeConfigId && (
-                                  <span className="material-symbols-outlined text-[16px] text-status-success">check</span>
-                                )}
-                              </span>
-
-                              {/* Target icon */}
-                              <span className="text-text-muted shrink-0">
-                                <span className="material-symbols-outlined text-[16px]">
-                                  {config.target === 'github' ? 'cloud' : 'computer'}
-                                </span>
-                              </span>
-
-                              {/* Config details */}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-sm text-text-primary truncate">
-                                    {config.name}
-                                  </span>
-                                  {config.lastUsedAt && (
-                                    <span className="text-xs text-text-muted ml-2 shrink-0">
-                                      {formatLastUsed(config.lastUsedAt)}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="text-xs text-text-muted">
-                                  {config.target === 'github' ? 'GitHub Actions' : 'Local'} · {config.browser} · {config.workers} worker{config.workers !== 1 ? 's' : ''}
-                                </div>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-
-                    {/* Empty State */}
-                    {recentConfigs.length === 0 && (
-                      <div className="px-3 py-6 text-center">
-                        <span className="material-symbols-outlined text-3xl text-border-default mb-2 block">settings</span>
-                        <p className="text-sm text-text-muted">No recent configurations</p>
-                        <p className="text-xs text-text-muted mt-1">
-                          Run a test to see your configurations here
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Divider */}
-                    <div className="border-t border-border-default" />
-
-                    {/* Configuration Settings */}
-                    <div className="p-2">
-                      <button
-                        onClick={() => {
-                          setShowRunDropdown(false);
-                          setModalOpen(true);
-                        }}
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-left hover:bg-dark-elevated transition-colors"
-                      >
-                        <span className="w-5 flex justify-center shrink-0">
-                          <span className="material-symbols-outlined text-[16px] text-text-muted">settings</span>
-                        </span>
-                        <span className="text-sm text-text-secondary">
-                          Run Configuration...
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+          <div className="flex items-center gap-2 rounded-xl border border-border-default bg-gradient-to-b from-white/[0.04] to-white/[0.02] px-2 py-1 shadow-[0_8px_24px_rgba(0,0,0,0.24)]">
+            <IntelliJRunToolbar
+              isRunning={isRunning}
+              isDebugging={isDebugging}
+              onRun={(_configId?: string, _tags?: string[]) => onRun()}
+              onDebug={(_configId?: string) => onDebug()}
+              onStop={onStop}
+              currentFileName={currentFileName}
+              className="pr-2 mr-1 border-r border-border-default"
+            />
 
             {/* Record Button */}
             {isRecording ? (
               <button
                 onClick={onStopRecording}
-                className="flex items-center gap-2 px-4 py-2 rounded-md bg-status-danger hover:bg-status-danger/90 text-white text-sm font-medium transition-colors"
+                className="relative flex h-8 w-8 items-center justify-center rounded-md border border-status-danger/50 bg-status-danger/15 text-status-danger hover:bg-status-danger/25 transition-all duration-fast ease-out"
+                title="Stop recording"
+                aria-label="Stop recording"
               >
-                <span className="material-symbols-outlined text-[18px]">stop</span>
-                <span>Stop Rec</span>
+                <span className="material-symbols-outlined icon-filled text-[18px] leading-none">stop_circle</span>
               </button>
             ) : (
               <button
                 onClick={onRecord}
-                className="flex items-center gap-2 px-4 py-2 rounded-md bg-dark-elevated border border-border-default hover:bg-dark-card text-text-primary text-sm font-medium transition-colors"
+                className="group relative flex h-8 w-8 items-center justify-center rounded-md border border-border-default bg-dark-elevated text-status-danger hover:border-status-danger/55 hover:bg-status-danger/10 transition-all duration-fast ease-out"
+                title="Start recording"
+                aria-label="Start recording"
               >
-                <span className="material-symbols-outlined text-[18px] text-red-500 icon-filled">
+                <span className="absolute inset-0 rounded-md ring-1 ring-status-danger/0 group-hover:ring-status-danger/30 transition-all duration-fast" />
+                <span className="material-symbols-outlined icon-filled text-[18px] leading-none animate-pulse-recording">
                   fiber_manual_record
                 </span>
-                <span>Record</span>
               </button>
             )}
 
-            {/* Environment Selector + Quick Look (Postman-style) */}
+            {/* Environment Selector */}
             <div className="flex items-center gap-1">
               <EnvironmentSelector
-                onOpenManager={() => useEnvironmentStore.getState().setManagerOpen(true)}
-              />
-              <EnvironmentQuickLook
                 onOpenManager={() => useEnvironmentStore.getState().setManagerOpen(true)}
               />
             </div>
 
             {/* Separator */}
-            <div className="h-6 w-px bg-border-default" />
-          </>
+            <div className="h-5 w-px bg-border-default" />
+          </div>
         )}
 
       </div>

@@ -202,34 +202,61 @@ export function EnvironmentSelector({ onOpenManager }: EnvironmentSelectorProps)
 
   return (
     <div className="relative" ref={dropdownRef}>
-      {/* Selector Button */}
+      {/* Icon-first selector button (no "No Environment" label in toolbar) */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         disabled={isLoading}
-        className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors min-w-[140px] ${
+        className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
           isOpen
-            ? 'bg-[#30363d] text-white'
-            : 'bg-[#21262d] border border-[#30363d] hover:bg-[#30363d] text-white'
+            ? 'bg-dark-card border-border-emphasis text-text-primary'
+            : 'bg-dark-elevated border-border-default text-text-secondary hover:text-text-primary hover:border-border-emphasis'
         }`}
+        title={activeEnv ? `Environment: ${activeEnv.name}` : 'Select environment'}
+        aria-label={activeEnv ? `Environment: ${activeEnv.name}` : 'Select environment'}
       >
-        <span className="material-symbols-outlined text-[16px] text-[#8b949e]">
-          {activeEnv ? 'check_circle' : 'radio_button_unchecked'}
-        </span>
-        <span className="truncate flex-1 text-left">
-          {isLoading ? 'Loading...' : activeEnv?.name || 'No Environment'}
+        <span className="material-symbols-outlined text-[17px] leading-none">
+          {activeEnv ? 'globe' : 'cloud_off'}
         </span>
         <span
-          className={`material-symbols-outlined text-[16px] text-[#8b949e] transition-transform ${
+          className={`material-symbols-outlined absolute -right-0.5 -top-0.5 text-[11px] text-text-muted transition-transform ${
             isOpen ? 'rotate-180' : ''
           }`}
         >
           expand_more
         </span>
+        <span
+          className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-dark-bg ${
+            activeEnv ? 'bg-status-success' : 'bg-status-warning'
+          }`}
+        />
       </button>
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-64 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-72 bg-dark-bg border border-border-default rounded-lg shadow-xl z-50 overflow-hidden">
+          <div className="px-4 py-3 border-b border-border-default flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium text-text-primary">
+                {activeEnv?.name || 'Environment not set'}
+              </div>
+              <div className="text-xs text-text-muted mt-0.5">
+                {activeEnv
+                  ? `${activeEnv.variables.length} variable${activeEnv.variables.length === 1 ? '' : 's'}`
+                  : 'Select QA / Staging / Production'}
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setIsOpen(false);
+                onOpenManager();
+              }}
+              className="p-1 rounded hover:bg-dark-elevated text-text-muted hover:text-text-primary transition-colors"
+              title="Manage environments"
+            >
+              <span className="material-symbols-outlined text-[16px]">settings</span>
+            </button>
+          </div>
+
           {/* Environments List */}
           {environments.length > 0 ? (
             <div className="max-h-64 overflow-y-auto py-1">
@@ -237,20 +264,22 @@ export function EnvironmentSelector({ onOpenManager }: EnvironmentSelectorProps)
                 <button
                   key={env.id}
                   onClick={() => handleSelectEnvironment(env.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-[#21262d] transition-colors ${
-                    env.isActive ? 'bg-[#21262d]/50' : ''
+                  className={`w-full flex items-center gap-3 px-4 py-2 text-left transition-colors ${
+                    env.isActive
+                      ? 'bg-brand-primary/15 hover:bg-brand-primary/20'
+                      : 'hover:bg-dark-elevated'
                   }`}
                 >
                   <span className="w-5 flex justify-center shrink-0">
                     {env.isActive && (
-                      <span className="material-symbols-outlined text-[16px] text-[#238636]">
+                      <span className="material-symbols-outlined text-[16px] text-status-success">
                         check
                       </span>
                     )}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm text-white truncate">{env.name}</div>
-                    <div className="text-xs text-[#6e7681]">
+                    <div className="text-sm text-text-primary truncate">{env.name}</div>
+                    <div className="text-xs text-text-muted">
                       {env.variables.length} variable{env.variables.length !== 1 ? 's' : ''}
                     </div>
                   </div>
@@ -258,17 +287,17 @@ export function EnvironmentSelector({ onOpenManager }: EnvironmentSelectorProps)
               ))}
             </div>
           ) : (
-            <div className="px-4 py-6 text-center">
-              <span className="material-symbols-outlined text-3xl text-[#30363d] mb-2 block">
+            <div className="px-4 py-7 text-center">
+              <span className="material-symbols-outlined text-3xl text-text-muted/40 mb-2 block">
                 folder_off
               </span>
-              <p className="text-sm text-[#8b949e]">No environments</p>
-              <p className="text-xs text-[#6e7681] mt-1">Create one to get started</p>
+              <p className="text-sm text-text-secondary">No environments configured</p>
+              <p className="text-xs text-text-muted mt-1">Create QA, Staging, and Production presets</p>
             </div>
           )}
 
           {/* Divider */}
-          <div className="border-t border-[#30363d]" />
+          <div className="border-t border-border-default" />
 
           {/* Actions */}
           <div className="p-2">
@@ -277,10 +306,10 @@ export function EnvironmentSelector({ onOpenManager }: EnvironmentSelectorProps)
                 setIsOpen(false);
                 onOpenManager();
               }}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-left hover:bg-[#21262d] transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-left hover:bg-dark-elevated transition-colors"
             >
-              <span className="material-symbols-outlined text-[16px] text-[#8b949e]">settings</span>
-              <span className="text-sm text-[#c9d1d9]">Manage Environments...</span>
+              <span className="material-symbols-outlined text-[16px] text-text-muted">settings</span>
+              <span className="text-sm text-text-secondary">Manage Environments...</span>
             </button>
           </div>
         </div>

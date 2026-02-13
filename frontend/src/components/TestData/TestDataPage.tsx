@@ -14,6 +14,7 @@ import {
 import { apiUrl } from '@/config';
 import { SheetList } from './SheetList';
 import { AGGridDataTable, DataColumn as AGDataColumn } from './AGGridDataTable';
+import type { SortLevel } from './MultiSortModal';
 import type { BulkUpdate } from './BulkUpdateModal';
 import { SheetForm } from './SheetForm';
 import { ImportExcelModal } from './ImportExcelModal';
@@ -24,6 +25,7 @@ import { SavedViewsDropdown } from './SavedViewsDropdown';
 import { testDataApi } from '@/api/testData';
 import type { SavedView } from '@/api/testData';
 import { DataStorageSettingsModal } from '@/components/settings/DataStorageSettingsModal';
+import { Modal } from '@/components/ui/Modal';
 
 // ============================================
 // TYPES
@@ -74,6 +76,32 @@ interface TestDataPageProps {
 }
 
 // ============================================
+// HELPERS
+// ============================================
+
+/**
+ * Map backend column type strings to AGGridDataTable's type union.
+ * Backend uses 'string' while the grid uses 'text'. This function
+ * validates the type and defaults to 'text' for unknown values.
+ */
+function mapColumnType(backendType: string): AGDataColumn['type'] {
+    const typeMap: Record<string, AGDataColumn['type']> = {
+        'string': 'text',
+        'text': 'text',
+        'number': 'number',
+        'boolean': 'boolean',
+        'date': 'date',
+        'formula': 'formula',
+        'reference': 'reference',
+    };
+    const mapped = typeMap[backendType];
+    if (!mapped) {
+        console.warn(`[TestData] Unknown column type "${backendType}", defaulting to "text"`);
+    }
+    return mapped || 'text';
+}
+
+// ============================================
 // COMPONENT
 // ============================================
 
@@ -96,10 +124,14 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
     const [showEnvironments, setShowEnvironments] = useState(false);
     const [showDataStorageSettings, setShowDataStorageSettings] = useState(false);
 
-    // Saved views state
+    // Saved views state - captured from grid for saving
     const [currentFilterState, setCurrentFilterState] = useState<Record<string, unknown>>({});
     const [currentSortState, setCurrentSortState] = useState<unknown[]>([]);
     const [currentColumnState, setCurrentColumnState] = useState<unknown[]>([]);
+
+    // External view state - pushed to grid when loading a saved view
+    const [externalSortState, setExternalSortState] = useState<SortLevel[] | undefined>(undefined);
+    const [externalFilterState, setExternalFilterState] = useState<Record<string, unknown> | undefined>(undefined);
 
     // Sidebar dropdown
     const [showSidebarMenu, setShowSidebarMenu] = useState(false);
@@ -672,209 +704,234 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
     };
 
     return (
-        <div className="flex h-full bg-[#0d1117]">
-            {/* Left Sidebar - Sheet List */}
-            <div className="w-64 flex-shrink-0 border-r border-[#30363d] flex flex-col bg-[#161b22]">
-                {/* Header */}
-                <div className="p-4 border-b border-[#30363d]">
-                    <div className="flex items-center gap-2 mb-3">
-                        <span className="material-symbols-outlined text-[20px] text-[#58a6ff]">database</span>
-                        <h1 className="text-base font-semibold text-white">Test Data</h1>
-                    </div>
-
-                    {/* Actions - Simplified */}
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={() => setShowSheetForm(true)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#238636] hover:bg-[#2ea043] rounded-md text-xs font-medium text-white transition-colors flex-1"
-                            title="New Data Table"
-                        >
-                            <Plus className="w-3.5 h-3.5" />
-                            New Table
-                        </button>
-
-                        {/* Data Storage Settings Button - Made more visible */}
-                        <button
-                            onClick={() => setShowDataStorageSettings(true)}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-emerald-500/10 to-green-500/10 hover:from-emerald-500/20 hover:to-green-500/20 border border-emerald-500/30 rounded-md text-emerald-400 hover:text-emerald-300 transition-all"
-                            title="Configure database connection (MongoDB, PostgreSQL, MySQL)"
-                        >
-                            <Database className="w-4 h-4" />
-                            <span className="text-xs font-medium">DB Config</span>
-                        </button>
-
-                        {/* More Actions Dropdown */}
-                        <div className="relative">
-                            <button
-                                onClick={() => setShowSidebarMenu(!showSidebarMenu)}
-                                className="flex items-center gap-1 p-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md text-[#c9d1d9] transition-colors"
-                                title="More actions"
-                            >
-                                <MoreHorizontal className="w-4 h-4" />
-                            </button>
-                            {showSidebarMenu && (
-                                <div className="absolute top-full right-0 mt-1 w-44 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl z-50 overflow-hidden">
-                                    <button
-                                        onClick={() => { setShowImportModal(true); setShowSidebarMenu(false); }}
-                                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
-                                    >
-                                        <Upload className="w-3.5 h-3.5 text-sky-400" />
-                                        Import Excel
-                                    </button>
-                                    <button
-                                        onClick={() => { handleExport(); setShowSidebarMenu(false); }}
-                                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
-                                    >
-                                        <Download className="w-3.5 h-3.5 text-emerald-400" />
-                                        Export All (Excel)
-                                    </button>
-                                    <div className="h-px bg-[#30363d] my-1" />
-                                    <button
-                                        onClick={() => { setShowEnvironments(true); setShowSidebarMenu(false); }}
-                                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
-                                    >
-                                        <Settings className="w-3.5 h-3.5 text-[#8b949e]" />
-                                        Environments
-                                    </button>
-                                    <button
-                                        onClick={() => { setShowDataStorageSettings(true); setShowSidebarMenu(false); }}
-                                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
-                                    >
-                                        <span className="material-symbols-outlined text-[14px] text-[#8b949e]">database</span>
-                                        Data Storage
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Sheet List */}
-                <SheetList
-                    sheets={sheets}
-                    loading={loading}
-                    selectedId={selectedSheetId}
-                    onSelect={setSelectedSheetId}
-                    onEdit={(sheet) => {
-                        setEditingSheet(sheet);
-                        setShowSheetForm(true);
-                    }}
-                    onDelete={handleDeleteSheet}
-                    onRefresh={fetchSheets}
-                />
+        <div className="relative flex h-full overflow-hidden bg-dark-canvas">
+            <div className="pointer-events-none absolute inset-0">
+                <div className="absolute -left-28 -top-20 h-72 w-72 rounded-full bg-brand-primary/10 blur-3xl" />
+                <div className="absolute -right-28 bottom-0 h-72 w-72 rounded-full bg-status-info/10 blur-3xl" />
             </div>
 
-            {/* Main Content - Data Table (fixed width container) */}
-            <div className="flex-1 flex flex-col min-w-0">
-                {/* Toolbar */}
-                {selectedSheet && (
-                    <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#30363d] bg-[#161b22] flex-shrink-0">
-                        <div className="flex items-center gap-3">
-                            <span className="material-symbols-outlined text-[18px] text-[#58a6ff]">table_chart</span>
-                            <div>
-                                <h2 className="text-sm font-medium text-white">{selectedSheet.name}</h2>
-                                {selectedSheet.pageObject && selectedSheet.pageObject !== selectedSheet.name && (
-                                    <span className="text-xs text-[#8b949e]">
-                                        Linked to: {selectedSheet.pageObject}
-                                    </span>
-                                )}
+            <div className="relative z-10 flex h-full w-full">
+                {/* Left Sidebar - Sheet List */}
+                <div className="flex w-72 shrink-0 flex-col border-r border-border-default bg-dark-bg/90 backdrop-blur-sm">
+                    <div className="border-b border-border-default px-3 py-3">
+                        <div className="mb-2 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <div className="rounded-md border border-brand-primary/25 bg-brand-primary/15 p-1.5">
+                                    <Database className="h-4 w-4 text-brand-secondary" />
+                                </div>
+                                <div>
+                                    <h1 className="text-sm font-semibold tracking-tight text-text-primary">Data Tables</h1>
+                                    <p className="text-xxs text-text-muted">Spreadsheet editing for VeroScript data</p>
+                                </div>
                             </div>
-                            <span className="px-2 py-0.5 rounded-full bg-[#21262d] text-xs text-[#8b949e]">
-                                {rows.length} {rows.length === 1 ? 'row' : 'rows'}
+                            <span className="rounded-md border border-border-default bg-dark-elevated/70 px-2 py-0.5 text-xxs text-text-secondary">
+                                {sheets.length} {sheets.length === 1 ? 'table' : 'tables'}
                             </span>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            {/* Saved Views Dropdown */}
-                            <SavedViewsDropdown
-                                sheetId={selectedSheet.id}
-                                currentFilterState={currentFilterState}
-                                currentSortState={currentSortState}
-                                currentColumnState={currentColumnState}
-                                onViewSelect={(view: SavedView) => {
-                                    // Apply view settings to the grid
-                                    setCurrentFilterState(view.filterState);
-                                    setCurrentSortState(view.sortState);
-                                    setCurrentColumnState(view.columnState);
-                                    // Grid will pick up these changes
-                                }}
-                            />
+                        <div className="flex items-center gap-1.5">
                             <button
-                                onClick={() => fetchRows(selectedSheetId!)}
-                                className="p-1.5 hover:bg-[#21262d] rounded-md transition-colors"
-                                title="Refresh data"
+                                onClick={() => setShowSheetForm(true)}
+                                className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-gradient-to-b from-brand-primary to-[#2c5fd9] px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-all hover:brightness-110"
+                                title="Create a new data table"
                             >
-                                <RefreshCw className={`w-4 h-4 text-[#8b949e] ${loadingRows ? 'animate-spin' : ''}`} />
+                                <Plus className="h-3.5 w-3.5" />
+                                New Table
                             </button>
+
+                            <button
+                                onClick={() => setShowDataStorageSettings(true)}
+                                className="flex items-center gap-1 rounded-md border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1.5 text-xs text-emerald-300 transition-all hover:bg-emerald-500/20"
+                                title="Configure data storage provider"
+                            >
+                                <Database className="h-3.5 w-3.5" />
+                                DB
+                            </button>
+
+                            <div className="relative">
+                                <button
+                                    onClick={() => setShowSidebarMenu(!showSidebarMenu)}
+                                    className="rounded-md border border-border-default bg-dark-elevated/70 p-1.5 text-text-secondary transition-colors hover:border-border-emphasis hover:text-text-primary"
+                                    title="More actions"
+                                >
+                                    <MoreHorizontal className="h-3.5 w-3.5" />
+                                </button>
+                                {showSidebarMenu && (
+                                    <div className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-lg border border-border-default bg-dark-card shadow-2xl animate-scale-in">
+                                        <button
+                                            onClick={() => { setShowImportModal(true); setShowSidebarMenu(false); }}
+                                            className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
+                                        >
+                                            <Upload className="h-3.5 w-3.5 text-status-info" />
+                                            Import Excel
+                                        </button>
+                                        <button
+                                            onClick={() => { handleExport(); setShowSidebarMenu(false); }}
+                                            className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
+                                        >
+                                            <Download className="h-3.5 w-3.5 text-status-success" />
+                                            Export all
+                                        </button>
+                                        <div className="my-1 h-px bg-border-default" />
+                                        <button
+                                            onClick={() => { setShowEnvironments(true); setShowSidebarMenu(false); }}
+                                            className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
+                                        >
+                                            <Settings className="h-3.5 w-3.5 text-text-muted" />
+                                            Environments
+                                        </button>
+                                        <button
+                                            onClick={() => { setShowDataStorageSettings(true); setShowSidebarMenu(false); }}
+                                            className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
+                                        >
+                                            <Database className="h-3.5 w-3.5 text-text-muted" />
+                                            Data Storage
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
-                )}
 
-                {/* Data Table Container - AG Grid */}
-                <div className="flex-1 min-h-0 relative bg-[#0d1117]">
-                    {selectedSheet ? (
-                        <div className="absolute inset-0">
-                            <AGGridDataTable
-                                tableName={selectedSheet.name}
-                                columns={selectedSheet.columns.map(c => ({
-                                    name: c.name,
-                                    type: c.type === 'string' ? 'text' : c.type as any,
-                                    required: c.required,
-                                    formula: (c as any).formula,
-                                    referenceConfig: (c as any).referenceConfig,
-                                }))}
-                                rows={rows.map((r, idx) => ({
-                                    id: r.id,
-                                    data: r.data,
-                                    order: idx
-                                }))}
-                                loading={loadingRows}
-                                onCellChange={handleCellChange}
-                                onRowAdd={handleAddRow}
-                                onRowDelete={handleDeleteRow}
-                                onRowsDelete={handleBulkDeleteRows}
-                                onColumnAdd={handleAddColumn}
-                                onColumnEdit={handleEditColumn}
-                                onColumnRemove={handleRemoveColumn}
-                                onColumnRename={handleRenameColumn}
-                                onColumnTypeChange={handleColumnTypeChange}
-                                onBulkPaste={handleBulkPaste}
-                                onExportCSV={handleExportCSV}
-                                onImportCSV={() => setShowCSVImportModal(true)}
-                                onGenerateColumnData={handleGenerateColumnData}
-                                onBulkUpdate={handleBulkUpdate}
-                                onRowsDuplicate={handleDuplicateRows}
-                                onFillSeries={handleFillSeries}
-                            />
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center justify-center h-full">
-                            <div className="w-20 h-20 rounded-2xl bg-[#21262d] flex items-center justify-center mb-4">
-                                <span className="material-symbols-outlined text-[40px] text-[#8b949e]">database</span>
+                    <SheetList
+                        sheets={sheets}
+                        loading={loading}
+                        selectedId={selectedSheetId}
+                        onSelect={setSelectedSheetId}
+                        onEdit={(sheet) => {
+                            setEditingSheet(sheet);
+                            setShowSheetForm(true);
+                        }}
+                        onDelete={handleDeleteSheet}
+                        onRefresh={fetchSheets}
+                    />
+                </div>
+
+                {/* Main Content */}
+                <div className="flex min-w-0 flex-1 flex-col bg-gradient-to-b from-dark-bg/35 to-dark-canvas/95">
+                    {selectedSheet && (
+                        <div className="flex shrink-0 items-center justify-between border-b border-border-default bg-dark-bg/75 px-4 py-2.5 backdrop-blur-sm">
+                            <div className="flex items-center gap-3">
+                                <div className="rounded-md border border-brand-primary/35 bg-brand-primary/15 p-1.5">
+                                    <Database className="h-3.5 w-3.5 text-brand-secondary" />
+                                </div>
+                                <div>
+                                    <h2 className="text-sm font-semibold text-text-primary">{selectedSheet.name}</h2>
+                                    {selectedSheet.pageObject && selectedSheet.pageObject !== selectedSheet.name && (
+                                        <span className="text-xxs text-text-muted">Linked to: {selectedSheet.pageObject}</span>
+                                    )}
+                                </div>
+                                <span className="rounded-md border border-border-default bg-dark-elevated/75 px-2 py-0.5 text-xxs text-text-secondary">
+                                    {rows.length} {rows.length === 1 ? 'row' : 'rows'}
+                                </span>
                             </div>
-                            <p className="text-lg font-medium text-[#c9d1d9] mb-1">No data table selected</p>
-                            <p className="text-sm text-[#8b949e]">Select a table from the sidebar or create a new one</p>
+
+                            <div className="flex items-center gap-2">
+                                <SavedViewsDropdown
+                                    sheetId={selectedSheet.id}
+                                    currentFilterState={currentFilterState}
+                                    currentSortState={currentSortState}
+                                    currentColumnState={currentColumnState}
+                                    onViewSelect={(view: SavedView) => {
+                                        setCurrentFilterState(view.filterState);
+                                        setCurrentSortState(view.sortState);
+                                        setCurrentColumnState(view.columnState);
+                                        setExternalSortState(view.sortState as SortLevel[]);
+                                        setExternalFilterState(view.filterState as Record<string, unknown>);
+                                    }}
+                                />
+                                <button
+                                    onClick={() => fetchRows(selectedSheetId!)}
+                                    className="rounded-md border border-border-default bg-dark-elevated/75 p-1.5 text-text-muted transition-all hover:border-border-emphasis hover:text-text-primary"
+                                    title="Refresh data"
+                                >
+                                    <RefreshCw className={`h-4 w-4 ${loadingRows ? 'animate-spin' : ''}`} />
+                                </button>
+                            </div>
                         </div>
                     )}
+
+                    <div className="relative flex-1 min-h-0">
+                        {selectedSheet ? (
+                            <div className="absolute inset-0">
+                                <AGGridDataTable
+                                    tableName={selectedSheet.name}
+                                    columns={selectedSheet.columns.map(c => ({
+                                        name: c.name,
+                                        type: mapColumnType(c.type),
+                                        required: c.required,
+                                        formula: c.formula,
+                                        referenceConfig: c.referenceConfig,
+                                    }))}
+                                    rows={rows.map((r, idx) => ({
+                                        id: r.id,
+                                        data: r.data || {},
+                                        order: idx
+                                    }))}
+                                    loading={loadingRows}
+                                    onCellChange={handleCellChange}
+                                    onRowAdd={handleAddRow}
+                                    onRowDelete={handleDeleteRow}
+                                    onRowsDelete={handleBulkDeleteRows}
+                                    onColumnAdd={handleAddColumn}
+                                    onColumnEdit={handleEditColumn}
+                                    onColumnRemove={handleRemoveColumn}
+                                    onColumnRename={handleRenameColumn}
+                                    onColumnTypeChange={handleColumnTypeChange}
+                                    onBulkPaste={handleBulkPaste}
+                                    onExportCSV={handleExportCSV}
+                                    onImportCSV={() => setShowCSVImportModal(true)}
+                                    onGenerateColumnData={handleGenerateColumnData}
+                                    onBulkUpdate={handleBulkUpdate}
+                                    onRowsDuplicate={handleDuplicateRows}
+                                    onFillSeries={handleFillSeries}
+                                    onSortStateChanged={setCurrentSortState}
+                                    onFilterStateChanged={setCurrentFilterState}
+                                    onColumnStateChanged={setCurrentColumnState}
+                                    externalSortState={externalSortState}
+                                    externalFilterState={externalFilterState}
+                                />
+                            </div>
+                        ) : (
+                            <div className="flex h-full items-center justify-center px-6">
+                                <div className="w-full max-w-md rounded-xl border border-border-default bg-dark-card/75 p-8 text-center shadow-2xl">
+                                    <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-xl border border-border-default bg-dark-elevated">
+                                        <Database className="h-8 w-8 text-text-muted" />
+                                    </div>
+                                    <p className="mb-1 text-base font-semibold text-text-primary">No data table selected</p>
+                                    <p className="text-sm text-text-secondary">Choose a table from the left sidebar or create a new one.</p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 
             {/* Messages */}
             {successMessage && (
-                <div className="fixed bottom-4 right-4 flex items-center gap-2 px-4 py-3 bg-[#238636] text-white rounded-lg shadow-lg z-50">
-                    <Check className="w-4 h-4" />
-                    <span className="text-sm font-medium">{successMessage}</span>
+                <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-lg border border-status-success/45 bg-status-success/90 px-4 py-2.5 text-white shadow-xl animate-slide-up">
+                    <Check className="h-4 w-4" />
+                    <span className="text-xs font-semibold">{successMessage}</span>
                 </div>
             )}
             {errorMessage && (
-                <div className="fixed bottom-4 right-4 flex items-center gap-2 px-4 py-3 bg-[#da3633] text-white rounded-lg shadow-lg z-50">
-                    <AlertTriangle className="w-4 h-4" />
-                    <span className="text-sm font-medium">{errorMessage}</span>
+                <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-lg border border-status-danger/45 bg-status-danger/90 px-4 py-2.5 text-white shadow-xl animate-slide-up">
+                    <AlertTriangle className="h-4 w-4" />
+                    <span className="text-xs font-semibold">{errorMessage}</span>
                 </div>
             )}
 
             {/* Modals */}
-            {showSheetForm && (
+            <Modal
+                isOpen={showSheetForm}
+                onClose={() => {
+                    setShowSheetForm(false);
+                    setEditingSheet(null);
+                }}
+                title={editingSheet ? `Edit "${editingSheet.name}"` : 'Create Data Table'}
+                description={editingSheet ? 'Update table details and schema.' : 'Create a new table and define its columns.'}
+                size="xl"
+            >
                 <SheetForm
                     sheet={editingSheet}
                     onSubmit={editingSheet
@@ -886,7 +943,7 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
                         setEditingSheet(null);
                     }}
                 />
-            )}
+            </Modal>
 
             {showImportModal && (
                 <ImportExcelModal
@@ -935,7 +992,6 @@ export function TestDataPage({ projectId }: TestDataPageProps) {
                 />
             )}
 
-            {/* Data Storage Settings Modal */}
             <DataStorageSettingsModal
                 isOpen={showDataStorageSettings}
                 onClose={() => setShowDataStorageSettings(false)}

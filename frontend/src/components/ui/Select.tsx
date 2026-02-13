@@ -36,7 +36,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         {label && (
           <label
             htmlFor={selectId}
-            className="block text-sm font-medium text-text-primary mb-1.5"
+            className="block text-xs font-medium text-text-secondary mb-1"
           >
             {label}
           </label>
@@ -46,13 +46,13 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
             ref={ref}
             id={selectId}
             className={`
-              w-full bg-dark-card border border-border-default rounded-md
-              px-3 py-2 text-sm text-text-primary
+              w-full bg-dark-canvas border border-border-default rounded
+              px-3 py-1.5 text-sm text-text-primary
               appearance-none cursor-pointer
-              focus:outline-none focus:border-accent-blue focus:ring-1 focus:ring-accent-blue
-              transition-colors duration-200
+              focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/15
+              transition-colors duration-fast ease-out
               disabled:opacity-50 disabled:cursor-not-allowed
-              ${error ? 'border-accent-red focus:border-accent-red focus:ring-accent-red' : ''}
+              ${error ? 'border-status-danger focus:border-status-danger focus:ring-status-danger/15' : ''}
               ${className}
             `}
             {...props}
@@ -72,15 +72,15 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
               </option>
             ))}
           </select>
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-text-muted">
-            <ChevronDown className="w-4 h-4" />
+          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-text-muted">
+            <ChevronDown className="w-3.5 h-3.5" />
           </div>
         </div>
         {error && (
-          <p className="mt-1.5 text-xs text-accent-red">{error}</p>
+          <p className="mt-1 text-xs text-status-danger">{error}</p>
         )}
         {hint && !error && (
-          <p className="mt-1.5 text-xs text-text-muted">{hint}</p>
+          <p className="mt-1 text-xs text-text-muted">{hint}</p>
         )}
       </div>
     );

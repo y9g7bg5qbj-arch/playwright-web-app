@@ -121,30 +121,17 @@ export function OutlinePanel({
     });
   };
 
-  const handleItemClick = (item: OutlineItem) => {
-    if (onNavigateToLine) {
-      onNavigateToLine(item.line);
-    }
-  };
-
-  // Get icon based on item type
-  const getItemIcon = (type: OutlineItem['type']): { icon: string; color: string } => {
-    switch (type) {
-      case 'feature':
-        return { icon: 'deployed_code', color: 'text-purple-400' };
-      case 'scenario':
-        return { icon: 'play_circle', color: 'text-blue-400' };
-      case 'page':
-        return { icon: 'web', color: 'text-orange-400' };
-      default:
-        return { icon: 'code', color: 'text-[#8b949e]' };
-    }
+  // Icon/color lookup by outline item type
+  const ITEM_ICONS: Record<OutlineItem['type'], { icon: string; color: string }> = {
+    feature: { icon: 'deployed_code', color: 'text-[#a371f7]' },
+    scenario: { icon: 'play_circle', color: 'text-[#58a6ff]' },
+    page: { icon: 'web', color: 'text-[#e57f49]' },
   };
 
   const renderItem = (item: OutlineItem, depth: number = 0) => {
     const hasChildren = item.children && item.children.length > 0;
     const isItemExpanded = expandedItems.has(item.id);
-    const { icon, color } = getItemIcon(item.type);
+    const { icon, color } = ITEM_ICONS[item.type] ?? { icon: 'code', color: 'text-text-muted' };
     const paddingLeft = 8 + depth * 16;
 
     return (
@@ -154,53 +141,53 @@ export function OutlinePanel({
             if (hasChildren) {
               toggleItem(item.id);
             }
-            handleItemClick(item);
+            onNavigateToLine?.(item.line);
           }}
-          className="w-full flex items-center gap-2 py-1.5 pr-2 hover:bg-[#21262d] transition-colors text-left group"
+          className="w-full flex items-center gap-1.5 py-1 pr-2 hover:bg-white/[0.03] transition-colors duration-fast text-left group"
           style={{ paddingLeft: `${paddingLeft}px` }}
         >
           {/* Expand/Collapse Icon */}
           {hasChildren ? (
             <span
-              className={`material-symbols-outlined text-sm text-[#8b949e] transition-transform ${
+              className={`material-symbols-outlined text-xs text-text-muted transition-transform duration-fast ${
                 isItemExpanded ? 'rotate-90' : ''
               }`}
             >
               chevron_right
             </span>
           ) : (
-            <span className="w-[18px]" />
+            <span className="w-4" />
           )}
 
           {/* Type Icon */}
-          <span className={`material-symbols-outlined text-sm ${color} icon-filled`}>
+          <span className={`material-symbols-outlined text-xs ${color} icon-filled`}>
             {icon}
           </span>
 
           {/* Name */}
-          <span className="flex-1 text-sm text-[#c9d1d9] truncate">
+          <span className="flex-1 text-xs text-text-primary truncate">
             {item.name}
           </span>
 
           {/* Tags */}
           {item.tags && item.tags.length > 0 && (
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-fast">
               {item.tags.slice(0, 2).map((tag, idx) => (
                 <span
                   key={idx}
-                  className="text-[10px] px-1 py-0.5 bg-[#30363d] text-[#8b949e] rounded"
+                  className="text-[9px] px-1 py-px bg-dark-elevated text-text-muted rounded"
                 >
                   @{tag}
                 </span>
               ))}
               {item.tags.length > 2 && (
-                <span className="text-[10px] text-[#6e7681]">+{item.tags.length - 2}</span>
+                <span className="text-[9px] text-text-muted">+{item.tags.length - 2}</span>
               )}
             </div>
           )}
 
           {/* Line number on hover */}
-          <span className="text-[10px] text-[#6e7681] opacity-0 group-hover:opacity-100 transition-opacity">
+          <span className="text-[9px] text-text-muted tabular-nums opacity-0 group-hover:opacity-100 transition-opacity duration-fast">
             :{item.line}
           </span>
         </button>
@@ -221,16 +208,16 @@ export function OutlinePanel({
   }
 
   return (
-    <div className="border-t border-[#30363d] shrink-0 max-h-[40%] flex flex-col">
+    <div className="border-t border-border-subtle shrink-0 max-h-[40%] flex flex-col">
       {/* Header */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between px-4 py-2 hover:bg-[#21262d] transition-colors shrink-0"
+        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-white/[0.03] transition-colors duration-fast shrink-0"
       >
-        <span className="text-xs font-semibold uppercase tracking-wider text-[#8b949e]">
+        <span className="text-[9px] font-semibold uppercase tracking-wider text-text-muted">
           Outline
         </span>
-        <span className={`material-symbols-outlined text-sm text-[#8b949e] transition-transform ${
+        <span className={`material-symbols-outlined text-xs text-text-muted transition-transform duration-fast ${
           isExpanded ? '' : '-rotate-90'
         }`}>
           expand_more
@@ -239,11 +226,11 @@ export function OutlinePanel({
 
       {/* Content */}
       {isExpanded && (
-        <div className="pb-2 overflow-y-auto min-h-0">
+        <div className="pb-1 overflow-y-auto min-h-0">
           {outlineItems.length > 0 ? (
             outlineItems.map(item => renderItem(item))
           ) : (
-            <div className="px-4 py-3 text-xs text-[#6e7681] text-center">
+            <div className="px-3 py-2 text-[10px] text-text-muted text-center">
               No features or scenarios found
             </div>
           )}

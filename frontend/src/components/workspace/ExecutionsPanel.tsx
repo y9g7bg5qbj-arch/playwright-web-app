@@ -1,4 +1,21 @@
 import { useState } from 'react';
+import {
+  AlertTriangle,
+  Ban,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  CircleDot,
+  Clock3,
+  Download,
+  FileBarChart2,
+  Filter,
+  Loader2,
+  RefreshCw,
+  SkipForward,
+  Timer,
+  XCircle,
+} from 'lucide-react';
 
 // Execution types
 export interface ExecutionStep {
@@ -45,51 +62,57 @@ export interface ExecutionsPanelProps {
 
 type FilterTab = 'all' | 'running' | 'failed';
 
-const statusConfig: Record<string, { icon: string; color: string; bgColor: string; label: string }> = {
-  passed: {
-    icon: 'task_alt',
-    color: '#3fb950',
-    bgColor: 'bg-[#238636]/10',
-    label: 'Passed'
-  },
-  failed: {
-    icon: 'error',
-    color: '#f85149',
-    bgColor: 'bg-[#da3633]/10',
-    label: 'Failed'
-  },
-  running: {
-    icon: 'sync',
-    color: '#58a6ff',
-    bgColor: 'bg-[#2479f9]/10',
-    label: 'Running'
-  },
-  queued: {
-    icon: 'schedule',
-    color: '#d29922',
-    bgColor: 'bg-[#d29922]/10',
-    label: 'Queued'
-  },
-  cancelled: {
-    icon: 'cancel',
-    color: '#8b949e',
-    bgColor: 'bg-[#8b949e]/10',
-    label: 'Cancelled'
-  },
-  pending: {
-    icon: 'radio_button_unchecked',
-    color: '#6e7681',
-    bgColor: 'bg-[#6e7681]/10',
-    label: 'Pending'
-  },
-  skipped: {
-    icon: 'skip_next',
-    color: '#6e7681',
-    bgColor: 'bg-[#6e7681]/10',
-    label: 'Skipped'
-  },
+type StatusMeta = {
+  icon: React.ComponentType<{ className?: string }>;
+  colorClass: string;
+  softBgClass: string;
+  label: string;
 };
 
+const statusConfig: Record<string, StatusMeta> = {
+  passed: {
+    icon: CheckCircle2,
+    colorClass: 'text-status-success',
+    softBgClass: 'bg-status-success/12',
+    label: 'Passed',
+  },
+  failed: {
+    icon: XCircle,
+    colorClass: 'text-status-danger',
+    softBgClass: 'bg-status-danger/12',
+    label: 'Failed',
+  },
+  running: {
+    icon: Loader2,
+    colorClass: 'text-status-info',
+    softBgClass: 'bg-status-info/12',
+    label: 'Running',
+  },
+  queued: {
+    icon: Clock3,
+    colorClass: 'text-status-warning',
+    softBgClass: 'bg-status-warning/12',
+    label: 'Queued',
+  },
+  cancelled: {
+    icon: Ban,
+    colorClass: 'text-text-secondary',
+    softBgClass: 'bg-white/[0.06]',
+    label: 'Cancelled',
+  },
+  pending: {
+    icon: CircleDot,
+    colorClass: 'text-text-muted',
+    softBgClass: 'bg-white/[0.06]',
+    label: 'Pending',
+  },
+  skipped: {
+    icon: SkipForward,
+    colorClass: 'text-text-secondary',
+    softBgClass: 'bg-white/[0.06]',
+    label: 'Skipped',
+  },
+};
 
 export function ExecutionsPanel({
   executions,
@@ -125,9 +148,7 @@ export function ExecutionsPanel({
     return true;
   });
 
-  const runningCount = executions.filter(
-    (e) => e.status === 'running' || e.status === 'queued'
-  ).length;
+  const runningCount = executions.filter((e) => e.status === 'running' || e.status === 'queued').length;
   const failedCount = executions.filter((e) => e.status === 'failed').length;
 
   const formatDuration = (ms?: number) => {
@@ -150,66 +171,64 @@ export function ExecutionsPanel({
     return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
   };
 
+  const renderStatusIcon = (status: string, className: string = 'h-4 w-4') => {
+    const cfg = statusConfig[status] || statusConfig.pending;
+    const Icon = cfg.icon;
+    const spin = status === 'running';
+    return <Icon className={`${className} ${cfg.colorClass} ${spin ? 'animate-spin' : ''}`} />;
+  };
+
   return (
-    <div className="h-full flex flex-col bg-[#161b22]">
-      {/* Header */}
-      <div className="h-9 px-3 flex items-center justify-between border-b border-[#30363d]/50 bg-[#0d1117] shrink-0">
+    <section className="h-full flex flex-col bg-dark-canvas">
+      <header className="h-10 px-3 flex items-center justify-between border-b border-border-default bg-dark-bg shrink-0">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[16px] text-[#3fb950]">rocket_launch</span>
-          <span className="text-[12px] font-semibold text-[#c9d1d9]">
-            Test Runs
-          </span>
-          <span className="text-[10px] text-[#6e7681] bg-[#21262d] px-1.5 py-0.5 rounded-full">
+          <FileBarChart2 className="h-4 w-4 text-status-info" />
+          <span className="text-xs font-semibold text-text-primary uppercase tracking-wide">Execution Results</span>
+          <span className="text-[10px] text-text-secondary bg-dark-elevated px-1.5 py-0.5 rounded-full border border-border-default">
             {executions.length}
           </span>
         </div>
         <div className="flex gap-1">
           <button
             onClick={onRefresh}
-            className="text-[#6e7681] hover:text-white hover:bg-[#21262d] text-[10px] flex items-center gap-1 px-2 py-1 rounded transition-all"
+            className="h-7 w-7 inline-flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-white/[0.05] transition-colors"
+            title="Refresh"
           >
-            <span className="material-symbols-outlined text-[14px]">refresh</span>
+            <RefreshCw className="h-3.5 w-3.5" />
           </button>
-          <button className="text-[#6e7681] hover:text-white hover:bg-[#21262d] text-[10px] flex items-center gap-1 px-2 py-1 rounded transition-all">
-            <span className="material-symbols-outlined text-[14px]">filter_list</span>
+          <button
+            className="h-7 w-7 inline-flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-white/[0.05] transition-colors"
+            title="Filter"
+          >
+            <Filter className="h-3.5 w-3.5" />
           </button>
-          <button className="text-[#6e7681] hover:text-white hover:bg-[#21262d] text-[10px] flex items-center gap-1 px-2 py-1 rounded transition-all">
-            <span className="material-symbols-outlined text-[14px]">download</span>
+          <button
+            className="h-7 w-7 inline-flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-white/[0.05] transition-colors"
+            title="Export"
+          >
+            <Download className="h-3.5 w-3.5" />
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Filter Tabs */}
-      <div className="px-3 py-2 border-b border-[#30363d]/50 bg-[#0d1117]/50">
+      <div className="px-3 py-2 border-b border-border-default bg-dark-bg/40">
         <div className="flex gap-1">
           {[
-            { id: 'all' as FilterTab, icon: 'list', label: 'All', count: executions.length, color: '#8b949e' },
-            { id: 'running' as FilterTab, icon: 'sync', label: 'Running', count: runningCount, color: '#58a6ff' },
-            { id: 'failed' as FilterTab, icon: 'error', label: 'Failed', count: failedCount, color: '#f85149' },
+            { id: 'all' as FilterTab, label: 'All', count: executions.length },
+            { id: 'running' as FilterTab, label: 'Running', count: runningCount },
+            { id: 'failed' as FilterTab, label: 'Failed', count: failedCount },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium transition-all ${
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition-colors border ${
                 activeTab === tab.id
-                  ? 'bg-[#21262d] text-white border border-[#30363d]'
-                  : 'text-[#6e7681] hover:text-[#c9d1d9] hover:bg-[#21262d]/50'
+                  ? 'bg-dark-elevated border-border-emphasis text-text-primary'
+                  : 'bg-transparent border-transparent text-text-secondary hover:text-text-primary hover:bg-white/[0.04]'
               }`}
             >
-              <span
-                className={`material-symbols-outlined text-[12px] ${tab.id === 'running' && activeTab === tab.id ? 'animate-spin' : ''}`}
-                style={{ color: activeTab === tab.id ? tab.color : undefined }}
-              >
-                {tab.icon}
-              </span>
               {tab.label}
-              <span
-                className="min-w-[16px] h-[16px] flex items-center justify-center rounded-full text-[9px] font-bold"
-                style={{
-                  backgroundColor: activeTab === tab.id ? `${tab.color}20` : '#21262d',
-                  color: activeTab === tab.id ? tab.color : '#6e7681'
-                }}
-              >
+              <span className="min-w-[16px] h-4 inline-flex items-center justify-center rounded-full text-[10px] font-semibold bg-black/25 text-text-secondary border border-border-default">
                 {tab.count}
               </span>
             </button>
@@ -217,226 +236,168 @@ export function ExecutionsPanel({
         </div>
       </div>
 
-      {/* Executions List */}
       <div className="flex-1 overflow-y-auto p-2">
         {filteredExecutions.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-[#6e7681]">
-            <span className="material-symbols-outlined text-[40px] mb-3 opacity-30">
-              rocket_launch
-            </span>
-            <p className="text-[11px] font-medium">No test runs found</p>
-            <p className="text-[10px] mt-1 opacity-70">Run a test to see results here</p>
+          <div className="h-full flex flex-col items-center justify-center text-text-secondary">
+            <FileBarChart2 className="h-9 w-9 mb-3 opacity-35" />
+            <p className="text-xs font-medium">No execution results found</p>
+            <p className="text-[11px] mt-1 text-text-muted">Run a test to see results here</p>
           </div>
         ) : (
           <div className="space-y-2">
             {filteredExecutions.map((execution) => {
               const isExpanded = expandedExecutions.has(execution.id);
-              const status = statusConfig[execution.status] || statusConfig.pending;
+              const cfg = statusConfig[execution.status] || statusConfig.pending;
               const passRate = execution.totalTests > 0 ? (execution.passedTests / execution.totalTests) * 100 : 0;
 
               return (
-                <div
+                <article
                   key={execution.id}
-                  className="bg-[#161b22] rounded-lg border border-[#30363d]/70 overflow-hidden hover:border-[#30363d] transition-colors"
+                  className="bg-dark-card rounded-lg border border-border-default overflow-hidden hover:border-border-emphasis transition-colors"
                 >
-                  {/* Execution Header */}
-                  <div
-                    className="px-3 py-2.5 cursor-pointer hover:bg-[#1c2128]/50 transition-colors"
+                  <button
+                    className="w-full px-3 py-2.5 text-left hover:bg-white/[0.03] transition-colors"
                     onClick={() => toggleExecution(execution.id)}
                   >
                     <div className="flex items-center gap-2">
-                      {/* Expand Icon */}
-                      <span className="material-symbols-outlined text-[16px] text-[#6e7681]">
-                        {isExpanded ? 'expand_more' : 'chevron_right'}
-                      </span>
+                      {isExpanded ? (
+                        <ChevronDown className="h-4 w-4 text-text-secondary" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-text-secondary" />
+                      )}
 
-                      {/* Status Icon */}
-                      <span
-                        className={`material-symbols-outlined text-[18px] ${execution.status === 'running' ? 'animate-spin' : 'icon-filled'}`}
-                        style={{ color: status.color }}
-                      >
-                        {status.icon}
-                      </span>
+                      {renderStatusIcon(execution.status, 'h-4.5 w-4.5')}
 
-                      {/* Run Info */}
-                      <div className="flex-1 min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="text-[12px] font-semibold text-[#c9d1d9]">
-                            Run #{execution.runNumber}
-                          </span>
-                          <span className="text-[9px] text-[#6e7681] bg-[#21262d] px-1.5 py-0.5 rounded">
+                          <span className="text-xs font-semibold text-text-primary">Run #{execution.runNumber}</span>
+                          <span className="text-[10px] text-text-secondary bg-black/25 border border-border-default px-1.5 py-0.5 rounded">
                             {execution.config}
                           </span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded border ${cfg.softBgClass} ${cfg.colorClass} border-current/30`}>
+                            {cfg.label}
+                          </span>
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5 text-[9px] text-[#6e7681]">
+                        <div className="flex items-center gap-2 mt-0.5 text-[10px] text-text-muted">
                           <span>{formatTimeAgo(execution.startedAt)}</span>
-                          <span className="opacity-50">·</span>
+                          <span>·</span>
                           <span>{formatDuration(execution.duration)}</span>
-                          <span className="opacity-50">·</span>
+                          <span>·</span>
                           <span>{execution.environment}</span>
+                          <span>·</span>
+                          <span>{execution.triggeredBy}</span>
                         </div>
                       </div>
 
-                      {/* Stats Mini */}
-                      <div className="flex items-center gap-3">
-                        {/* Pass/Fail counts */}
-                        <div className="flex items-center gap-1.5 text-[10px]">
-                          <span className="flex items-center gap-0.5" style={{ color: statusConfig.passed.color }}>
-                            <span className="material-symbols-outlined text-[12px]">check</span>
-                            {execution.passedTests}
+                      <div className="flex items-center gap-3 pl-2">
+                        <div className="text-[10px] flex items-center gap-1.5">
+                          <span className="text-status-success inline-flex items-center gap-0.5">
+                            <CheckCircle2 className="h-3 w-3" /> {execution.passedTests}
                           </span>
-                          <span className="text-[#6e7681]">/</span>
-                          <span className="flex items-center gap-0.5" style={{ color: execution.failedTests > 0 ? statusConfig.failed.color : '#6e7681' }}>
-                            <span className="material-symbols-outlined text-[12px]">close</span>
-                            {execution.failedTests}
+                          <span className="text-text-muted">/</span>
+                          <span className={`${execution.failedTests > 0 ? 'text-status-danger' : 'text-text-muted'} inline-flex items-center gap-0.5`}>
+                            <XCircle className="h-3 w-3" /> {execution.failedTests}
                           </span>
                         </div>
-
-                        {/* Progress bar */}
-                        <div className="w-16 h-1.5 bg-[#21262d] rounded-full overflow-hidden">
+                        <div className="w-16 h-1.5 rounded-full bg-dark-elevated overflow-hidden border border-border-default">
                           <div
-                            className="h-full rounded-full transition-all"
-                            style={{
-                              width: `${passRate}%`,
-                              backgroundColor: passRate === 100 ? statusConfig.passed.color : passRate > 0 ? statusConfig.failed.color : '#6e7681'
-                            }}
+                            className={`h-full ${passRate === 100 ? 'bg-status-success' : passRate > 0 ? 'bg-status-warning' : 'bg-text-muted'}`}
+                            style={{ width: `${passRate}%` }}
                           />
                         </div>
                       </div>
-
-                      {/* Actions */}
-                      {execution.allureReportUrl && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onViewAllure(execution.allureReportUrl!);
-                          }}
-                          className="flex items-center gap-1 px-2 py-1 text-[9px] font-medium text-[#58a6ff] bg-[#58a6ff]/10 hover:bg-[#58a6ff]/20 border border-[#58a6ff]/20 rounded transition-all"
-                        >
-                          <span className="material-symbols-outlined text-[12px]">assessment</span>
-                          Report
-                        </button>
-                      )}
                     </div>
-                  </div>
+                  </button>
 
-                  {/* Expanded Scenarios */}
                   {isExpanded && (
-                    <div className="px-3 pb-3 pt-1 space-y-2 bg-[#0d1117]/30 border-t border-[#30363d]/30">
+                    <div className="px-3 pb-3 pt-1 space-y-2 bg-black/10 border-t border-border-default">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wide">Scenarios</span>
+                        {execution.allureReportUrl && (
+                          <button
+                            onClick={() => onViewAllure(execution.allureReportUrl!)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-status-info bg-status-info/12 border border-status-info/30 hover:bg-status-info/20 transition-colors"
+                          >
+                            <FileBarChart2 className="h-3 w-3" /> Report
+                          </button>
+                        )}
+                      </div>
+
                       {execution.scenarios.map((scenario) => {
                         const isScenarioExpanded = expandedScenarios.has(scenario.id);
-                        const scenarioStatus = statusConfig[scenario.status] || statusConfig.pending;
                         const scenarioPassRate = scenario.steps.length > 0
                           ? (scenario.steps.filter((s) => s.status === 'passed').length / scenario.steps.length) * 100
                           : 0;
 
                         return (
-                          <div
-                            key={scenario.id}
-                            className="bg-[#161b22] rounded-md border border-[#30363d]/50 overflow-hidden"
-                          >
-                            {/* Scenario Header */}
-                            <div
-                              className="flex items-center gap-2 px-2.5 py-2 cursor-pointer hover:bg-[#1c2128]/50 transition-colors"
+                          <div key={scenario.id} className="bg-dark-card rounded-md border border-border-default overflow-hidden">
+                            <button
+                              className="w-full flex items-center gap-2 px-2.5 py-2 hover:bg-white/[0.03] transition-colors"
                               onClick={() => toggleScenario(scenario.id)}
                             >
-                              <span className="material-symbols-outlined text-[14px] text-[#6e7681]">
-                                {isScenarioExpanded ? 'expand_more' : 'chevron_right'}
-                              </span>
-                              <span
-                                className={`material-symbols-outlined text-[14px] ${scenario.status === 'running' ? 'animate-spin' : 'icon-filled'}`}
-                                style={{ color: scenarioStatus.color }}
-                              >
-                                {scenarioStatus.icon}
-                              </span>
-                              <span className="text-[11px] font-medium text-[#c9d1d9] flex-1 truncate">
-                                {scenario.name}
-                              </span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-[9px] text-[#6e7681] font-mono">
-                                  {formatDuration(scenario.duration)}
-                                </span>
-                                <div className="flex items-center gap-0.5 text-[9px]">
-                                  <span style={{ color: statusConfig.passed.color }}>
-                                    {scenario.steps.filter((s) => s.status === 'passed').length}
-                                  </span>
-                                  <span className="text-[#6e7681]">/</span>
-                                  <span className="text-[#6e7681]">{scenario.steps.length}</span>
-                                </div>
-                                <div className="w-10 h-1 bg-[#21262d] rounded-full overflow-hidden">
-                                  <div
-                                    className="h-full rounded-full transition-all"
-                                    style={{
-                                      width: `${scenarioPassRate}%`,
-                                      backgroundColor: scenarioStatus.color
-                                    }}
-                                  />
-                                </div>
+                              {isScenarioExpanded ? (
+                                <ChevronDown className="h-3.5 w-3.5 text-text-secondary" />
+                              ) : (
+                                <ChevronRight className="h-3.5 w-3.5 text-text-secondary" />
+                              )}
+                              {renderStatusIcon(scenario.status, 'h-3.5 w-3.5')}
+                              <span className="text-[11px] font-medium text-text-primary flex-1 truncate text-left">{scenario.name}</span>
+                              <span className="text-[10px] text-text-muted font-mono">{formatDuration(scenario.duration)}</span>
+                              <div className="w-10 h-1 rounded-full bg-dark-elevated overflow-hidden border border-border-default">
+                                <div
+                                  className={`h-full ${scenario.status === 'passed' ? 'bg-status-success' : scenario.status === 'failed' ? 'bg-status-danger' : 'bg-status-info'}`}
+                                  style={{ width: `${scenarioPassRate}%` }}
+                                />
                               </div>
-                            </div>
+                            </button>
 
-                            {/* Scenario Expanded Content */}
                             {isScenarioExpanded && (
-                              <div className="px-2.5 pb-2.5 pt-1 space-y-2 bg-[#0d1117]/50 border-t border-[#30363d]/30">
-                                {/* Trace Viewer Button */}
-                                {scenario.traceUrl && (
-                                  <div className="flex justify-start mb-2">
+                              <div className="px-2.5 pb-2.5 pt-1 space-y-2 border-t border-border-default bg-black/15">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] uppercase tracking-wide text-text-muted">Steps</span>
+                                  {scenario.traceUrl && (
                                     <button
                                       onClick={() => onViewTrace(scenario.traceUrl!, scenario.name)}
-                                      className="flex items-center gap-1 px-2 py-1 text-[9px] font-medium text-[#a371f7] bg-[#a371f7]/10 border border-[#a371f7]/20 hover:bg-[#a371f7]/20 rounded transition-all"
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-accent-purple bg-accent-purple/12 border border-accent-purple/30 hover:bg-accent-purple/20 transition-colors"
                                     >
-                                      <span className="material-symbols-outlined text-[12px]">
-                                        timeline
-                                      </span>
-                                      View Trace
+                                      <Timer className="h-3 w-3" /> View Trace
                                     </button>
-                                  </div>
-                                )}
+                                  )}
+                                </div>
 
-                                {/* Steps */}
                                 <div className="space-y-1">
                                   {scenario.steps.map((step) => {
-                                    const stepStatus = statusConfig[step.status] || statusConfig.pending;
-                                    if (step.status !== 'failed') {
+                                    const failed = step.status === 'failed';
+                                    const stepCfg = statusConfig[step.status] || statusConfig.pending;
+
+                                    if (!failed) {
                                       return (
                                         <div
                                           key={step.id}
-                                          className={`flex items-center gap-2 px-2 py-1 rounded hover:bg-[#21262d]/50 transition-colors ${
-                                            step.status === 'skipped' ? 'opacity-40' : ''
-                                          }`}
+                                          className={`flex items-center gap-2 px-2 py-1 rounded hover:bg-white/[0.04] transition-colors ${step.status === 'skipped' ? 'opacity-50' : ''}`}
                                         >
-                                          <span
-                                            className={`material-symbols-outlined text-[12px] ${step.status === 'running' ? 'animate-spin' : ''}`}
-                                            style={{ color: stepStatus.color }}
-                                          >
-                                            {stepStatus.icon}
-                                          </span>
-                                          <span className="text-[10px] text-[#c9d1d9] flex-1 truncate">{step.name}</span>
-                                          <span className="text-[9px] text-[#6e7681] font-mono">
-                                            {formatDuration(step.duration)}
-                                          </span>
+                                          {renderStatusIcon(step.status, 'h-3 w-3')}
+                                          <span className="text-[10px] text-text-primary flex-1 truncate">{step.name}</span>
+                                          <span className="text-[9px] text-text-muted font-mono">{formatDuration(step.duration)}</span>
                                         </div>
                                       );
                                     }
+
                                     return (
-                                      <div key={step.id} className="rounded-md bg-[#f85149]/5 border border-[#f85149]/30 overflow-hidden">
-                                        <div className="flex items-center gap-2 px-2 py-1.5 bg-[#f85149]/10 border-b border-[#f85149]/20">
-                                          <span className="material-symbols-outlined text-[14px] icon-filled" style={{ color: statusConfig.failed.color }}>
-                                            {statusConfig.failed.icon}
-                                          </span>
-                                          <span className="text-[10px] font-semibold text-[#c9d1d9] flex-1 truncate">{step.name}</span>
-                                          <span className="text-[9px] font-mono" style={{ color: statusConfig.failed.color }}>
-                                            {formatDuration(step.duration)}
-                                          </span>
+                                      <div key={step.id} className="rounded-md bg-status-danger/8 border border-status-danger/30 overflow-hidden">
+                                        <div className="flex items-center gap-2 px-2 py-1.5 bg-status-danger/12 border-b border-status-danger/25">
+                                          <AlertTriangle className="h-3.5 w-3.5 text-status-danger" />
+                                          <span className="text-[10px] font-semibold text-text-primary flex-1 truncate">{step.name}</span>
+                                          <span className={`text-[9px] font-mono ${stepCfg.colorClass}`}>{formatDuration(step.duration)}</span>
                                         </div>
                                         <div className="p-2 space-y-2">
                                           {step.error && (
-                                            <div className="p-2 rounded bg-[#161b22] border border-[#da3633]/30 text-[10px] font-mono text-red-300">
-                                              <span className="font-bold">Error:</span> {step.error}
+                                            <div className="p-2 rounded bg-dark-card border border-status-danger/30 text-[10px] font-mono text-red-200">
+                                              <span className="font-semibold">Error:</span> {step.error}
                                             </div>
                                           )}
                                           {step.screenshotUrl && (
-                                            <div className="relative aspect-video bg-black rounded border border-[#30363d] overflow-hidden max-w-[200px]">
+                                            <div className="relative aspect-video bg-black rounded border border-border-default overflow-hidden max-w-[220px]">
                                               <img src={step.screenshotUrl} alt="Failure" className="w-full h-full object-cover" />
                                             </div>
                                           )}
@@ -452,12 +413,12 @@ export function ExecutionsPanel({
                       })}
                     </div>
                   )}
-                </div>
+                </article>
               );
             })}
           </div>
         )}
       </div>
-    </div>
+    </section>
   );
 }

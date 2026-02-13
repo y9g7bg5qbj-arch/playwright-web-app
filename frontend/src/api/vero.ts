@@ -67,6 +67,21 @@ export interface VeroRunConfig {
   workers?: number;
 }
 
+export interface VeroRunScenario {
+  name: string;
+  status: string;
+  duration: number;
+  error?: string;
+  steps: Array<{
+    stepNumber: number;
+    action: string;
+    description: string;
+    status: string;
+    duration: number;
+    error?: string;
+  }>;
+}
+
 export interface VeroRunResponse {
   success: boolean;
   status: string;
@@ -74,6 +89,8 @@ export interface VeroRunResponse {
   error?: string;
   generatedCode?: string;
   executionId?: string;
+  scenarios?: VeroRunScenario[];
+  summary?: { passed: number; failed: number; skipped: number };
 }
 
 export interface VeroValidationError {

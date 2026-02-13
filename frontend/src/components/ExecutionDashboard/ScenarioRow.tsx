@@ -199,7 +199,13 @@ export const ScenarioRow: React.FC<ScenarioRowProps> = ({
               alt="Screenshot"
               className="w-full h-full object-cover"
               onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none';
+                const img = e.target as HTMLImageElement;
+                img.style.display = 'none';
+                const placeholder = document.createElement('div');
+                placeholder.className = 'w-full h-full flex items-center justify-center bg-slate-800';
+                placeholder.innerHTML = '<svg class="w-4 h-4 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="15" x2="21" y2="15"/><circle cx="8.5" cy="8.5" r="1.5"/></svg>';
+                placeholder.title = 'Screenshot not available';
+                img.parentElement?.appendChild(placeholder);
               }}
             />
           </button>
@@ -212,7 +218,6 @@ export const ScenarioRow: React.FC<ScenarioRowProps> = ({
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              console.log('View Trace clicked for:', scenario.name, scenario.traceUrl);
               onViewTrace();
             }}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium transition-colors relative z-10 cursor-pointer ${
@@ -340,7 +345,13 @@ export const ScenarioRow: React.FC<ScenarioRowProps> = ({
                         alt="Step screenshot"
                         className="w-full h-full object-cover"
                         onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
+                          const img = e.target as HTMLImageElement;
+                          img.style.display = 'none';
+                          const placeholder = document.createElement('div');
+                          placeholder.className = 'w-full h-full flex items-center justify-center bg-slate-800';
+                          placeholder.title = 'Screenshot not available';
+                          placeholder.innerHTML = '<svg class="w-3 h-3 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="15" x2="21" y2="15"/></svg>';
+                          img.parentElement?.appendChild(placeholder);
                         }}
                       />
                     </button>

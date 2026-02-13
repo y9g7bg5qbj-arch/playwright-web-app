@@ -1,183 +1,200 @@
+import { type ComponentType } from 'react';
+import { PlayCircle, Bug, PanelsTopLeft, Split, Layers } from 'lucide-react';
 import type { RunConfiguration } from '@/store/runConfigStore';
+import { runConfigTheme, chipClass, cx } from './theme';
 
 interface ExecutionTabProps {
   config: RunConfiguration;
   onChange: <K extends keyof RunConfiguration>(field: K, value: RunConfiguration[K]) => void;
 }
 
+interface ToggleOption {
+  id: 'headed' | 'debug' | 'ui';
+  title: string;
+  description: string;
+  icon: ComponentType<{ className?: string }>;
+}
+
+const TOGGLE_OPTIONS: ToggleOption[] = [
+  {
+    id: 'headed',
+    title: 'Headed Mode',
+    description: 'Keep browser visible during execution.',
+    icon: PlayCircle,
+  },
+  {
+    id: 'debug',
+    title: 'Debug Mode',
+    description: 'Enable Playwright inspector and breakpoint flow.',
+    icon: Bug,
+  },
+  {
+    id: 'ui',
+    title: 'Playwright UI Mode',
+    description: 'Open Playwright UI for interactive exploration.',
+    icon: PanelsTopLeft,
+  },
+];
+
 export function ExecutionTab({ config, onChange }: ExecutionTabProps) {
   return (
-    <div className="space-y-6 max-w-2xl">
-      {/* Execution Mode */}
-      <div className="space-y-3">
-        <label className="block text-sm font-medium text-[#c9d1d9]">
-          Execution Mode
-        </label>
-
-        <div className="space-y-2">
-          <label className="flex items-center gap-3 p-3 bg-[#0d1117] rounded border border-[#30363d] cursor-pointer hover:border-[#484f58]">
-            <input
-              type="checkbox"
-              checked={config.headed}
-              onChange={(e) => onChange('headed', e.target.checked)}
-              className="w-4 h-4 rounded border-[#30363d] bg-[#0d1117] text-sky-500 focus:ring-sky-500 focus:ring-offset-[#161b22]"
-            />
-            <div>
-              <div className="text-sm text-white">Headed Mode</div>
-              <div className="text-xs text-[#6e7681]">Show browser window during test execution</div>
-            </div>
-          </label>
-
-          <label className="flex items-center gap-3 p-3 bg-[#0d1117] rounded border border-[#30363d] cursor-pointer hover:border-[#484f58]">
-            <input
-              type="checkbox"
-              checked={config.debug}
-              onChange={(e) => onChange('debug', e.target.checked)}
-              className="w-4 h-4 rounded border-[#30363d] bg-[#0d1117] text-sky-500 focus:ring-sky-500 focus:ring-offset-[#161b22]"
-            />
-            <div>
-              <div className="text-sm text-white">Debug Mode</div>
-              <div className="text-xs text-[#6e7681]">Enable Playwright Inspector for step-by-step debugging</div>
-            </div>
-          </label>
-
-          <label className="flex items-center gap-3 p-3 bg-[#0d1117] rounded border border-[#30363d] cursor-pointer hover:border-[#484f58]">
-            <input
-              type="checkbox"
-              checked={config.ui}
-              onChange={(e) => onChange('ui', e.target.checked)}
-              className="w-4 h-4 rounded border-[#30363d] bg-[#0d1117] text-sky-500 focus:ring-sky-500 focus:ring-offset-[#161b22]"
-            />
-            <div>
-              <div className="text-sm text-white">UI Mode</div>
-              <div className="text-xs text-[#6e7681]">Open Playwright UI for interactive test exploration</div>
-            </div>
-          </label>
+    <div className="mx-auto max-w-3xl space-y-5">
+      <section className={runConfigTheme.section}>
+        <p className={runConfigTheme.label}>Execution Mode</p>
+        <div className="mt-3 grid gap-2">
+          {TOGGLE_OPTIONS.map((option) => {
+            const Icon = option.icon;
+            const enabled = Boolean(config[option.id]);
+            return (
+              <label
+                key={option.id}
+                className={cx(
+                  'flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 transition-colors',
+                  enabled
+                    ? 'border-border-active bg-brand-primary/12'
+                    : 'border-border-default bg-dark-canvas/45 hover:border-border-emphasis'
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={enabled}
+                  onChange={(event) => onChange(option.id, event.target.checked)}
+                  className={cx(runConfigTheme.toggle, 'mt-0.5 shrink-0')}
+                />
+                <Icon className={cx('mt-0.5 h-4 w-4', enabled ? 'text-brand-secondary' : 'text-text-muted')} />
+                <div>
+                  <p className="text-sm font-medium text-text-primary">{option.title}</p>
+                  <p className="text-xs text-text-secondary">{option.description}</p>
+                </div>
+              </label>
+            );
+          })}
         </div>
-      </div>
+      </section>
 
-      {/* Parallelism */}
-      <div className="space-y-3">
-        <label className="block text-sm font-medium text-[#c9d1d9]">
-          Parallelism
-        </label>
+      <section className={runConfigTheme.section}>
+        <div className="mb-3 flex items-center gap-2">
+          <Layers className="h-4 w-4 text-brand-secondary" />
+          <p className={runConfigTheme.label}>Parallelism</p>
+        </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="block text-xs text-[#8b949e]">Workers</label>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label className={runConfigTheme.label}>Workers</label>
             <input
               type="number"
               min={1}
               max={32}
               value={config.workers}
-              onChange={(e) => onChange('workers', parseInt(e.target.value) || 1)}
-              className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
+              onChange={(event) => onChange('workers', parseInt(event.target.value, 10) || 1)}
+              className={cx(runConfigTheme.input, 'mt-2')}
             />
-            <p className="text-xs text-[#6e7681]">Number of parallel test workers</p>
+            <p className="mt-1 text-xs text-text-muted">Number of concurrent workers for local execution.</p>
           </div>
 
-          <div className="space-y-2">
-            <label className="block text-xs text-[#8b949e]">Quick Presets</label>
-            <div className="flex gap-2">
-              {[1, 2, 4, 8].map((n) => (
+          <div>
+            <label className={runConfigTheme.label}>Quick Presets</label>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {[1, 2, 4, 8].map((workers) => (
                 <button
-                  key={n}
+                  key={workers}
                   type="button"
-                  onClick={() => onChange('workers', n)}
-                  className={`px-3 py-2 rounded text-sm transition-colors ${
-                    config.workers === n
-                      ? 'bg-sky-500 text-white'
-                      : 'bg-[#21262d] text-[#8b949e] hover:text-white hover:bg-[#30363d]'
-                  }`}
+                  onClick={() => onChange('workers', workers)}
+                  className={chipClass(config.workers === workers)}
                 >
-                  {n}
+                  {workers}
                 </button>
               ))}
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Sharding */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <label className="text-sm font-medium text-[#c9d1d9]">
-            Sharding
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
+      <section className={runConfigTheme.section}>
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Split className="h-4 w-4 text-brand-secondary" />
+            <p className={runConfigTheme.label}>Sharding</p>
+          </div>
+
+          <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-text-secondary">
             <input
               type="checkbox"
-              checked={!!config.shards}
-              onChange={(e) => {
-                if (e.target.checked) {
+              checked={Boolean(config.shards)}
+              onChange={(event) => {
+                if (event.target.checked) {
                   onChange('shards', { current: 1, total: 4 });
-                } else {
-                  onChange('shards', undefined);
+                  return;
                 }
+                onChange('shards', undefined);
               }}
-              className="w-4 h-4 rounded border-[#30363d] bg-[#0d1117] text-sky-500 focus:ring-sky-500 focus:ring-offset-[#161b22]"
+              className={runConfigTheme.toggle}
             />
-            <span className="text-sm text-[#8b949e]">Enable sharding</span>
+            Enable sharding
           </label>
         </div>
 
-        {config.shards && (
-          <div className="p-4 bg-[#0d1117] rounded-lg border border-[#30363d] space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="block text-xs text-[#8b949e]">Current Shard</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={config.shards.total}
-                  value={config.shards.current}
-                  onChange={(e) => onChange('shards', {
+        {config.shards ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <label className={runConfigTheme.label}>Current Shard</label>
+              <input
+                type="number"
+                min={1}
+                max={config.shards.total}
+                value={config.shards.current}
+                onChange={(event) =>
+                  onChange('shards', {
                     ...config.shards!,
-                    current: parseInt(e.target.value) || 1
-                  })}
-                  className="w-full bg-[#161b22] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-xs text-[#8b949e]">Total Shards</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={config.shards.total}
-                  onChange={(e) => onChange('shards', {
-                    ...config.shards!,
-                    total: parseInt(e.target.value) || 1
-                  })}
-                  className="w-full bg-[#161b22] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
-                />
-              </div>
+                    current: parseInt(event.target.value, 10) || 1,
+                  })
+                }
+                className={cx(runConfigTheme.input, 'mt-2')}
+              />
             </div>
 
-            <p className="text-xs text-[#6e7681]">
-              Shards split tests across multiple CI jobs. Use <code className="bg-[#21262d] px-1 rounded">--shard={config.shards.current}/{config.shards.total}</code>
-            </p>
-          </div>
-        )}
-      </div>
+            <div>
+              <label className={runConfigTheme.label}>Total Shards</label>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={config.shards.total}
+                onChange={(event) =>
+                  onChange('shards', {
+                    ...config.shards!,
+                    total: parseInt(event.target.value, 10) || 1,
+                  })
+                }
+                className={cx(runConfigTheme.input, 'mt-2')}
+              />
+            </div>
 
-      {/* Project Selection */}
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-[#c9d1d9]">
-          Project (optional)
-        </label>
+            <div className="md:col-span-2">
+              <p className={runConfigTheme.helper}>
+                Shard CLI preview:
+              </p>
+              <div className={cx(runConfigTheme.code, 'mt-1')}>
+                --shard={config.shards.current}/{config.shards.total}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-text-muted">Disable for local single-node runs. Enable for distributed CI jobs.</p>
+        )}
+      </section>
+
+      <section className={runConfigTheme.section}>
+        <p className={runConfigTheme.label}>Playwright Project (Optional)</p>
         <input
           type="text"
           value={config.project || ''}
-          onChange={(e) => onChange('project', e.target.value || undefined)}
-          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500 placeholder-[#6e7681]"
-          placeholder="e.g., chromium, firefox, mobile"
+          onChange={(event) => onChange('project', event.target.value || undefined)}
+          className={cx(runConfigTheme.input, 'mt-2')}
+          placeholder="chromium, firefox, mobile"
         />
-        <p className="text-xs text-[#6e7681]">
-          Run tests only for specified project from playwright.config.ts
-        </p>
-      </div>
+        <p className="mt-2 text-xs text-text-muted">Target a single `project` from `playwright.config.ts`.</p>
+      </section>
     </div>
   );
 }

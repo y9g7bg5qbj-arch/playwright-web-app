@@ -97,6 +97,7 @@ interface UseAIRecorderReturn {
     environment?: string;
     baseUrl?: string;
     applicationId?: string;
+    sandboxPath?: string;
   }) => Promise<void>;
   cancelSession: () => Promise<void>;
   refreshProgress: () => Promise<void>;
@@ -136,6 +137,27 @@ interface UseAIRecorderReturn {
 
   // Reset
   reset: () => void;
+}
+
+// ============================================
+// Helpers
+// ============================================
+
+/** Map API test case progress to local TestCaseProgress format */
+function mapTestCase(tc: { id: string; name: string; status: string; steps: Array<{ id: string; stepNumber: number; description: string; status: string; veroCode: string | null; retryCount: number }> }): TestCaseProgress {
+  return {
+    id: tc.id,
+    name: tc.name,
+    status: tc.status as any,
+    steps: tc.steps.map((s) => ({
+      stepId: s.id,
+      stepNumber: s.stepNumber,
+      description: s.description,
+      status: s.status as any,
+      veroCode: s.veroCode,
+      retryCount: s.retryCount,
+    })),
+  };
 }
 
 // ============================================
@@ -242,19 +264,7 @@ export function useAIRecorder(): UseAIRecorderReturn {
           totalTests: data.totalTests,
           completedTests: data.completedTests,
           failedTests: data.failedTests,
-          testCases: data.testCases.map((tc) => ({
-            id: tc.id,
-            name: tc.name,
-            status: tc.status as any,
-            steps: tc.steps.map((s) => ({
-              stepId: s.id,
-              stepNumber: s.stepNumber,
-              description: s.description,
-              status: s.status as any,
-              veroCode: s.veroCode,
-              retryCount: s.retryCount,
-            })),
-          })),
+          testCases: data.testCases.map(mapTestCase),
         }));
       }
     };
@@ -739,6 +749,7 @@ export function useAIRecorder(): UseAIRecorderReturn {
         environment?: string;
         baseUrl?: string;
         applicationId?: string;
+        sandboxPath?: string;
       }
     ) => {
       try {
@@ -822,19 +833,7 @@ export function useAIRecorder(): UseAIRecorderReturn {
         totalTests: progress.totalTests,
         completedTests: progress.completedTests,
         failedTests: progress.failedTests,
-        testCases: progress.testCases.map((tc) => ({
-          id: tc.id,
-          name: tc.name,
-          status: tc.status as any,
-          steps: tc.steps.map((s) => ({
-            stepId: s.id,
-            stepNumber: s.stepNumber,
-            description: s.description,
-            status: s.status as any,
-            veroCode: s.veroCode,
-            retryCount: s.retryCount,
-          })),
-        })),
+        testCases: progress.testCases.map(mapTestCase),
       }));
     } catch (error: any) {
       setSession((prev) => ({ ...prev, error: error.message }));
@@ -858,19 +857,7 @@ export function useAIRecorder(): UseAIRecorderReturn {
         totalTests: progress.totalTests,
         completedTests: progress.completedTests,
         failedTests: progress.failedTests,
-        testCases: progress.testCases.map((tc) => ({
-          id: tc.id,
-          name: tc.name,
-          status: tc.status as any,
-          steps: tc.steps.map((s) => ({
-            stepId: s.id,
-            stepNumber: s.stepNumber,
-            description: s.description,
-            status: s.status as any,
-            veroCode: s.veroCode,
-            retryCount: s.retryCount,
-          })),
-        })),
+        testCases: progress.testCases.map(mapTestCase),
         error: null,
       });
     } catch (error: any) {

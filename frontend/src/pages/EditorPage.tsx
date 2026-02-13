@@ -10,7 +10,6 @@ import {
   Save,
   Settings,
   Plus,
-  Search,
   X,
   Home,
   Terminal,
@@ -464,18 +463,6 @@ export function EditorPage() {
               >
                 <RefreshCw className={`w-4 h-4 ${isLoadingFiles ? 'animate-spin' : ''}`} />
               </button>
-            </div>
-          </div>
-
-          {/* Search */}
-          <div className="p-2 border-b border-border-default">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
-              <input
-                type="text"
-                placeholder="Search files..."
-                className="w-full pl-8 pr-3 py-1.5 bg-dark-bg border border-border-default rounded-md text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-blue"
-              />
             </div>
           </div>
 

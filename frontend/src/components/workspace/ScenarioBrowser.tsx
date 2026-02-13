@@ -1,4 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
+import {
+  X,
+  Tags,
+  ToggleLeft,
+  ToggleRight,
+  FileCode2,
+  ChevronRight,
+  TestTube2,
+  CircleOff,
+} from 'lucide-react';
 
 export interface ScenarioInfo {
   id: string;
@@ -18,6 +28,10 @@ export interface ScenarioBrowserProps {
 
 type FilterMode = 'AND' | 'OR';
 
+function normalizeTag(tag: string): string {
+  return tag.startsWith('@') ? tag : `@${tag}`;
+}
+
 export function ScenarioBrowser({
   isOpen,
   onClose,
@@ -26,67 +40,37 @@ export function ScenarioBrowser({
 }: ScenarioBrowserProps) {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [filterMode, setFilterMode] = useState<FilterMode>('OR');
-  const [searchQuery, setSearchQuery] = useState('');
 
-  // Extract all unique tags from scenarios
   const allTags = useMemo(() => {
-    const tagSet = new Set<string>();
-    scenarios.forEach(scenario => {
-      scenario.tags.forEach(tag => tagSet.add(tag));
+    const set = new Set<string>();
+    scenarios.forEach((scenario) => {
+      scenario.tags.forEach((tag) => set.add(tag));
     });
-    return Array.from(tagSet).sort();
+    return Array.from(set).sort();
   }, [scenarios]);
 
-  // Filter scenarios based on selected tags and mode
   const filteredScenarios = useMemo(() => {
     let result = scenarios;
 
-    // Filter by search query (scenario name, feature, file, or tags)
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      // Check if query looks like a tag (starts with @)
-      const isTagSearch = query.startsWith('@');
-      const tagQuery = isTagSearch ? query.slice(1) : query; // Remove @ prefix for tag matching
-
-      result = result.filter(s => {
-        // Always search in name, feature, and file path
-        const matchesText =
-          s.name.toLowerCase().includes(query) ||
-          s.featureName?.toLowerCase().includes(query) ||
-          s.filePath.toLowerCase().includes(query);
-
-        // Also search in tags (with or without @ prefix)
-        const matchesTags = s.tags.some(tag =>
-          tag.toLowerCase().includes(tagQuery)
-        );
-
-        return matchesText || matchesTags;
-      });
-    }
-
-    // Filter by selected tags
     if (selectedTags.length > 0) {
       if (filterMode === 'AND') {
-        // All selected tags must be present
-        result = result.filter(scenario =>
-          selectedTags.every(tag => scenario.tags.includes(tag))
+        result = result.filter((scenario) =>
+          selectedTags.every((selectedTag) => scenario.tags.includes(selectedTag))
         );
       } else {
-        // Any of the selected tags must be present
-        result = result.filter(scenario =>
-          selectedTags.some(tag => scenario.tags.includes(tag))
+        result = result.filter((scenario) =>
+          selectedTags.some((selectedTag) => scenario.tags.includes(selectedTag))
         );
       }
     }
 
     return result;
-  }, [scenarios, selectedTags, filterMode, searchQuery]);
+  }, [scenarios, selectedTags, filterMode]);
 
-  // Tag counts for display
   const tagCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    scenarios.forEach(scenario => {
-      scenario.tags.forEach(tag => {
+    scenarios.forEach((scenario) => {
+      scenario.tags.forEach((tag) => {
         counts[tag] = (counts[tag] || 0) + 1;
       });
     });
@@ -94,234 +78,186 @@ export function ScenarioBrowser({
   }, [scenarios]);
 
   const toggleTag = (tag: string) => {
-    setSelectedTags(prev =>
-      prev.includes(tag)
-        ? prev.filter(t => t !== tag)
-        : [...prev, tag]
+    setSelectedTags((previous) =>
+      previous.includes(tag) ? previous.filter((item) => item !== tag) : [...previous, tag]
     );
   };
 
   const clearFilters = () => {
     setSelectedTags([]);
-    setSearchQuery('');
   };
 
-  // Close on escape key
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
         onClose();
       }
     };
+
     if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown);
-      return () => document.removeEventListener('keydown', handleKeyDown);
+      document.addEventListener('keydown', onKeyDown);
+      return () => document.removeEventListener('keydown', onKeyDown);
     }
+
+    return undefined;
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
-      />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Modal */}
-      <div className="relative w-full max-w-4xl max-h-[85vh] bg-[#161b22] border border-[#30363d] rounded-lg shadow-2xl flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#30363d]">
-          <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-[#58a6ff] text-xl">fact_check</span>
-            <h2 className="text-lg font-semibold text-white">Scenario Browser</h2>
-            <span className="px-2 py-0.5 bg-[#21262d] rounded text-xs text-[#8b949e] font-mono">
-              {filteredScenarios.length} / {scenarios.length} scenarios
+      <div className="relative flex h-[min(86vh,820px)] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border-default bg-dark-card shadow-2xl">
+        <header className="flex h-12 items-center justify-between border-b border-border-default bg-dark-bg px-4">
+          <div className="flex items-center gap-2">
+            <TestTube2 className="h-4 w-4 text-brand-secondary" />
+            <h2 className="text-sm font-semibold text-text-primary">Scenario Browser</h2>
+            <span className="rounded-full border border-border-default bg-dark-elevated px-2 py-0.5 text-[10px] text-text-secondary">
+              {filteredScenarios.length} / {scenarios.length}
             </span>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 text-[#8b949e] hover:text-white hover:bg-[#30363d] rounded transition-colors"
+            className="inline-flex h-7 w-7 items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/[0.06] hover:text-text-primary"
+            title="Close"
           >
-            <span className="material-symbols-outlined">close</span>
+            <X className="h-4 w-4" />
           </button>
-        </div>
+        </header>
 
-        {/* Search & Filter Controls */}
-        <div className="px-5 py-4 border-b border-[#30363d] space-y-4">
-          {/* Search Input */}
-          <div className="relative">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#8b949e] text-lg">
-              search
-            </span>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name or @tag..."
-              className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-10 py-2.5 text-sm text-white placeholder-[#6e7681] focus:outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff]"
-            />
-            {(searchQuery || selectedTags.length > 0) && (
+        <div className="border-b border-border-default bg-dark-bg/60 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="inline-flex items-center gap-2 text-xs text-text-secondary">
+              <Tags className="h-3.5 w-3.5" />
+              Tag Mode
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setFilterMode((current) => (current === 'OR' ? 'AND' : 'OR'))}
+              className="inline-flex items-center gap-1 rounded-md border border-border-default bg-dark-elevated/50 px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-border-emphasis hover:text-text-primary"
+            >
+              {filterMode === 'OR' ? <ToggleLeft className="h-4 w-4" /> : <ToggleRight className="h-4 w-4" />}
+              {filterMode === 'OR' ? 'Any selected tag' : 'All selected tags'}
+            </button>
+
+            {selectedTags.length > 0 && (
               <button
+                type="button"
                 onClick={clearFilters}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8b949e] hover:text-white text-xs"
+                className="inline-flex items-center gap-1 rounded-md border border-border-default bg-dark-elevated/50 px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-border-emphasis hover:text-text-primary"
               >
-                Clear all
+                Clear filters
               </button>
             )}
           </div>
 
-          {/* Filter Mode Toggle */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-[#8b949e] font-medium uppercase tracking-wider">
-                Filter by Tags
-              </span>
-              <div className="flex items-center bg-[#21262d] rounded-md p-0.5 border border-[#30363d]">
-                <button
-                  onClick={() => setFilterMode('OR')}
-                  className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
-                    filterMode === 'OR'
-                      ? 'bg-[#58a6ff] text-white'
-                      : 'text-[#8b949e] hover:text-white'
-                  }`}
-                >
-                  OR
-                </button>
-                <button
-                  onClick={() => setFilterMode('AND')}
-                  className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
-                    filterMode === 'AND'
-                      ? 'bg-[#58a6ff] text-white'
-                      : 'text-[#8b949e] hover:text-white'
-                  }`}
-                >
-                  AND
-                </button>
-              </div>
-              <span className="text-xs text-[#6e7681]">
-                {filterMode === 'OR'
-                  ? 'Match any selected tag'
-                  : 'Match all selected tags'}
-              </span>
-            </div>
-          </div>
-
-          {/* Tags Cloud */}
-          <div className="flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             {allTags.length > 0 ? (
-              allTags.map(tag => {
-                const isSelected = selectedTags.includes(tag);
+              allTags.map((tag) => {
+                const selected = selectedTags.includes(tag);
                 return (
                   <button
                     key={tag}
+                    type="button"
                     onClick={() => toggleTag(tag)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono transition-all ${
-                      isSelected
-                        ? 'bg-[#58a6ff]/20 border border-[#58a6ff]/50 text-[#58a6ff]'
-                        : 'bg-[#21262d] border border-[#30363d] text-[#8b949e] hover:text-white hover:border-[#8b949e]'
+                    className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-mono transition-colors ${
+                      selected
+                        ? 'border-brand-primary/40 bg-brand-primary/20 text-text-primary'
+                        : 'border-border-default bg-dark-elevated/40 text-text-secondary hover:border-border-emphasis hover:text-text-primary'
                     }`}
                   >
-                    @{tag}
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                      isSelected ? 'bg-[#58a6ff]/30' : 'bg-[#30363d]'
-                    }`}>
-                      {tagCounts[tag]}
-                    </span>
-                    {isSelected && (
-                      <span className="material-symbols-outlined text-sm ml-0.5">close</span>
-                    )}
+                    {normalizeTag(tag)}
+                    <span className="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]">{tagCounts[tag]}</span>
                   </button>
                 );
               })
             ) : (
-              <span className="text-sm text-[#6e7681]">No tags found in scenarios</span>
+              <span className="text-xs text-text-muted">No tags found.</span>
             )}
           </div>
         </div>
 
-        {/* Scenarios List */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-dark-canvas/40 px-4 py-3">
           {filteredScenarios.length > 0 ? (
             <div className="space-y-2">
-              {filteredScenarios.map(scenario => (
+              {filteredScenarios.map((scenario) => (
                 <button
                   key={scenario.id}
+                  type="button"
                   onClick={() => {
                     onNavigateToScenario(scenario);
                     onClose();
                   }}
-                  className="w-full flex items-start gap-3 p-3 bg-[#0d1117] border border-[#30363d] rounded-lg hover:border-[#58a6ff]/50 hover:bg-[#21262d]/50 transition-all text-left group"
+                  className="group w-full rounded-lg border border-border-default bg-dark-card px-3 py-2.5 text-left transition-colors hover:border-border-active hover:bg-dark-elevated/45"
                 >
-                  <span className="material-symbols-outlined text-[#58a6ff] text-lg mt-0.5 icon-filled">
-                    play_circle
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-white group-hover:text-[#58a6ff] transition-colors">
-                        {scenario.name}
-                      </span>
-                      {scenario.featureName && (
-                        <span className="text-xs text-[#6e7681]">
-                          in {scenario.featureName}
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 rounded-md border border-border-default bg-dark-elevated/50 p-1.5 text-brand-secondary">
+                      <FileCode2 className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm font-medium text-text-primary group-hover:text-brand-secondary">
+                          {scenario.name}
                         </span>
+                        {scenario.featureName && (
+                          <span className="truncate text-xs text-text-muted">in {scenario.featureName}</span>
+                        )}
+                      </div>
+
+                      <div className="mt-1 text-xs text-text-secondary">
+                        {scenario.filePath}:{scenario.line}
+                      </div>
+
+                      {scenario.tags.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {scenario.tags.map((tag) => {
+                            const highlighted = selectedTags.includes(tag);
+                            return (
+                              <span
+                                key={`${scenario.id}-${tag}`}
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-mono ${
+                                  highlighted
+                                    ? 'bg-brand-primary/20 text-brand-secondary'
+                                    : 'bg-dark-elevated text-text-secondary'
+                                }`}
+                              >
+                                {normalizeTag(tag)}
+                              </span>
+                            );
+                          })}
+                        </div>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-[#8b949e] font-mono truncate">
-                        {scenario.filePath}:{scenario.line}
-                      </span>
-                    </div>
-                    {scenario.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {scenario.tags.map(tag => (
-                          <span
-                            key={tag}
-                            className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                              selectedTags.includes(tag)
-                                ? 'bg-[#58a6ff]/20 text-[#58a6ff]'
-                                : 'bg-[#30363d] text-[#8b949e]'
-                            }`}
-                          >
-                            @{tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                    <ChevronRight className="h-4 w-4 text-text-muted transition-colors group-hover:text-brand-secondary" />
                   </div>
-                  <span className="material-symbols-outlined text-[#6e7681] group-hover:text-[#58a6ff] transition-colors">
-                    arrow_forward
-                  </span>
                 </button>
               ))}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <span className="material-symbols-outlined text-4xl text-[#30363d] mb-3">
-                search_off
-              </span>
-              <p className="text-[#8b949e] text-sm">No scenarios match your filters</p>
+            <div className="flex h-full flex-col items-center justify-center text-center">
+              <CircleOff className="h-9 w-9 text-text-muted" />
+              <p className="mt-3 text-sm text-text-secondary">No scenarios match selected tags.</p>
               <button
+                type="button"
                 onClick={clearFilters}
-                className="mt-3 text-xs text-[#58a6ff] hover:underline"
+                className="mt-2 text-xs text-brand-secondary hover:underline"
               >
-                Clear all filters
+                Clear filters
               </button>
             </div>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="px-5 py-3 border-t border-[#30363d] bg-[#0d1117]/50 flex items-center justify-between">
-          <div className="text-xs text-[#6e7681]">
-            <kbd className="px-1.5 py-0.5 bg-[#21262d] border border-[#30363d] rounded text-[10px]">Esc</kbd>
+        <footer className="flex h-10 items-center justify-between border-t border-border-default bg-dark-bg px-4 text-xs text-text-muted">
+          <div>
+            <kbd className="rounded border border-border-default bg-dark-elevated px-1.5 py-0.5 text-[10px]">Esc</kbd>
             <span className="ml-2">to close</span>
           </div>
-          <div className="text-xs text-[#6e7681]">
-            Click a scenario to navigate to it
-          </div>
-        </div>
+          <div>Click a scenario to jump to source.</div>
+        </footer>
       </div>
     </div>
   );

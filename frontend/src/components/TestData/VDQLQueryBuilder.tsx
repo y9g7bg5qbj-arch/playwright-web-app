@@ -18,7 +18,7 @@ import {
 
 interface Column {
     name: string;
-    type: 'string' | 'number' | 'boolean' | 'date';
+    type: 'text' | 'string' | 'number' | 'boolean' | 'date' | 'formula' | 'reference';
 }
 
 interface FilterCondition {
@@ -230,7 +230,7 @@ export function VDQLQueryBuilder({
                     const column = columns.find(c => c.name === filter.column);
                     let formattedValue = filter.value;
 
-                    if (column?.type === 'string' || column?.type === 'date') {
+                    if (column?.type === 'string' || column?.type === 'text' || column?.type === 'date' || column?.type === 'formula' || column?.type === 'reference') {
                         formattedValue = `"${filter.value}"`;
                     } else if (column?.type === 'boolean') {
                         formattedValue = filter.value.toLowerCase() === 'true' ? 'true' : 'false';

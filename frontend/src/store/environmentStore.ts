@@ -179,7 +179,22 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       const newVar = await environmentsApi.addVariable(applicationId, envId, { key, value, isSecret });
       set((state) => ({
         environments: state.environments.map((env) =>
-          env.id === envId ? { ...env, variables: [...env.variables, newVar] } : env
+          env.id === envId
+            ? {
+                ...env,
+                variables: (() => {
+                  const existingIndex = env.variables.findIndex(
+                    (variable) => variable.id === newVar.id || variable.key === newVar.key
+                  );
+                  if (existingIndex === -1) {
+                    return [...env.variables, newVar];
+                  }
+                  const next = [...env.variables];
+                  next[existingIndex] = newVar;
+                  return next;
+                })(),
+              }
+            : env
         ),
       }));
 

@@ -12,60 +12,42 @@ import { ExplorerPanel, type FileNode, type NestedProject } from './ExplorerPane
 import { FileContextMenu } from './FileContextMenu.js';
 import { Header } from './Header.js';
 import { RecordingModal } from './RecordingModal.js';
-import { RunConfigurationModal, type RunConfiguration } from './RunConfigurationModal.js';
 import { ScenarioBrowser, type ScenarioInfo } from './ScenarioBrowser.js';
 import { RunConfigModal } from '../RunConfig/RunConfigModal';
-import { SchedulePanel, type Schedule } from './SchedulePanel.js';
-import { AIAgentPanel } from '../ide/AIAgentPanel.js';
+import { SchedulerPanel } from '../Scheduler/SchedulerPanel';
 import { AITestRecorderPanel } from '../ide/AITestRecorderPanel.js';
 import { ReviewSidePanel } from '../ide/ReviewSidePanel.js';
 import { AISettingsModal } from '../settings/AISettingsModal.js';
-import { LiveExecutionPanel } from '../ide/LiveExecutionPanel.js';
+import { DebugToolbar } from '../ide/DebugToolbar.js';
+import { DebugConsolePanel } from '../ide/DebugConsolePanel.js';
+import { useDebugger } from '@/hooks/useDebugger';
 import { TestDataPage } from '../TestData/TestDataPage.js';
 import { TraceViewerPanel } from '../TraceViewer/TraceViewerPanel.js';
-import { VeroEditor } from '../vero/VeroEditor.js';
+import { VeroEditor, type VeroEditorHandle } from '../vero/VeroEditor.js';
+import { GutterContextMenu } from '../vero/GutterContextMenu.js';
 import { useProjectStore } from '@/store/projectStore';
+import { useEnvironmentStore } from '@/store/environmentStore';
 import { useLocalExecutionStore } from '@/store/useLocalExecutionStore';
 import { useRunConfigStore, type RunConfiguration as ZustandRunConfig } from '@/store/runConfigStore';
 import { CreateSandboxModal } from '@/components/sandbox/CreateSandboxModal';
 import { MergeConflictModal } from './MergeConflictModal';
 import { githubRunsApi } from '@/api/github';
 import { sandboxApi, type ConflictFile } from '@/api/sandbox';
+import {
+  buildGitHubInputs,
+  buildLocalRunConfig,
+  normalizeRunTarget,
+  toRelativeVeroPath,
+} from './runExecutionUtils.js';
+import { humanizePlaywrightError } from '@/utils/playwrightParser';
+import {
+  convertApiFilesToFileNodes,
+  extractScenariosFromContent,
+} from './workspaceFileUtils.js';
 
 const API_BASE = '/api';
 
 const FULL_PAGE_VIEWS: ActivityView[] = ['executions', 'schedules', 'testdata', 'ai-test-generator', 'trace'];
-
-/**
- * Resolve browser mode from config.
- * Zustand configs use `headed` (true = show browser).
- * Legacy configs use `headless` (true = hide browser).
- * Defaults to 'headed' so users can see the browser.
- */
-function resolveBrowserMode(config: Record<string, unknown>): 'headed' | 'headless' {
-  if (config.headed === true) return 'headed';
-  if (config.headed === false) return 'headless';
-  if (config.headless === true) return 'headless';
-  return 'headed';
-}
-
-/**
- * Extract a path relative to vero-projects/ from an absolute file path.
- */
-function toRelativeVeroPath(absolutePath: string): string {
-  const marker = 'vero-projects/';
-  const index = absolutePath.indexOf(marker);
-  return index !== -1
-    ? absolutePath.substring(index + marker.length)
-    : absolutePath;
-}
-
-interface ApiFile {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  children?: ApiFile[];
-}
 
 interface OpenTab {
   id: string;
@@ -78,6 +60,32 @@ interface OpenTab {
   compareSource?: string;
   compareTarget?: string;
   projectId?: string;
+}
+
+interface VeroRunScenario {
+  name: string;
+  status: string;
+  duration: number;
+  error?: string;
+  steps: Array<{
+    stepNumber: number;
+    action: string;
+    description: string;
+    status: string;
+    duration: number;
+    error?: string;
+  }>;
+}
+
+interface VeroRunResponse {
+  success?: boolean;
+  executionId?: string;
+  status?: string;
+  output?: string;
+  error?: string;
+  generatedCode?: string;
+  scenarios?: VeroRunScenario[];
+  summary?: { passed: number; failed: number; skipped: number };
 }
 
 export function VeroWorkspace() {
@@ -134,142 +142,46 @@ export function VeroWorkspace() {
 
   const socketRef = useRef<Socket | null>(null);
   const activeTabIdRef = useRef<string | null>(null);
+  const editorRef = useRef<VeroEditorHandle | null>(null);
+
+  // Debug state
+  const [debugExecutionId, setDebugExecutionId] = useState<string | null>(null);
+  const [showDebugConsole, setShowDebugConsole] = useState(false);
+  const {
+    debugState,
+    breakpointsMuted,
+    consoleEntries,
+    variables,
+    watches,
+    callStack,
+    toggleBreakpoint,
+    toggleMuteBreakpoints,
+    addWatch,
+    removeWatch,
+    startDebug,
+    resume,
+    pause,
+    stepOver,
+    stepInto,
+    stepOut,
+    stopDebug,
+    openInspector,
+    clearConsole,
+  } = useDebugger(socketRef.current, debugExecutionId);
 
   // Keep ref in sync with state for use in callbacks
   useEffect(() => {
     activeTabIdRef.current = activeTabId;
   }, [activeTabId]);
 
-  // Run configuration state
-  const [configurations, setConfigurations] = useState<RunConfiguration[]>([
-    {
-      id: 'local-chromium',
-      name: 'Local (Chromium)',
-      target: 'local',
-      environment: 'Development',
-      browser: 'chromium',
-      baseUrl: 'http://localhost:3000',
-      timeout: 30000,
-      retries: 0,
-      headless: false,
-      tracing: true,
-      video: false,
-      screenshotOnFailure: true,
-    },
-    {
-      id: 'staging-firefox',
-      name: 'Staging (Firefox)',
-      target: 'local',
-      environment: 'Staging',
-      browser: 'firefox',
-      baseUrl: 'https://staging.example.com',
-      timeout: 30000,
-      retries: 0,
-      headless: true,
-      tracing: true,
-      video: false,
-      screenshotOnFailure: true,
-    },
-    {
-      id: 'github-ci',
-      name: 'GitHub CI',
-      target: 'github',
-      environment: 'Production',
-      browser: 'chromium',
-      baseUrl: 'https://example.com',
-      timeout: 60000,
-      retries: 1,
-      headless: true,
-      tracing: true,
-      video: false,
-      screenshotOnFailure: true,
-      github: {
-        repository: 'y9g7bg5qbj-arch/playwright-web-app',
-        branch: 'main',
-        workflowFile: '.github/workflows/vero-tests.yml',
-      },
-    },
-  ]);
-
-  const [selectedConfigId, setSelectedConfigId] = useState<string | null>('local-chromium');
-  const [showConfigModal, setShowConfigModal] = useState(false);
   const [showAISettingsModal, setShowAISettingsModal] = useState(false);
 
   // Executions state
   const [executionBadge, setExecutionBadge] = useState(0);
 
-  // Schedules state
-  const [schedules, setSchedules] = useState<Schedule[]>([
-    {
-      id: 'schedule-1',
-      name: 'Nightly Regression',
-      cron: '0 0 * * *',
-      cronDescription: 'Runs every day at 12:00 AM',
-      environment: 'Staging - Chrome',
-      retryStrategy: 'Retry failed tests (2x)',
-      enabled: true,
-      nextRun: 'Tomorrow 12:00 AM',
-      lastRun: { status: 'success', time: '14 hours ago' },
-      tags: ['@smoke', '@regression', '@login', '@p0'],
-      notifications: {
-        slack: { enabled: true, webhook: '' },
-        email: { enabled: false, address: 'qa-team@vero.com' },
-        teams: { enabled: false },
-      },
-      reporting: {
-        allureReport: true,
-        traceOnFailure: true,
-        recordVideo: false,
-      },
-    },
-    {
-      id: 'schedule-2',
-      name: 'Hourly Smoke',
-      cron: '0 * * * *',
-      cronDescription: 'Runs every hour',
-      environment: 'Staging - Chrome',
-      retryStrategy: 'No Retry',
-      enabled: true,
-      nextRun: '2:00 PM',
-      tags: ['@smoke'],
-      notifications: {
-        slack: { enabled: false, webhook: '' },
-        email: { enabled: false, address: '' },
-        teams: { enabled: false },
-      },
-      reporting: {
-        allureReport: true,
-        traceOnFailure: true,
-        recordVideo: false,
-      },
-    },
-    {
-      id: 'schedule-3',
-      name: 'Weekly Full',
-      cron: '0 3 * * 0',
-      cronDescription: 'Runs every Sunday at 3:00 AM',
-      environment: 'Production - Chrome (Read Only)',
-      retryStrategy: 'Retry failed tests (2x)',
-      enabled: true,
-      nextRun: 'Monday 3:00 AM',
-      tags: ['@full', '@regression'],
-      notifications: {
-        slack: { enabled: true, webhook: '' },
-        email: { enabled: true, address: 'qa-team@vero.com' },
-        teams: { enabled: false },
-      },
-      reporting: {
-        allureReport: true,
-        traceOnFailure: true,
-        recordVideo: true,
-      },
-    },
-  ]);
-  const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>('schedule-1');
+  // Schedules state - now managed by useScheduleStore (see SchedulePanel)
 
   // Overlay panel states
-  const [showAIPanel, setShowAIPanel] = useState(false);
-  const [showLiveExecution, setShowLiveExecution] = useState(false);
   const [showConsole, setShowConsole] = useState(false);
   const [consoleOutput, setConsoleOutput] = useState<string[]>([]);
 
@@ -284,6 +196,8 @@ export function VeroWorkspace() {
     filePath: string;
     fileName: string;
     projectId?: string;
+    relativePath?: string;
+    veroPath?: string;
   } | null>(null);
 
   // Compare modal state
@@ -292,9 +206,23 @@ export function VeroWorkspace() {
     projectId?: string;
   } | null>(null);
 
+  // Gutter context menu state (Run/Debug from editor play icon)
+  const [gutterMenu, setGutterMenu] = useState<{ x: number; y: number; itemType: 'scenario' | 'feature'; itemName: string } | null>(null);
+
   // Scenario Browser state
   const [showScenarioBrowser, setShowScenarioBrowser] = useState(false);
   const [extractedScenarios, setExtractedScenarios] = useState<ScenarioInfo[]>([]);
+
+  const getAuthHeaders = useCallback((extraHeaders: Record<string, string> = {}) => {
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      return extraHeaders;
+    }
+    return {
+      ...extraHeaders,
+      Authorization: `Bearer ${token}`,
+    };
+  }, []);
 
   // Fetch projects on mount
   useEffect(() => {
@@ -330,50 +258,20 @@ export function VeroWorkspace() {
     setExtractedScenarios(scenarios);
   }, [openTabs]);
 
-  function extractScenariosFromContent(content: string, filePath: string): ScenarioInfo[] {
-    const scenarios: ScenarioInfo[] = [];
-    const lines = content.split('\n');
-    let currentFeature: string | undefined;
-
-    for (let index = 0; index < lines.length; index++) {
-      const line = lines[index];
-
-      // Match feature declarations
-      const featureMatch = line.match(/^\s*feature\s+["']?([^"'\n]+)["']?/i);
-      if (featureMatch) {
-        currentFeature = featureMatch[1].trim();
-        continue;
-      }
-
-      // Match scenario declarations with optional tags
-      // Format: scenario "Name" @tag1 @tag2 { or scenario "Name" as AliasName @tag1 {
-      const scenarioMatch = line.match(/^\s*scenario\s+["']([^"']+)["'](?:\s+as\s+\w+)?(\s+@[\w,\s@]+)?(?:\s*\{)?/i);
-      if (scenarioMatch) {
-        const scenarioName = scenarioMatch[1];
-        const tagString = scenarioMatch[2] || '';
-        const tagMatches = tagString.match(/@(\w+)/g) || [];
-        const tags = tagMatches.map(tag => tag.slice(1));
-
-        scenarios.push({
-          id: `${filePath}:${index + 1}:${scenarioName}`,
-          name: scenarioName,
-          tags,
-          filePath,
-          line: index + 1,
-          featureName: currentFeature,
-        });
-      }
-    }
-
-    return scenarios;
-  }
-
   // API: Load files for a specific nested project
   const loadProjectFiles = useCallback(async (projectId: string, veroPath?: string) => {
-    if (!currentProject || !veroPath) return;
+    if (!currentProject) return;
 
     try {
-      const response = await fetch(`${API_BASE}/vero/files?projectId=${currentProject.id}&veroPath=${encodeURIComponent(veroPath)}`);
+      const params = new URLSearchParams();
+      params.set('projectId', projectId);
+      if (veroPath) {
+        params.set('veroPath', veroPath);
+      }
+
+      const response = await fetch(`${API_BASE}/vero/files?${params.toString()}`, {
+        headers: getAuthHeaders(),
+      });
       const data = await response.json();
       if (data.success) {
         // Convert to FileNode format
@@ -382,60 +280,22 @@ export function VeroWorkspace() {
           ...prev,
           [projectId]: convertedFiles
         }));
+      } else {
+        setProjectFiles(prev => ({
+          ...prev,
+          [projectId]: [],
+        }));
+        addConsoleOutput(`Error loading project files: ${data.error || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Failed to fetch project files:', error);
-      // Set mock files for development
-      const mockFiles: FileNode[] = [
-        {
-          name: 'Data',
-          path: 'data',
-          type: 'directory',
-          icon: 'folder',
-          children: [
-            { name: 'users.json', path: 'data/users.json', type: 'file', icon: 'data_object' },
-            { name: 'products.json', path: 'data/products.json', type: 'file', icon: 'data_object' },
-          ],
-        },
-        {
-          name: 'Features',
-          path: 'features',
-          type: 'directory',
-          icon: 'folder',
-          children: [
-            { name: 'login.vero', path: 'features/login.vero', type: 'file', icon: 'description', hasChanges: true },
-            { name: 'checkout.vero', path: 'features/checkout.vero', type: 'file', icon: 'description' },
-            { name: 'search.vero', path: 'features/search.vero', type: 'file', icon: 'description' },
-          ],
-        },
-        {
-          name: 'Pages',
-          path: 'pages',
-          type: 'directory',
-          icon: 'folder',
-          children: [
-            { name: 'LoginPage.vero', path: 'pages/LoginPage.vero', type: 'file', icon: 'description' },
-            { name: 'HomePage.vero', path: 'pages/HomePage.vero', type: 'file', icon: 'description' },
-            { name: 'CheckoutPage.vero', path: 'pages/CheckoutPage.vero', type: 'file', icon: 'description' },
-          ],
-        },
-      ];
       setProjectFiles(prev => ({
         ...prev,
-        [projectId]: mockFiles
+        [projectId]: [],
       }));
+      addConsoleOutput(`Error loading project files: ${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [currentProject]);
-
-  function convertApiFilesToFileNodes(apiFiles: ApiFile[]): FileNode[] {
-    return apiFiles.map(file => ({
-      name: file.name,
-      path: file.path,
-      type: file.type,
-      icon: file.type === 'directory' ? 'folder' : 'description',
-      children: file.children ? convertApiFilesToFileNodes(file.children) : undefined,
-    }));
-  }
+  }, [currentProject, getAuthHeaders]);
 
   // API: Fetch execution count for badge (ExecutionDashboard manages its own data)
   const fetchExecutions = async () => {
@@ -444,6 +304,7 @@ export function VeroWorkspace() {
     // Count running local executions
     try {
       const response = await fetch(`${API_BASE}/executions`, {
+        headers: getAuthHeaders(),
         credentials: 'include'
       });
       const data = await response.json();
@@ -459,6 +320,7 @@ export function VeroWorkspace() {
       const owner = 'y9g7bg5qbj-arch';
       const repo = 'playwright-web-app';
       const ghResponse = await fetch(`${API_BASE}/github/runs?owner=${owner}&repo=${repo}&limit=10`, {
+        headers: getAuthHeaders(),
         credentials: 'include'
       });
       const ghData = await ghResponse.json();
@@ -507,7 +369,9 @@ export function VeroWorkspace() {
         apiUrl = `${API_BASE}/vero/files/${filePath}`;
       }
 
-      const response = await fetch(apiUrl);
+      const response = await fetch(apiUrl, {
+        headers: getAuthHeaders(),
+      });
       const data = await response.json();
       if (data.success && data.content) {
         const newTab: OpenTab = {
@@ -520,50 +384,10 @@ export function VeroWorkspace() {
         setOpenTabs(prev => [...prev, newTab]);
         setActiveTabId(tabId);
       } else {
-        // API returned error or no content - use mock for development
-        console.warn('File not found or empty, using mock content:', filePath, data);
-        const mockContent = `# File: ${fileName}
-# Could not load from backend - showing mock content
-
-feature ${fileName.replace('.vero', '')} {
-  scenario "Example Test" @smoke {
-    open "https://example.com"
-    verify "Example Domain" is visible
-  }
-}
-`;
-        const newTab: OpenTab = {
-          id: tabId,
-          path: filePath,
-          name: fileName,
-          content: mockContent,
-          hasChanges: false,
-        };
-        setOpenTabs(prev => [...prev, newTab]);
-        setActiveTabId(tabId);
+        addConsoleOutput(`Error: Failed to load ${fileName}: ${data.error || 'File not found or empty'}`);
       }
     } catch (error) {
-      console.error('Failed to load file:', error);
-      // Set mock content for development
-      const mockContent = `# File: ${fileName}
-# Error loading from backend - showing mock content
-
-feature ${fileName.replace('.vero', '')} {
-  scenario "Example Test" @smoke {
-    open "https://example.com"
-    verify "Example Domain" is visible
-  }
-}
-`;
-      const newTab: OpenTab = {
-        id: tabId,
-        path: filePath,
-        name: fileName,
-        content: mockContent,
-        hasChanges: false,
-      };
-      setOpenTabs(prev => [...prev, newTab]);
-      setActiveTabId(tabId);
+      addConsoleOutput(`Error: Failed to load ${fileName}: ${error instanceof Error ? error.message : 'Backend unavailable'}`);
     }
   };
 
@@ -615,7 +439,7 @@ feature ${fileName.replace('.vero', '')} {
 
       const response = await fetch(apiUrl, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ content }),
       });
       const data = await response.json();
@@ -628,24 +452,10 @@ feature ${fileName.replace('.vero', '')} {
         ));
         addConsoleOutput(`File saved: ${activeTab.name}`);
       } else {
-        // API returned error - still mark as saved for development
-        console.warn('Save API returned error, marking as saved locally:', data.error);
-        setOpenTabs(prev => prev.map(tab =>
-          tab.id === activeTab.id
-            ? { ...tab, content, hasChanges: false }
-            : tab
-        ));
-        addConsoleOutput(`File saved locally: ${activeTab.name} (backend unavailable)`);
+        addConsoleOutput(`Error: Failed to save ${activeTab.name}: ${data.error || 'Unknown error'}`);
       }
     } catch (error) {
-      console.error('Failed to save file:', error);
-      // Still mark as saved for development when backend is unavailable
-      setOpenTabs(prev => prev.map(tab =>
-        tab.id === activeTab.id
-          ? { ...tab, content, hasChanges: false }
-          : tab
-      ));
-      addConsoleOutput(`File saved locally: ${activeTab.name} (backend unavailable)`);
+      addConsoleOutput(`Error: Failed to save ${activeTab.name}: ${error instanceof Error ? error.message : 'Backend unavailable'}`);
     }
   };
 
@@ -655,249 +465,324 @@ feature ${fileName.replace('.vero', '')} {
   const fetchLocalExecutions = useLocalExecutionStore((state) => state.fetchExecutions);
 
   // Get run configuration from Zustand store
-  const { getActiveConfig } = useRunConfigStore();
+  const { getActiveConfig, setModalOpen: setRunConfigModalOpen } = useRunConfigStore();
 
-  // API: Run tests
-  const runTests = async () => {
-    if (!activeTab || isRunning) return;
+  const getRunConfigBaseUrl = (config: ZustandRunConfig | null): string | null => {
+    if (!config) return null;
 
-    // Try to get config from Zustand store first (new system)
-    const zustandConfig = getActiveConfig();
-    // Fall back to legacy configurations if Zustand config not available
-    const legacyConfig = configurations.find(c => c.id === selectedConfigId);
+    // Check both casing variants (baseURL and baseUrl) since config shape varies
+    const configAny = config as unknown as Record<string, unknown>;
+    for (const key of ['baseURL', 'baseUrl'] as const) {
+      const value = configAny[key];
+      if (typeof value === 'string' && value.trim()) return value;
+    }
 
-    // Use zustand config if available, otherwise legacy
-    const activeConfig = zustandConfig || legacyConfig;
-    if (!activeConfig) return;
+    return null;
+  };
 
-    // Check if target is GitHub Actions (check activeConfig which could be zustand or legacy)
-    // Cast to ZustandRunConfig to access target and github properties (legacy configs won't have these)
-    const configWithGitHub = activeConfig as ZustandRunConfig;
-    const isGitHubTarget = configWithGitHub?.target === 'github';
+  const getResolvedEnvironmentVariables = (config: ZustandRunConfig | null): Record<string, string> => {
+    const environmentState = useEnvironmentStore.getState();
+    let environmentVars: Record<string, string> = environmentState.getVariablesMap();
 
-    setIsRunning(true);
-    addConsoleOutput(`Running ${activeTab.name} with ${activeConfig?.name || 'Default'}...`);
-
-    // If GitHub Actions target, trigger workflow
-    if (isGitHubTarget) {
-      // Check if repository is configured
-      if (!configWithGitHub?.github?.repository) {
-        addConsoleOutput(`⚠️ GitHub Actions target selected but repository not configured!`);
-        addConsoleOutput(`Please open Run Configuration and set the repository (e.g., owner/repo)`);
-        setIsRunning(false);
-        return;
+    if (config?.environmentId) {
+      const selectedEnvironment = environmentState.environments.find(env => env.id === config.environmentId);
+      if (selectedEnvironment) {
+        environmentVars = selectedEnvironment.variables.reduce<Record<string, string>>((acc, variable) => {
+          acc[variable.key] = variable.value;
+          return acc;
+        }, {});
       }
+    }
 
-      const [owner, repo] = configWithGitHub.github.repository.split('/');
-      const workflowPath = configWithGitHub.github.workflowFile || '.github/workflows/vero-tests.yml';
-      const branch = configWithGitHub.github.branch || 'main';
+    return {
+      ...environmentVars,
+      ...(config?.envVars || {}),
+    };
+  };
 
-      addConsoleOutput(`Triggering GitHub Actions workflow on ${configWithGitHub.github.repository}...`);
-      addConsoleOutput(`Workflow: ${workflowPath}, Branch: ${branch}`);
+  const parseGitHubRepository = (repository: string): { owner: string; repo: string } | null => {
+    const trimmed = repository.trim();
+    const segments = trimmed.split('/').map(part => part.trim()).filter(Boolean);
+    if (segments.length !== 2) {
+      return null;
+    }
+    return { owner: segments[0], repo: segments[1] };
+  };
 
-      try {
-        const result = await githubRunsApi.trigger(owner, repo, workflowPath, branch);
-        if (result.success) {
-          addConsoleOutput('GitHub Actions workflow triggered successfully!');
-          addConsoleOutput('Check the Runs tab to monitor execution progress.');
-          // Switch to executions view
-          setActiveView('executions');
-          // Refresh execution badge after a delay
-          setTimeout(() => fetchExecutions(), 3000);
-        } else {
-          addConsoleOutput(`Failed to trigger workflow: ${result.error || 'Unknown error'}`);
-        }
-      } catch (error) {
-        console.error('Failed to trigger GitHub workflow:', error);
-        addConsoleOutput(`Error: ${error instanceof Error ? error.message : String(error)}`);
-      } finally {
-        setIsRunning(false);
-      }
+  const triggerGitHubRun = async (
+    config: ZustandRunConfig,
+    tab: OpenTab,
+    scenarioName?: string
+  ): Promise<void> => {
+    const repository = (config as ZustandRunConfig).github?.repository;
+    if (!repository) {
+      addConsoleOutput('⚠️ GitHub Actions target selected but repository not configured');
+      addConsoleOutput('Open Run Configuration and set repository as owner/repo');
       return;
     }
 
-    // Local execution - use Zustand config or fall back to legacy config
-    const config = zustandConfig || legacyConfig;
-    if (!config) {
-      addConsoleOutput('No run configuration found. Open Run Configuration to create one.');
-      setIsRunning(false);
+    const repoInfo = parseGitHubRepository(repository);
+    if (!repoInfo) {
+      addConsoleOutput(`Invalid GitHub repository value: "${repository}" (expected owner/repo)`);
       return;
     }
 
-    // Create a placeholder execution ID for immediate UI feedback
+    const workflowPath = (config as ZustandRunConfig).github?.workflowFile || '.github/workflows/vero-tests.yml';
+    const branch = (config as ZustandRunConfig).github?.branch || 'main';
+    const relativePath = toRelativeVeroPath(tab.path);
+    const resolvedEnvVars = getResolvedEnvironmentVariables(config);
+    const githubInputs = buildGitHubInputs(
+      config as unknown as Record<string, unknown>,
+      tab.path,
+      tab.content,
+      scenarioName,
+      resolvedEnvVars
+    );
+
+    addConsoleOutput(`Triggering GitHub Actions workflow on ${repository}...`);
+    addConsoleOutput(`Workflow: ${workflowPath}, Branch: ${branch}`);
+    addConsoleOutput(
+      scenarioName
+        ? `Intent: run scenario "${scenarioName}" in ${relativePath}`
+        : `Intent: run Vero file ${relativePath}`
+    );
+
+    try {
+      const result = await githubRunsApi.trigger(
+        repoInfo.owner,
+        repoInfo.repo,
+        workflowPath,
+        branch,
+        githubInputs
+      );
+      if (result.success) {
+        addConsoleOutput(
+          scenarioName
+            ? `Scenario "${scenarioName}" dispatched to GitHub Actions.`
+            : 'GitHub Actions workflow triggered successfully!'
+        );
+        addConsoleOutput('Check the Runs tab to monitor execution progress.');
+        setActiveView('executions');
+        setTimeout(() => fetchExecutions(), 3000);
+      } else {
+        addConsoleOutput(`Failed to trigger workflow: ${result.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Failed to trigger GitHub workflow:', error);
+      addConsoleOutput(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const runLocalExecution = async (
+    config: ZustandRunConfig,
+    tab: OpenTab,
+    scenarioName?: string
+  ): Promise<void> => {
     const tempExecutionId = `temp-${Date.now()}`;
-    const startTime = new Date().toISOString();
+    const startedAt = new Date().toISOString();
+    const flowName = scenarioName ? `${tab.name} - ${scenarioName}` : tab.name;
+    const runLabel = scenarioName ? `Scenario "${scenarioName}"` : 'Test';
 
-    // Add running execution to store immediately for real-time UI update
     addLocalExecution({
       id: tempExecutionId,
       testFlowId: '',
-      testFlowName: activeTab.name,
+      testFlowName: flowName,
       status: 'running',
       target: 'local',
       triggeredBy: { type: 'user' },
-      startedAt: startTime,
+      startedAt,
       stepCount: 0,
       passedCount: 0,
       failedCount: 0,
       skippedCount: 0,
     });
 
+    const resolvedEnvVars = getResolvedEnvironmentVariables(config);
     try {
-      const relativePath = toRelativeVeroPath(activeTab.path);
-
       const response = await fetch(`${API_BASE}/vero/run`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         credentials: 'include',
         body: JSON.stringify({
-          filePath: relativePath,
-          content: activeTab.content,
+          content: tab.content,
+          filePath: toRelativeVeroPath(tab.path),
+          scenarioName,
           config: {
-            browser: config.browser,
-            browserMode: resolveBrowserMode(config as unknown as Record<string, unknown>),
-            baseUrl: (config as any).baseURL || (config as any).baseUrl,
-            timeout: config.timeout,
-            retries: config.retries || 0,
-            tracing: (config as any).trace || (config as any).tracing,
-            video: config.video,
-            screenshotOnFailure: (config as any).screenshot === 'only-on-failure' || (config as any).screenshotOnFailure,
-            workers: config.workers || 1,
+            ...buildLocalRunConfig(config as unknown as Record<string, unknown>),
+            envVars: Object.keys(resolvedEnvVars).length > 0 ? resolvedEnvVars : undefined,
           },
         }),
       });
-      const data = await response.json();
+      const data = await response.json() as VeroRunResponse;
 
-      // Update the temp execution with real data from backend
       if (data.executionId) {
         updateLocalExecution(tempExecutionId, {
           id: data.executionId,
           status: data.status === 'passed' ? 'passed' : 'failed',
           finishedAt: new Date().toISOString(),
-          duration: Date.now() - new Date(startTime).getTime(),
+          duration: Date.now() - new Date(startedAt).getTime(),
           output: data.output,
           error: data.error,
           generatedCode: data.generatedCode,
         });
       }
 
-      if (data.success) {
-        addConsoleOutput(`Test completed: ${data.status}`);
-        // Refresh executions from backend to get full details
+      if (data.success && data.status === 'passed') {
+        const summary = data.summary;
+        if (summary && summary.passed > 0) {
+          addConsoleOutput(`[SUCCESS] ${runLabel} completed: ${summary.passed} passed`);
+        } else {
+          addConsoleOutput(`[SUCCESS] ${runLabel} completed: passed`);
+        }
         await fetchLocalExecutions();
         await fetchExecutions();
       } else {
-        addConsoleOutput(`Test failed: ${data.error || 'Unknown error'}`);
-        // Update temp execution as failed
-        updateLocalExecution(tempExecutionId, {
-          status: 'failed',
-          finishedAt: new Date().toISOString(),
-          error: data.error,
-        });
+        // Show summary line
+        const summary = data.summary;
+        if (summary) {
+          addConsoleOutput(`[ERROR] ${runLabel} failed: ${summary.failed} failed, ${summary.passed} passed`);
+        } else {
+          addConsoleOutput(`[ERROR] ${runLabel} failed`);
+        }
+
+        // Show per-scenario and per-step error details
+        if (data.scenarios && data.scenarios.length > 0) {
+          for (const scenario of data.scenarios) {
+            if (scenario.status === 'failed') {
+              addConsoleOutput(`  Scenario "${scenario.name}": FAILED`);
+              // Show scenario-level error
+              if (scenario.error) {
+                addConsoleOutput(`  [ERROR] ${humanizePlaywrightError(scenario.error)}`);
+              }
+              // Show step-level errors
+              const failedSteps = scenario.steps.filter(s => s.error);
+              for (const step of failedSteps) {
+                addConsoleOutput(`    Step ${step.stepNumber} "${step.description}": ${humanizePlaywrightError(step.error!)}`);
+              }
+            }
+          }
+        } else if (data.error) {
+          // Fallback: show raw error if no structured scenarios
+          addConsoleOutput(`  ${humanizePlaywrightError(data.error)}`);
+        }
+
+        if (!data.executionId) {
+          updateLocalExecution(tempExecutionId, {
+            status: 'failed',
+            finishedAt: new Date().toISOString(),
+            error: data.error,
+          });
+        }
+        await fetchLocalExecutions();
+        await fetchExecutions();
       }
     } catch (error) {
       console.error('Failed to run tests:', error);
-      addConsoleOutput(`Error running test: ${error}`);
-      // Update temp execution as failed
+      addConsoleOutput(`Error running ${scenarioName ? 'scenario' : 'test'}: ${error}`);
       updateLocalExecution(tempExecutionId, {
         status: 'failed',
         finishedAt: new Date().toISOString(),
         error: String(error),
       });
+    }
+  };
+
+  const runTests = async () => {
+    if (!activeTab || isRunning) return;
+
+    const config = getActiveConfig();
+    if (!config) {
+      addConsoleOutput('No run configuration found. Open Run Configuration to create one.');
+      return;
+    }
+
+    setIsRunning(true);
+    setShowConsole(true);
+    addConsoleOutput(`Running ${activeTab.name} with ${config.name || 'Default'}...`);
+
+    try {
+      const isGitHubTarget = normalizeRunTarget((config as { target?: unknown }).target) === 'github-actions';
+      if (isGitHubTarget) {
+        await triggerGitHubRun(config, activeTab);
+        return;
+      }
+      await runLocalExecution(config, activeTab);
     } finally {
       setIsRunning(false);
     }
+  };
+
+  // Debug tests (start debug session with breakpoints)
+  const debugTests = async () => {
+    if (!activeTab || isRunning || debugState.isDebugging) return;
+
+    const newExecutionId = `debug-${Date.now()}`;
+    setDebugExecutionId(newExecutionId);
+    setShowDebugConsole(true);
+
+    // Connect to WebSocket if not already connected
+    if (!socketRef.current) {
+      const socket = io(window.location.origin, {
+        path: '/socket.io',
+        transports: ['websocket', 'polling'],
+      });
+      socketRef.current = socket;
+    }
+
+    addConsoleOutput(`Starting debug session for ${activeTab.name}...`);
+
+    // Start the debug session via the hook
+    startDebug(activeTab.path, activeTab.content, newExecutionId);
+  };
+
+  // Stop debug session
+  const handleStopDebug = () => {
+    stopDebug();
+    setDebugExecutionId(null);
+    addConsoleOutput('Debug session stopped');
+  };
+
+  // Restart debug session
+  const handleRestartDebug = async () => {
+    if (!activeTab) return;
+    stopDebug(); // Send stop to backend for current session
+
+    // Skip null state — go directly to new execution ID to avoid
+    // a window where socket listeners are detached
+    const newExecutionId = `debug-${Date.now()}`;
+    setDebugExecutionId(newExecutionId);
+    setShowDebugConsole(true);
+
+    addConsoleOutput(`Restarting debug session for ${activeTab.name}...`);
+    startDebug(activeTab.path, activeTab.content, newExecutionId);
   };
 
   // Run a specific scenario by name (triggered from editor play button)
   const handleRunScenario = async (scenarioName: string) => {
     if (!activeTab || isRunning) return;
 
-    // Get config from Zustand store first, then fall back to legacy
-    const zustandConfig = getActiveConfig();
-    const legacyConfig = configurations.find(c => c.id === selectedConfigId);
-    const config = zustandConfig || legacyConfig;
+    const normalizedScenarioName = scenarioName.trim();
+    if (!normalizedScenarioName) {
+      addConsoleOutput('Cannot run scenario: missing scenario name');
+      return;
+    }
+
+    const config = getActiveConfig();
     if (!config) {
-      addConsoleOutput('No run configuration found');
+      addConsoleOutput('No run configuration found. Open Run Configuration to create one.');
       return;
     }
 
     setIsRunning(true);
-    addConsoleOutput(`Running scenario "${scenarioName}" from ${activeTab.name}...`);
-
-    // Create a placeholder execution ID for immediate UI feedback
-    const tempExecutionId = `temp-${Date.now()}`;
-    const startTime = new Date().toISOString();
-
-    addLocalExecution({
-      id: tempExecutionId,
-      testFlowId: '',
-      testFlowName: `${activeTab.name} - ${scenarioName}`,
-      status: 'running',
-      target: 'local',
-      triggeredBy: { type: 'user' },
-      startedAt: startTime,
-      stepCount: 0,
-      passedCount: 0,
-      failedCount: 0,
-      skippedCount: 0,
-    });
+    addConsoleOutput(`Running scenario "${normalizedScenarioName}" from ${activeTab.name}...`);
 
     try {
-      const relativePath = toRelativeVeroPath(activeTab.path);
-
-      const response = await fetch(`${API_BASE}/vero/run`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          filePath: relativePath,
-          content: activeTab.content,
-          scenarioName,
-          config: {
-            browser: (config as any).browser || 'chromium',
-            browserMode: resolveBrowserMode(config as unknown as Record<string, unknown>),
-            baseUrl: (config as any).baseUrl,
-            timeout: (config as any).timeout || 30000,
-            retries: (config as any).retries || 0,
-            tracing: (config as any).tracing,
-            video: (config as any).video,
-            screenshotOnFailure: (config as any).screenshotOnFailure,
-            workers: (config as any).workers || 1,
-          },
-        }),
-      });
-      const data = await response.json();
-
-      if (data.executionId) {
-        updateLocalExecution(tempExecutionId, {
-          id: data.executionId,
-          status: data.status === 'passed' ? 'passed' : 'failed',
-          finishedAt: new Date().toISOString(),
-          duration: Date.now() - new Date(startTime).getTime(),
-        });
+      const isGitHubTarget = normalizeRunTarget((config as { target?: unknown }).target) === 'github-actions';
+      if (isGitHubTarget) {
+        await triggerGitHubRun(config, activeTab, normalizedScenarioName);
+        return;
       }
-
-      if (data.success) {
-        addConsoleOutput(`Scenario "${scenarioName}" completed: ${data.status}`);
-        await fetchLocalExecutions();
-        await fetchExecutions();
-      } else {
-        addConsoleOutput(`Scenario "${scenarioName}" failed: ${data.error || 'Unknown error'}`);
-        updateLocalExecution(tempExecutionId, {
-          status: 'failed',
-          finishedAt: new Date().toISOString(),
-          error: data.error,
-        });
-      }
-    } catch (error) {
-      console.error('Failed to run scenario:', error);
-      addConsoleOutput(`Error running scenario: ${error}`);
-      updateLocalExecution(tempExecutionId, {
-        status: 'failed',
-        finishedAt: new Date().toISOString(),
-        error: String(error),
-      });
+      await runLocalExecution(config, activeTab, normalizedScenarioName);
     } finally {
       setIsRunning(false);
     }
@@ -911,6 +796,26 @@ feature ${fileName.replace('.vero', '')} {
     // The feature name is for logging purposes
     addConsoleOutput(`Running feature "${featureName}"...`);
     await runTests();
+  };
+
+  // Debug a specific scenario by name (triggered from gutter context menu)
+  const handleDebugScenario = async (scenarioName: string) => {
+    if (!activeTab || isRunning || debugState.isDebugging) return;
+
+    const newExecutionId = `debug-${Date.now()}`;
+    setDebugExecutionId(newExecutionId);
+    setShowDebugConsole(true);
+
+    if (!socketRef.current) {
+      const socket = io(window.location.origin, {
+        path: '/socket.io',
+        transports: ['websocket', 'polling'],
+      });
+      socketRef.current = socket;
+    }
+
+    addConsoleOutput(`Starting debug for scenario "${scenarioName}" in ${activeTab.name}...`);
+    startDebug(activeTab.path, activeTab.content, newExecutionId, scenarioName);
   };
 
   // Insert recorded scenario into the active editor
@@ -930,18 +835,12 @@ feature ${fileName.replace('.vero', '')} {
         let content = currentActiveTab.content;
 
         // Try to find closing brace of feature block (handles both `}` and `end feature`)
-        // Look for the last `}` that closes the feature, or `end feature`
-        const closingBraceMatch = content.match(/(\n?)(\s*}\s*)$/);
-        const endFeatureMatch = content.match(/(\n?\s*end\s+feature\s*)$/i);
-
-        if (closingBraceMatch) {
-          // Insert before the closing brace
+        // Insert the scenario before the closing brace/end-feature keyword
+        if (/(\s*}\s*)$/.test(content)) {
           content = content.replace(/(\s*}\s*)$/, `\n\n${veroScenario}\n}`);
-        } else if (endFeatureMatch) {
-          // Insert before "end feature"
+        } else if (/(\s*end\s+feature\s*)$/i.test(content)) {
           content = content.replace(/(\s*end\s+feature\s*)$/i, `\n\n${veroScenario}\n\nend feature\n`);
         } else {
-          // No feature block found, just append
           content = content + '\n\n' + veroScenario + '\n';
         }
 
@@ -956,7 +855,6 @@ feature ${fileName.replace('.vero', '')} {
         const newFileContent = `feature RecordedTests {\n\n${veroScenario}\n\n}`;
         addConsoleOutput('No .vero file open. Recorded scenario:');
         addConsoleOutput(newFileContent);
-        console.log('Recorded Vero code:\n', newFileContent);
         return tabs;
       }
     });
@@ -993,14 +891,24 @@ feature ${fileName.replace('.vero', '')} {
 
       // Subscribe to recording events
       socket.on('connect', () => {
-        console.log('[Recording] WebSocket connected');
         socket.emit('codegen:subscribe', { sessionId });
       });
 
       // Real-time Vero code updates
+      // Capture project info at recording start for reliable refresh in callbacks
+      const recProjId = activeTab?.projectId || selectedProjectId;
+      const recProject = nestedProjects.find(p => p.id === recProjId);
+      let fileRefreshTimer: ReturnType<typeof setTimeout> | null = null;
       socket.on('codegen:action', (data: { veroCode: string; pagePath?: string; fieldCreated?: unknown }) => {
-        console.log('[Recording] Action received:', data.veroCode);
         addConsoleOutput(`  Recording: ${data.veroCode}`);
+
+        // Debounced file tree refresh during recording to pick up new page files
+        if (fileRefreshTimer) clearTimeout(fileRefreshTimer);
+        fileRefreshTimer = setTimeout(() => {
+          if (recProjId && recProject?.veroPath) {
+            loadProjectFiles(recProjId, recProject.veroPath);
+          }
+        }, 1000);
       });
 
       socket.on('codegen:error', (data: { error: string }) => {
@@ -1009,7 +917,6 @@ feature ${fileName.replace('.vero', '')} {
       });
 
       socket.on('codegen:stopped', (data: { sessionId: string; veroLines: string[]; scenarioName: string }) => {
-        console.log('[Recording] Recording stopped, received lines:', data.veroLines);
         addConsoleOutput('Recording completed');
 
         // Use the veroLines from the server (Playwright writes to file only when browser closes)
@@ -1022,6 +929,21 @@ feature ${fileName.replace('.vero', '')} {
         cleanupRecordingState();
       });
 
+      // Derive sandbox path from the active file's location.
+      // The path before /Features/, /Pages/, or /PageActions/ is the sandbox (or project) root.
+      const deriveSandboxPath = (): string | undefined => {
+        if (activeTab?.path) {
+          const match = activeTab.path.match(/^(.+?)\/(Features|Pages|PageActions)\//);
+          if (match) return match[1];
+        }
+        // Fallback: use the project's veroPath
+        const projId = activeTab?.projectId || selectedProjectId;
+        if (projId) {
+          return nestedProjects.find(p => p.id === projId)?.veroPath;
+        }
+        return undefined;
+      };
+
       const response = await fetch(`${API_BASE}/codegen/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1031,6 +953,7 @@ feature ${fileName.replace('.vero', '')} {
           url,
           scenarioName,
           projectId: currentProject?.id,
+          sandboxPath: deriveSandboxPath(),
         }),
       });
 
@@ -1095,85 +1018,7 @@ feature ${fileName.replace('.vero', '')} {
     };
   }, []);
 
-  // Run configuration handlers
-  const handleCreateConfig = (config: Omit<RunConfiguration, 'id'>) => {
-    const newConfig: RunConfiguration = {
-      ...config,
-      id: `config-${Date.now()}`,
-    };
-    setConfigurations([...configurations, newConfig]);
-    setSelectedConfigId(newConfig.id);
-  };
-
-  const handleUpdateConfig = (configId: string, updates: Partial<RunConfiguration>) => {
-    setConfigurations(configs =>
-      configs.map(c => (c.id === configId ? { ...c, ...updates } : c))
-    );
-  };
-
-  const handleDeleteConfig = (configId: string) => {
-    setConfigurations(configs => configs.filter(c => c.id !== configId));
-    if (selectedConfigId === configId) {
-      setSelectedConfigId(configurations[0]?.id || null);
-    }
-  };
-
-  const handleDuplicateConfig = (configId: string) => {
-    const config = configurations.find(c => c.id === configId);
-    if (config) {
-      const newConfig: RunConfiguration = {
-        ...config,
-        id: `config-${Date.now()}`,
-        name: `${config.name} (Copy)`,
-      };
-      setConfigurations([...configurations, newConfig]);
-    }
-  };
-
-  // Schedule handlers
-  const handleCreateSchedule = () => {
-    const newSchedule: Schedule = {
-      id: `schedule-${Date.now()}`,
-      name: 'New Schedule',
-      cron: '0 0 * * *',
-      cronDescription: 'Runs every day at 12:00 AM',
-      environment: 'Staging - Chrome',
-      retryStrategy: 'No Retry',
-      enabled: false,
-      nextRun: 'Not scheduled',
-      tags: [],
-      notifications: {
-        slack: { enabled: false, webhook: '' },
-        email: { enabled: false, address: '' },
-        teams: { enabled: false },
-      },
-      reporting: {
-        allureReport: true,
-        traceOnFailure: true,
-        recordVideo: false,
-      },
-    };
-    setSchedules([...schedules, newSchedule]);
-    setSelectedScheduleId(newSchedule.id);
-  };
-
-  const handleSaveSchedule = async (schedule: Schedule) => {
-    setSchedules(prev =>
-      prev.map(s => (s.id === schedule.id ? schedule : s))
-    );
-  };
-
-  const handleDeleteSchedule = async (id: string) => {
-    setSchedules(prev => prev.filter(s => s.id !== id));
-    if (selectedScheduleId === id && schedules.length > 1) {
-      setSelectedScheduleId(schedules[0].id);
-    }
-  };
-
-  const handleRunScheduleNow = async (id: string) => {
-    console.log('Running schedule now:', id);
-    await fetchExecutions();
-  };
+  // Schedule handlers - now managed by useScheduleStore (see SchedulePanel)
 
   // Execution handlers
   const handleViewTrace = (url: string, scenarioName: string) => {
@@ -1350,7 +1195,7 @@ feature ${fileName.replace('.vero', '')} {
     try {
       const response = await fetch(apiUrl, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ content: defaultContent }),
       });
       const data = await response.json();
@@ -1521,7 +1366,97 @@ feature ${fileName.replace('.vero', '')} {
       filePath: fullPath,
       fileName: file.name,
       projectId,
+      relativePath: file.path,
+      veroPath: project?.veroPath,
     });
+  };
+
+  // Handler to delete a file
+  const handleDeleteFile = async (filePath: string) => {
+    if (!contextMenu) return;
+
+    const fileName = contextMenu.fileName;
+    if (!confirm(`Delete "${fileName}"? This cannot be undone.`)) return;
+
+    try {
+      const relativePath = contextMenu.relativePath || fileName;
+      const params = new URLSearchParams();
+      if (contextMenu.veroPath) params.set('veroPath', contextMenu.veroPath);
+
+      const response = await fetch(`${API_BASE}/vero/files/${encodeURIComponent(relativePath)}?${params}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+        credentials: 'include',
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        addConsoleOutput(`Deleted ${fileName}`);
+
+        // Close the file if it's open in a tab
+        const matchingTab = openTabs.find(t => t.path === filePath);
+        if (matchingTab) {
+          setOpenTabs(prev => prev.filter(t => t.id !== matchingTab.id));
+          if (activeTabId === matchingTab.id) {
+            const remaining = openTabs.filter(t => t.id !== matchingTab.id);
+            setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
+          }
+        }
+
+        // Refresh file tree
+        const projId = contextMenu.projectId || selectedProjectId;
+        const project = nestedProjects.find(p => p.id === projId);
+        if (projId && project?.veroPath) {
+          loadProjectFiles(projId, project.veroPath);
+        }
+      } else {
+        addConsoleOutput(`Error deleting ${fileName}: ${data.error}`);
+      }
+    } catch (error) {
+      addConsoleOutput(`Error deleting ${fileName}: ${error}`);
+    }
+
+    setContextMenu(null);
+  };
+
+  // Handler to rename a file
+  const handleRenameFile = async (_filePath: string) => {
+    if (!contextMenu) return;
+
+    const oldName = contextMenu.fileName;
+    const newName = prompt('Enter new name:', oldName);
+    if (!newName || newName === oldName) return;
+
+    try {
+      const relativePath = contextMenu.relativePath || oldName;
+      // Compute new relative path: replace the filename in the path
+      const pathParts = relativePath.split('/');
+      pathParts[pathParts.length - 1] = newName;
+      const newRelativePath = pathParts.join('/');
+
+      const response = await fetch(`${API_BASE}/vero/files/rename`, {
+        method: 'POST',
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+        credentials: 'include',
+        body: JSON.stringify({ oldPath: relativePath, newPath: newRelativePath, veroPath: contextMenu.veroPath }),
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        addConsoleOutput(`Renamed ${oldName} to ${newName}`);
+        const projId = contextMenu.projectId || selectedProjectId;
+        const project = nestedProjects.find(p => p.id === projId);
+        if (projId && project?.veroPath) {
+          loadProjectFiles(projId, project.veroPath);
+        }
+      } else {
+        addConsoleOutput(`Error renaming: ${data.error}`);
+      }
+    } catch (error) {
+      addConsoleOutput(`Error renaming: ${error}`);
+    }
+
+    setContextMenu(null);
   };
 
   // Handler to open compare modal
@@ -1617,10 +1552,40 @@ feature ${fileName.replace('.vero', '')} {
 
   const isFullPageView = FULL_PAGE_VIEWS.includes(activeView);
 
-  // Console output helper
+  // Handle cross-file "Go to Definition" navigation from the editor
+  const handleNavigateToDefinition = useCallback(async (targetPath: string, line: number, _column: number) => {
+    // The backend returns absolute paths like /abs/path/to/Pages/HomePage.vero
+    // loadFileContent expects full veroPath-prefixed paths
+    // Try to match the targetPath to a known project's veroPath
+    let resolvedPath = targetPath;
+    for (const project of nestedProjects) {
+      if (project.veroPath && targetPath.includes(project.veroPath)) {
+        // Already a full path that includes the veroPath — use as-is
+        resolvedPath = targetPath;
+        break;
+      }
+      // If the backend returned just the relative portion (e.g., Pages/HomePage.vero)
+      if (project.veroPath && !targetPath.startsWith('/')) {
+        resolvedPath = `${project.veroPath}/${targetPath}`;
+        break;
+      }
+    }
+
+    await loadFileContent(resolvedPath);
+
+    // After the tab opens and the editor mounts, scroll to the target line
+    setTimeout(() => {
+      editorRef.current?.goToLine(line);
+    }, 150);
+  }, [nestedProjects, loadFileContent]);
+
+  // Console output helper — auto-opens console on errors
   const addConsoleOutput = useCallback((message: string) => {
     const timestamp = new Date().toLocaleTimeString();
     setConsoleOutput(prev => [...prev, `[${timestamp}] ${message}`]);
+    if (message.includes('[ERROR]') || message.includes('FAILED')) {
+      setShowConsole(true);
+    }
   }, []);
 
   return (
@@ -1632,12 +1597,21 @@ feature ${fileName.replace('.vero', '')} {
         onApplicationSelect={handleApplicationSelect}
         onCreateApplication={handleCreateApplication}
         isRunning={isRunning}
+        isDebugging={debugState.isDebugging}
         isRecording={isRecording}
         onRun={runTests}
-        onStop={() => setIsRunning(false)}
+        onDebug={debugTests}
+        onStop={() => {
+          if (debugState.isDebugging) {
+            handleStopDebug();
+            return;
+          }
+          setIsRunning(false);
+        }}
         onRecord={handleRecordClick}
         onStopRecording={stopRecording}
         showRunControls={activeView === 'explorer'}
+        currentFileName={activeTab?.name}
       />
 
       {/* Main Content */}
@@ -1661,20 +1635,17 @@ feature ${fileName.replace('.vero', '')} {
                   addConsoleOutput(`Navigate to line ${line}`);
                 }}
                 onViewTrace={handleViewTrace}
-                onOpenAllure={(executionId) => {
-                  console.log('Open Allure report for:', executionId);
+                onOpenAllure={(_executionId) => {
+                  // TODO: open Allure report
                 }}
               />
             )}
             {activeView === 'schedules' && (
-              <SchedulePanel
-                schedules={schedules}
-                selectedScheduleId={selectedScheduleId}
-                onSelectSchedule={setSelectedScheduleId}
-                onCreateSchedule={handleCreateSchedule}
-                onSaveSchedule={handleSaveSchedule}
-                onRunNow={handleRunScheduleNow}
-                onDeleteSchedule={handleDeleteSchedule}
+              <SchedulerPanel
+                onRunTriggered={() => {
+                  void fetchExecutions();
+                  setActiveView('executions');
+                }}
               />
             )}
             {activeView === 'testdata' && currentProject?.id && (
@@ -1698,7 +1669,6 @@ feature ${fileName.replace('.vero', '')} {
             )}
             {activeView === 'ai-test-generator' && currentProject && (
               <AITestRecorderPanel
-                onClose={() => setActiveView('explorer')}
                 onTestApproved={(_testId, veroCode, filePath) => {
                   // Create a new tab for the approved test
                   const fileName = filePath.split('/').pop() || 'NewTest.vero';
@@ -1772,8 +1742,6 @@ feature ${fileName.replace('.vero', '')} {
                   onCreateSandbox={handleCreateSandbox}
                   onSyncSandbox={handleSyncSandbox}
                   onNavigateToLine={(line) => {
-                    // TODO: Implement editor scrolling to specific line
-                    console.log('Navigate to line:', line);
                     addConsoleOutput(`Navigate to line ${line}`);
                   }}
                   onFileContextMenu={handleFileContextMenu}
@@ -1793,7 +1761,7 @@ feature ${fileName.replace('.vero', '')} {
                       AI Provider Settings
                     </button>
                     <button
-                      onClick={() => setShowConfigModal(true)}
+                      onClick={() => setRunConfigModalOpen(true)}
                       className="w-full px-4 py-2 bg-[#21262d] border border-[#30363d] rounded-lg text-sm text-white hover:bg-[#30363d] transition-colors flex items-center gap-2"
                     >
                       <span className="material-symbols-outlined text-lg">tune</span>
@@ -1855,6 +1823,24 @@ feature ${fileName.replace('.vero', '')} {
                     )}
                   </div>
 
+                  {/* Debug controls */}
+                  {(isRunning || debugState.isDebugging || debugState.breakpoints.size > 0) && (
+                    <DebugToolbar
+                      isRunning={isRunning}
+                      debugState={debugState}
+                      breakpointsMuted={breakpointsMuted}
+                      onPause={pause}
+                      onResume={resume}
+                      onStepOver={stepOver}
+                      onStepInto={stepInto}
+                      onStepOut={stepOut}
+                      onStop={handleStopDebug}
+                      onRestart={handleRestartDebug}
+                      onToggleMuteBreakpoints={toggleMuteBreakpoints}
+                      onOpenInspector={openInspector}
+                    />
+                  )}
+
                   {/* Editor or Compare View */}
                   <div className="flex-1 flex flex-col min-h-0">
                     {activeTab && activeTab.type === 'compare' ? (
@@ -1869,18 +1855,43 @@ feature ${fileName.replace('.vero', '')} {
                       />
                     ) : activeTab ? (
                       <VeroEditor
+                        ref={editorRef}
                         key={activeTab.id}
                         initialValue={activeTab.content}
                         onChange={(value) => value && updateTabContent(activeTab.id, value)}
                         onRunScenario={handleRunScenario}
                         onRunFeature={handleRunFeature}
+                        onGutterContextMenu={(info) => setGutterMenu(info)}
                         showErrorPanel={true}
                         token={null}
                         veroPath={nestedProjects.find(p => activeTab.path.startsWith(p.veroPath || ''))?.veroPath}
                         filePath={activeTab.path}
+                        projectId={nestedProjects.find(p => activeTab.path.startsWith(p.veroPath || ''))?.id}
+                        onNavigateToDefinition={handleNavigateToDefinition}
+                        breakpoints={debugState.breakpoints}
+                        onToggleBreakpoint={toggleBreakpoint}
+                        debugCurrentLine={debugState.currentLine}
+                        isDebugging={debugState.isDebugging}
                       />
                     ) : null}
                   </div>
+
+                  {/* Debug Console Panel - Shows when debugging or manually opened */}
+                  {(debugState.isDebugging || showDebugConsole) && (
+                    <DebugConsolePanel
+                      entries={consoleEntries}
+                      variables={variables}
+                      watches={watches}
+                      callStack={callStack}
+                      problems={[]}
+                      isMinimized={!showDebugConsole}
+                      onToggleMinimize={() => setShowDebugConsole(!showDebugConsole)}
+                      onClearConsole={clearConsole}
+                      onGoToLine={(line) => editorRef.current?.goToLine(line)}
+                      onAddWatch={addWatch}
+                      onRemoveWatch={removeWatch}
+                    />
+                  )}
                 </div>
               ) : (
                 <div className="flex-1 flex items-center justify-center">
@@ -1943,32 +1954,6 @@ feature ${fileName.replace('.vero', '')} {
       </div>
 
       {/* Overlay Panels */}
-      {/* AI Agent Panel (right side overlay) */}
-      {showAIPanel && (
-        <div className="fixed right-0 top-14 bottom-0 w-[400px] bg-[#161b22] border-l border-[#30363d] z-30 overflow-hidden shadow-xl">
-          <AIAgentPanel
-            onInsertCode={(code) => {
-              if (activeTab) {
-                updateTabContent(activeTab.id, activeTab.content + '\n' + code);
-              }
-              addConsoleOutput('Code inserted from AI Agent');
-            }}
-            isVisible={showAIPanel}
-            onClose={() => setShowAIPanel(false)}
-          />
-        </div>
-      )}
-
-      {/* Live Execution Panel (right side overlay) */}
-      {showLiveExecution && (
-        <div className="fixed right-0 top-14 bottom-0 w-[350px] bg-[#161b22] border-l border-[#30363d] z-30 overflow-hidden shadow-xl">
-          <LiveExecutionPanel
-            isVisible={showLiveExecution}
-            onClose={() => setShowLiveExecution(false)}
-          />
-        </div>
-      )}
-
       {/* Console Panel (bottom overlay - above status bar) */}
       {showConsole && (
         <div className="fixed left-[48px] right-0 bottom-6 h-[200px] bg-[#0d1117] border-t border-[#30363d] z-30 shadow-xl">
@@ -1979,19 +1964,6 @@ feature ${fileName.replace('.vero', '')} {
           />
         </div>
       )}
-
-      {/* Run Configuration Modal (Legacy) */}
-      <RunConfigurationModal
-        isOpen={showConfigModal}
-        onClose={() => setShowConfigModal(false)}
-        configurations={configurations}
-        selectedConfigId={selectedConfigId}
-        onSelect={setSelectedConfigId}
-        onCreate={handleCreateConfig}
-        onUpdate={handleUpdateConfig}
-        onDelete={handleDeleteConfig}
-        onDuplicate={handleDuplicateConfig}
-      />
 
       {/* New Run Configuration Modal (Zustand-managed) */}
       <RunConfigModal onRun={runTests} />
@@ -2007,7 +1979,7 @@ feature ${fileName.replace('.vero', '')} {
         isOpen={showRecordingModal}
         onClose={() => setShowRecordingModal(false)}
         onStart={startRecording}
-        defaultUrl={configurations.find(c => c.id === selectedConfigId)?.baseUrl || 'https://example.com'}
+        defaultUrl={getRunConfigBaseUrl(getActiveConfig()) || 'https://example.com'}
       />
 
       {/* Create Sandbox Modal */}
@@ -2039,6 +2011,35 @@ feature ${fileName.replace('.vero', '')} {
           fileName={contextMenu.fileName}
           onClose={() => setContextMenu(null)}
           onCompareWith={handleOpenCompareWith}
+          onDelete={handleDeleteFile}
+          onRename={handleRenameFile}
+        />
+      )}
+
+      {/* Gutter Context Menu (Run/Debug from editor play icon) */}
+      {gutterMenu && (
+        <GutterContextMenu
+          x={gutterMenu.x}
+          y={gutterMenu.y}
+          itemType={gutterMenu.itemType}
+          itemName={gutterMenu.itemName}
+          onRun={() => {
+            if (gutterMenu.itemType === 'scenario') {
+              handleRunScenario(gutterMenu.itemName);
+            } else {
+              handleRunFeature(gutterMenu.itemName);
+            }
+            setGutterMenu(null);
+          }}
+          onDebug={() => {
+            if (gutterMenu.itemType === 'scenario') {
+              handleDebugScenario(gutterMenu.itemName);
+            } else {
+              debugTests();
+            }
+            setGutterMenu(null);
+          }}
+          onClose={() => setGutterMenu(null)}
         />
       )}
 

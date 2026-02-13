@@ -98,10 +98,15 @@ export const schedulesApi = {
   /**
    * Validate a cron expression
    */
-  async validateCron(expression: string, count: number = 5): Promise<CronValidationResult> {
+  async validateCron(
+    expression: string,
+    count: number = 5,
+    timezone: string = 'UTC'
+  ): Promise<CronValidationResult> {
     return apiClient.post<CronValidationResult>('/schedules/validate-cron', {
       expression,
       count,
+      timezone,
     });
   },
 
