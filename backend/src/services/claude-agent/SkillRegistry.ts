@@ -5,15 +5,8 @@
  * Handles registration, priority ordering, and execution coordination.
  */
 
-import type {
-  Skill,
-  Hook,
-  ExecutionContext,
-  SkillDetection,
-  ExecuteResult,
-  VerifyResult,
-} from './interfaces';
-import type { HookResult } from './interfaces/Hook';
+import type { Skill, Hook, ExecutionContext, SkillDetection, ExecuteResult, VerifyResult } from './interfaces';
+import { logger } from '../../utils/logger';
 
 /** Result of running all applicable skills */
 export interface SkillExecutionResult {
@@ -49,10 +42,10 @@ export class SkillRegistry {
    */
   registerSkill(skill: Skill): void {
     if (this.skills.has(skill.name)) {
-      console.warn(`[SkillRegistry] Overwriting existing skill: ${skill.name}`);
+      logger.warn(`[SkillRegistry] Overwriting existing skill: ${skill.name}`);
     }
     this.skills.set(skill.name, skill);
-    console.log(`[SkillRegistry] Registered skill: ${skill.name} (priority: ${skill.priority})`);
+    logger.debug(`[SkillRegistry] Registered skill: ${skill.name} (priority: ${skill.priority})`);
   }
 
   /**
@@ -93,11 +86,11 @@ export class SkillRegistry {
     const hookMap = hook.type === 'before' ? this.beforeHooks : this.afterHooks;
 
     if (hookMap.has(hook.name)) {
-      console.warn(`[SkillRegistry] Overwriting existing ${hook.type} hook: ${hook.name}`);
+      logger.warn(`[SkillRegistry] Overwriting existing ${hook.type} hook: ${hook.name}`);
     }
 
     hookMap.set(hook.name, hook);
-    console.log(`[SkillRegistry] Registered ${hook.type} hook: ${hook.name} (priority: ${hook.priority})`);
+    logger.debug(`[SkillRegistry] Registered ${hook.type} hook: ${hook.name} (priority: ${hook.priority})`);
   }
 
   /**
@@ -138,10 +131,10 @@ export class SkillRegistry {
         const detection = await skill.detect(context);
         if (detection.applies) {
           applicable.push({ skill, detection });
-          console.log(`[SkillRegistry] Skill ${skill.name} applies (confidence: ${detection.confidence})`);
+          logger.debug(`[SkillRegistry] Skill ${skill.name} applies (confidence: ${detection.confidence})`);
         }
       } catch (error) {
-        console.error(`[SkillRegistry] Error detecting skill ${skill.name}:`, error);
+        logger.error(`[SkillRegistry] Error detecting skill ${skill.name}:`, error);
       }
     }
 
@@ -162,7 +155,7 @@ export class SkillRegistry {
       }
 
       try {
-        console.log(`[SkillRegistry] Running before hook: ${hook.name}`);
+        logger.debug(`[SkillRegistry] Running before hook: ${hook.name}`);
         const result = await hook.execute(context);
         hooksExecuted.push(hook.name);
 
@@ -173,7 +166,7 @@ export class SkillRegistry {
         }
 
         if (!result.continue) {
-          console.log(`[SkillRegistry] Hook ${hook.name} stopped execution`);
+          logger.debug(`[SkillRegistry] Hook ${hook.name} stopped execution`);
           return {
             success: true,
             hooksExecuted,
@@ -184,11 +177,11 @@ export class SkillRegistry {
         }
 
         if (result.skipRemainingHooks) {
-          console.log(`[SkillRegistry] Hook ${hook.name} skipped remaining hooks`);
+          logger.debug(`[SkillRegistry] Hook ${hook.name} skipped remaining hooks`);
           break;
         }
       } catch (error) {
-        console.error(`[SkillRegistry] Error in before hook ${hook.name}:`, error);
+        logger.error(`[SkillRegistry] Error in before hook ${hook.name}:`, error);
         return {
           success: false,
           hooksExecuted,
@@ -221,7 +214,7 @@ export class SkillRegistry {
       }
 
       try {
-        console.log(`[SkillRegistry] Running after hook: ${hook.name}`);
+        logger.debug(`[SkillRegistry] Running after hook: ${hook.name}`);
         const result = await hook.execute(context, executeResult);
         hooksExecuted.push(hook.name);
 
@@ -231,7 +224,7 @@ export class SkillRegistry {
         }
 
         if (!result.continue) {
-          console.log(`[SkillRegistry] After hook ${hook.name} stopped execution`);
+          logger.debug(`[SkillRegistry] After hook ${hook.name} stopped execution`);
           return {
             success: true,
             hooksExecuted,
@@ -245,7 +238,7 @@ export class SkillRegistry {
           break;
         }
       } catch (error) {
-        console.error(`[SkillRegistry] Error in after hook ${hook.name}:`, error);
+        logger.error(`[SkillRegistry] Error in after hook ${hook.name}:`, error);
         return {
           success: false,
           hooksExecuted,
@@ -308,11 +301,11 @@ export class SkillRegistry {
         }
 
         // Prepare phase
-        console.log(`[SkillRegistry] Preparing skill: ${skill.name}`);
+        logger.debug(`[SkillRegistry] Preparing skill: ${skill.name}`);
         const prepareResult = await skill.prepare(context);
 
         if (!prepareResult.success) {
-          console.error(`[SkillRegistry] Skill ${skill.name} prepare failed:`, prepareResult.error);
+          logger.error(`[SkillRegistry] Skill ${skill.name} prepare failed:`, prepareResult.error);
           continue;
         }
 
@@ -321,18 +314,18 @@ export class SkillRegistry {
         }
 
         if (prepareResult.skipExecution) {
-          console.log(`[SkillRegistry] Skill ${skill.name} skipped execution`);
+          logger.debug(`[SkillRegistry] Skill ${skill.name} skipped execution`);
           skillsExecuted.push(skill.name);
           continue;
         }
 
         // Execute phase
-        console.log(`[SkillRegistry] Executing skill: ${skill.name}`);
+        logger.debug(`[SkillRegistry] Executing skill: ${skill.name}`);
         const executeResult = await skill.execute(context);
         skillsExecuted.push(skill.name);
 
         if (!executeResult.success) {
-          console.error(`[SkillRegistry] Skill ${skill.name} execute failed:`, executeResult.error);
+          logger.error(`[SkillRegistry] Skill ${skill.name} execute failed:`, executeResult.error);
 
           // Run after hooks even on failure
           await this.runAfterHooks(context, executeResult);
@@ -354,17 +347,17 @@ export class SkillRegistry {
         }
 
         // Verify phase
-        console.log(`[SkillRegistry] Verifying skill: ${skill.name}`);
+        logger.debug(`[SkillRegistry] Verifying skill: ${skill.name}`);
         const verifyResult = await skill.verify(context);
         lastVerifyResult = verifyResult;
 
         if (!verifyResult.verified) {
-          console.warn(`[SkillRegistry] Skill ${skill.name} verification failed:`, verifyResult.error);
+          logger.warn(`[SkillRegistry] Skill ${skill.name} verification failed:`, verifyResult.error);
           // Continue despite verification failure - might need retry logic
         }
 
       } catch (error) {
-        console.error(`[SkillRegistry] Error executing skill ${skill.name}:`, error);
+        logger.error(`[SkillRegistry] Error executing skill ${skill.name}:`, error);
         return {
           success: false,
           skillsExecuted,
@@ -428,7 +421,7 @@ export function getDefaultRegistry(): SkillRegistry {
     defaultRegistry.registerHook(new SelectorCacheBeforeHook());
     defaultRegistry.registerHook(new SelectorCacheAfterHook());
 
-    console.log('[SkillRegistry] Default registry initialized with core skills and hooks');
+    logger.debug('[SkillRegistry] Default registry initialized with core skills and hooks');
   }
   return defaultRegistry;
 }
@@ -436,4 +429,3 @@ export function getDefaultRegistry(): SkillRegistry {
 export function resetDefaultRegistry(): void {
   defaultRegistry = null;
 }
-

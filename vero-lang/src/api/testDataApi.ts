@@ -17,13 +17,28 @@ import type { DataRow } from '../runtime/DataManager.js';
 export interface TestDataApiConfig {
     baseUrl: string;
     projectId?: string;
+    authToken?: string;
 }
 
 // Default configuration - can be overridden at runtime
 let config: TestDataApiConfig = {
     baseUrl: process.env.VERO_API_URL || 'http://localhost:3000/api',
     projectId: process.env.VERO_PROJECT_ID,
+    authToken: process.env.VERO_AUTH_TOKEN,
 };
+
+/**
+ * Build request headers including auth token when configured.
+ */
+function buildHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+    };
+    if (config.authToken) {
+        headers['Authorization'] = `Bearer ${config.authToken}`;
+    }
+    return headers;
+}
 
 /**
  * Configure the test data API
@@ -80,9 +95,7 @@ export const testDataApi = {
 
         const response = await fetch(`${url}?${params}`, {
             method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: buildHeaders(),
         });
 
         if (!response.ok) {
@@ -122,9 +135,7 @@ export const testDataApi = {
 
         const response = await fetch(`${url}?${params}`, {
             method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: buildHeaders(),
         });
 
         if (!response.ok) {
@@ -150,9 +161,7 @@ export const testDataApi = {
 
         const response = await fetch(`${url}?${params}`, {
             method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: buildHeaders(),
         });
 
         if (!response.ok) {
@@ -262,7 +271,7 @@ export const testDataApi = {
         try {
             const response = await fetch(`${url}?${params}`, {
                 method: 'GET',
-                headers: { 'Content-Type': 'application/json' },
+                headers: buildHeaders(),
             });
 
             if (!response.ok) {
@@ -297,7 +306,7 @@ export const testDataApi = {
         try {
             const response = await fetch(`${url}?${params}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: buildHeaders(),
                 body: JSON.stringify({
                     tables: tableNames,
                     // Server can use these to return 304 Not Modified for unchanged tables

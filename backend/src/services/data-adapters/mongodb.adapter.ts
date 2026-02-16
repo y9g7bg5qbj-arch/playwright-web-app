@@ -6,19 +6,7 @@
  */
 
 import { MongoClient, Db, Collection, ObjectId, Document } from 'mongodb';
-import {
-  DataAdapter,
-  TestDataSheet,
-  TestDataSheetCreate,
-  TestDataSheetUpdate,
-  TestDataRow,
-  TestDataRowCreate,
-  TestDataRowUpdate,
-  QueryOptions,
-  QueryResult,
-  ConnectionTestResult,
-  ColumnDefinition,
-} from './types';
+import { DataAdapter, TestDataSheet, TestDataSheetCreate, TestDataSheetUpdate, TestDataRow, TestDataRowCreate, TestDataRowUpdate, QueryOptions, QueryResult, ConnectionTestResult, ColumnDefinition } from './types';
 
 // ============================================
 // CONFIGURATION

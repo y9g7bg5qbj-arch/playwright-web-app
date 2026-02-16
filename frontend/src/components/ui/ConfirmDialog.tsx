@@ -47,16 +47,16 @@ export function ConfirmDialog({
 
     const variantStyles = {
         danger: {
-            icon: 'text-red-400',
-            button: 'bg-red-600 hover:bg-red-500',
+            icon: 'text-status-danger',
+            button: 'bg-status-danger hover:bg-status-danger',
         },
         warning: {
-            icon: 'text-yellow-400',
-            button: 'bg-yellow-600 hover:bg-yellow-500',
+            icon: 'text-status-warning',
+            button: 'bg-status-warning hover:bg-status-warning',
         },
         info: {
-            icon: 'text-blue-400',
-            button: 'bg-blue-600 hover:bg-blue-500',
+            icon: 'text-status-info',
+            button: 'bg-brand-primary hover:bg-brand-primary',
         },
     };
 
@@ -74,14 +74,14 @@ export function ConfirmDialog({
             <div
                 ref={dialogRef}
                 tabIndex={-1}
-                className="relative bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-full max-w-md mx-4 overflow-hidden"
+                className="relative bg-dark-card rounded-lg shadow-xl border border-border-default w-full max-w-md mx-4 overflow-hidden"
                 role="alertdialog"
                 aria-modal="true"
                 aria-labelledby="confirm-dialog-title"
                 aria-describedby="confirm-dialog-message"
             >
                 {/* Header */}
-                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border-default">
                     <div className="flex items-center gap-2">
                         <AlertTriangle className={`w-5 h-5 ${styles.icon}`} />
                         <h3 id="confirm-dialog-title" className="font-semibold text-white">
@@ -90,24 +90,24 @@ export function ConfirmDialog({
                     </div>
                     <button
                         onClick={onCancel}
-                        className="p-1 hover:bg-gray-700 rounded transition-colors"
+                        className="p-1 hover:bg-dark-elevated rounded transition-colors"
                     >
-                        <X className="w-4 h-4 text-gray-400" />
+                        <X className="w-4 h-4 text-text-secondary" />
                     </button>
                 </div>
 
                 {/* Body */}
                 <div className="px-4 py-4">
-                    <p id="confirm-dialog-message" className="text-gray-300 text-sm">
+                    <p id="confirm-dialog-message" className="text-text-primary text-sm">
                         {message}
                     </p>
                 </div>
 
                 {/* Footer */}
-                <div className="flex justify-end gap-2 px-4 py-3 bg-gray-800/50 border-t border-gray-700">
+                <div className="flex justify-end gap-2 px-4 py-3 bg-dark-card/50 border-t border-border-default">
                     <button
                         onClick={onCancel}
-                        className="px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                        className="px-4 py-2 text-sm text-text-primary hover:text-white hover:bg-dark-elevated rounded transition-colors"
                     >
                         {cancelLabel}
                     </button>

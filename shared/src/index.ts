@@ -25,6 +25,7 @@ export {
     ExecutionStatus,
     // ExecutionTarget is exported from runConfiguration
     Execution,
+    MatrixCombination,
     ExecutionCreate,
     ExecutionLog,
     ExecutionStepStatus,
@@ -104,6 +105,7 @@ export {
 export type {
     ScheduleTriggerType,
     ScheduleRunStatus,
+    ScheduleFolderScope,
     TestSelector,
     ScheduleNotificationConfig,
     Schedule,
@@ -125,3 +127,6 @@ export { SCHEDULE_PRESETS } from './types';
 
 // Run Configuration types
 export * from './runConfiguration';
+
+// Run Parameters types
+export * from './runParameters';

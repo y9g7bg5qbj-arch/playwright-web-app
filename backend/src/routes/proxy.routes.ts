@@ -8,6 +8,7 @@
 import { Router, Request, Response } from 'express';
 import axios from 'axios';
 import { JSDOM } from 'jsdom';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -296,7 +297,7 @@ router.get('/:sessionId/page', async (req: Request, res: Response) => {
         res.send(modifiedHtml);
 
     } catch (error: any) {
-        console.error('[Proxy] Error fetching page:', error.message);
+        logger.error('[Proxy] Error fetching page:', error.message);
         res.status(500).send(`
             <html>
                 <body style="font-family: system-ui; padding: 40px; background: #1a1a2e; color: white;">

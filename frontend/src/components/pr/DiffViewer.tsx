@@ -35,7 +35,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ prId, filePath }) => {
 
   const getChangeTypeColor = () => {
     switch (diff.changeType) {
-      case 'added': return 'text-green-400';
+      case 'added': return 'text-status-success';
       case 'deleted': return 'text-status-danger';
       default: return 'text-status-warning';
     }
@@ -62,7 +62,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ prId, filePath }) => {
         <div className="flex items-center gap-4">
           {/* Stats */}
           <div className="flex items-center gap-2 text-xs">
-            <span className="flex items-center gap-1 text-green-400">
+            <span className="flex items-center gap-1 text-status-success">
               <Plus className="w-3 h-3" />
               {diff.additions}
             </span>
@@ -124,10 +124,10 @@ const UnifiedDiffView: React.FC<{ hunks: DiffHunk[] }> = ({ hunks }) => {
         {hunks.map((hunk, hunkIdx) => (
           <React.Fragment key={hunkIdx}>
             {/* Hunk header */}
-            <tr className="bg-blue-500/10">
+            <tr className="bg-status-info/10">
               <td
                 colSpan={3}
-                className="px-4 py-1 text-xs text-blue-400"
+                className="px-4 py-1 text-xs text-status-info"
               >
                 @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
               </td>
@@ -209,7 +209,7 @@ const SplitDiffView: React.FC<{ hunks: DiffHunk[] }> = ({ hunks }) => {
           {rows.map((row, idx) => (
             <tr key={idx}>
               {row.left === null && row.right === null ? (
-                <td colSpan={2} className="h-6 bg-blue-500/10"></td>
+                <td colSpan={2} className="h-6 bg-status-info/10"></td>
               ) : row.left ? (
                 <DiffLineRow line={row.left} unified={false} side="left" />
               ) : (
@@ -226,7 +226,7 @@ const SplitDiffView: React.FC<{ hunks: DiffHunk[] }> = ({ hunks }) => {
           {rows.map((row, idx) => (
             <tr key={idx}>
               {row.left === null && row.right === null ? (
-                <td colSpan={2} className="h-6 bg-blue-500/10"></td>
+                <td colSpan={2} className="h-6 bg-status-info/10"></td>
               ) : row.right ? (
                 <DiffLineRow line={row.right} unified={false} side="right" />
               ) : (
@@ -249,13 +249,13 @@ interface DiffLineRowProps {
 
 const DiffLineRow: React.FC<DiffLineRowProps> = ({ line, unified = true, side }) => {
   const getBgColor = () => {
-    if (line.type === 'addition') return 'bg-green-500/10';
+    if (line.type === 'addition') return 'bg-status-success/10';
     if (line.type === 'deletion') return 'bg-status-danger/10';
     return '';
   };
 
   const getTextColor = () => {
-    if (line.type === 'addition') return 'text-green-400';
+    if (line.type === 'addition') return 'text-status-success';
     if (line.type === 'deletion') return 'text-status-danger';
     return 'text-text-secondary';
   };

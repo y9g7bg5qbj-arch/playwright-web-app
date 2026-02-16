@@ -3,13 +3,7 @@
  * Generates workflow YAML files for Playwright test execution
  */
 
-import type {
-  RunConfiguration,
-  GitHubActionsConfig,
-  ArtifactMode,
-  BrowserType,
-  BrowserChannel,
-} from '@playwright-web-app/shared';
+import type { RunConfiguration, GitHubActionsConfig, BrowserType, BrowserChannel } from '@playwright-web-app/shared';
 
 interface WorkflowGeneratorOptions {
   name?: string;
@@ -244,6 +238,20 @@ class WorkflowGeneratorService {
     lines.push(`${indent}        retention-days: 30`);
     lines.push(`${indent}        include-hidden-files: true`);
 
+    // Upload Allure results for report generation (Allure 3)
+    lines.push(`${indent}    - name: Upload Allure results`);
+    lines.push(`${indent}      uses: actions/upload-artifact@v4`);
+    lines.push(`${indent}      if: always()`);
+    lines.push(`${indent}      with:`);
+    if (githubConfig.shardCount > 1) {
+      lines.push(`${indent}        name: allure-results-shard-\${{ matrix.shard }}`);
+    } else {
+      lines.push(`${indent}        name: allure-results`);
+    }
+    lines.push(`${indent}        path: allure-results/`);
+    lines.push(`${indent}        retention-days: 14`);
+    lines.push(`${indent}        if-no-files-found: ignore`);
+
     // Upload blob report for sharding
     if (githubConfig.shardCount > 1) {
       lines.push(`${indent}    - name: Upload blob report`);
@@ -261,7 +269,7 @@ class WorkflowGeneratorService {
   /**
    * Generate the merge reports job (for sharded runs)
    */
-  private generateMergeReportsJob(githubConfig: GitHubActionsConfig): string[] {
+  private generateMergeReportsJob(_githubConfig: GitHubActionsConfig): string[] {
     const lines: string[] = [];
     const indent = '  ';
 
@@ -297,6 +305,35 @@ class WorkflowGeneratorService {
     lines.push(`${indent}        name: playwright-report`);
     lines.push(`${indent}        path: playwright-report/`);
     lines.push(`${indent}        retention-days: 30`);
+
+    // Install Allure 3 CLI and generate merged Allure report
+    lines.push(`${indent}    - name: Install Allure 3 CLI`);
+    lines.push(`${indent}      run: npm install -g allure@3`);
+
+    lines.push(`${indent}    - name: Download Allure results`);
+    lines.push(`${indent}      uses: actions/download-artifact@v4`);
+    lines.push(`${indent}      with:`);
+    lines.push(`${indent}        pattern: allure-results-*`);
+    lines.push(`${indent}        path: allure-results-merged`);
+    lines.push(`${indent}        merge-multiple: true`);
+    lines.push(`${indent}      continue-on-error: true`);
+
+    lines.push(`${indent}    - name: Generate merged Allure report`);
+    lines.push(`${indent}      run: |`);
+    lines.push(`${indent}        if [ -d \"allure-results-merged\" ] && [ \"$(ls -A allure-results-merged 2>/dev/null)\" ]; then`);
+    lines.push(`${indent}          allure generate allure-results-merged --clean -o allure-report-merged`);
+    lines.push(`${indent}        else`);
+    lines.push(`${indent}          echo \"No Allure results to merge\"`);
+    lines.push(`${indent}        fi`);
+
+    lines.push(`${indent}    - name: Upload merged Allure report`);
+    lines.push(`${indent}      uses: actions/upload-artifact@v4`);
+    lines.push(`${indent}      if: always()`);
+    lines.push(`${indent}      with:`);
+    lines.push(`${indent}        name: allure-report-merged`);
+    lines.push(`${indent}        path: allure-report-merged/`);
+    lines.push(`${indent}        retention-days: 30`);
+    lines.push(`${indent}        if-no-files-found: ignore`);
 
     return lines;
   }
@@ -355,11 +392,11 @@ class WorkflowGeneratorService {
     // Always include JSON reporter for API consumption with attachments
     // HTML reporter for visual browsing
     if (githubConfig.shardCount > 1) {
-      // Sharding: use blob reporter + JSON
-      parts.push('--reporter=blob,json');
+      // Sharding: use blob + JSON + Allure results
+      parts.push('--reporter=blob,json,allure-playwright');
     } else {
-      // Single run: use HTML + JSON + list
-      parts.push('--reporter=html,json,list');
+      // Single run: use HTML + JSON + list + Allure results
+      parts.push('--reporter=html,json,list,allure-playwright');
     }
 
     return parts.join(' ');

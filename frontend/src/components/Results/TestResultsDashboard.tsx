@@ -21,6 +21,7 @@ import {
   Filter,
   Calendar,
 } from 'lucide-react';
+import { IconButton, EmptyState } from '@/components/ui';
 import { TestResultCard, type TestResult } from './TestResultCard';
 import { TestResultsTable } from './TestResultsTable';
 
@@ -134,13 +135,13 @@ export const TestResultsDashboard: React.FC<TestResultsDashboardProps> = ({
   }, [runs, timeFilter, statusFilter, searchQuery]);
 
   return (
-    <div className="flex flex-col h-full bg-slate-950">
+    <div className="flex flex-col h-full bg-dark-canvas">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-slate-800">
+      <div className="px-6 py-4 border-b border-border-default">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-slate-100">Test Results</h1>
-            <p className="text-sm text-slate-500 mt-0.5">
+            <h1 className="text-xl font-bold text-text-primary">Test Results</h1>
+            <p className="text-sm text-text-secondary mt-0.5">
               {runs.length} runs | {stats.total} tests
             </p>
           </div>
@@ -148,7 +149,7 @@ export const TestResultsDashboard: React.FC<TestResultsDashboardProps> = ({
             <button
               onClick={onRefresh}
               disabled={isLoading}
-              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-3 py-1.5 bg-dark-card hover:bg-dark-elevated text-text-primary rounded-lg text-sm transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
@@ -160,70 +161,70 @@ export const TestResultsDashboard: React.FC<TestResultsDashboardProps> = ({
       {/* Summary Cards */}
       <div className="px-6 py-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
         {/* Pass Rate */}
-        <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-slate-700/50 rounded-xl p-4">
+        <div className="bg-gradient-to-br from-dark-card/50 to-dark-bg/50 border border-border-default/50 rounded-xl p-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-slate-500 font-medium">Pass Rate</span>
-            {stats.trend === 'up' && <TrendingUp className="w-4 h-4 text-green-400" />}
-            {stats.trend === 'down' && <TrendingDown className="w-4 h-4 text-red-400" />}
-            {stats.trend === 'stable' && <Minus className="w-4 h-4 text-slate-400" />}
+            <span className="text-xs text-text-secondary font-medium">Pass Rate</span>
+            {stats.trend === 'up' && <TrendingUp className="w-4 h-4 text-status-success" />}
+            {stats.trend === 'down' && <TrendingDown className="w-4 h-4 text-status-danger" />}
+            {stats.trend === 'stable' && <Minus className="w-4 h-4 text-text-secondary" />}
           </div>
-          <div className="text-2xl font-bold text-slate-100">{stats.passRate.toFixed(1)}%</div>
-          <div className="mt-2 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+          <div className="text-2xl font-bold text-text-primary">{stats.passRate.toFixed(1)}%</div>
+          <div className="mt-2 h-1.5 bg-dark-elevated rounded-full overflow-hidden">
             <div
-              className="h-full bg-green-500 rounded-full transition-all duration-500"
+              className="h-full bg-status-success rounded-full transition-all duration-500"
               style={{ width: `${stats.passRate}%` }}
             />
           </div>
         </div>
 
         {/* Passed */}
-        <div className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
+        <div className="bg-dark-card/30 border border-border-default/50 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
-            <CheckCircle2 className="w-4 h-4 text-green-400" />
-            <span className="text-xs text-slate-500 font-medium">Passed</span>
+            <CheckCircle2 className="w-4 h-4 text-status-success" />
+            <span className="text-xs text-text-secondary font-medium">Passed</span>
           </div>
-          <div className="text-2xl font-bold text-green-400">{stats.passed}</div>
+          <div className="text-2xl font-bold text-status-success">{stats.passed}</div>
         </div>
 
         {/* Failed */}
-        <div className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
+        <div className="bg-dark-card/30 border border-border-default/50 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
-            <XCircle className="w-4 h-4 text-red-400" />
-            <span className="text-xs text-slate-500 font-medium">Failed</span>
+            <XCircle className="w-4 h-4 text-status-danger" />
+            <span className="text-xs text-text-secondary font-medium">Failed</span>
           </div>
-          <div className="text-2xl font-bold text-red-400">{stats.failed}</div>
+          <div className="text-2xl font-bold text-status-danger">{stats.failed}</div>
         </div>
 
         {/* Skipped */}
-        <div className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
+        <div className="bg-dark-card/30 border border-border-default/50 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
-            <SkipForward className="w-4 h-4 text-slate-400" />
-            <span className="text-xs text-slate-500 font-medium">Skipped</span>
+            <SkipForward className="w-4 h-4 text-text-secondary" />
+            <span className="text-xs text-text-secondary font-medium">Skipped</span>
           </div>
-          <div className="text-2xl font-bold text-slate-400">{stats.skipped}</div>
+          <div className="text-2xl font-bold text-text-secondary">{stats.skipped}</div>
         </div>
 
         {/* Flaky */}
-        <div className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
+        <div className="bg-dark-card/30 border border-border-default/50 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle className="w-4 h-4 text-yellow-400" />
-            <span className="text-xs text-slate-500 font-medium">Flaky</span>
+            <AlertTriangle className="w-4 h-4 text-status-warning" />
+            <span className="text-xs text-text-secondary font-medium">Flaky</span>
           </div>
-          <div className="text-2xl font-bold text-yellow-400">{stats.flaky}</div>
+          <div className="text-2xl font-bold text-status-warning">{stats.flaky}</div>
         </div>
 
         {/* Avg Duration */}
-        <div className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
+        <div className="bg-dark-card/30 border border-border-default/50 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
-            <Clock className="w-4 h-4 text-blue-400" />
-            <span className="text-xs text-slate-500 font-medium">Avg Duration</span>
+            <Clock className="w-4 h-4 text-status-info" />
+            <span className="text-xs text-text-secondary font-medium">Avg Duration</span>
           </div>
-          <div className="text-2xl font-bold text-blue-400">{formatDuration(stats.avgDuration)}</div>
+          <div className="text-2xl font-bold text-status-info">{formatDuration(stats.avgDuration)}</div>
         </div>
       </div>
 
       {/* Filters Bar */}
-      <div className="px-6 py-3 border-b border-slate-800 flex items-center gap-4 flex-wrap">
+      <div className="px-6 py-3 border-b border-border-default flex items-center gap-4 flex-wrap">
         {/* Search */}
         <div className="flex-1 min-w-[200px] max-w-md">
           <input
@@ -231,7 +232,7 @@ export const TestResultsDashboard: React.FC<TestResultsDashboardProps> = ({
             placeholder="Search tests..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-3 py-1.5 bg-slate-800/50 border border-slate-700/50 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/50"
+            className="w-full px-3 py-1.5 bg-dark-card/50 border border-border-default/50 rounded-lg text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-status-info/50"
           />
         </div>
 
@@ -243,8 +244,8 @@ export const TestResultsDashboard: React.FC<TestResultsDashboardProps> = ({
               onClick={() => setStatusFilter(status)}
               className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors ${
                 statusFilter === status
-                  ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                  : 'bg-slate-800/50 text-slate-500 hover:text-slate-300 border border-transparent'
+                  ? 'bg-status-info/20 text-status-info border border-status-info/30'
+                  : 'bg-dark-card/50 text-text-secondary hover:text-text-primary border border-transparent'
               }`}
             >
               {status.charAt(0).toUpperCase() + status.slice(1)}
@@ -254,15 +255,15 @@ export const TestResultsDashboard: React.FC<TestResultsDashboardProps> = ({
 
         {/* Time Filter */}
         <div className="flex items-center gap-1">
-          <Calendar className="w-4 h-4 text-slate-500" />
+          <Calendar className="w-4 h-4 text-text-secondary" />
           {(['today', 'week', 'month', 'all'] as TimeFilter[]).map(time => (
             <button
               key={time}
               onClick={() => setTimeFilter(time)}
               className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors ${
                 timeFilter === time
-                  ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                  : 'bg-slate-800/50 text-slate-500 hover:text-slate-300 border border-transparent'
+                  ? 'bg-status-info/20 text-status-info border border-status-info/30'
+                  : 'bg-dark-card/50 text-text-secondary hover:text-text-primary border border-transparent'
               }`}
             >
               {time.charAt(0).toUpperCase() + time.slice(1)}
@@ -272,41 +273,41 @@ export const TestResultsDashboard: React.FC<TestResultsDashboardProps> = ({
 
         {/* View Toggle */}
         <div className="flex items-center gap-1 ml-auto">
-          <button
+          <IconButton
+            icon={
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+              </svg>
+            }
+            size="sm"
+            variant="ghost"
+            active={viewMode === 'grid'}
+            tooltip="Grid view"
             onClick={() => setViewMode('grid')}
-            className={`p-1.5 rounded transition-colors ${
-              viewMode === 'grid' ? 'bg-slate-700 text-slate-200' : 'text-slate-500 hover:text-slate-300'
-            }`}
-            title="Grid view"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-            </svg>
-          </button>
-          <button
+          />
+          <IconButton
+            icon={
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+              </svg>
+            }
+            size="sm"
+            variant="ghost"
+            active={viewMode === 'table'}
+            tooltip="Table view"
             onClick={() => setViewMode('table')}
-            className={`p-1.5 rounded transition-colors ${
-              viewMode === 'table' ? 'bg-slate-700 text-slate-200' : 'text-slate-500 hover:text-slate-300'
-            }`}
-            title="Table view"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-            </svg>
-          </button>
+          />
         </div>
       </div>
 
       {/* Results Content */}
       <div className="flex-1 overflow-auto px-6 py-4">
         {filteredRuns.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-              <Filter className="w-8 h-8 text-slate-600" />
-            </div>
-            <p className="text-slate-400 font-medium">No results found</p>
-            <p className="text-sm text-slate-500 mt-1">Try adjusting your filters</p>
-          </div>
+          <EmptyState
+            icon={<Filter className="w-8 h-8" />}
+            title="No results found"
+            message="Try adjusting your filters"
+          />
         ) : viewMode === 'grid' ? (
           <div className="space-y-6">
             {filteredRuns.map(run => (
@@ -315,25 +316,25 @@ export const TestResultsDashboard: React.FC<TestResultsDashboardProps> = ({
                 <div className="flex items-center justify-between">
                   <button
                     onClick={() => onViewRun?.(run.id)}
-                    className="flex items-center gap-2 hover:text-blue-400 transition-colors"
+                    className="flex items-center gap-2 hover:text-status-info transition-colors"
                   >
                     <span className={`w-2 h-2 rounded-full ${
-                      run.status === 'passed' ? 'bg-green-400' :
-                      run.status === 'failed' ? 'bg-red-400' :
-                      run.status === 'running' ? 'bg-blue-400 animate-pulse' :
-                      'bg-slate-400'
+                      run.status === 'passed' ? 'bg-status-success' :
+                      run.status === 'failed' ? 'bg-status-danger' :
+                      run.status === 'running' ? 'bg-status-info animate-pulse' :
+                      'bg-text-secondary'
                     }`} />
-                    <span className="font-medium text-slate-200">{run.name}</span>
+                    <span className="font-medium text-text-primary">{run.name}</span>
                     {run.branch && (
-                      <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded">
+                      <span className="text-xs text-text-secondary bg-dark-card px-2 py-0.5 rounded">
                         {run.branch}
                       </span>
                     )}
                   </button>
-                  <div className="flex items-center gap-3 text-xs text-slate-500">
+                  <div className="flex items-center gap-3 text-xs text-text-secondary">
                     <span>{new Date(run.startedAt).toLocaleString()}</span>
                     <span>{formatDuration(run.duration)}</span>
-                    <span className="text-slate-600">{run.browser}</span>
+                    <span className="text-text-muted">{run.browser}</span>
                   </div>
                 </div>
 

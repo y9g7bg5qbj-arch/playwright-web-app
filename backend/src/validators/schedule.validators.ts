@@ -4,10 +4,7 @@
  */
 
 import { body, param, query, CustomValidator } from 'express-validator';
-import {
-  validateCronExpression,
-  describeCronExpression,
-} from '../services/scheduler/cronParser';
+import { validateCronExpression } from '../services/scheduler/cronParser';
 
 // =============================================
 // Custom Validators
@@ -59,17 +56,6 @@ const isValidGlobPattern: CustomValidator = (value: string) => {
   // Prevent path traversal
   if (value.includes('..')) {
     throw new Error('Pattern cannot contain path traversal (..)');
-  }
-  return true;
-};
-
-/**
- * Validate UUID format
- */
-const isValidUUID: CustomValidator = (value: string) => {
-  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if (!uuidPattern.test(value)) {
-    throw new Error(`Invalid UUID format: ${value}`);
   }
   return true;
 };
@@ -131,10 +117,29 @@ export const createScheduleValidation = [
     .isString().withMessage('Timezone must be a string')
     .custom(isValidTimezone),
 
-  // Workflow ID validation (optional)
+  // Workflow ID validation
   body('workflowId')
-    .optional()
+    .notEmpty().withMessage('workflowId is required')
     .isString().withMessage('Workflow ID must be a string'),
+
+  // Project scope validation
+  body('projectId')
+    .notEmpty().withMessage('projectId is required')
+    .isString().withMessage('projectId must be a string'),
+
+  body('scopeFolder')
+    .notEmpty().withMessage('scopeFolder is required')
+    .isIn(['dev', 'master', 'sandboxes']).withMessage('scopeFolder must be one of: dev, master, sandboxes'),
+
+  body('scopeSandboxId')
+    .if(body('scopeFolder').equals('sandboxes'))
+    .notEmpty().withMessage('scopeSandboxId is required when scopeFolder is sandboxes')
+    .isString().withMessage('scopeSandboxId must be a string'),
+
+  // Linked run configuration validation
+  body('runConfigurationId')
+    .notEmpty().withMessage('runConfigurationId is required')
+    .isString().withMessage('runConfigurationId must be a string'),
 
   // isActive validation
   body('isActive')
@@ -258,6 +263,38 @@ export const updateScheduleValidation = [
     .optional()
     .isBoolean().withMessage('isActive must be a boolean'),
 
+  // Scope fields (optional on update; validated when supplied)
+  body('projectId')
+    .optional()
+    .isString().withMessage('projectId must be a string'),
+
+  body('scopeFolder')
+    .optional()
+    .isIn(['dev', 'master', 'sandboxes']).withMessage('scopeFolder must be one of: dev, master, sandboxes'),
+
+  body('scopeSandboxId')
+    .optional()
+    .isString().withMessage('scopeSandboxId must be a string'),
+
+  body()
+    .custom((_, { req }) => {
+      const folder = req.body?.scopeFolder;
+      const sandboxId = req.body?.scopeSandboxId;
+
+      if (folder === 'sandboxes' && !sandboxId) {
+        throw new Error('scopeSandboxId is required when scopeFolder is sandboxes');
+      }
+      if (folder !== undefined && folder !== 'sandboxes' && sandboxId !== undefined) {
+        throw new Error('scopeSandboxId is only allowed when scopeFolder is sandboxes');
+      }
+      return true;
+    }),
+
+  // Linked run configuration is required for scheduler updates
+  body('runConfigurationId')
+    .notEmpty().withMessage('runConfigurationId is required')
+    .isString().withMessage('runConfigurationId must be a string'),
+
   // TestSelector validation (same as create)
   body('testSelector')
     .optional()
@@ -364,6 +401,12 @@ export const validateCronValidation = [
   body('count')
     .optional()
     .isInt({ min: 1, max: 20 }).withMessage('Count must be between 1 and 20'),
+
+  body('timezone')
+    .optional()
+    .isString().withMessage('Timezone must be a string')
+    .trim()
+    .custom(isValidTimezone),
 ];
 
 /**
@@ -387,4 +430,22 @@ export const webhookTokenValidation = [
     .notEmpty().withMessage('Webhook token is required')
     .isString().withMessage('Webhook token must be a string')
     .isLength({ min: 32, max: 64 }).withMessage('Invalid webhook token format'),
+];
+
+/**
+ * Validation for manual trigger payload (parameter overrides only)
+ */
+export const triggerScheduleRunValidation = [
+  param('id')
+    .notEmpty().withMessage('Schedule ID is required')
+    .isString().withMessage('Schedule ID must be a string'),
+
+  body('parameterValues')
+    .optional()
+    .isObject().withMessage('parameterValues must be an object'),
+
+  body('executionConfig')
+    .not()
+    .exists()
+    .withMessage('executionConfig overrides are not supported for schedule triggers'),
 ];

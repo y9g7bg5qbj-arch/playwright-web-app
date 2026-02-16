@@ -6,6 +6,9 @@ import { RegisterPage } from './pages/RegisterPage';
 import { VeroWorkspace } from './components/workspace';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ToastContainer } from './components/ui';
+import { TestDataCanvasMockPage } from './components/TestData/canvas-v2';
+import { VeroIdeMockupPackPage } from './components/mockups/VeroIdeMockupPackPage';
 
 export function App() {
   const { checkAuth, isLoading } = useAuthStore();
@@ -44,24 +47,34 @@ export function App() {
           }
         />
 
-        {/* Legacy execution pages now redirect to unified workspace */}
-        <Route path="/execution/:executionId" element={<Navigate to="/" replace />} />
-        <Route path="/test-flow/:testFlowId/executions" element={<Navigate to="/" replace />} />
+        {/* Test-data canvas v2 mock route */}
+        <Route
+          path="/mock/test-data-canvas"
+          element={
+            <ProtectedRoute>
+              <ErrorBoundary>
+                <TestDataCanvasMockPage />
+              </ErrorBoundary>
+            </ProtectedRoute>
+          }
+        />
 
-        {/* Legacy route redirects - all go to unified workspace */}
-        <Route path="/workspace" element={<Navigate to="/" replace />} />
-        <Route path="/dashboard" element={<Navigate to="/" replace />} />
-        <Route path="/editor" element={<Navigate to="/" replace />} />
-        <Route path="/ide" element={<Navigate to="/" replace />} />
-        <Route path="/executions" element={<Navigate to="/" replace />} />
-        <Route path="/data" element={<Navigate to="/" replace />} />
-        <Route path="/schedules" element={<Navigate to="/" replace />} />
-        <Route path="/copilot" element={<Navigate to="/" replace />} />
-        <Route path="/scenarios" element={<Navigate to="/" replace />} />
+        {/* Full IDE UI mockup review route */}
+        <Route
+          path="/mock/vero-ide-pack"
+          element={
+            <ProtectedRoute>
+              <ErrorBoundary>
+                <VeroIdeMockupPackPage />
+              </ErrorBoundary>
+            </ProtectedRoute>
+          }
+        />
 
         {/* Catch-all redirect */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <ToastContainer />
     </BrowserRouter>
   );
 }

@@ -126,25 +126,25 @@ export const GitHubRunsPanel: React.FC<GitHubRunsPanelProps> = ({
     const sizeClass = size === 'sm' ? 'w-4 h-4' : 'w-5 h-5';
 
     if (status === 'queued') {
-      return <Clock className={`${sizeClass} text-yellow-500`} />;
+      return <Clock className={`${sizeClass} text-status-warning`} />;
     }
     if (status === 'in_progress') {
-      return <Loader2 className={`${sizeClass} text-blue-500 animate-spin`} />;
+      return <Loader2 className={`${sizeClass} text-status-info animate-spin`} />;
     }
 
     switch (conclusion) {
       case 'success':
-        return <CheckCircle className={`${sizeClass} text-green-500`} />;
+        return <CheckCircle className={`${sizeClass} text-status-success`} />;
       case 'failure':
-        return <XCircle className={`${sizeClass} text-red-500`} />;
+        return <XCircle className={`${sizeClass} text-status-danger`} />;
       case 'cancelled':
-        return <StopCircle className={`${sizeClass} text-gray-500`} />;
+        return <StopCircle className={`${sizeClass} text-text-secondary`} />;
       case 'skipped':
-        return <AlertTriangle className={`${sizeClass} text-gray-400`} />;
+        return <AlertTriangle className={`${sizeClass} text-text-secondary`} />;
       case 'timed_out':
-        return <Clock className={`${sizeClass} text-orange-500`} />;
+        return <Clock className={`${sizeClass} text-status-warning`} />;
       default:
-        return <Clock className={`${sizeClass} text-gray-400`} />;
+        return <Clock className={`${sizeClass} text-text-secondary`} />;
     }
   };
 
@@ -160,18 +160,18 @@ export const GitHubRunsPanel: React.FC<GitHubRunsPanelProps> = ({
 
   // Get status color
   const getStatusColor = (status: string, conclusion: string | null) => {
-    if (status === 'queued') return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400';
-    if (status === 'in_progress') return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400';
+    if (status === 'queued') return 'bg-status-warning/20 text-status-warning';
+    if (status === 'in_progress') return 'bg-status-info/20 text-status-info';
 
     switch (conclusion) {
       case 'success':
-        return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400';
+        return 'bg-status-success/20 text-status-success';
       case 'failure':
-        return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400';
+        return 'bg-status-danger/20 text-status-danger';
       case 'cancelled':
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-400';
+        return 'bg-dark-elevated text-text-secondary';
       default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-400';
+        return 'bg-dark-elevated text-text-secondary';
     }
   };
 
@@ -192,18 +192,18 @@ export const GitHubRunsPanel: React.FC<GitHubRunsPanelProps> = ({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-48">
-        <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+        <Loader2 className="w-6 h-6 animate-spin text-status-info" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
-        <p className="text-red-600 dark:text-red-400">{error}</p>
+      <div className="p-4 bg-status-danger/20 rounded-lg">
+        <p className="text-status-danger">{error}</p>
         <button
           onClick={handleRefresh}
-          className="mt-2 text-sm text-red-700 dark:text-red-300 underline"
+          className="mt-2 text-sm text-status-danger underline"
         >
           Try again
         </button>
@@ -215,13 +215,13 @@ export const GitHubRunsPanel: React.FC<GitHubRunsPanelProps> = ({
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-medium text-gray-900 dark:text-white">
+        <h3 className="text-lg font-medium text-text-primary">
           GitHub Actions Runs
         </h3>
         <button
           onClick={handleRefresh}
           disabled={refreshing}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
+          className="flex items-center gap-2 px-3 py-1.5 text-sm bg-dark-elevated rounded-lg hover:bg-dark-elevated disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
           Refresh
@@ -230,7 +230,7 @@ export const GitHubRunsPanel: React.FC<GitHubRunsPanelProps> = ({
 
       {/* Runs List */}
       {runs.length === 0 ? (
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+        <div className="text-center py-8 text-text-secondary">
           <GitBranch className="w-12 h-12 mx-auto mb-3 opacity-50" />
           <p>No workflow runs found</p>
           <p className="text-sm mt-1">
@@ -246,23 +246,23 @@ export const GitHubRunsPanel: React.FC<GitHubRunsPanelProps> = ({
             return (
               <div
                 key={run.id}
-                className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden"
+                className="border border-border-default rounded-lg overflow-hidden"
               >
                 {/* Run Header */}
                 <div
                   className={`
                     flex items-center justify-between p-4 cursor-pointer
-                    hover:bg-gray-50 dark:hover:bg-gray-700/50
-                    ${isExpanded ? 'border-b border-gray-200 dark:border-gray-700' : ''}
+                    hover:bg-dark-elevated
+                    ${isExpanded ? 'border-b border-border-default' : ''}
                   `}
                   onClick={() => hasJobs && toggleExpand(run.id)}
                 >
                   <div className="flex items-center gap-3">
                     {hasJobs ? (
                       isExpanded ? (
-                        <ChevronDown className="w-5 h-5 text-gray-400" />
+                        <ChevronDown className="w-5 h-5 text-text-secondary" />
                       ) : (
-                        <ChevronRight className="w-5 h-5 text-gray-400" />
+                        <ChevronRight className="w-5 h-5 text-text-secondary" />
                       )
                     ) : (
                       <div className="w-5 h-5" />
@@ -272,7 +272,7 @@ export const GitHubRunsPanel: React.FC<GitHubRunsPanelProps> = ({
 
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-gray-900 dark:text-white">
+                        <span className="font-medium text-text-primary">
                           Run #{run.runNumber}
                         </span>
                         <span
@@ -284,7 +284,7 @@ export const GitHubRunsPanel: React.FC<GitHubRunsPanelProps> = ({
                           {getStatusLabel(run.status, run.conclusion)}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                      <div className="flex items-center gap-2 text-sm text-text-secondary">
                         {run.headBranch && (
                           <>
                             <GitBranch className="w-3 h-3" />
@@ -302,10 +302,10 @@ export const GitHubRunsPanel: React.FC<GitHubRunsPanelProps> = ({
 
                   <div className="flex items-center gap-4">
                     <div className="text-right">
-                      <div className="text-sm text-gray-500 dark:text-gray-400">
+                      <div className="text-sm text-text-secondary">
                         {formatDuration(run.startedAt, run.completedAt)}
                       </div>
-                      <div className="text-xs text-gray-400">
+                      <div className="text-xs text-text-secondary">
                         {new Date(run.createdAt).toLocaleString()}
                       </div>
                     </div>
@@ -314,7 +314,7 @@ export const GitHubRunsPanel: React.FC<GitHubRunsPanelProps> = ({
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                      className="p-2 text-text-secondary hover:text-text-primary"
                     >
                       <ExternalLink className="w-4 h-4" />
                     </a>
@@ -323,31 +323,31 @@ export const GitHubRunsPanel: React.FC<GitHubRunsPanelProps> = ({
 
                 {/* Jobs (Shards) */}
                 {isExpanded && hasJobs && (
-                  <div className="bg-gray-50 dark:bg-gray-800/50 p-4">
-                    <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                  <div className="bg-dark-card/50 p-4">
+                    <h4 className="text-sm font-medium text-text-primary mb-3">
                       Jobs ({run.jobs!.length} shards)
                     </h4>
                     <div className="space-y-2">
                       {run.jobs!.map((job) => (
                         <div
                           key={job.id}
-                          className="flex items-center justify-between p-3 bg-white dark:bg-gray-700 rounded-lg"
+                          className="flex items-center justify-between p-3 bg-dark-elevated rounded-lg"
                         >
                           <div className="flex items-center gap-3">
                             {getStatusIcon(job.status, job.conclusion, 'sm')}
                             <div>
-                              <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              <span className="text-sm font-medium text-text-primary">
                                 {job.name}
                               </span>
                               {job.runnerName && (
-                                <span className="ml-2 text-xs text-gray-500">
+                                <span className="ml-2 text-xs text-text-secondary">
                                   ({job.runnerName})
                                 </span>
                               )}
                             </div>
                           </div>
                           <div className="flex items-center gap-3">
-                            <span className="text-sm text-gray-500">
+                            <span className="text-sm text-text-secondary">
                               {formatDuration(job.startedAt, job.completedAt)}
                             </span>
                             {job.htmlUrl && (
@@ -355,7 +355,7 @@ export const GitHubRunsPanel: React.FC<GitHubRunsPanelProps> = ({
                                 href={job.htmlUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                                className="text-text-secondary hover:text-text-primary"
                               >
                                 <ExternalLink className="w-3 h-3" />
                               </a>

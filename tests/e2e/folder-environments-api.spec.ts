@@ -177,8 +177,11 @@ test.describe('Folder-Based Environment System - API Tests', () => {
     // Verify subfolders were copied
     expect(fs.existsSync(path.join(sandboxPath, 'Pages'))).toBeTruthy();
     expect(fs.existsSync(path.join(sandboxPath, 'Features'))).toBeTruthy();
-    expect(fs.existsSync(path.join(sandboxPath, 'Data'))).toBeTruthy();
-    console.log('✓ Sandbox has Pages/Features/Data folders');
+    expect(fs.existsSync(path.join(sandboxPath, 'PageActions'))).toBeTruthy();
+    expect(fs.existsSync(path.join(sandboxPath, 'Resources'))).toBeTruthy();
+    expect(fs.existsSync(path.join(sandboxPath, 'Data'))).toBeFalsy();
+    expect(fs.existsSync(path.join(sandboxPath, '.sync-base'))).toBeFalsy();
+    console.log('✓ Sandbox has required folders and excludes Data/.sync-base');
 
     // Verify files were copied
     expect(fs.existsSync(path.join(sandboxPath, 'Pages', 'example.vero'))).toBeTruthy();

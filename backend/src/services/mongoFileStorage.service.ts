@@ -5,7 +5,7 @@
  * This allows all data to be stored in a single configurable database.
  */
 
-import { getDb, COLLECTIONS } from '../db/mongodb';
+import { getDb } from '../db/mongodb';
 import { Collection, ObjectId } from 'mongodb';
 
 // Add VERO_FILES to COLLECTIONS

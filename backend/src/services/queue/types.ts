@@ -11,12 +11,14 @@ export interface ScheduleRunJobData {
   runId: string;
   userId: string;
   triggerType: 'scheduled' | 'manual' | 'webhook' | 'api';
+  /** @deprecated Scheduler now resolves selection from linked run configuration. */
   testSelector?: {
     tags?: string[];
     folders?: string[];
     patterns?: string[];
   };
   parameterValues?: Record<string, unknown>;
+  /** @deprecated Manual trigger execution overrides are no longer supported. */
   executionConfig?: {
     browser?: 'chromium' | 'firefox' | 'webkit';
     headless?: boolean;
@@ -25,6 +27,32 @@ export interface ScheduleRunJobData {
     workers?: number;
     baseUrl?: string;
     environment?: string;
+    environmentId?: string;
+    envVars?: Record<string, string>;
+    // Artifact & tracing
+    tracing?: string;
+    screenshot?: string;
+    video?: string;
+    // Test filtering
+    grep?: string;
+    grepInvert?: string;
+    lastFailed?: boolean;
+    selectionScope?: 'active-file' | 'current-sandbox';
+    tagExpression?: string;
+    namePatterns?: string[];
+    tags?: string[];
+    excludeTags?: string[];
+    tagMode?: 'any' | 'all';
+    // Visual snapshot testing
+    visualPreset?: string;
+    visualThreshold?: number;
+    visualMaxDiffPixels?: number;
+    visualMaxDiffPixelRatio?: number;
+    visualUpdateSnapshots?: boolean;
+    // Sharding
+    shardCount?: number;
+    // Run parameters
+    parameterSetId?: string;
   };
 }
 

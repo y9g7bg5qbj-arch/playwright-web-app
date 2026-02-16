@@ -46,7 +46,7 @@ const executions: Map<string, Execution> = new Map();
  * GET /api/sharding/workers
  * List all registered workers
  */
-router.get('/workers', (req: Request, res: Response) => {
+router.get('/workers', (_req: Request, res: Response) => {
     res.json({
         success: true,
         workers: workers.map(w => ({
@@ -109,7 +109,7 @@ router.get('/executions/:id/streams', (req: Request, res: Response) => {
  * Start a sharded test execution
  */
 router.post('/execute', async (req: Request, res: Response) => {
-    const { testFiles, totalShards = 2 } = req.body;
+    const { totalShards = 2 } = req.body;
 
     // Generate execution ID
     const executionId = `exec-${Date.now()}`;

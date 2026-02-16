@@ -102,7 +102,7 @@ export class HandleDownloadGenerator implements NodeGenerator {
  * → // Using devices['iPhone 12']
  */
 export class EmulateDeviceGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { device, customWidth, customHeight, customUserAgent } = node.data;
 
         if (device === 'custom') {
@@ -128,7 +128,7 @@ export class EmulateDeviceGenerator implements NodeGenerator {
  * → await page.setViewportSize({ width: 1920, height: 1080 });
  */
 export class SetViewportGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { width, height } = node.data;
         return [`await page.setViewportSize({ width: ${width || 1280}, height: ${height || 720} });`];
     }
@@ -141,7 +141,7 @@ export class SetViewportGenerator implements NodeGenerator {
  * → await subFlows.abc123(page, {...});
  */
 export class SubFlowGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { flowId, parameters } = node.data;
 
         const paramsCode = parameters ? `, ${JSON.stringify(parameters)}` : '';
@@ -159,7 +159,7 @@ export class SubFlowGenerator implements NodeGenerator {
  * → const browser = await chromium.launch({ headless: false });
  */
 export class LaunchBrowserGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { browser, headless, slowMo, devtools } = node.data;
 
         const opts: string[] = [];
@@ -179,7 +179,7 @@ export class LaunchBrowserGenerator implements NodeGenerator {
  * → const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
  */
 export class NewContextGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const {
             viewport,
             locale,
@@ -219,7 +219,7 @@ export class NewContextGenerator implements NodeGenerator {
  * → await browser.close();
  */
 export class CloseBrowserGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(_node: FlowNode, _ctx: GeneratorContext): string[] {
         return ['await browser.close();'];
     }
 }

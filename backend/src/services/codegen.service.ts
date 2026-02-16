@@ -5,14 +5,7 @@
 
 import { TestFlowService } from './testFlow.service';
 import { CodeGenerator, formatGeneratedCode } from '../codegen';
-import type {
-    Flow,
-    FlowNode,
-    FlowEdge,
-    GenerateOptions,
-    GeneratedCode,
-    ExportMode
-} from '@playwright-web-app/shared';
+import type { Flow, FlowNode, FlowEdge, GenerateOptions, GeneratedCode, ExportMode } from '@playwright-web-app/shared';
 
 export interface ExportOptions {
     mode?: ExportMode;
@@ -116,7 +109,7 @@ class CodegenServiceClass {
     private buildFileList(
         code: GeneratedCode,
         flowName: string,
-        mode: ExportMode
+        _mode: ExportMode
     ): ExportResult['files'] {
         const files: ExportResult['files'] = [];
         const safeName = this.toSafeFileName(flowName);

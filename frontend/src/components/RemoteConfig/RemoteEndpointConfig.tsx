@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Info,
 } from 'lucide-react';
+import { IconButton, EmptyState } from '@/components/ui';
 import type {
   RemoteEndpoint,
   RemoteAuth,
@@ -161,9 +162,9 @@ export const RemoteEndpointConfig: React.FC<RemoteEndpointConfigProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Globe className="w-5 h-5 text-blue-400" />
-          <h3 className="font-medium text-slate-200">Remote Endpoints</h3>
-          <span className="px-2 py-0.5 text-xs bg-slate-800 text-slate-400 rounded-full">
+          <Globe className="w-5 h-5 text-status-info" />
+          <h3 className="font-medium text-text-primary">Remote Endpoints</h3>
+          <span className="px-2 py-0.5 text-xs bg-dark-card text-text-secondary rounded-full">
             {endpoints.length}
           </span>
         </div>
@@ -171,7 +172,7 @@ export const RemoteEndpointConfig: React.FC<RemoteEndpointConfigProps> = ({
           <button
             onClick={() => setIsAdding(true)}
             disabled={disabled}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-primary hover:bg-brand-primary text-white rounded-lg transition-colors disabled:opacity-50"
           >
             <Plus className="w-4 h-4" />
             Add Endpoint
@@ -181,54 +182,55 @@ export const RemoteEndpointConfig: React.FC<RemoteEndpointConfigProps> = ({
 
       {/* Add/Edit Form */}
       {isAdding && (
-        <div className="p-4 rounded-lg bg-slate-800/50 border border-slate-700 space-y-4">
+        <div className="p-4 rounded-lg bg-dark-card/50 border border-border-default space-y-4">
           <div className="flex items-center justify-between">
-            <h4 className="font-medium text-slate-200">
+            <h4 className="font-medium text-text-primary">
               {editingId ? 'Edit Endpoint' : 'Add New Endpoint'}
             </h4>
-            <button
+            <IconButton
+              icon={<X className="w-4 h-4" />}
+              size="sm"
+              variant="ghost"
+              tooltip="Cancel"
               onClick={handleCancel}
-              className="p-1 hover:bg-slate-700 rounded text-slate-400"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            />
           </div>
 
           {/* Name */}
           <div className="space-y-1">
-            <label className="block text-sm text-slate-400">Name</label>
+            <label className="block text-sm text-text-secondary">Name</label>
             <input
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               placeholder="e.g., Production Grid"
               disabled={disabled}
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              className="w-full bg-dark-elevated border border-border-default rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-status-info"
             />
             {errors.name && (
-              <span className="text-xs text-red-400">{errors.name}</span>
+              <span className="text-xs text-status-danger">{errors.name}</span>
             )}
           </div>
 
           {/* URL */}
           <div className="space-y-1">
-            <label className="block text-sm text-slate-400">URL</label>
+            <label className="block text-sm text-text-secondary">URL</label>
             <input
               type="text"
               value={formData.url}
               onChange={(e) => setFormData({ ...formData, url: e.target.value })}
               placeholder="https://grid.example.com:4444"
               disabled={disabled}
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 font-mono focus:outline-none focus:border-blue-500"
+              className="w-full bg-dark-elevated border border-border-default rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted font-mono focus:outline-none focus:border-status-info"
             />
             {errors.url && (
-              <span className="text-xs text-red-400">{errors.url}</span>
+              <span className="text-xs text-status-danger">{errors.url}</span>
             )}
           </div>
 
           {/* Browsers */}
           <div className="space-y-2">
-            <label className="block text-sm text-slate-400">Browsers</label>
+            <label className="block text-sm text-text-secondary">Browsers</label>
             <div className="flex gap-2">
               {(['chromium', 'firefox', 'webkit'] as BrowserType[]).map((browser) => (
                 <button
@@ -237,8 +239,8 @@ export const RemoteEndpointConfig: React.FC<RemoteEndpointConfigProps> = ({
                   disabled={disabled}
                   className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
                     formData.browsers.includes(browser)
-                      ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                      : 'border-slate-600 bg-slate-700/50 text-slate-400 hover:border-slate-500'
+                      ? 'border-status-info bg-status-info/10 text-status-info'
+                      : 'border-border-default bg-dark-elevated/50 text-text-secondary hover:border-border-default'
                   }`}
                 >
                   {browser}
@@ -246,13 +248,13 @@ export const RemoteEndpointConfig: React.FC<RemoteEndpointConfigProps> = ({
               ))}
             </div>
             {errors.browsers && (
-              <span className="text-xs text-red-400">{errors.browsers}</span>
+              <span className="text-xs text-status-danger">{errors.browsers}</span>
             )}
           </div>
 
           {/* Worker Capacity */}
           <div className="space-y-1">
-            <label className="block text-sm text-slate-400">Worker Capacity</label>
+            <label className="block text-sm text-text-secondary">Worker Capacity</label>
             <input
               type="number"
               value={formData.workerCapacity}
@@ -260,29 +262,29 @@ export const RemoteEndpointConfig: React.FC<RemoteEndpointConfigProps> = ({
               min={1}
               max={100}
               disabled={disabled}
-              className="w-32 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500"
+              className="w-32 bg-dark-elevated border border-border-default rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-status-info"
             />
             {errors.workerCapacity && (
-              <span className="text-xs text-red-400">{errors.workerCapacity}</span>
+              <span className="text-xs text-status-danger">{errors.workerCapacity}</span>
             )}
           </div>
 
           {/* Authentication */}
           <div className="space-y-3">
-            <label className="block text-sm text-slate-400">Authentication</label>
+            <label className="block text-sm text-text-secondary">Authentication</label>
             <div className="relative">
               <select
                 value={formData.auth.type}
                 onChange={(e) => setFormData({ ...formData, auth: { ...formData.auth, type: e.target.value as any } })}
                 disabled={disabled}
-                className="w-full appearance-none bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 pr-10 text-sm text-slate-200 focus:outline-none focus:border-blue-500"
+                className="w-full appearance-none bg-dark-elevated border border-border-default rounded-lg px-3 py-2 pr-10 text-sm text-text-primary focus:outline-none focus:border-status-info"
               >
                 <option value="none">None</option>
                 <option value="basic">Basic Auth</option>
                 <option value="token">API Token</option>
                 <option value="oauth">OAuth 2.0</option>
               </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary pointer-events-none" />
             </div>
 
             {formData.auth.type === 'basic' && (
@@ -293,7 +295,7 @@ export const RemoteEndpointConfig: React.FC<RemoteEndpointConfigProps> = ({
                   onChange={(e) => setFormData({ ...formData, auth: { ...formData.auth, username: e.target.value } })}
                   placeholder="Username"
                   disabled={disabled}
-                  className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  className="bg-dark-elevated border border-border-default rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-status-info"
                 />
                 <div className="relative">
                   <input
@@ -302,15 +304,16 @@ export const RemoteEndpointConfig: React.FC<RemoteEndpointConfigProps> = ({
                     onChange={(e) => setFormData({ ...formData, auth: { ...formData.auth, password: e.target.value } })}
                     placeholder="Password"
                     disabled={disabled}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 pr-10 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                    className="w-full bg-dark-elevated border border-border-default rounded-lg px-3 py-2 pr-10 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-status-info"
                   />
-                  <button
-                    type="button"
+                  <IconButton
+                    icon={showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    size="sm"
+                    variant="ghost"
+                    tooltip={showPassword ? 'Hide' : 'Show'}
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-300"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+                    className="absolute right-2 top-1/2 -translate-y-1/2"
+                  />
                 </div>
               </div>
             )}
@@ -323,26 +326,27 @@ export const RemoteEndpointConfig: React.FC<RemoteEndpointConfigProps> = ({
                   onChange={(e) => setFormData({ ...formData, auth: { ...formData.auth, token: e.target.value } })}
                   placeholder="API Token"
                   disabled={disabled}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 pr-10 text-sm text-slate-200 placeholder-slate-500 font-mono focus:outline-none focus:border-blue-500"
+                  className="w-full bg-dark-elevated border border-border-default rounded-lg px-3 py-2 pr-10 text-sm text-text-primary placeholder-text-muted font-mono focus:outline-none focus:border-status-info"
                 />
-                <button
-                  type="button"
+                <IconButton
+                  icon={showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  size="sm"
+                  variant="ghost"
+                  tooltip={showPassword ? 'Hide' : 'Show'}
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-300"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
+                  className="absolute right-2 top-1/2 -translate-y-1/2"
+                />
               </div>
             )}
 
             {errors.auth && (
-              <span className="text-xs text-red-400">{errors.auth}</span>
+              <span className="text-xs text-status-danger">{errors.auth}</span>
             )}
           </div>
 
           {/* SSL/TLS */}
           <div className="space-y-3">
-            <label className="block text-sm text-slate-400">SSL/TLS Settings</label>
+            <label className="block text-sm text-text-secondary">SSL/TLS Settings</label>
             <div className="space-y-2">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -350,9 +354,9 @@ export const RemoteEndpointConfig: React.FC<RemoteEndpointConfigProps> = ({
                   checked={formData.ssl.enabled}
                   onChange={(e) => setFormData({ ...formData, ssl: { ...formData.ssl, enabled: e.target.checked } })}
                   disabled={disabled}
-                  className="w-4 h-4 rounded text-blue-500 bg-slate-700 border-slate-600 focus:ring-blue-500/50"
+                  className="w-4 h-4 rounded text-status-info bg-dark-elevated border-border-default focus:ring-status-info/50"
                 />
-                <span className="text-sm text-slate-300">Enable SSL/TLS</span>
+                <span className="text-sm text-text-primary">Enable SSL/TLS</span>
               </label>
               {formData.ssl.enabled && (
                 <label className="flex items-center gap-2 cursor-pointer pl-6">
@@ -361,9 +365,9 @@ export const RemoteEndpointConfig: React.FC<RemoteEndpointConfigProps> = ({
                     checked={formData.ssl.rejectUnauthorized}
                     onChange={(e) => setFormData({ ...formData, ssl: { ...formData.ssl, rejectUnauthorized: e.target.checked } })}
                     disabled={disabled}
-                    className="w-4 h-4 rounded text-blue-500 bg-slate-700 border-slate-600 focus:ring-blue-500/50"
+                    className="w-4 h-4 rounded text-status-info bg-dark-elevated border-border-default focus:ring-status-info/50"
                   />
-                  <span className="text-sm text-slate-300">Verify certificates</span>
+                  <span className="text-sm text-text-primary">Verify certificates</span>
                 </label>
               )}
             </div>
@@ -373,14 +377,14 @@ export const RemoteEndpointConfig: React.FC<RemoteEndpointConfigProps> = ({
           <div className="flex items-center justify-end gap-2 pt-2">
             <button
               onClick={handleCancel}
-              className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+              className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleSubmit}
               disabled={disabled}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-4 py-2 text-sm bg-brand-primary hover:bg-brand-primary text-white rounded-lg transition-colors disabled:opacity-50"
             >
               <Check className="w-4 h-4" />
               {editingId ? 'Update' : 'Add'} Endpoint
@@ -404,27 +408,27 @@ export const RemoteEndpointConfig: React.FC<RemoteEndpointConfigProps> = ({
           ))}
         </div>
       ) : !isAdding ? (
-        <div className="p-8 rounded-lg border border-dashed border-slate-700 bg-slate-800/30 text-center">
-          <Globe className="w-12 h-12 text-slate-600 mx-auto" />
-          <p className="mt-3 text-slate-400">No remote endpoints configured</p>
-          <p className="text-sm text-slate-500 mt-1">
-            Add a remote endpoint to run tests on external infrastructure
-          </p>
-          <button
-            onClick={() => setIsAdding(true)}
-            disabled={disabled}
-            className="mt-4 flex items-center gap-1.5 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors mx-auto disabled:opacity-50"
-          >
-            <Plus className="w-4 h-4" />
-            Add Your First Endpoint
-          </button>
-        </div>
+        <EmptyState
+          icon={<Globe className="w-12 h-12" />}
+          title="No remote endpoints configured"
+          message="Add a remote endpoint to run tests on external infrastructure"
+          action={
+            <button
+              onClick={() => setIsAdding(true)}
+              disabled={disabled}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm bg-brand-primary hover:bg-brand-primary text-white rounded-lg transition-colors disabled:opacity-50"
+            >
+              <Plus className="w-4 h-4" />
+              Add Your First Endpoint
+            </button>
+          }
+        />
       ) : null}
 
       {/* Info */}
-      <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
-        <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-        <div className="text-xs text-blue-300">
+      <div className="flex items-start gap-2 p-3 rounded-lg bg-status-info/10 border border-status-info/30">
+        <Info className="w-4 h-4 text-status-info shrink-0 mt-0.5" />
+        <div className="text-xs text-status-info">
           <strong>Remote Execution:</strong> Connect to Selenium Grid, Playwright Grid, or cloud
           providers like BrowserStack and Sauce Labs. Tests will be distributed across available workers.
         </div>

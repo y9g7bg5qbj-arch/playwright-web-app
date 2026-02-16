@@ -61,8 +61,18 @@ on:
         required: false
         default: ''
         type: string
+      selectionScope:
+        description: 'Vero selection scope: active-file or current-sandbox'
+        required: false
+        default: 'current-sandbox'
+        type: string
       tagExpression:
         description: 'Cucumber-style tag expression (e.g., (@smoke and @login) and not @dashboard)'
+        required: false
+        default: ''
+        type: string
+      parameterizedNamesB64:
+        description: 'Base64-encoded JSON array of parameterized variable names'
         required: false
         default: ''
         type: string
@@ -165,11 +175,15 @@ jobs:
           VERO_FILE_PATH: ${{ inputs.veroFilePath }}
           VERO_CONTENT_B64: ${{ inputs.veroContentB64 }}
           WORKERS: ${{ inputs.workers || '1' }}
+          SHARD_INDEX: ${{ matrix.shard }}
+          SHARD_TOTAL: ${{ inputs.shards || '1' }}
           RETRIES: ${{ inputs.retries || '0' }}
           TIMEOUT_MS: ${{ inputs.timeoutMs || '60000' }}
           HEADLESS: ${{ inputs.headless || 'true' }}
           SCENARIO_NAME: ${{ inputs.scenarioName }}
+          SELECTION_SCOPE: ${{ inputs.selectionScope || 'current-sandbox' }}
           TAG_EXPRESSION: ${{ inputs.tagExpression }}
+          PARAMETERIZED_NAMES_B64: ${{ inputs.parameterizedNamesB64 }}
           NAME_PATTERNS_B64: ${{ inputs.namePatternsB64 }}
           TAGS_B64: ${{ inputs.tagsB64 }}
           TAG_MODE: ${{ inputs.tagMode || 'any' }}
@@ -251,8 +265,13 @@ jobs:
           path: merged-playwright-report/
           retention-days: 14
 
-      - name: Install Allure Commandline
-        run: npm install -g allure-commandline
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Allure 3 CLI
+        run: npm install -g allure@3
 
       - name: Download Allure results
         uses: actions/download-artifact@v4

@@ -1,12 +1,13 @@
 /**
  * Reference Detail Popup
- * 
+ *
  * Shows full row details when clicking on a reference chip.
  * Displays all columns from the referenced table in a key-value format.
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { X, ExternalLink, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ExternalLink, Loader2 } from 'lucide-react';
+import { Modal, Button } from '@/components/ui';
 import type { ReferenceConfig } from './AGGridDataTable';
 import { testDataApi } from '@/api/testData';
 
@@ -27,7 +28,6 @@ export function ReferenceDetailPopup({
     referenceId,
     referenceConfig,
     displayValue,
-    position,
     onClose,
     onNavigate,
 }: ReferenceDetailPopupProps) {
@@ -67,123 +67,63 @@ export function ReferenceDetailPopup({
         fetchRowData();
     }, [referenceId, referenceConfig.targetSheet, referenceConfig.targetColumn]);
 
-    // Handle click outside
-    const handleBackdropClick = useCallback((e: React.MouseEvent) => {
-        if (e.target === e.currentTarget) {
-            onClose();
-        }
-    }, [onClose]);
-
-    // Handle escape key
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') {
-                onClose();
-            }
-        };
-
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [onClose]);
-
-    // Calculate popup position (ensure it stays within viewport)
-    const popupStyle: React.CSSProperties = {
-        position: 'fixed',
-        left: Math.min(position.x, window.innerWidth - 360),
-        top: Math.min(position.y + 10, window.innerHeight - 400),
-        zIndex: 60,
-    };
-
     return (
-        <>
-            {/* Invisible backdrop for click-outside */}
-            <div
-                className="fixed inset-0 z-50"
-                onClick={handleBackdropClick}
-            />
-
-            {/* Popup */}
-            <div
-                style={popupStyle}
-                className="w-[340px] bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl overflow-hidden"
-            >
-                {/* Header */}
-                <div className="flex items-center justify-between px-4 py-3 border-b border-[#30363d] bg-[#0d1117]">
-                    <div className="flex items-center gap-2">
-                        <span className="text-lg">🔗</span>
-                        <div>
-                            <h3 className="text-sm font-semibold text-white">{displayValue}</h3>
-                            <p className="text-xs text-[#8b949e]">
-                                From: {referenceConfig.targetSheet}
-                            </p>
-                        </div>
-                    </div>
-                    <button
-                        onClick={onClose}
-                        className="p-1 hover:bg-[#30363d] rounded transition-colors"
-                    >
-                        <X className="w-4 h-4 text-[#8b949e]" />
-                    </button>
-                </div>
-
-                {/* Content */}
-                <div className="max-h-[280px] overflow-y-auto">
-                    {loading ? (
-                        <div className="flex items-center justify-center py-8">
-                            <Loader2 className="w-6 h-6 text-sky-400 animate-spin" />
-                        </div>
-                    ) : error ? (
-                        <div className="text-center py-8 text-red-400">
-                            <p className="text-sm">{error}</p>
-                        </div>
-                    ) : rowData ? (
-                        <div className="divide-y divide-[#30363d]/50">
-                            {Object.entries(rowData).map(([key, value]) => (
-                                <div
-                                    key={key}
-                                    className="flex items-start gap-3 px-4 py-2.5 hover:bg-[#21262d]/50"
-                                >
-                                    <span className="text-xs text-[#8b949e] min-w-[80px] font-medium truncate">
-                                        {key}
-                                    </span>
-                                    <span className="text-sm text-white flex-1 break-words">
-                                        {value === null || value === undefined
-                                            ? <span className="text-[#6e7681] italic">null</span>
-                                            : typeof value === 'boolean'
-                                                ? value ? '✓ Yes' : '✗ No'
-                                                : String(value)}
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
-                    ) : null}
-                </div>
-
-                {/* Footer */}
-                <div className="flex items-center justify-between px-4 py-3 border-t border-[#30363d] bg-[#0d1117]/50">
-                    <span className="text-xs text-[#6e7681]">
-                        ID: {referenceId}
-                    </span>
+        <Modal
+            isOpen={true}
+            onClose={onClose}
+            title={displayValue}
+            description={`From: ${referenceConfig.targetSheet}`}
+            size="sm"
+            footer={
+                <div className="flex items-center justify-between w-full">
+                    <span className="text-xs text-text-muted">ID: {referenceId}</span>
                     <div className="flex gap-2">
                         {onNavigate && (
-                            <button
+                            <Button
+                                variant="ghost"
                                 onClick={() => onNavigate(referenceConfig.targetSheet)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#21262d] hover:bg-[#30363d] rounded-lg text-[#c9d1d9] transition-colors"
+                                leftIcon={<ExternalLink className="w-3 h-3" />}
                             >
-                                <ExternalLink className="w-3 h-3" />
                                 Open Table
-                            </button>
+                            </Button>
                         )}
-                        <button
-                            onClick={onClose}
-                            className="px-3 py-1.5 text-xs bg-sky-600 hover:bg-sky-500 rounded-lg text-white transition-colors"
-                        >
+                        <Button variant="secondary" onClick={onClose}>
                             Close
-                        </button>
+                        </Button>
                     </div>
                 </div>
-            </div>
-        </>
+            }
+        >
+            {loading ? (
+                <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 text-status-info animate-spin" />
+                </div>
+            ) : error ? (
+                <div className="text-center py-8 text-status-danger">
+                    <p className="text-sm">{error}</p>
+                </div>
+            ) : rowData ? (
+                <div className="divide-y divide-border-default/50">
+                    {Object.entries(rowData).map(([key, value]) => (
+                        <div
+                            key={key}
+                            className="flex items-start gap-3 px-4 py-2.5 hover:bg-dark-elevated/50"
+                        >
+                            <span className="text-xs text-text-secondary min-w-[80px] font-medium truncate">
+                                {key}
+                            </span>
+                            <span className="text-sm text-white flex-1 break-words">
+                                {value === null || value === undefined
+                                    ? <span className="text-text-muted italic">null</span>
+                                    : typeof value === 'boolean'
+                                        ? value ? '✓ Yes' : '✗ No'
+                                        : String(value)}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            ) : null}
+        </Modal>
     );
 }
 

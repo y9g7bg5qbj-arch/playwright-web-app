@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useEnvironmentStore } from '@/store/environmentStore';
-import { EnvironmentSelector } from './EnvironmentQuickLook';
 import { IntelliJRunToolbar } from '../ide/IntelliJRunToolbar';
 import { LayoutDashboard, Plus, FolderX, ChevronRight } from 'lucide-react';
+import { IconButton } from '@/components/ui';
 
 export interface Application {
   id: string;
@@ -14,13 +14,15 @@ export interface Application {
 export interface HeaderProps {
   applications: Application[];
   selectedApplicationId: string | null;
+  workflowId?: string;
+  projectId?: string;
   onApplicationSelect: (applicationId: string) => void;
   onCreateApplication: () => void;
   isRunning: boolean;
   isDebugging: boolean;
   isRecording: boolean;
-  onRun: () => void;
-  onDebug: () => void;
+  onRun: (configId?: string) => void;
+  onDebug: (configId?: string) => void;
   onStop: () => void;
   onRecord: () => void;
   onStopRecording: () => void;
@@ -56,6 +58,8 @@ function getAppInitials(name: string): string {
 export function Header({
   applications,
   selectedApplicationId,
+  workflowId,
+  projectId,
   onApplicationSelect,
   onCreateApplication,
   isRunning,
@@ -89,17 +93,15 @@ export function Header({
       <div className="flex items-center gap-2.5">
         {/* Application Launcher */}
         <div className="relative">
-          <button
+          <IconButton
+            icon={<LayoutDashboard size={14} />}
+            size="lg"
+            variant="outlined"
+            tooltip="Applications"
+            active={showAppLauncher}
             onClick={() => setShowAppLauncher(!showAppLauncher)}
-            className={`w-8 h-8 rounded-md border flex items-center justify-center transition-colors duration-fast ease-out ${
-              showAppLauncher
-                ? 'border-border-emphasis bg-dark-elevated text-text-primary'
-                : 'border-border-default bg-dark-card text-text-muted hover:border-border-emphasis hover:text-text-primary'
-              }`}
-            title="Applications"
-          >
-            <LayoutDashboard size={14} />
-          </button>
+            className={showAppLauncher ? 'bg-dark-elevated' : 'bg-dark-card'}
+          />
 
           {/* App Launcher Popup */}
           {showAppLauncher && (
@@ -146,7 +148,7 @@ export function Header({
                                 </span>
                               )}
                             </div>
-                            <span className="text-[11px] text-text-secondary text-center leading-tight line-clamp-2 w-full">
+                            <span className="text-xxs text-text-secondary text-center leading-tight line-clamp-2 w-full">
                               {app.name}
                             </span>
                           </button>
@@ -164,7 +166,7 @@ export function Header({
                         <div className="w-12 h-12 rounded-xl border-2 border-dashed border-border-emphasis flex items-center justify-center hover:border-brand-primary transition-colors">
                           <Plus size={18} className="text-text-muted" />
                         </div>
-                        <span className="text-[11px] text-text-muted text-center">
+                        <span className="text-xxs text-text-muted text-center">
                           New App
                         </span>
                       </button>
@@ -196,7 +198,7 @@ export function Header({
         <div className="flex items-center rounded-md border border-border-default bg-dark-card px-2 py-1">
           <div className="flex items-center gap-2">
             <div className="h-5 w-5 rounded-sm bg-brand-primary/90 flex items-center justify-center">
-              <span className="text-white font-semibold text-[10px]">V</span>
+              <span className="text-white font-semibold text-3xs">V</span>
             </div>
             <span className="text-text-primary font-semibold text-xs tracking-tight">Vero IDE</span>
           </div>
@@ -206,7 +208,7 @@ export function Header({
           {selectedApplication ? (
             <div className="flex items-center gap-1.5 rounded-sm bg-dark-elevated/70 px-1.5 py-0.5">
               <div className={`h-4 w-4 rounded-sm ${selectedAppColor} flex items-center justify-center`}>
-                <span className="text-white text-[9px] font-semibold">
+                <span className="text-white text-4xs font-semibold">
                   {getAppInitials(selectedApplication.name)}
                 </span>
               </div>
@@ -221,12 +223,14 @@ export function Header({
       {/* Right Section - Run Controls */}
       <div className="flex items-center gap-2">
         {showRunControls && (
-          <div className="flex items-center gap-2 rounded-xl border border-border-default bg-gradient-to-b from-white/[0.04] to-white/[0.02] px-2 py-1 shadow-[0_8px_24px_rgba(0,0,0,0.24)]">
+          <div className="flex items-center gap-2 rounded-xl border border-border-default bg-gradient-to-b from-white/[0.04] to-white/[0.02] px-2 py-1 shadow-xl">
             <IntelliJRunToolbar
               isRunning={isRunning}
               isDebugging={isDebugging}
-              onRun={(_configId?: string, _tags?: string[]) => onRun()}
-              onDebug={(_configId?: string) => onDebug()}
+              workflowId={workflowId}
+              projectId={projectId}
+              onRun={(configId?: string) => onRun(configId)}
+              onDebug={(configId?: string) => onDebug(configId)}
               onStop={onStop}
               currentFileName={currentFileName}
               className="pr-2 mr-1 border-r border-border-default"
@@ -234,37 +238,26 @@ export function Header({
 
             {/* Record Button */}
             {isRecording ? (
-              <button
+              <IconButton
+                icon={<span className="material-symbols-outlined icon-filled text-xl leading-none">stop_circle</span>}
+                size="lg"
+                variant="outlined"
+                tone="danger"
+                tooltip="Stop recording"
                 onClick={onStopRecording}
-                className="relative flex h-8 w-8 items-center justify-center rounded-md border border-status-danger/50 bg-status-danger/15 text-status-danger hover:bg-status-danger/25 transition-all duration-fast ease-out"
-                title="Stop recording"
-                aria-label="Stop recording"
-              >
-                <span className="material-symbols-outlined icon-filled text-[18px] leading-none">stop_circle</span>
-              </button>
-            ) : (
-              <button
-                onClick={onRecord}
-                className="group relative flex h-8 w-8 items-center justify-center rounded-md border border-border-default bg-dark-elevated text-status-danger hover:border-status-danger/55 hover:bg-status-danger/10 transition-all duration-fast ease-out"
-                title="Start recording"
-                aria-label="Start recording"
-              >
-                <span className="absolute inset-0 rounded-md ring-1 ring-status-danger/0 group-hover:ring-status-danger/30 transition-all duration-fast" />
-                <span className="material-symbols-outlined icon-filled text-[18px] leading-none animate-pulse-recording">
-                  fiber_manual_record
-                </span>
-              </button>
-            )}
-
-            {/* Environment Selector */}
-            <div className="flex items-center gap-1">
-              <EnvironmentSelector
-                onOpenManager={() => useEnvironmentStore.getState().setManagerOpen(true)}
+                className="border-status-danger/50 bg-status-danger/15 hover:bg-status-danger/25"
               />
-            </div>
-
-            {/* Separator */}
-            <div className="h-5 w-px bg-border-default" />
+            ) : (
+              <IconButton
+                icon={<span className="material-symbols-outlined icon-filled text-xl leading-none">fiber_manual_record</span>}
+                size="lg"
+                variant="outlined"
+                tone="danger"
+                tooltip="Start recording"
+                onClick={onRecord}
+                className="group relative bg-dark-elevated hover:border-status-danger/55 hover:bg-status-danger/10"
+              />
+            )}
           </div>
         )}
 

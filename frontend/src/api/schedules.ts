@@ -35,8 +35,9 @@ export const schedulesApi = {
   /**
    * Get all schedules for the current user
    */
-  async list(): Promise<Schedule[]> {
-    return apiClient.get<Schedule[]>('/schedules');
+  async list(workflowId?: string): Promise<Schedule[]> {
+    const query = workflowId ? `?workflowId=${encodeURIComponent(workflowId)}` : '';
+    return apiClient.get<Schedule[]>(`/schedules${query}`);
   },
 
   /**
@@ -84,8 +85,8 @@ export const schedulesApi = {
   /**
    * Get run history for a schedule
    */
-  async getRuns(id: string, limit: number = 20): Promise<ScheduleRun[]> {
-    return apiClient.get<ScheduleRun[]>(`/schedules/${id}/runs?limit=${limit}`);
+  async getRuns(id: string, limit: number = 20, offset: number = 0): Promise<{ runs: ScheduleRun[]; total: number }> {
+    return apiClient.get<{ runs: ScheduleRun[]; total: number }>(`/schedules/${id}/runs?limit=${limit}&offset=${offset}`);
   },
 
   /**

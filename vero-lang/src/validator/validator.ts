@@ -1,4 +1,4 @@
-import { ProgramNode, PageNode, PageActionsNode, FeatureNode, StatementNode, ExpressionNode } from '../parser/ast.js';
+import { ProgramNode, PageNode, PageActionsNode, FeatureNode, HookNode, StatementNode, ExpressionNode } from '../parser/ast.js';
 
 export interface ValidationError {
     message: string;
@@ -63,6 +63,10 @@ export class Validator {
         // Second pass: validate
         for (const page of ast.pages) {
             this.validatePage(page);
+        }
+
+        for (const pa of ast.pageActions) {
+            this.validatePageActions(pa);
         }
 
         for (const feature of ast.features) {
@@ -143,12 +147,53 @@ export class Validator {
             this.scenarioVariables = new Set();
 
             for (const stmt of scenario.statements) {
-                this.validateStatement(stmt, feature);
+                this.validateStatement(stmt, feature, 'SCENARIO');
+            }
+        }
+
+        // Validate hooks
+        for (const hook of feature.hooks) {
+            for (const stmt of hook.statements) {
+                this.validateStatement(stmt, feature, hook.hookType);
             }
         }
     }
 
-    private validateStatement(stmt: StatementNode, feature: FeatureNode): void {
+    private validatePageActions(pageActions: PageActionsNode): void {
+        for (const action of pageActions.actions) {
+            for (const stmt of action.statements) {
+                this.validatePageActionsStatement(stmt, pageActions.name, action.name);
+            }
+        }
+    }
+
+    private validatePageActionsStatement(stmt: StatementNode, pageActionsName: string, actionName: string): void {
+        if (this.isTabStatement(stmt)) {
+            this.addError(
+                `Tab operation '${this.getTabStatementName(stmt)}' is not allowed inside PAGEACTIONS '${pageActionsName}.${actionName}'`,
+                stmt.line,
+                `Move tab switching to a SCENARIO or BEFORE/AFTER EACH hook`,
+                'VERO-206'
+            );
+        }
+
+        if (stmt.type === 'ForEach') {
+            for (const innerStmt of stmt.statements) {
+                this.validatePageActionsStatement(innerStmt, pageActionsName, actionName);
+            }
+        }
+    }
+
+    private validateStatement(stmt: StatementNode, feature: FeatureNode, scope: 'SCENARIO' | HookNode['hookType']): void {
+        if ((scope === 'BEFORE_ALL' || scope === 'AFTER_ALL') && this.isTabStatement(stmt)) {
+            this.addError(
+                `Tab operation '${this.getTabStatementName(stmt)}' is not allowed in ${scope.replace('_', ' ')} hooks`,
+                stmt.line,
+                `Move tab switching to a SCENARIO or BEFORE/AFTER EACH hook`,
+                'VERO-207'
+            );
+        }
+
         // Helper to validate a target's page reference
         const validateTargetPage = (target: { page?: string, field?: string }, line: number) => {
             if (target.page && !feature.uses.some(u => u.name === target.page)) {
@@ -181,6 +226,7 @@ export class Validator {
             case 'ForceClick':
             case 'Hover':
             case 'Check':
+            case 'Uncheck':
             case 'WaitFor':
                 validateTargetPage(stmt.target, stmt.line);
                 break;
@@ -205,6 +251,7 @@ export class Validator {
                 break;
 
             case 'TakeScreenshot':
+            case 'VerifyScreenshot':
                 if (stmt.target) {
                     validateTargetPage(stmt.target, stmt.line);
                 }
@@ -240,9 +287,15 @@ export class Validator {
             }
         }
 
-        // Check LOAD statements - they define new variables
+        // Track variable-declaring statements
         if (stmt.type === 'Load') {
             this.scenarioVariables.add(stmt.variable);
+        }
+        if (stmt.type === 'Row' || stmt.type === 'Rows' || stmt.type === 'Count') {
+            this.scenarioVariables.add(stmt.variableName);
+        }
+        if (stmt.type === 'PerformAssignment' || stmt.type === 'UtilityAssignment' || stmt.type === 'DataQuery') {
+            this.scenarioVariables.add(stmt.variableName);
         }
 
         // Check FOR EACH statements
@@ -259,7 +312,7 @@ export class Validator {
             // The item variable is defined within the loop
             this.scenarioVariables.add(stmt.itemVariable);
             for (const innerStmt of stmt.statements) {
-                this.validateStatement(innerStmt, feature);
+                this.validateStatement(innerStmt, feature, scope);
             }
         }
 
@@ -279,12 +332,40 @@ export class Validator {
         }
     }
 
+    private isTabStatement(stmt: StatementNode): boolean {
+        return stmt.type === 'SwitchToNewTab'
+            || stmt.type === 'SwitchToTab'
+            || stmt.type === 'OpenInNewTab'
+            || stmt.type === 'CloseTab';
+    }
+
+    private getTabStatementName(stmt: StatementNode): string {
+        switch (stmt.type) {
+            case 'SwitchToNewTab':
+                return 'SWITCH TO NEW TAB';
+            case 'SwitchToTab':
+                return 'SWITCH TO TAB';
+            case 'OpenInNewTab':
+                return 'OPEN IN NEW TAB';
+            case 'CloseTab':
+                return 'CLOSE TAB';
+            default:
+                return stmt.type;
+        }
+    }
+
     private validateExpression(expr: ExpressionNode, line: number, feature: FeatureNode): void {
         if (expr.type === 'VariableReference') {
             const varName = expr.name;
             const pageName = expr.page;
 
             if (pageName) {
+                // If the "page" part is actually a data variable (ROW creds FROM ...),
+                // this is a row field access (creds.username), not a page reference
+                if (this.scenarioVariables.has(pageName)) {
+                    return;  // Valid data variable access
+                }
+
                 // Check if page is in USE list
                 if (!feature.uses.some(u => u.name === pageName)) {
                     this.addError(

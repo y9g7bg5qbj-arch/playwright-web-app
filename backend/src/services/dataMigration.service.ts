@@ -5,8 +5,9 @@
  * Useful when switching from personal DB to enterprise DB.
  */
 
-import { MongoClient, Db } from 'mongodb';
+import { MongoClient } from 'mongodb';
 import { getDb, COLLECTIONS } from '../db/mongodb';
+import { logger } from '../utils/logger';
 
 // Collections to migrate
 const MIGRATABLE_COLLECTIONS = [
@@ -57,9 +58,9 @@ export async function exportData(): Promise<ExportData> {
       collections[collectionName] = docs;
       collectionCounts[collectionName] = docs.length;
       totalDocuments += docs.length;
-      console.log(`[Migration] Exported ${docs.length} documents from ${collectionName}`);
+      logger.info(`[Migration] Exported ${docs.length} documents from ${collectionName}`);
     } catch (error) {
-      console.warn(`[Migration] Failed to export ${collectionName}:`, error);
+      logger.warn(`[Migration] Failed to export ${collectionName}:`, error);
       collections[collectionName] = [];
       collectionCounts[collectionName] = 0;
     }
@@ -105,7 +106,7 @@ export async function importData(
     await client.connect();
     const targetDb = client.db(targetDatabase);
 
-    console.log(`[Migration] Connected to target database: ${targetDatabase}`);
+    logger.info(`[Migration] Connected to target database: ${targetDatabase}`);
 
     for (const collectionName of MIGRATABLE_COLLECTIONS) {
       const docs = data.collections[collectionName] || [];
@@ -121,7 +122,7 @@ export async function importData(
         // Handle overwrite mode
         if (overwrite) {
           await collection.deleteMany({});
-          console.log(`[Migration] Cleared existing data from ${collectionName}`);
+          logger.info(`[Migration] Cleared existing data from ${collectionName}`);
         }
 
         // Check for duplicates if not merging
@@ -144,7 +145,7 @@ export async function importData(
         // Insert documents
         const insertResult = await collection.insertMany(cleanDocs);
         result.imported[collectionName] = insertResult.insertedCount;
-        console.log(`[Migration] Imported ${insertResult.insertedCount} documents to ${collectionName}`);
+        logger.info(`[Migration] Imported ${insertResult.insertedCount} documents to ${collectionName}`);
 
       } catch (error: any) {
         result.errors.push(`Failed to import ${collectionName}: ${error.message}`);
@@ -175,19 +176,19 @@ export async function copyToDatabase(
     merge?: boolean;
   } = {}
 ): Promise<MigrationResult> {
-  console.log('[Migration] Starting database copy...');
+  logger.info('[Migration] Starting database copy...');
 
   // Export from current
   const data = await exportData();
-  console.log(`[Migration] Exported ${data.metadata.totalDocuments} total documents`);
+  logger.info(`[Migration] Exported ${data.metadata.totalDocuments} total documents`);
 
   // Import to target
   const result = await importData(targetUri, targetDatabase, data, options);
 
   if (result.success) {
-    console.log('[Migration] Database copy completed successfully');
+    logger.info('[Migration] Database copy completed successfully');
   } else {
-    console.error('[Migration] Database copy completed with errors:', result.errors);
+    logger.error('[Migration] Database copy completed with errors:', result.errors);
   }
 
   return result;

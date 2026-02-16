@@ -18,14 +18,19 @@ import type {
 // ============================================
 
 export const runConfigurationApi = {
-  getAll: (workflowId: string) =>
-    apiClient.get<RunConfiguration[]>(`/workflows/${workflowId}/run-configurations`),
+  getAll: (workflowId: string, projectId?: string) =>
+    apiClient.get<RunConfiguration[]>(
+      `/workflows/${workflowId}/run-configurations${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`
+    ),
 
   getOne: (id: string) =>
     apiClient.get<RunConfiguration>(`/run-configurations/${id}`),
 
-  create: (workflowId: string, data: RunConfigurationCreate) =>
-    apiClient.post<RunConfiguration>(`/workflows/${workflowId}/run-configurations`, data),
+  create: (workflowId: string, data: RunConfigurationCreate, projectId?: string) =>
+    apiClient.post<RunConfiguration>(`/workflows/${workflowId}/run-configurations`, {
+      ...data,
+      projectId: projectId ?? data.projectId,
+    }),
 
   update: (id: string, data: RunConfigurationUpdate) =>
     apiClient.put<RunConfiguration>(`/run-configurations/${id}`, data),

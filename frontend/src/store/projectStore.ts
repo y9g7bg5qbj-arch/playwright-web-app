@@ -63,39 +63,61 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   fetchProjects: async () => {
     set({ isLoading: true, error: null });
-    try {
-      const projects = await projectsApi.getAll();
-      set({ projects, isLoading: false });
 
-      // Validate and set current project
-      const { currentProject } = get();
-      const savedProjectId = localStorage.getItem(CURRENT_PROJECT_KEY);
+    const MAX_RETRIES = 3;
+    const RETRY_DELAYS = [1000, 2000, 4000];
 
-      // Check if current project is still valid (exists in fetched projects)
-      const currentProjectStillValid = currentProject && projects.some(p => p.id === currentProject.id);
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const projects = await projectsApi.getAll();
+        set({ projects, isLoading: false, error: null });
 
-      if (!currentProjectStillValid && projects.length > 0) {
-        // Try to restore from localStorage, or use first project
-        const savedProject = savedProjectId
-          ? projects.find(p => p.id === savedProjectId)
-          : null;
-        const newCurrentProject = savedProject || projects[0];
-        set({ currentProject: newCurrentProject });
+        // Validate and set current project
+        const { currentProject } = get();
+        const savedProjectId = localStorage.getItem(CURRENT_PROJECT_KEY);
 
-        // Update localStorage if we changed the project
-        if (newCurrentProject && (!savedProjectId || savedProjectId !== newCurrentProject.id)) {
-          localStorage.setItem(CURRENT_PROJECT_KEY, newCurrentProject.id);
+        // Check if current project is still valid (exists in fetched projects)
+        const currentProjectStillValid = currentProject && projects.some(p => p.id === currentProject.id);
+
+        if (currentProjectStillValid && currentProject) {
+          // Refresh currentProject from freshly fetched data so nested fields
+          // like workflows stay in sync for downstream consumers (Scheduler).
+          const refreshedCurrentProject = projects.find((p) => p.id === currentProject.id) || null;
+          if (refreshedCurrentProject) {
+            set({ currentProject: refreshedCurrentProject });
+          }
+        } else if (!currentProjectStillValid && projects.length > 0) {
+          // Try to restore from localStorage, or use first project
+          const savedProject = savedProjectId
+            ? projects.find(p => p.id === savedProjectId)
+            : null;
+          const newCurrentProject = savedProject || projects[0];
+          set({ currentProject: newCurrentProject });
+
+          // Update localStorage if we changed the project
+          if (newCurrentProject && (!savedProjectId || savedProjectId !== newCurrentProject.id)) {
+            localStorage.setItem(CURRENT_PROJECT_KEY, newCurrentProject.id);
+          }
+        } else if (!currentProjectStillValid && projects.length === 0) {
+          // No projects available, clear current project
+          set({ currentProject: null });
+          localStorage.removeItem(CURRENT_PROJECT_KEY);
         }
-      } else if (!currentProjectStillValid && projects.length === 0) {
-        // No projects available, clear current project
-        set({ currentProject: null });
-        localStorage.removeItem(CURRENT_PROJECT_KEY);
+        return; // Success — exit retry loop
+      } catch (error) {
+        const isRetryable = error instanceof Error &&
+          (error.message.includes('status 5') || error.message.includes('Failed to fetch') || error.message.includes('NetworkError'));
+
+        if (isRetryable && attempt < MAX_RETRIES) {
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt]));
+          continue;
+        }
+
+        set({
+          error: error instanceof Error ? error.message : 'Failed to fetch projects',
+          isLoading: false
+        });
       }
-    } catch (error) {
-      set({
-        error: error instanceof Error ? error.message : 'Failed to fetch projects',
-        isLoading: false
-      });
     }
   },
 

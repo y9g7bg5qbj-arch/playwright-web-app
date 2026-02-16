@@ -49,10 +49,8 @@ describe('GitHub Webhook Signature Verification', () => {
     const payload = JSON.stringify({ action: 'completed', workflow_run: {} });
     const invalidSignature = 'sha256=invalid-signature-here';
 
-    // This will throw due to length mismatch, which is expected
-    expect(() => {
-      verifyGitHubSignature(payload, invalidSignature, testSecret);
-    }).toThrow();
+    const isValid = verifyGitHubSignature(payload, invalidSignature, testSecret);
+    expect(isValid).toBe(false);
   });
 
   it('should allow requests in dev mode (no secret)', () => {

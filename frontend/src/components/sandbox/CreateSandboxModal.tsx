@@ -67,7 +67,7 @@ export const CreateSandboxModal: React.FC<CreateSandboxModalProps> = ({
           </button>
           <button
             onClick={handleSubmit}
-            className="px-4 py-2 text-sm font-medium text-white bg-accent-blue hover:bg-blue-600 rounded-md transition-colors disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium text-white bg-accent-blue hover:bg-brand-primary rounded-md transition-colors disabled:opacity-50"
             disabled={isLoading || !name.trim()}
           >
             {isLoading ? 'Creating...' : 'Create Sandbox'}
@@ -77,10 +77,10 @@ export const CreateSandboxModal: React.FC<CreateSandboxModalProps> = ({
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Info banner */}
-        <div className="flex items-start gap-3 p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg">
-          <Box className="w-5 h-5 text-purple-400 mt-0.5" />
+        <div className="flex items-start gap-3 p-3 bg-accent-purple/10 border border-accent-purple/20 rounded-lg">
+          <Box className="w-5 h-5 text-accent-purple mt-0.5" />
           <div className="text-sm">
-            <p className="text-purple-300 font-medium">What is a Sandbox?</p>
+            <p className="text-accent-purple font-medium">What is a Sandbox?</p>
             <p className="text-text-muted mt-1">
               A sandbox is your private workspace where you can make changes without affecting others.
               When ready, create a Pull Request to merge your changes.
@@ -136,14 +136,14 @@ export const CreateSandboxModal: React.FC<CreateSandboxModalProps> = ({
               className={`
                 flex-1 flex items-center gap-3 p-3 rounded-lg border transition-colors
                 ${sourceBranch === 'dev'
-                  ? 'border-blue-500 bg-blue-500/10'
+                  ? 'border-status-info bg-status-info/10'
                   : 'border-border-default hover:border-border-emphasis bg-dark-elevated'
                 }
               `}
             >
-              <GitBranch className={`w-5 h-5 ${sourceBranch === 'dev' ? 'text-blue-400' : 'text-text-muted'}`} />
+              <GitBranch className={`w-5 h-5 ${sourceBranch === 'dev' ? 'text-status-info' : 'text-text-muted'}`} />
               <div className="text-left">
-                <div className={`font-medium ${sourceBranch === 'dev' ? 'text-blue-400' : 'text-text-primary'}`}>
+                <div className={`font-medium ${sourceBranch === 'dev' ? 'text-status-info' : 'text-text-primary'}`}>
                   Development
                 </div>
                 <div className="text-xs text-text-muted">Latest integrated code</div>
@@ -156,14 +156,14 @@ export const CreateSandboxModal: React.FC<CreateSandboxModalProps> = ({
               className={`
                 flex-1 flex items-center gap-3 p-3 rounded-lg border transition-colors
                 ${sourceBranch === 'master'
-                  ? 'border-green-500 bg-green-500/10'
+                  ? 'border-status-success bg-status-success/10'
                   : 'border-border-default hover:border-border-emphasis bg-dark-elevated'
                 }
               `}
             >
-              <GitBranch className={`w-5 h-5 ${sourceBranch === 'master' ? 'text-green-400' : 'text-text-muted'}`} />
+              <GitBranch className={`w-5 h-5 ${sourceBranch === 'master' ? 'text-status-success' : 'text-text-muted'}`} />
               <div className="text-left">
-                <div className={`font-medium ${sourceBranch === 'master' ? 'text-green-400' : 'text-text-primary'}`}>
+                <div className={`font-medium ${sourceBranch === 'master' ? 'text-status-success' : 'text-text-primary'}`}>
                   Production
                 </div>
                 <div className="text-xs text-text-muted">Stable, released code</div>

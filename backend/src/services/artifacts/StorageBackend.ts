@@ -5,8 +5,7 @@
 
 import fs from 'fs/promises';
 import path from 'path';
-import { createReadStream, createWriteStream } from 'fs';
-import { pipeline } from 'stream/promises';
+import { createReadStream } from 'fs';
 import { logger } from '../../utils/logger';
 
 /**
@@ -573,7 +572,6 @@ export class S3StorageBackend implements StorageBackend {
 export class GCSStorageBackend implements StorageBackend {
     private bucket: string;
     private prefix: string;
-    private client: any; // GCS client
 
     constructor(config: {
         bucket: string;
@@ -595,7 +593,7 @@ export class GCSStorageBackend implements StorageBackend {
         return this.prefix ? `${this.prefix}/${key}` : key;
     }
 
-    async save(key: string, data: Buffer, metadata: object): Promise<string> {
+    async save(key: string, _data: Buffer, _metadata: object): Promise<string> {
         const fullKey = this.getFullKey(key);
 
         // Placeholder implementation
@@ -627,12 +625,12 @@ export class GCSStorageBackend implements StorageBackend {
         return [];
     }
 
-    async exists(key: string): Promise<boolean> {
+    async exists(_key: string): Promise<boolean> {
         // Placeholder implementation
         return false;
     }
 
-    async getMetadata(key: string): Promise<object | null> {
+    async getMetadata(_key: string): Promise<object | null> {
         // Placeholder implementation
         return null;
     }
@@ -642,11 +640,11 @@ export class GCSStorageBackend implements StorageBackend {
         return `gs://${this.bucket}/${fullKey}`;
     }
 
-    getStream(key: string): NodeJS.ReadableStream {
+    getStream(_key: string): NodeJS.ReadableStream {
         throw new Error('GCS stream not implemented');
     }
 
-    async getSize(key: string): Promise<number> {
+    async getSize(_key: string): Promise<number> {
         // Placeholder implementation
         return 0;
     }

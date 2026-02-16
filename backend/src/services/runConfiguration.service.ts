@@ -4,36 +4,10 @@
  * Manages run configurations, environments, and remote runners.
  */
 
-import {
-  workflowRepository,
-  runConfigurationRepository,
-  executionEnvironmentRepository,
-  remoteRunnerRepository,
-  storedCredentialRepository,
-  testFlowRepository
-} from '../db/repositories/mongo';
+import { workflowRepository, projectRepository, runConfigurationRepository, executionEnvironmentRepository, remoteRunnerRepository, storedCredentialRepository, testFlowRepository } from '../db/repositories/mongo';
 import { NotFoundError, ForbiddenError } from '../utils/errors';
-import type {
-  RunConfiguration,
-  RunConfigurationCreate,
-  RunConfigurationUpdate,
-  ExecutionEnvironment,
-  ExecutionEnvironmentCreate,
-  ExecutionEnvironmentUpdate,
-  RemoteRunner,
-  RemoteRunnerCreate,
-  RemoteRunnerUpdate,
-  StoredCredential,
-  StoredCredentialCreate,
-  Viewport,
-  LocalExecutionConfig,
-  DockerExecutionConfig,
-  GitHubActionsConfig,
-  ExecutionTarget,
-  BrowserType,
-  BrowserChannel,
-  ArtifactMode,
-} from '@playwright-web-app/shared';
+import { logger } from '../utils/logger';
+import type { RunConfiguration, RunConfigurationCreate, RunConfigurationUpdate, RunConfigRuntimeFields, ExecutionEnvironment, ExecutionEnvironmentCreate, ExecutionEnvironmentUpdate, RemoteRunner, RemoteRunnerCreate, RemoteRunnerUpdate, StoredCredential, StoredCredentialCreate, Viewport, LocalExecutionConfig, DockerExecutionConfig, GitHubActionsConfig, ExecutionTarget, BrowserType, BrowserChannel, ArtifactMode } from '@playwright-web-app/shared';
 
 // ============================================
 // RUN CONFIGURATION SERVICE
@@ -53,14 +27,36 @@ export class RunConfigurationService {
     }
   }
 
+  private async verifyProjectBelongsToWorkflow(workflowId: string, projectId: string): Promise<void> {
+    const [workflow, project] = await Promise.all([
+      workflowRepository.findById(workflowId),
+      projectRepository.findById(projectId),
+    ]);
+
+    if (!workflow) {
+      throw new NotFoundError('Workflow not found');
+    }
+    if (!project) {
+      throw new NotFoundError('Project not found');
+    }
+    if (!workflow.applicationId || workflow.applicationId !== project.applicationId) {
+      throw new ForbiddenError('Project does not belong to workflow application');
+    }
+  }
+
   // ============================================
   // RUN CONFIGURATIONS
   // ============================================
 
-  async findAllConfigurations(userId: string, workflowId: string): Promise<RunConfiguration[]> {
+  async findAllConfigurations(userId: string, workflowId: string, projectId?: string): Promise<RunConfiguration[]> {
     await this.verifyWorkflowAccess(userId, workflowId);
+    if (projectId) {
+      await this.verifyProjectBelongsToWorkflow(workflowId, projectId);
+    }
 
-    const configs = await runConfigurationRepository.findByWorkflowId(workflowId);
+    const configs = projectId
+      ? await runConfigurationRepository.findByWorkflowIdAndProjectId(workflowId, projectId)
+      : (await runConfigurationRepository.findByWorkflowId(workflowId)).filter((config) => Boolean(config.projectId));
 
     // Get environments and runners for each config
     const enrichedConfigs = await Promise.all(
@@ -72,7 +68,20 @@ export class RunConfigurationService {
       })
     );
 
-    return enrichedConfigs.map(this.formatConfiguration);
+    const formatted: RunConfiguration[] = [];
+    for (const config of enrichedConfigs) {
+      try {
+        formatted.push(this.formatConfiguration(config));
+      } catch (error: any) {
+        logger.warn('[RunConfigurationService] Skipping malformed run configuration during list response', {
+          workflowId,
+          runConfigurationId: config?.id,
+          error: error?.message || String(error),
+        });
+      }
+    }
+
+    return formatted;
   }
 
   async findConfigurationById(userId: string, configId: string): Promise<RunConfiguration> {
@@ -94,13 +103,20 @@ export class RunConfigurationService {
   async createConfiguration(
     userId: string,
     workflowId: string,
-    data: RunConfigurationCreate
+    data: RunConfigurationCreate,
+    projectIdOverride?: string
   ): Promise<RunConfiguration> {
     await this.verifyWorkflowAccess(userId, workflowId);
+    const projectId = projectIdOverride ?? data.projectId;
+    if (projectId) {
+      await this.verifyProjectBelongsToWorkflow(workflowId, projectId);
+    }
 
     // If this is set as default, unset other defaults
     if (data.isDefault) {
-      const configs = await runConfigurationRepository.findByWorkflowId(workflowId);
+      const configs = projectId
+        ? await runConfigurationRepository.findByWorkflowIdAndProjectId(workflowId, projectId)
+        : (await runConfigurationRepository.findByWorkflowId(workflowId)).filter((config) => !config.projectId);
       for (const config of configs.filter(c => c.isDefault)) {
         await runConfigurationRepository.update(config.id, { isDefault: false });
       }
@@ -108,6 +124,7 @@ export class RunConfigurationService {
 
     const config = await runConfigurationRepository.create({
       workflowId,
+      projectId,
       name: data.name,
       description: data.description,
       isDefault: data.isDefault ?? false,
@@ -116,6 +133,8 @@ export class RunConfigurationService {
       excludeTags: data.excludeTags ?? [],
       testFlowIds: data.testFlowIds ?? [],
       grep: data.grep,
+      tagExpression: data.tagExpression,
+      namePatterns: data.namePatterns ? JSON.stringify(data.namePatterns) : undefined,
       environmentId: data.environmentId,
       target: data.target ?? 'local',
       localConfig: data.localConfig ? JSON.stringify(data.localConfig) : undefined,
@@ -133,6 +152,17 @@ export class RunConfigurationService {
       screenshot: data.screenshot ?? 'on-failure',
       video: data.video ?? 'off',
       advancedConfig: data.advancedConfig ? JSON.stringify(data.advancedConfig) : undefined,
+      // Phase 2 additions
+      selectionScope: data.selectionScope,
+      envVars: data.envVars ? JSON.stringify(data.envVars) : undefined,
+      parameterSetId: data.parameterSetId,
+      parameterOverrides: data.parameterOverrides ? JSON.stringify(data.parameterOverrides) : undefined,
+      visualPreset: data.visualPreset,
+      visualThreshold: data.visualThreshold,
+      visualMaxDiffPixels: data.visualMaxDiffPixels,
+      visualMaxDiffPixelRatio: data.visualMaxDiffPixelRatio,
+      visualUpdateSnapshots: data.visualUpdateSnapshots,
+      runtimeConfig: data.runtimeConfig ? JSON.stringify(data.runtimeConfig) : undefined,
     });
 
     const environment = config.environmentId
@@ -157,7 +187,9 @@ export class RunConfigurationService {
 
     // If this is set as default, unset other defaults
     if (data.isDefault) {
-      const configs = await runConfigurationRepository.findByWorkflowId(existing.workflowId);
+      const configs = existing.projectId
+        ? await runConfigurationRepository.findByWorkflowIdAndProjectId(existing.workflowId, existing.projectId)
+        : (await runConfigurationRepository.findByWorkflowId(existing.workflowId)).filter((config) => !config.projectId);
       for (const config of configs.filter(c => c.isDefault && c.id !== configId)) {
         await runConfigurationRepository.update(config.id, { isDefault: false });
       }
@@ -165,11 +197,19 @@ export class RunConfigurationService {
 
     const plainKeys = [
       'name', 'description', 'isDefault', 'tags', 'tagMode', 'excludeTags',
-      'testFlowIds', 'grep', 'environmentId', 'target', 'browser',
+      'testFlowIds', 'grep', 'tagExpression', 'environmentId', 'target', 'browser',
       'browserChannel', 'headless', 'workers', 'shardCount', 'retries',
       'timeout', 'tracing', 'screenshot', 'video',
+      // Phase 2 plain keys
+      'selectionScope', 'parameterSetId',
+      'visualPreset', 'visualThreshold', 'visualMaxDiffPixels',
+      'visualMaxDiffPixelRatio', 'visualUpdateSnapshots',
     ];
-    const jsonKeys = ['localConfig', 'dockerConfig', 'githubActionsConfig', 'advancedConfig'];
+    const jsonKeys = [
+      'localConfig', 'dockerConfig', 'githubActionsConfig', 'advancedConfig',
+      // Phase 2 JSON keys
+      'namePatterns', 'envVars', 'parameterOverrides', 'runtimeConfig',
+    ];
     const updateData = this.buildUpdateData(data, [...plainKeys, ...jsonKeys], jsonKeys);
 
     // viewport needs stringify but not null-ify (it always has a value when provided)
@@ -210,6 +250,7 @@ export class RunConfigurationService {
     const existing = await this.findConfigurationById(userId, configId);
 
     return this.createConfiguration(userId, existing.workflowId, {
+      projectId: existing.projectId,
       name: newName,
       description: existing.description,
       isDefault: false,
@@ -218,6 +259,8 @@ export class RunConfigurationService {
       excludeTags: existing.excludeTags,
       testFlowIds: existing.testFlowIds,
       grep: existing.grep,
+      tagExpression: existing.tagExpression,
+      namePatterns: existing.namePatterns,
       environmentId: existing.environmentId,
       target: existing.target,
       localConfig: existing.localConfig,
@@ -235,6 +278,17 @@ export class RunConfigurationService {
       screenshot: existing.screenshot,
       video: existing.video,
       advancedConfig: existing.advancedConfig,
+      // Phase 2 additions
+      visualPreset: existing.visualPreset,
+      visualThreshold: existing.visualThreshold,
+      visualMaxDiffPixels: existing.visualMaxDiffPixels,
+      visualMaxDiffPixelRatio: existing.visualMaxDiffPixelRatio,
+      visualUpdateSnapshots: existing.visualUpdateSnapshots,
+      selectionScope: existing.selectionScope,
+      envVars: existing.envVars,
+      parameterSetId: existing.parameterSetId,
+      parameterOverrides: existing.parameterOverrides,
+      runtimeConfig: existing.runtimeConfig,
     });
   }
 
@@ -264,19 +318,51 @@ export class RunConfigurationService {
    */
   private parseJsonField<T>(value: any): T | undefined {
     if (!value) return undefined;
-    if (typeof value === 'string') return JSON.parse(value) as T;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value) as T;
+      } catch (error: any) {
+        logger.warn('[RunConfigurationService] Failed to parse JSON field, using fallback value', {
+          error: error?.message || String(error),
+          sample: value.slice(0, 120),
+        });
+        return undefined;
+      }
+    }
     return value as T;
   }
 
   private parseArrayField(value: any): string[] {
     if (Array.isArray(value)) return value;
-    return JSON.parse(value || '[]');
+    if (!value) return [];
+
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((item): item is string => typeof item === 'string');
+        }
+
+        if (typeof parsed === 'string') {
+          return parsed.split(',').map((part) => part.trim()).filter(Boolean);
+        }
+      } catch (error: any) {
+        logger.warn('[RunConfigurationService] Failed to parse array field JSON, attempting CSV fallback', {
+          error: error?.message || String(error),
+          sample: value.slice(0, 120),
+        });
+        return value.split(',').map((part) => part.trim()).filter(Boolean);
+      }
+    }
+
+    return [];
   }
 
   private formatConfiguration(config: any): RunConfiguration {
     return {
       id: config.id,
       workflowId: config.workflowId,
+      projectId: config.projectId,
       name: config.name,
       description: config.description ?? undefined,
       isDefault: config.isDefault,
@@ -285,6 +371,8 @@ export class RunConfigurationService {
       excludeTags: this.parseArrayField(config.excludeTags),
       testFlowIds: this.parseArrayField(config.testFlowIds),
       grep: config.grep ?? undefined,
+      tagExpression: config.tagExpression ?? undefined,
+      namePatterns: this.parseJsonField<string[]>(config.namePatterns),
       environmentId: config.environmentId ?? undefined,
       environment: config.environment ? this.formatEnvironment(config.environment) : undefined,
       target: config.target as ExecutionTarget,
@@ -305,6 +393,17 @@ export class RunConfigurationService {
       screenshot: config.screenshot as ArtifactMode,
       video: config.video as ArtifactMode,
       advancedConfig: this.parseJsonField(config.advancedConfig),
+      // Phase 2 additions
+      visualPreset: config.visualPreset ?? undefined,
+      visualThreshold: config.visualThreshold ?? undefined,
+      visualMaxDiffPixels: config.visualMaxDiffPixels ?? undefined,
+      visualMaxDiffPixelRatio: config.visualMaxDiffPixelRatio ?? undefined,
+      visualUpdateSnapshots: config.visualUpdateSnapshots ?? undefined,
+      selectionScope: config.selectionScope ?? undefined,
+      envVars: this.parseJsonField<Record<string, string>>(config.envVars),
+      parameterSetId: config.parameterSetId ?? undefined,
+      parameterOverrides: this.parseJsonField<Record<string, string | number | boolean>>(config.parameterOverrides),
+      runtimeConfig: this.parseJsonField<RunConfigRuntimeFields>(config.runtimeConfig),
       createdAt: config.createdAt?.toISOString?.() || config.createdAt,
       updatedAt: config.updatedAt?.toISOString?.() || config.updatedAt,
     };
@@ -512,7 +611,7 @@ export class RunConfigurationService {
   }
 
   async pingRunner(userId: string, runnerId: string): Promise<{ healthy: boolean; message?: string }> {
-    const runner = await this.findRunnerById(userId, runnerId);
+    await this.findRunnerById(userId, runnerId);
 
     // TODO: Implement actual health check
     const isHealthy = true;

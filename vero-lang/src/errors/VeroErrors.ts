@@ -26,6 +26,7 @@ export enum VeroErrorCode {
     DUPLICATE_IDENTIFIER = 2005,
     UNDEFINED_PAGEACTIONS = 2006,
     INVALID_PAGEACTIONS_FOR = 2007,
+    INVALID_TAB_CONTEXT = 2008,
 }
 
 export type VeroErrorSeverity = 'error' | 'warning' | 'info' | 'hint';

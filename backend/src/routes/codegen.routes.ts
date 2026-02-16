@@ -4,17 +4,17 @@
  * and recording with Playwright codegen
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import { randomUUID } from 'crypto';
 import { body, param, query, validationResult } from 'express-validator';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { CodegenService, ExportOptions } from '../services/codegen.service';
 import { codegenRecorderService } from '../services/codegenRecorder.service';
+import { recordingSessionStore } from '../services/recordingSessionStore';
 import type { ExportMode } from '@playwright-web-app/shared';
+import { logger } from '../utils/logger';
 
 const router = Router();
-
-// Store active recording sessions for WebSocket broadcasting
-const activeRecordingSessions = new Map<string, { scenarioName: string; veroLines: string[] }>();
 
 /**
  * POST /api/codegen/start
@@ -24,10 +24,10 @@ router.post(
     '/start',
     authenticateToken,
     [
-        body('sessionId').isString().notEmpty().withMessage('Session ID is required'),
         body('url').isURL().withMessage('Valid URL is required'),
         body('scenarioName').optional().isString(),
         body('projectId').optional().isString(),
+        body('sandboxPath').optional().isString(),
     ],
     async (req: AuthRequest, res: Response) => {
         try {
@@ -40,16 +40,16 @@ router.post(
                 });
             }
 
-            const { sessionId, url, scenarioName, projectId } = req.body;
+            const { url, scenarioName, projectId, sandboxPath } = req.body;
             const userId = req.userId;
 
-            console.log(`[Codegen] Starting recording session ${sessionId} for URL: ${url}`);
+            // Generate session ID server-side for security
+            const sessionId = `rec-${randomUUID()}`;
 
-            // Store session info
-            activeRecordingSessions.set(sessionId, {
-                scenarioName: scenarioName || 'Recorded Scenario',
-                veroLines: []
-            });
+            logger.info(`[Codegen] Starting recording session ${sessionId} for URL: ${url}`);
+
+            // Store session info with ownership
+            recordingSessionStore.create(sessionId, userId || 'anonymous', scenarioName || 'Recorded Scenario');
 
             // Get the WebSocket server from app
             const io = req.app.get('io');
@@ -60,10 +60,7 @@ router.post(
                 sessionId,
                 // onAction callback - broadcast to WebSocket
                 (veroCode, pagePath, pageCode, fieldCreated, duplicateWarning) => {
-                    const sessionData = activeRecordingSessions.get(sessionId);
-                    if (sessionData) {
-                        sessionData.veroLines.push(veroCode);
-                    }
+                    recordingSessionStore.addLine(sessionId, veroCode);
 
                     // Broadcast to subscribed clients
                     if (io) {
@@ -77,35 +74,38 @@ router.post(
                         });
                     }
 
-                    console.log(`[Codegen] Action: ${veroCode}`);
+                    logger.debug(`[Codegen] Action: ${veroCode}`);
                 },
                 // onError callback
                 (error) => {
-                    console.error(`[Codegen] Error: ${error}`);
+                    logger.error(`[Codegen] Error: ${error}`);
                     if (io) {
                         io.to(`codegen:${sessionId}`).emit('codegen:error', { sessionId, error });
                     }
                 },
                 // onComplete callback - when browser is closed
+                // Only emits if session still exists (stop route deletes it first)
                 () => {
-                    console.log(`[Codegen] Recording completed for session ${sessionId}`);
-                    const sessionData = activeRecordingSessions.get(sessionId);
+                    logger.info(`[Codegen] Recording completed for session ${sessionId}`);
+                    const sessionData = recordingSessionStore.get(sessionId);
+                    if (!sessionData) return; // Already handled by stop route
 
                     // Broadcast completion to subscribed clients
                     if (io) {
                         io.to(`codegen:${sessionId}`).emit('codegen:stopped', {
                             sessionId,
-                            veroLines: sessionData?.veroLines || [],
-                            scenarioName: sessionData?.scenarioName || 'Recorded Scenario'
+                            veroLines: sessionData.veroLines,
+                            scenarioName: sessionData.scenarioName
                         });
                     }
 
                     // Clean up session data
-                    activeRecordingSessions.delete(sessionId);
+                    recordingSessionStore.delete(sessionId);
                 },
                 scenarioName,
                 userId,
-                projectId
+                projectId,
+                sandboxPath
             );
 
             return res.json({
@@ -114,7 +114,7 @@ router.post(
                 message: 'Recording started. Close the browser when done.'
             });
         } catch (error: any) {
-            console.error('[Codegen] Start error:', error);
+            logger.error('[Codegen] Start error:', error);
             return res.status(500).json({
                 success: false,
                 error: 'Failed to start recording',
@@ -146,27 +146,25 @@ router.post(
             }
 
             const { sessionId } = req.params;
-            console.log(`[Codegen] Stopping recording session ${sessionId}`);
+            const userId = req.userId;
+            logger.info(`[Codegen] Stopping recording session ${sessionId}`);
+
+            // Verify session ownership
+            const sessionData = recordingSessionStore.get(sessionId);
+            if (!sessionData) {
+                return res.status(404).json({ success: false, error: 'Session not found' });
+            }
+            if (userId && !recordingSessionStore.isOwner(sessionId, userId)) {
+                return res.status(403).json({ success: false, error: 'Not authorized to stop this session' });
+            }
 
             // Stop the recording
             const finalCode = await codegenRecorderService.stopRecording(sessionId);
 
-            // Get session data and clean up
-            const sessionData = activeRecordingSessions.get(sessionId);
-            const veroLines = sessionData?.veroLines || [];
-            const scenarioName = sessionData?.scenarioName || 'Recorded Scenario';
-            activeRecordingSessions.delete(sessionId);
-
-            // Broadcast completion
-            const io = req.app.get('io');
-            if (io) {
-                io.to(`codegen:${sessionId}`).emit('codegen:stopped', {
-                    sessionId,
-                    veroLines,
-                    scenarioName,
-                    playwrightCode: finalCode
-                });
-            }
+            // Get final data and clean up (prevents onComplete from also emitting)
+            const veroLines = sessionData.veroLines;
+            const scenarioName = sessionData.scenarioName;
+            recordingSessionStore.delete(sessionId);
 
             return res.json({
                 success: true,
@@ -177,7 +175,7 @@ router.post(
                 message: 'Recording stopped'
             });
         } catch (error: any) {
-            console.error('[Codegen] Stop error:', error);
+            logger.error('[Codegen] Stop error:', error);
             return res.status(500).json({
                 success: false,
                 error: 'Failed to stop recording',
@@ -197,7 +195,7 @@ router.get(
     async (req: AuthRequest, res: Response) => {
         try {
             const { sessionId } = req.params;
-            const sessionData = activeRecordingSessions.get(sessionId);
+            const sessionData = recordingSessionStore.get(sessionId);
             const hasSession = codegenRecorderService.hasSession(sessionId);
 
             if (!sessionData && !hasSession) {
@@ -207,16 +205,24 @@ router.get(
                 });
             }
 
+            // Verify session ownership
+            if (sessionData && req.userId && !recordingSessionStore.isOwner(sessionId, req.userId)) {
+                return res.status(403).json({
+                    success: false,
+                    error: 'Not authorized to view this session'
+                });
+            }
+
             return res.json({
                 success: true,
                 sessionId,
                 isActive: hasSession,
                 scenarioName: sessionData?.scenarioName,
                 veroLines: sessionData?.veroLines || [],
-                lineCount: sessionData?.veroLines.length || 0
+                lineCount: sessionData?.veroLines?.length || 0
             });
         } catch (error: any) {
-            console.error('[Codegen] Session status error:', error);
+            logger.error('[Codegen] Session status error:', error);
             return res.status(500).json({
                 success: false,
                 error: 'Failed to get session status',
@@ -281,7 +287,7 @@ router.post(
 
             return res.json(result);
         } catch (error: any) {
-            console.error('Export error:', error);
+            logger.error('Export error:', error);
 
             if (error.name === 'NotFoundError') {
                 return res.status(404).json({ error: error.message });
@@ -334,7 +340,7 @@ router.get(
 
             return res.json(result);
         } catch (error: any) {
-            console.error('Preview error:', error);
+            logger.error('Preview error:', error);
 
             if (error.name === 'NotFoundError') {
                 return res.status(404).json({ error: error.message });
@@ -358,12 +364,12 @@ router.get(
 router.get(
     '/modes',
     authenticateToken,
-    async (req: AuthRequest, res: Response) => {
+    async (_req: AuthRequest, res: Response) => {
         try {
             const modes = CodegenService.getExportModes();
             return res.json({ modes });
         } catch (error: any) {
-            console.error('Get modes error:', error);
+            logger.error('Get modes error:', error);
             return res.status(500).json({
                 error: 'Failed to get export modes',
                 message: error.message
@@ -419,7 +425,7 @@ router.post(
                 message: 'Files ready for download',
             });
         } catch (error: any) {
-            console.error('Download error:', error);
+            logger.error('Download error:', error);
 
             if (error.name === 'NotFoundError') {
                 return res.status(404).json({ error: error.message });

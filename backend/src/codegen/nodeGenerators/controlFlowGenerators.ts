@@ -92,7 +92,7 @@ export function buildConditionCode(data: Record<string, any>): string {
 export class IfGenerator implements NodeGenerator {
     isBlockStart = true;
 
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const condition = buildConditionCode(node.data);
         return [`if (${condition}) {`];
     }
@@ -104,7 +104,7 @@ export class IfGenerator implements NodeGenerator {
  * → } else {
  */
 export class ElseGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(_node: FlowNode, _ctx: GeneratorContext): string[] {
         return [`} else {`];
     }
 }
@@ -199,7 +199,7 @@ export class WhileLoopGenerator implements NodeGenerator {
 export class TryCatchGenerator implements NodeGenerator {
     isBlockStart = true;
 
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(_node: FlowNode, _ctx: GeneratorContext): string[] {
         return [`try {`];
     }
 }
@@ -219,7 +219,7 @@ export class CatchGenerator implements NodeGenerator {
  * Finally Block (generated during traversal when encountering finally edge)
  */
 export class FinallyGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(_node: FlowNode, _ctx: GeneratorContext): string[] {
         return [`} finally {`];
     }
 }
@@ -230,7 +230,7 @@ export class FinallyGenerator implements NodeGenerator {
  * → break;
  */
 export class BreakGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(_node: FlowNode, _ctx: GeneratorContext): string[] {
         return ['break;'];
     }
 }
@@ -241,7 +241,7 @@ export class BreakGenerator implements NodeGenerator {
  * → continue;
  */
 export class ContinueGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(_node: FlowNode, _ctx: GeneratorContext): string[] {
         return ['continue;'];
     }
 }
@@ -253,7 +253,7 @@ export class ContinueGenerator implements NodeGenerator {
  * → return;
  */
 export class PassGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { message } = node.data;
         const lines: string[] = [];
         if (message) {
@@ -270,7 +270,7 @@ export class PassGenerator implements NodeGenerator {
  * → throw new Error('Expected condition failed');
  */
 export class FailGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { message } = node.data;
         return [`throw new Error('${message || 'Test failed'}');`];
     }
@@ -282,7 +282,7 @@ export class FailGenerator implements NodeGenerator {
  * → // -- Login Steps --
  */
 export class GroupGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { name, description } = node.data;
         const lines: string[] = [];
 
@@ -303,7 +303,7 @@ export class GroupGenerator implements NodeGenerator {
  * → // No code generated for start node
  */
 export class StartGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(_node: FlowNode, _ctx: GeneratorContext): string[] {
         return []; // No code for start node
     }
 }
@@ -314,7 +314,7 @@ export class StartGenerator implements NodeGenerator {
  * → // No code generated for end node
  */
 export class EndGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(_node: FlowNode, _ctx: GeneratorContext): string[] {
         return []; // No code for end node
     }
 }
@@ -325,7 +325,7 @@ export class EndGenerator implements NodeGenerator {
  * → // This is a comment
  */
 export class CommentGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { text } = node.data;
         if (!text) return [];
 

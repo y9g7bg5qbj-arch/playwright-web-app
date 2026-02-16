@@ -4,6 +4,7 @@
  */
 
 import * as prettier from 'prettier';
+import { logger } from '../utils/logger';
 
 /**
  * Format TypeScript code using Prettier
@@ -22,7 +23,7 @@ export async function formatCode(code: string): Promise<string> {
         return formatted;
     } catch (error) {
         // If formatting fails, return the original code
-        console.warn('Code formatting failed:', error);
+        logger.warn('Code formatting failed:', error);
         return code;
     }
 }

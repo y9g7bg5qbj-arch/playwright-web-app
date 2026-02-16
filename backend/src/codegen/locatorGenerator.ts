@@ -2,16 +2,7 @@
 // Generates TypeScript/Playwright code from locator configurations
 // Supports Page Object Model class generation
 
-import {
-    LocatorStrategy,
-    LocatorConfig,
-    PageObject,
-    PageElement,
-    ObjectRepository,
-    CodeGenerationOptions,
-    GeneratedPageObjectClass,
-    GeneratedFixtures,
-} from '@playwright-web-app/shared';
+import { LocatorStrategy, LocatorConfig, PageObject, PageElement, ObjectRepository, CodeGenerationOptions, GeneratedPageObjectClass, GeneratedFixtures } from '@playwright-web-app/shared';
 
 const DEFAULT_OPTIONS: CodeGenerationOptions = {
     language: 'typescript',
@@ -169,9 +160,8 @@ function generateElementGetter(
  */
 export function generateFixtures(
     repository: ObjectRepository,
-    options: Partial<CodeGenerationOptions> = {}
+    _options: Partial<CodeGenerationOptions> = {}
 ): GeneratedFixtures {
-    const opts = { ...DEFAULT_OPTIONS, ...options };
     const lines: string[] = [];
 
     // Collect all page object classes

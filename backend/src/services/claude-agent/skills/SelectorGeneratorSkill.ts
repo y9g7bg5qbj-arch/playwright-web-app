@@ -13,31 +13,9 @@
  * 6. CSS selector (last resort)
  */
 
-import {
-    BaseSkill,
-    type ExecutionContext,
-    type SkillDetection,
-    type PrepareResult,
-    type ExecuteResult,
-    type VerifyResult,
-    type ResolvedSelector,
-} from '../interfaces';
-import {
-    SELECTOR_EXTRACTOR_SCRIPT,
-    type ExtractedSelectors,
-} from '../../selector/selectorExtractor';
+import { BaseSkill, type ExecutionContext, type SkillDetection, type PrepareResult, type ExecuteResult, type VerifyResult, type ResolvedSelector } from '../interfaces';
+import { SELECTOR_EXTRACTOR_SCRIPT, type ExtractedSelectors } from '../../selector/selectorExtractor';
 import { generateVeroAction } from '../../veroSyntaxReference';
-
-/** Selector type priorities (lower = better) */
-const SELECTOR_PRIORITY: Record<string, number> = {
-    testId: 1,
-    role: 2,
-    label: 3,
-    placeholder: 4,
-    text: 5,
-    css: 6,
-    xpath: 7,
-};
 
 export class SelectorGeneratorSkill extends BaseSkill {
     name = 'SelectorGenerator';

@@ -3,8 +3,6 @@ import { schedulesApi } from '@/api/schedules';
 import type { Schedule as UISchedule } from '@/components/workspace/SchedulePanel';
 import type {
   Schedule as BackendSchedule,
-  ScheduleCreate,
-  ScheduleUpdate,
 } from '@playwright-web-app/shared';
 
 // ============================================
@@ -52,6 +50,7 @@ function backendToUI(b: BackendSchedule): UISchedule {
     cronDescription: b.description || b.cronExpression,
     environment: selectedEnvironmentId ? 'Selected environment' : 'Use active environment',
     environmentId: selectedEnvironmentId,
+    parameterSetId: b.defaultExecutionConfig?.parameterSetId,
     retryStrategy: retryCountToStrategy(b.defaultExecutionConfig?.retries),
     enabled: b.isActive,
     nextRun: formatRelativeTime(b.nextRunAt),
@@ -76,7 +75,6 @@ function backendToUI(b: BackendSchedule): UISchedule {
       teams: { enabled: false },
     },
     reporting: {
-      allureReport: true,
       traceOnFailure: b.defaultExecutionConfig?.tracing === 'on-failure'
         || b.defaultExecutionConfig?.tracing === 'always',
       recordVideo: b.defaultExecutionConfig?.video === 'on-failure'
@@ -85,8 +83,10 @@ function backendToUI(b: BackendSchedule): UISchedule {
   };
 }
 
-function uiToCreatePayload(ui: UISchedule): ScheduleCreate {
+function uiToCreatePayload(ui: UISchedule): any {
   return {
+    workflowId: (ui as any).workflowId || '',
+    runConfigurationId: (ui as any).runConfigurationId || '',
     name: ui.name,
     cronExpression: ui.cron,
     description: ui.cronDescription,
@@ -105,11 +105,12 @@ function uiToCreatePayload(ui: UISchedule): ScheduleCreate {
       tracing: ui.reporting.traceOnFailure ? 'on-failure' : 'never',
       video: ui.reporting.recordVideo ? 'on-failure' : 'never',
       environmentId: ui.environmentId,
+      parameterSetId: ui.parameterSetId,
     },
   };
 }
 
-function uiToUpdatePayload(ui: UISchedule): ScheduleUpdate {
+function uiToUpdatePayload(ui: UISchedule): any {
   return uiToCreatePayload(ui);
 }
 
@@ -157,7 +158,9 @@ export const useScheduleStore = create<ScheduleState>()((set, get) => ({
   },
 
   createSchedule: async () => {
-    const payload: ScheduleCreate = {
+    const payload: any = {
+      workflowId: '',
+      runConfigurationId: '',
       name: 'New Schedule',
       cronExpression: '0 0 * * *',
       isActive: false,

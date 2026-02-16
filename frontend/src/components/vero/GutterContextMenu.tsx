@@ -84,31 +84,31 @@ export function GutterContextMenu({
     <div
       ref={menuRef}
       style={adjustedStyle}
-      className="bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl py-1 min-w-[220px]"
+      className="bg-dark-card border border-border-default rounded-lg shadow-xl py-1 min-w-[220px]"
     >
       {/* Header */}
-      <div className="px-3 py-1.5 text-xs text-[#8b949e] border-b border-[#30363d] truncate">
+      <div className="px-3 py-1.5 text-xs text-text-secondary border-b border-border-default truncate">
         {label}: {truncatedName}
       </div>
 
       {/* Run */}
       <button
         onClick={onRun}
-        className="w-full flex items-center gap-3 px-3 py-1.5 text-sm text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+        className="w-full flex items-center gap-3 px-3 py-1.5 text-sm text-text-primary hover:bg-dark-elevated transition-colors"
       >
-        <Play className="w-4 h-4 text-[#3fb950]" />
+        <Play className="w-4 h-4 text-status-success" />
         <span className="flex-1 text-left">Run '{truncatedName}'</span>
-        <span className="text-xs text-[#484f58]">Ctrl+Shift+F10</span>
+        <span className="text-xs text-text-muted">Ctrl+Shift+F10</span>
       </button>
 
       {/* Debug */}
       <button
         onClick={onDebug}
-        className="w-full flex items-center gap-3 px-3 py-1.5 text-sm text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+        className="w-full flex items-center gap-3 px-3 py-1.5 text-sm text-text-primary hover:bg-dark-elevated transition-colors"
       >
-        <Bug className="w-4 h-4 text-[#3fb950]" />
+        <Bug className="w-4 h-4 text-status-success" />
         <span className="flex-1 text-left">Debug '{truncatedName}'</span>
-        <span className="text-xs text-[#484f58]">Ctrl+Shift+F9</span>
+        <span className="text-xs text-text-muted">Ctrl+Shift+F9</span>
       </button>
     </div>
   );

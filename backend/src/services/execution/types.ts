@@ -57,6 +57,10 @@ export interface ExecutionOptions {
 
     // Slow motion for debugging
     slowMo?: number;
+
+    // Execution Context
+    runId?: string;
+    testFlowId?: string;
 }
 
 /**

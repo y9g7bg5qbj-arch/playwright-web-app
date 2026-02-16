@@ -6,16 +6,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs/promises';
-import {
-    TestResult,
-    TestRun,
-    RunSummary,
-    FlakyTest,
-    TrendData,
-    DateRange,
-    TestStatus,
-    ArtifactRef,
-} from '../execution/types';
+import { TestResult, TestRun, RunSummary, FlakyTest, TrendData, DateRange, TestStatus } from '../execution/types';
 import { executionStepRepository, executionRepository, executionLogRepository } from '../../db/repositories/mongo';
 import { logger } from '../../utils/logger';
 

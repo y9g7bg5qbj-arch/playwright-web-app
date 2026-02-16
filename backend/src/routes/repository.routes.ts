@@ -2,6 +2,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { RepositoryService } from '../services/repository.service';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { asyncHandler } from '../middleware/asyncHandler';
 import { body, param, validationResult } from 'express-validator';
 
 const router = Router();
@@ -29,18 +30,14 @@ router.get(
     authenticateToken,
     param('workflowId').isUUID(),
     validate,
-    async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const userId = (req as AuthRequest).userId!;
-            const { workflowId } = req.params;
+    asyncHandler(async (req: Request, res: Response) => {
+        const userId = (req as AuthRequest).userId!;
+        const { workflowId } = req.params;
 
-            const repository = await repositoryService.getByWorkflowId(userId, workflowId);
+        const repository = await repositoryService.getByWorkflowId(userId, workflowId);
 
-            res.json({ success: true, data: repository });
-        } catch (error) {
-            next(error);
-        }
-    }
+        res.json({ success: true, data: repository });
+    })
 );
 
 /**
@@ -55,23 +52,19 @@ router.put(
     body('description').optional().isString(),
     body('globalElements').optional().isArray(),
     validate,
-    async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const userId = (req as AuthRequest).userId!;
-            const { workflowId } = req.params;
-            const { name, description, globalElements } = req.body;
+    asyncHandler(async (req: Request, res: Response) => {
+        const userId = (req as AuthRequest).userId!;
+        const { workflowId } = req.params;
+        const { name, description, globalElements } = req.body;
 
-            const repository = await repositoryService.updateRepository(userId, workflowId, {
-                name,
-                description,
-                globalElements,
-            });
+        const repository = await repositoryService.updateRepository(userId, workflowId, {
+            name,
+            description,
+            globalElements,
+        });
 
-            res.json({ success: true, data: repository });
-        } catch (error) {
-            next(error);
-        }
-    }
+        res.json({ success: true, data: repository });
+    })
 );
 
 // ============================================
@@ -87,18 +80,14 @@ router.get(
     authenticateToken,
     param('workflowId').isUUID(),
     validate,
-    async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const userId = (req as AuthRequest).userId!;
-            const { workflowId } = req.params;
+    asyncHandler(async (req: Request, res: Response) => {
+        const userId = (req as AuthRequest).userId!;
+        const { workflowId } = req.params;
 
-            const pages = await repositoryService.getPages(userId, workflowId);
+        const pages = await repositoryService.getPages(userId, workflowId);
 
-            res.json({ success: true, data: pages });
-        } catch (error) {
-            next(error);
-        }
-    }
+        res.json({ success: true, data: pages });
+    })
 );
 
 /**
@@ -115,25 +104,21 @@ router.post(
     body('baseUrl').optional().isString(),
     body('elements').optional().isArray(),
     validate,
-    async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const userId = (req as AuthRequest).userId!;
-            const { workflowId } = req.params;
-            const { name, description, urlPattern, baseUrl, elements } = req.body;
+    asyncHandler(async (req: Request, res: Response) => {
+        const userId = (req as AuthRequest).userId!;
+        const { workflowId } = req.params;
+        const { name, description, urlPattern, baseUrl, elements } = req.body;
 
-            const page = await repositoryService.createPage(userId, workflowId, {
-                name,
-                description,
-                urlPattern,
-                baseUrl,
-                elements,
-            });
+        const page = await repositoryService.createPage(userId, workflowId, {
+            name,
+            description,
+            urlPattern,
+            baseUrl,
+            elements,
+        });
 
-            res.status(201).json({ success: true, data: page });
-        } catch (error) {
-            next(error);
-        }
-    }
+        res.status(201).json({ success: true, data: page });
+    })
 );
 
 /**
@@ -152,26 +137,22 @@ router.put(
     body('elements').optional().isArray(),
     body('order').optional().isInt({ min: 0 }),
     validate,
-    async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const userId = (req as AuthRequest).userId!;
-            const { workflowId, pageId } = req.params;
-            const { name, description, urlPattern, baseUrl, elements, order } = req.body;
+    asyncHandler(async (req: Request, res: Response) => {
+        const userId = (req as AuthRequest).userId!;
+        const { workflowId, pageId } = req.params;
+        const { name, description, urlPattern, baseUrl, elements, order } = req.body;
 
-            const page = await repositoryService.updatePage(userId, workflowId, pageId, {
-                name,
-                description,
-                urlPattern,
-                baseUrl,
-                elements,
-                order,
-            });
+        const page = await repositoryService.updatePage(userId, workflowId, pageId, {
+            name,
+            description,
+            urlPattern,
+            baseUrl,
+            elements,
+            order,
+        });
 
-            res.json({ success: true, data: page });
-        } catch (error) {
-            next(error);
-        }
-    }
+        res.json({ success: true, data: page });
+    })
 );
 
 /**
@@ -184,18 +165,14 @@ router.delete(
     param('workflowId').isUUID(),
     param('pageId').isUUID(),
     validate,
-    async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const userId = (req as AuthRequest).userId!;
-            const { workflowId, pageId } = req.params;
+    asyncHandler(async (req: Request, res: Response) => {
+        const userId = (req as AuthRequest).userId!;
+        const { workflowId, pageId } = req.params;
 
-            await repositoryService.deletePage(userId, workflowId, pageId);
+        await repositoryService.deletePage(userId, workflowId, pageId);
 
-            res.json({ success: true, message: 'Page deleted' });
-        } catch (error) {
-            next(error);
-        }
-    }
+        res.json({ success: true, message: 'Page deleted' });
+    })
 );
 
 /**
@@ -209,19 +186,15 @@ router.put(
     body('pageIds').isArray(),
     body('pageIds.*').isUUID(),
     validate,
-    async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const userId = (req as AuthRequest).userId!;
-            const { workflowId } = req.params;
-            const { pageIds } = req.body;
+    asyncHandler(async (req: Request, res: Response) => {
+        const userId = (req as AuthRequest).userId!;
+        const { workflowId } = req.params;
+        const { pageIds } = req.body;
 
-            await repositoryService.reorderPages(userId, workflowId, pageIds);
+        await repositoryService.reorderPages(userId, workflowId, pageIds);
 
-            res.json({ success: true, message: 'Pages reordered' });
-        } catch (error) {
-            next(error);
-        }
-    }
+        res.json({ success: true, message: 'Pages reordered' });
+    })
 );
 
 // ============================================
@@ -242,24 +215,20 @@ router.post(
     body('locator').isObject(),
     body('tags').optional().isArray(),
     validate,
-    async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const userId = (req as AuthRequest).userId!;
-            const { workflowId, pageId } = req.params;
-            const { name, description, locator, tags } = req.body;
+    asyncHandler(async (req: Request, res: Response) => {
+        const userId = (req as AuthRequest).userId!;
+        const { workflowId, pageId } = req.params;
+        const { name, description, locator, tags } = req.body;
 
-            const page = await repositoryService.addElement(userId, workflowId, pageId, {
-                name,
-                description,
-                locator,
-                tags,
-            });
+        const page = await repositoryService.addElement(userId, workflowId, pageId, {
+            name,
+            description,
+            locator,
+            tags,
+        });
 
-            res.status(201).json({ success: true, data: page });
-        } catch (error) {
-            next(error);
-        }
-    }
+        res.status(201).json({ success: true, data: page });
+    })
 );
 
 /**
@@ -277,24 +246,20 @@ router.put(
     body('locator').optional().isObject(),
     body('tags').optional().isArray(),
     validate,
-    async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const userId = (req as AuthRequest).userId!;
-            const { workflowId, pageId, elementId } = req.params;
-            const { name, description, locator, tags } = req.body;
+    asyncHandler(async (req: Request, res: Response) => {
+        const userId = (req as AuthRequest).userId!;
+        const { workflowId, pageId, elementId } = req.params;
+        const { name, description, locator, tags } = req.body;
 
-            const page = await repositoryService.updateElement(userId, workflowId, pageId, elementId, {
-                name,
-                description,
-                locator,
-                tags,
-            });
+        const page = await repositoryService.updateElement(userId, workflowId, pageId, elementId, {
+            name,
+            description,
+            locator,
+            tags,
+        });
 
-            res.json({ success: true, data: page });
-        } catch (error) {
-            next(error);
-        }
-    }
+        res.json({ success: true, data: page });
+    })
 );
 
 /**
@@ -308,18 +273,14 @@ router.delete(
     param('pageId').isUUID(),
     param('elementId').isUUID(),
     validate,
-    async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const userId = (req as AuthRequest).userId!;
-            const { workflowId, pageId, elementId } = req.params;
+    asyncHandler(async (req: Request, res: Response) => {
+        const userId = (req as AuthRequest).userId!;
+        const { workflowId, pageId, elementId } = req.params;
 
-            const page = await repositoryService.removeElement(userId, workflowId, pageId, elementId);
+        const page = await repositoryService.removeElement(userId, workflowId, pageId, elementId);
 
-            res.json({ success: true, data: page });
-        } catch (error) {
-            next(error);
-        }
-    }
+        res.json({ success: true, data: page });
+    })
 );
 
 export default router;

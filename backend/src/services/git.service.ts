@@ -2,6 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import { logger } from '../utils/logger';
 
 const execAsync = promisify(exec);
 
@@ -49,7 +50,7 @@ export class GitService {
       const exists = await fs.stat(gitDir).then(() => true).catch(() => false);
 
       if (exists) {
-        console.log(`Git repo already initialized at ${repoPath}`);
+        logger.debug(`Git repo already initialized at ${repoPath}`);
         return;
       }
 
@@ -70,9 +71,9 @@ export class GitService {
       await execAsync('git checkout -b master', { cwd: repoPath });
       await execAsync('git checkout dev', { cwd: repoPath });
 
-      console.log(`Git repo initialized at ${repoPath}`);
+      logger.info(`Git repo initialized at ${repoPath}`);
     } catch (error: any) {
-      console.error('Failed to initialize git repo:', error.message);
+      logger.error('Failed to initialize git repo:', error.message);
       throw new Error(`Failed to initialize git repo: ${error.message}`);
     }
   }
@@ -88,7 +89,7 @@ export class GitService {
       // Create and checkout new branch
       await execAsync(`git checkout -b ${branchName}`, { cwd: repoPath });
 
-      console.log(`Created branch ${branchName} from ${fromBranch}`);
+      logger.info(`Created branch ${branchName} from ${fromBranch}`);
     } catch (error: any) {
       throw new Error(`Failed to create branch ${branchName}: ${error.message}`);
     }
@@ -156,7 +157,7 @@ export class GitService {
       }
 
       // Commit with author info
-      const { stdout } = await execAsync(
+      await execAsync(
         `git commit -m "${message.replace(/"/g, '\\"')}" --author="${authorEmail} <${authorEmail}>"`,
         { cwd: repoPath }
       );
@@ -353,7 +354,6 @@ export class GitService {
     const hunkRegex = /@@\s*-(\d+)(?:,(\d+))?\s*\+(\d+)(?:,(\d+))?\s*@@/g;
 
     let match;
-    let lastIndex = 0;
     const hunkMatches: Array<{ match: RegExpExecArray; index: number }> = [];
 
     while ((match = hunkRegex.exec(diff)) !== null) {

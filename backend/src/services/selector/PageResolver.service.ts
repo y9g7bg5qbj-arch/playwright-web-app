@@ -18,12 +18,7 @@
  *   await resolver.persistAll();
  */
 
-import {
-  PageObjectRegistry,
-  PageFieldRef,
-  ElementInfo,
-  DuplicateCheckResult,
-} from '../pageObjectRegistry';
+import { PageObjectRegistry, ElementInfo } from '../pageObjectRegistry';
 import { ExtractedSelectors } from './selectorExtractor';
 import { logger } from '../../utils/logger';
 

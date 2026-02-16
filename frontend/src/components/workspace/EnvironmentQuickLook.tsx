@@ -6,6 +6,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
+import { IconButton } from '@/components/ui';
 import { useEnvironmentStore } from '@/store/environmentStore';
 
 interface EnvironmentQuickLookProps {
@@ -48,12 +49,12 @@ export function EnvironmentQuickLook({ onOpenManager }: EnvironmentQuickLookProp
         onClick={() => setIsOpen(!isOpen)}
         className={`p-2 rounded-md transition-colors ${
           isOpen
-            ? 'bg-[#30363d] text-white'
-            : 'hover:bg-[#21262d] text-[#8b949e] hover:text-white'
+            ? 'bg-border-default text-white'
+            : 'hover:bg-dark-elevated text-text-secondary hover:text-white'
         }`}
         title="Environment Quick Look"
       >
-        <span className="material-symbols-outlined text-[18px]">
+        <span className="material-symbols-outlined text-xl">
           {isOpen ? 'visibility' : 'visibility'}
         </span>
       </button>
@@ -62,28 +63,28 @@ export function EnvironmentQuickLook({ onOpenManager }: EnvironmentQuickLookProp
       {isOpen && (
         <div
           ref={popoverRef}
-          className="absolute right-0 top-full mt-2 w-80 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl z-50 overflow-hidden"
+          className="absolute right-0 top-full mt-2 w-80 bg-dark-card border border-border-default rounded-lg shadow-xl z-50 overflow-hidden"
         >
           {/* Header */}
-          <div className="px-4 py-3 border-b border-[#30363d] flex items-center justify-between">
+          <div className="px-4 py-3 border-b border-border-default flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-[16px] text-[#8b949e]">
+              <span className="material-symbols-outlined text-lg text-text-secondary">
                 {activeEnv ? 'check_circle' : 'radio_button_unchecked'}
               </span>
               <span className="text-white font-medium text-sm">
                 {activeEnv?.name || 'No Environment'}
               </span>
             </div>
-            <button
+            <IconButton
+              icon={<span className="material-symbols-outlined text-lg">edit</span>}
+              size="sm"
+              variant="ghost"
+              tooltip="Edit Environment"
               onClick={() => {
                 setIsOpen(false);
                 onOpenManager();
               }}
-              className="p-1 rounded hover:bg-[#30363d] text-[#8b949e] hover:text-white transition-colors"
-              title="Edit Environment"
-            >
-              <span className="material-symbols-outlined text-[16px]">edit</span>
-            </button>
+            />
           </div>
 
           {/* Variables List */}
@@ -94,17 +95,17 @@ export function EnvironmentQuickLook({ onOpenManager }: EnvironmentQuickLookProp
                   {activeEnv.variables.map((variable) => (
                     <tr
                       key={variable.id}
-                      className="border-b border-[#21262d] last:border-b-0 hover:bg-[#21262d]/50"
+                      className="border-b border-border-muted last:border-b-0 hover:bg-dark-elevated/50"
                     >
-                      <td className="px-4 py-2 text-xs font-mono text-[#58a6ff]">
+                      <td className="px-4 py-2 text-xs font-mono text-brand-secondary">
                         {variable.key}
                       </td>
-                      <td className="px-4 py-2 text-xs font-mono text-[#8b949e] text-right">
+                      <td className="px-4 py-2 text-xs font-mono text-text-secondary text-right">
                         {variable.isSecret ? (
-                          <span className="text-[#6e7681]">{'••••••••'}</span>
+                          <span className="text-text-muted">{'••••••••'}</span>
                         ) : (
-                          <span className="text-[#c9d1d9] truncate max-w-[150px] inline-block">
-                            {variable.value || <span className="text-[#6e7681] italic">empty</span>}
+                          <span className="text-text-primary truncate max-w-[150px] inline-block">
+                            {variable.value || <span className="text-text-muted italic">empty</span>}
                           </span>
                         )}
                       </td>
@@ -115,32 +116,32 @@ export function EnvironmentQuickLook({ onOpenManager }: EnvironmentQuickLookProp
             </div>
           ) : activeEnv ? (
             <div className="px-4 py-6 text-center">
-              <span className="material-symbols-outlined text-3xl text-[#30363d] mb-2 block">
+              <span className="material-symbols-outlined text-3xl text-border-default mb-2 block">
                 data_object
               </span>
-              <p className="text-sm text-[#8b949e]">No variables defined</p>
+              <p className="text-sm text-text-secondary">No variables defined</p>
               <button
                 onClick={() => {
                   setIsOpen(false);
                   onOpenManager();
                 }}
-                className="mt-2 text-xs text-[#58a6ff] hover:underline"
+                className="mt-2 text-xs text-brand-secondary hover:underline"
               >
                 Add variables
               </button>
             </div>
           ) : (
             <div className="px-4 py-6 text-center">
-              <span className="material-symbols-outlined text-3xl text-[#30363d] mb-2 block">
+              <span className="material-symbols-outlined text-3xl text-border-default mb-2 block">
                 folder_off
               </span>
-              <p className="text-sm text-[#8b949e]">No environment selected</p>
+              <p className="text-sm text-text-secondary">No environment selected</p>
               <button
                 onClick={() => {
                   setIsOpen(false);
                   onOpenManager();
                 }}
-                className="mt-2 text-xs text-[#58a6ff] hover:underline"
+                className="mt-2 text-xs text-brand-secondary hover:underline"
               >
                 Create environment
               </button>
@@ -148,16 +149,16 @@ export function EnvironmentQuickLook({ onOpenManager }: EnvironmentQuickLookProp
           )}
 
           {/* Footer */}
-          <div className="border-t border-[#30363d] p-2">
+          <div className="border-t border-border-default p-2">
             <button
               onClick={() => {
                 setIsOpen(false);
                 onOpenManager();
               }}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-left hover:bg-[#21262d] transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-left hover:bg-dark-elevated transition-colors"
             >
-              <span className="material-symbols-outlined text-[16px] text-[#8b949e]">settings</span>
-              <span className="text-sm text-[#c9d1d9]">Manage Environments...</span>
+              <span className="material-symbols-outlined text-lg text-text-secondary">settings</span>
+              <span className="text-sm text-text-primary">Manage Environments...</span>
             </button>
           </div>
         </div>
@@ -214,11 +215,11 @@ export function EnvironmentSelector({ onOpenManager }: EnvironmentSelectorProps)
         title={activeEnv ? `Environment: ${activeEnv.name}` : 'Select environment'}
         aria-label={activeEnv ? `Environment: ${activeEnv.name}` : 'Select environment'}
       >
-        <span className="material-symbols-outlined text-[17px] leading-none">
+        <span className="material-symbols-outlined text-lg leading-none">
           {activeEnv ? 'globe' : 'cloud_off'}
         </span>
         <span
-          className={`material-symbols-outlined absolute -right-0.5 -top-0.5 text-[11px] text-text-muted transition-transform ${
+          className={`material-symbols-outlined absolute -right-0.5 -top-0.5 text-xxs text-text-muted transition-transform ${
             isOpen ? 'rotate-180' : ''
           }`}
         >
@@ -245,16 +246,16 @@ export function EnvironmentSelector({ onOpenManager }: EnvironmentSelectorProps)
                   : 'Select QA / Staging / Production'}
               </div>
             </div>
-            <button
+            <IconButton
+              icon={<span className="material-symbols-outlined text-lg">settings</span>}
+              size="sm"
+              variant="ghost"
+              tooltip="Manage environments"
               onClick={() => {
                 setIsOpen(false);
                 onOpenManager();
               }}
-              className="p-1 rounded hover:bg-dark-elevated text-text-muted hover:text-text-primary transition-colors"
-              title="Manage environments"
-            >
-              <span className="material-symbols-outlined text-[16px]">settings</span>
-            </button>
+            />
           </div>
 
           {/* Environments List */}
@@ -272,7 +273,7 @@ export function EnvironmentSelector({ onOpenManager }: EnvironmentSelectorProps)
                 >
                   <span className="w-5 flex justify-center shrink-0">
                     {env.isActive && (
-                      <span className="material-symbols-outlined text-[16px] text-status-success">
+                      <span className="material-symbols-outlined text-lg text-status-success">
                         check
                       </span>
                     )}
@@ -308,7 +309,7 @@ export function EnvironmentSelector({ onOpenManager }: EnvironmentSelectorProps)
               }}
               className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-left hover:bg-dark-elevated transition-colors"
             >
-              <span className="material-symbols-outlined text-[16px] text-text-muted">settings</span>
+              <span className="material-symbols-outlined text-lg text-text-muted">settings</span>
               <span className="text-sm text-text-secondary">Manage Environments...</span>
             </button>
           </div>

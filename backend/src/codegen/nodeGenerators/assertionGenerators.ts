@@ -4,7 +4,7 @@
  */
 
 import type { FlowNode, GeneratorContext, NodeGenerator } from '@playwright-web-app/shared';
-import { buildLocatorCode } from '../locatorBuilder';
+import { buildLocatorCode, buildOptsCode } from '../locatorBuilder';
 import { interpolateVariables } from '../variableInterpolation';
 
 /**
@@ -13,15 +13,11 @@ import { interpolateVariables } from '../variableInterpolation';
  * → await expect(page.getByText('Welcome')).toBeVisible();
  */
 export class AssertVisibleGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const locator = buildLocatorCode(node.data);
         const not = node.data.not ? '.not' : '';
-
-        const opts: string[] = [];
-        if (node.data.timeout) opts.push(`timeout: ${node.data.timeout}`);
-        const optsCode = opts.length ? `{ ${opts.join(', ')} }` : '';
-
-        return [`await expect(${locator})${not}.toBeVisible(${optsCode});`];
+        const opts = buildOptsCode(node.data, ['timeout']);
+        return [`await expect(${locator})${not}.toBeVisible(${opts});`];
     }
 }
 
@@ -31,14 +27,10 @@ export class AssertVisibleGenerator implements NodeGenerator {
  * → await expect(page.locator('.loading')).toBeHidden();
  */
 export class AssertHiddenGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const locator = buildLocatorCode(node.data);
-
-        const opts: string[] = [];
-        if (node.data.timeout) opts.push(`timeout: ${node.data.timeout}`);
-        const optsCode = opts.length ? `{ ${opts.join(', ')} }` : '';
-
-        return [`await expect(${locator}).toBeHidden(${optsCode});`];
+        const opts = buildOptsCode(node.data, ['timeout']);
+        return [`await expect(${locator}).toBeHidden(${opts});`];
     }
 }
 
@@ -53,11 +45,7 @@ export class AssertTextGenerator implements NodeGenerator {
         const { matchType, expectedText, ignoreCase, not, timeout } = node.data;
         const notStr = not ? '.not' : '';
         const text = interpolateVariables(expectedText || '', ctx);
-
-        const opts: string[] = [];
-        if (ignoreCase) opts.push('ignoreCase: true');
-        if (timeout) opts.push(`timeout: ${timeout}`);
-        const optsCode = opts.length ? `, { ${opts.join(', ')} }` : '';
+        const optsCode = buildOptsCode(node.data, ['ignoreCase', 'timeout'], true);
 
         let assertion: string;
         switch (matchType) {
@@ -65,9 +53,9 @@ export class AssertTextGenerator implements NodeGenerator {
                 assertion = `toHaveText(${text}${optsCode})`;
                 break;
             case 'regex':
-                // For regex, we need to convert the string to a RegExp
                 const flags = ignoreCase ? 'i' : '';
-                assertion = `toHaveText(/${expectedText}/${flags}${timeout ? `, { timeout: ${timeout} }` : ''})`;
+                const regexOpts = buildOptsCode(node.data, ['timeout'], true);
+                assertion = `toHaveText(/${expectedText}/${flags}${regexOpts})`;
                 break;
             case 'contains':
             default:
@@ -87,15 +75,10 @@ export class AssertTextGenerator implements NodeGenerator {
 export class AssertValueGenerator implements NodeGenerator {
     generate(node: FlowNode, ctx: GeneratorContext): string[] {
         const locator = buildLocatorCode(node.data);
-        const { expectedValue, not, timeout } = node.data;
-        const notStr = not ? '.not' : '';
-        const value = interpolateVariables(expectedValue || '', ctx);
-
-        const opts: string[] = [];
-        if (timeout) opts.push(`timeout: ${timeout}`);
-        const optsCode = opts.length ? `, { ${opts.join(', ')} }` : '';
-
-        return [`await expect(${locator})${notStr}.toHaveValue(${value}${optsCode});`];
+        const notStr = node.data.not ? '.not' : '';
+        const value = interpolateVariables(node.data.expectedValue || '', ctx);
+        const opts = buildOptsCode(node.data, ['timeout'], true);
+        return [`await expect(${locator})${notStr}.toHaveValue(${value}${opts});`];
     }
 }
 
@@ -107,15 +90,10 @@ export class AssertValueGenerator implements NodeGenerator {
 export class AssertAttributeGenerator implements NodeGenerator {
     generate(node: FlowNode, ctx: GeneratorContext): string[] {
         const locator = buildLocatorCode(node.data);
-        const { attribute, expectedValue, not, timeout } = node.data;
-        const notStr = not ? '.not' : '';
-        const value = interpolateVariables(expectedValue || '', ctx);
-
-        const opts: string[] = [];
-        if (timeout) opts.push(`timeout: ${timeout}`);
-        const optsCode = opts.length ? `, { ${opts.join(', ')} }` : '';
-
-        return [`await expect(${locator})${notStr}.toHaveAttribute('${attribute}', ${value}${optsCode});`];
+        const notStr = node.data.not ? '.not' : '';
+        const value = interpolateVariables(node.data.expectedValue || '', ctx);
+        const opts = buildOptsCode(node.data, ['timeout'], true);
+        return [`await expect(${locator})${notStr}.toHaveAttribute('${node.data.attribute}', ${value}${opts});`];
     }
 }
 
@@ -125,16 +103,11 @@ export class AssertAttributeGenerator implements NodeGenerator {
  * → await expect(page.getByRole('button', { name: 'Submit' })).toBeEnabled();
  */
 export class AssertEnabledGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const locator = buildLocatorCode(node.data);
-        const { not, timeout } = node.data;
-
-        const opts: string[] = [];
-        if (timeout) opts.push(`timeout: ${timeout}`);
-        const optsCode = opts.length ? `{ ${opts.join(', ')} }` : '';
-
-        const assertion = not ? 'toBeDisabled' : 'toBeEnabled';
-        return [`await expect(${locator}).${assertion}(${optsCode});`];
+        const assertion = node.data.not ? 'toBeDisabled' : 'toBeEnabled';
+        const opts = buildOptsCode(node.data, ['timeout']);
+        return [`await expect(${locator}).${assertion}(${opts});`];
     }
 }
 
@@ -144,16 +117,11 @@ export class AssertEnabledGenerator implements NodeGenerator {
  * → await expect(page.getByLabel('Remember me')).toBeChecked();
  */
 export class AssertCheckedGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const locator = buildLocatorCode(node.data);
-        const { not, timeout } = node.data;
-        const notStr = not ? '.not' : '';
-
-        const opts: string[] = [];
-        if (timeout) opts.push(`timeout: ${timeout}`);
-        const optsCode = opts.length ? `{ ${opts.join(', ')} }` : '';
-
-        return [`await expect(${locator})${notStr}.toBeChecked(${optsCode});`];
+        const notStr = node.data.not ? '.not' : '';
+        const opts = buildOptsCode(node.data, ['timeout']);
+        return [`await expect(${locator})${notStr}.toBeChecked(${opts});`];
     }
 }
 
@@ -163,15 +131,10 @@ export class AssertCheckedGenerator implements NodeGenerator {
  * → await expect(page.locator('.item')).toHaveCount(5);
  */
 export class AssertCountGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const locator = buildLocatorCode(node.data);
-        const { expectedCount, timeout } = node.data;
-
-        const opts: string[] = [];
-        if (timeout) opts.push(`timeout: ${timeout}`);
-        const optsCode = opts.length ? `, { ${opts.join(', ')} }` : '';
-
-        return [`await expect(${locator}).toHaveCount(${expectedCount}${optsCode});`];
+        const opts = buildOptsCode(node.data, ['timeout'], true);
+        return [`await expect(${locator}).toHaveCount(${node.data.expectedCount}${opts});`];
     }
 }
 
@@ -182,11 +145,8 @@ export class AssertCountGenerator implements NodeGenerator {
  */
 export class AssertUrlGenerator implements NodeGenerator {
     generate(node: FlowNode, ctx: GeneratorContext): string[] {
-        const { matchType, expectedUrl, timeout } = node.data;
-
-        const opts: string[] = [];
-        if (timeout) opts.push(`timeout: ${timeout}`);
-        const optsCode = opts.length ? `, { ${opts.join(', ')} }` : '';
+        const { matchType, expectedUrl } = node.data;
+        const opts = buildOptsCode(node.data, ['timeout'], true);
 
         let urlArg: string;
         switch (matchType) {
@@ -198,13 +158,12 @@ export class AssertUrlGenerator implements NodeGenerator {
                 break;
             case 'contains':
             default:
-                // Use regex for contains matching
                 const escaped = (expectedUrl || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 urlArg = `/${escaped}/`;
                 break;
         }
 
-        return [`await expect(page).toHaveURL(${urlArg}${optsCode});`];
+        return [`await expect(page).toHaveURL(${urlArg}${opts});`];
     }
 }
 
@@ -215,11 +174,8 @@ export class AssertUrlGenerator implements NodeGenerator {
  */
 export class AssertTitleGenerator implements NodeGenerator {
     generate(node: FlowNode, ctx: GeneratorContext): string[] {
-        const { matchType, expectedTitle, timeout } = node.data;
-
-        const opts: string[] = [];
-        if (timeout) opts.push(`timeout: ${timeout}`);
-        const optsCode = opts.length ? `, { ${opts.join(', ')} }` : '';
+        const { matchType, expectedTitle } = node.data;
+        const opts = buildOptsCode(node.data, ['timeout'], true);
 
         let titleArg: string;
         switch (matchType) {
@@ -233,6 +189,6 @@ export class AssertTitleGenerator implements NodeGenerator {
                 break;
         }
 
-        return [`await expect(page).toHaveTitle(${titleArg}${optsCode});`];
+        return [`await expect(page).toHaveTitle(${titleArg}${opts});`];
     }
 }

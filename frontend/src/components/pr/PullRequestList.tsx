@@ -23,25 +23,25 @@ const statusConfig = {
   draft: {
     icon: FileText,
     color: 'text-text-muted',
-    bgColor: 'bg-gray-500/10',
+    bgColor: 'bg-dark-elevated/10',
     label: 'Draft',
   },
   open: {
     icon: GitPullRequest,
-    color: 'text-green-400',
-    bgColor: 'bg-green-500/10',
+    color: 'text-status-success',
+    bgColor: 'bg-status-success/10',
     label: 'Open',
   },
   approved: {
     icon: CheckCircle2,
-    color: 'text-blue-400',
-    bgColor: 'bg-blue-500/10',
+    color: 'text-status-info',
+    bgColor: 'bg-status-info/10',
     label: 'Approved',
   },
   merged: {
     icon: GitMerge,
-    color: 'text-purple-400',
-    bgColor: 'bg-purple-500/10',
+    color: 'text-accent-purple',
+    bgColor: 'bg-accent-purple/10',
     label: 'Merged',
   },
   closed: {
@@ -97,7 +97,7 @@ export const PullRequestList: React.FC<PullRequestListProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border-default">
         <div className="flex items-center gap-2">
-          <GitPullRequest className="w-5 h-5 text-orange-400" />
+          <GitPullRequest className="w-5 h-5 text-status-warning" />
           <h2 className="text-lg font-semibold text-text-primary">Pull Requests</h2>
           <span className="px-2 py-0.5 text-xs font-medium bg-dark-elevated text-text-muted rounded-full">
             {pullRequests.length}
@@ -211,7 +211,7 @@ export const PullRequestList: React.FC<PullRequestListProps> = ({
 
                       {/* Approvals */}
                       <div
-                        className={`flex items-center gap-1 ${pr.approvalCount > 0 ? 'text-green-400' : ''}`}
+                        className={`flex items-center gap-1 ${pr.approvalCount > 0 ? 'text-status-success' : ''}`}
                         title="Approvals"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />

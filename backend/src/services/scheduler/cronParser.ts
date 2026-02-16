@@ -34,6 +34,70 @@ const CRON_PRESETS: Record<string, string> = {
   '@hourly': '0 * * * *',
 };
 
+const WEEKDAY_NAMES: Record<string, number> = {
+  sun: 0,
+  mon: 1,
+  tue: 2,
+  wed: 3,
+  thu: 4,
+  fri: 5,
+  sat: 6,
+};
+
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+
+interface ZonedDateParts {
+  month: number;
+  dayOfMonth: number;
+  dayOfWeek: number;
+  hour: number;
+  minute: number;
+}
+
+function normalizeTimezone(timezone: string): string {
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
+    return timezone;
+  } catch {
+    return 'UTC';
+  }
+}
+
+function getTimezoneFormatter(timezone: string): Intl.DateTimeFormat {
+  const normalized = normalizeTimezone(timezone);
+  const cached = formatterCache.get(normalized);
+  if (cached) return cached;
+
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: normalized,
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    weekday: 'short',
+    hour12: false,
+  });
+
+  formatterCache.set(normalized, formatter);
+  return formatter;
+}
+
+function getZonedDateParts(date: Date, timezone: string): ZonedDateParts {
+  const formatter = getTimezoneFormatter(timezone);
+  const parts = formatter.formatToParts(date);
+
+  const getPart = (type: string): string => parts.find((p) => p.type === type)?.value || '0';
+  const weekdayRaw = getPart('weekday').toLowerCase().slice(0, 3);
+
+  return {
+    month: Number(getPart('month')),
+    dayOfMonth: Number(getPart('day')),
+    dayOfWeek: WEEKDAY_NAMES[weekdayRaw] ?? 0,
+    hour: Number(getPart('hour')),
+    minute: Number(getPart('minute')),
+  };
+}
+
 export interface CronValidationResult {
   valid: boolean;
   error?: string;
@@ -249,11 +313,11 @@ export function getNextRunTime(
     return null;
   }
 
-  // Start from the next minute
+  // Start from the next absolute minute
   const next = new Date(fromDate);
-  next.setSeconds(0);
-  next.setMilliseconds(0);
-  next.setMinutes(next.getMinutes() + 1);
+  next.setUTCSeconds(0);
+  next.setUTCMilliseconds(0);
+  next.setUTCMinutes(next.getUTCMinutes() + 1);
 
   // Limit iterations to prevent infinite loops
   const maxIterations = 366 * 24 * 60; // One year of minutes
@@ -261,12 +325,12 @@ export function getNextRunTime(
 
   while (iterations < maxIterations) {
     iterations++;
-
-    const month = next.getMonth() + 1; // 1-12
-    const dayOfMonth = next.getDate();
-    const dayOfWeek = next.getDay();
-    const hour = next.getHours();
-    const minute = next.getMinutes();
+    const zoned = getZonedDateParts(next, timezone);
+    const month = zoned.month;
+    const dayOfMonth = zoned.dayOfMonth;
+    const dayOfWeek = zoned.dayOfWeek;
+    const hour = zoned.hour;
+    const minute = zoned.minute;
 
     // Check if all fields match
     const monthMatch = parsed.month.values.includes(month);
@@ -297,26 +361,8 @@ export function getNextRunTime(
       return next;
     }
 
-    // Increment appropriately
-    if (!monthMatch) {
-      // Move to first day of next month
-      next.setMonth(next.getMonth() + 1);
-      next.setDate(1);
-      next.setHours(0);
-      next.setMinutes(0);
-    } else if (!dayMatch) {
-      // Move to next day
-      next.setDate(next.getDate() + 1);
-      next.setHours(0);
-      next.setMinutes(0);
-    } else if (!hourMatch) {
-      // Move to next hour
-      next.setHours(next.getHours() + 1);
-      next.setMinutes(0);
-    } else {
-      // Move to next minute
-      next.setMinutes(next.getMinutes() + 1);
-    }
+    // Increment by one absolute minute and evaluate in target timezone.
+    next.setUTCMinutes(next.getUTCMinutes() + 1);
   }
 
   return null; // No match found within iteration limit

@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Monitor, Github, CheckCircle2, AlertCircle, Globe, Rocket } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Monitor, Github, CheckCircle2, AlertCircle, Globe, Rocket, Eye, EyeOff, Loader2, LogOut, ExternalLink } from 'lucide-react';
 import type { RunConfiguration } from '@/store/runConfigStore';
 import { useEnvironmentStore } from '@/store/environmentStore';
 import { useGitHubStore } from '@/store/useGitHubStore';
@@ -11,14 +11,25 @@ interface GeneralTabProps {
 }
 
 export function GeneralTab({ config, onChange }: GeneralTabProps) {
-  const { environments } = useEnvironmentStore();
+  const { environments, setManagerOpen } = useEnvironmentStore();
   const {
     isConnected,
     integration,
+    integrationLoading,
+    repositories,
     selectedRepository,
     selectedBranch,
+    branches,
     loadIntegration,
+    connectWithToken,
+    disconnect,
+    selectRepository,
   } = useGitHubStore();
+
+  const [tokenInput, setTokenInput] = useState('');
+  const [showToken, setShowToken] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   useEffect(() => {
     loadIntegration();
@@ -36,6 +47,49 @@ export function GeneralTab({ config, onChange }: GeneralTabProps) {
       workflowFile: config.github?.workflowFile || '.github/workflows/vero-tests.yml',
     });
   }, [config.target, isConnected, selectedRepository, selectedBranch]);
+
+  const handleConnect = async () => {
+    if (!tokenInput.trim()) return;
+    setIsConnecting(true);
+    setConnectError(null);
+    try {
+      const success = await connectWithToken(tokenInput.trim());
+      if (success) {
+        setTokenInput('');
+        setShowToken(false);
+      } else {
+        setConnectError('Failed to connect. Check that your token is valid and has repo + workflow scopes.');
+      }
+    } catch {
+      setConnectError('Connection failed. Please try again.');
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    await disconnect();
+  };
+
+  const handleSelectRepo = (fullName: string) => {
+    const repo = repositories.find((r) => r.fullName === fullName);
+    if (repo) {
+      selectRepository(repo);
+      onChange('github', {
+        ...config.github,
+        repository: repo.fullName,
+        branch: repo.defaultBranch,
+        workflowFile: config.github?.workflowFile || '.github/workflows/vero-tests.yml',
+      });
+    }
+  };
+
+  const handleSelectBranch = (branch: string) => {
+    onChange('github', {
+      ...config.github,
+      branch,
+    });
+  };
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -75,9 +129,16 @@ export function GeneralTab({ config, onChange }: GeneralTabProps) {
           <code className="rounded bg-dark-elevated px-1 py-0.5 font-mono text-brand-secondary">{'{{baseUrl}}'}</code>{' '}
           resolve from this environment.
         </p>
+        <button
+          type="button"
+          onClick={() => setManagerOpen(true)}
+          className="mt-2 inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-brand-secondary transition-colors hover:bg-white/[0.06] hover:text-brand-hover"
+        >
+          Manage Environments...
+        </button>
         {environments.length === 0 && (
           <p className="mt-1 text-xs text-status-warning">
-            No environments found. Create one from the environment selector in the IDE header.
+            No environments found. Use &quot;Manage Environments...&quot; to create one.
           </p>
         )}
       </section>
@@ -118,9 +179,14 @@ export function GeneralTab({ config, onChange }: GeneralTabProps) {
       {config.target === 'github-actions' && (
         <section className={runConfigTheme.section}>
           <div className="mb-3 flex items-center justify-between">
-            <p className={runConfigTheme.label}>GitHub Settings</p>
-            {isConnected() ? (
-              <div className="inline-flex items-center gap-1 text-xs text-status-success">
+            <p className={runConfigTheme.label}>GitHub Connection</p>
+            {integrationLoading ? (
+              <div className="inline-flex items-center gap-1 text-xs text-text-muted">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Checking...
+              </div>
+            ) : isConnected() ? (
+              <div className="inline-flex items-center gap-1.5 text-xs text-status-success">
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 Connected as {integration?.login}
               </div>
@@ -132,50 +198,128 @@ export function GeneralTab({ config, onChange }: GeneralTabProps) {
             )}
           </div>
 
-          {isConnected() && selectedRepository && (
-            <button
-              type="button"
-              onClick={() =>
-                onChange('github', {
-                  ...config.github,
-                  repository: selectedRepository.fullName,
-                  branch: selectedBranch || selectedRepository.defaultBranch,
-                  workflowFile: config.github?.workflowFile || '.github/workflows/vero-tests.yml',
-                })
-              }
-              className="mb-3 inline-flex items-center gap-1.5 rounded-md bg-brand-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-brand-hover"
-            >
-              <Github className="h-3.5 w-3.5" />
-              Use {selectedRepository.fullName}
-            </button>
+          {!isConnected() && !integrationLoading && (
+            <div className="mb-4 space-y-3">
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type={showToken ? 'text' : 'password'}
+                    value={tokenInput}
+                    onChange={(e) => { setTokenInput(e.target.value); setConnectError(null); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleConnect(); }}
+                    className={cx(runConfigTheme.input, 'pr-9 font-mono')}
+                    placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                    disabled={isConnecting}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowToken(!showToken)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
+                    tabIndex={-1}
+                  >
+                    {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleConnect}
+                  disabled={!tokenInput.trim() || isConnecting}
+                  className={cx(
+                    'inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-xs font-medium transition-colors',
+                    !tokenInput.trim() || isConnecting
+                      ? 'cursor-not-allowed border border-border-default bg-dark-elevated text-text-muted'
+                      : 'bg-brand-primary text-white hover:bg-brand-hover'
+                  )}
+                >
+                  {isConnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Github className="h-3.5 w-3.5" />}
+                  {isConnecting ? 'Connecting...' : 'Connect'}
+                </button>
+              </div>
+              {connectError && (
+                <p className="text-xs text-status-danger">{connectError}</p>
+              )}
+              <p className="text-xs text-text-muted">
+                Paste a GitHub Personal Access Token with{' '}
+                <code className="rounded bg-dark-elevated px-1 py-0.5 font-mono text-brand-secondary">repo</code> and{' '}
+                <code className="rounded bg-dark-elevated px-1 py-0.5 font-mono text-brand-secondary">workflow</code> scopes.{' '}
+                <a
+                  href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=Vero+IDE"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-0.5 text-brand-secondary hover:underline"
+                >
+                  Create token <ExternalLink className="h-3 w-3" />
+                </a>
+              </p>
+            </div>
           )}
 
-          {!isConnected() && (
-            <div className="mb-3 rounded-md border border-status-warning/30 bg-status-warning/10 px-3 py-2 text-xs text-text-secondary">
-              Connect GitHub in settings to auto-fill repository and branch.
+          {isConnected() && (
+            <div className="mb-4 flex items-center justify-between rounded-md border border-status-success/20 bg-status-success/5 px-3 py-2">
+              <div className="flex items-center gap-2 text-xs text-text-secondary">
+                <Github className="h-3.5 w-3.5 text-status-success" />
+                Authenticated as <span className="font-medium text-text-primary">{integration?.login}</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleDisconnect}
+                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-text-muted transition-colors hover:bg-white/[0.06] hover:text-status-danger"
+              >
+                <LogOut className="h-3 w-3" />
+                Disconnect
+              </button>
             </div>
           )}
 
           <div className="grid gap-3 md:grid-cols-2">
             <div>
               <label className={runConfigTheme.label}>Repository</label>
-              <input
-                type="text"
-                value={config.github?.repository || ''}
-                onChange={(event) => onChange('github', { ...config.github, repository: event.target.value })}
-                className={cx(runConfigTheme.input, 'mt-2')}
-                placeholder="owner/repository"
-              />
+              {isConnected() && repositories.length > 0 ? (
+                <select
+                  value={config.github?.repository || ''}
+                  onChange={(e) => handleSelectRepo(e.target.value)}
+                  className={cx(runConfigTheme.select, 'mt-2')}
+                >
+                  <option value="">Select repository...</option>
+                  {repositories.map((repo) => (
+                    <option key={repo.id} value={repo.fullName}>
+                      {repo.fullName}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={config.github?.repository || ''}
+                  onChange={(event) => onChange('github', { ...config.github, repository: event.target.value })}
+                  className={cx(runConfigTheme.input, 'mt-2')}
+                  placeholder="owner/repository"
+                />
+              )}
             </div>
             <div>
               <label className={runConfigTheme.label}>Branch</label>
-              <input
-                type="text"
-                value={config.github?.branch || ''}
-                onChange={(event) => onChange('github', { ...config.github, branch: event.target.value })}
-                className={cx(runConfigTheme.input, 'mt-2')}
-                placeholder="main"
-              />
+              {isConnected() && branches.length > 0 ? (
+                <select
+                  value={config.github?.branch || ''}
+                  onChange={(e) => handleSelectBranch(e.target.value)}
+                  className={cx(runConfigTheme.select, 'mt-2')}
+                >
+                  {branches.map((branch) => (
+                    <option key={branch} value={branch}>
+                      {branch}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={config.github?.branch || ''}
+                  onChange={(event) => onChange('github', { ...config.github, branch: event.target.value })}
+                  className={cx(runConfigTheme.input, 'mt-2')}
+                  placeholder="main"
+                />
+              )}
             </div>
           </div>
 

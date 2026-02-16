@@ -7,7 +7,8 @@
 
 import { Router, Request, Response } from 'express';
 import { dataTableRepository, dataRowRepository } from '../db/repositories/mongo';
-import { TestDataClassGenerator, generateTestDataCode } from '../codegen/testDataClassGenerator';
+import { generateTestDataCode } from '../codegen/testDataClassGenerator';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -42,7 +43,7 @@ router.get('/workflow/:workflowId', async (req: Request, res: Response) => {
             tables: tablesWithCounts
         });
     } catch (error) {
-        console.error('Error fetching data tables:', error);
+        logger.error('Error fetching data tables:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'
@@ -81,7 +82,7 @@ router.get('/:id', async (req: Request, res: Response) => {
             }
         });
     } catch (error) {
-        console.error('Error fetching data table:', error);
+        logger.error('Error fetching data table:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'
@@ -128,7 +129,7 @@ router.post('/', async (req: Request, res: Response) => {
             }
         });
     } catch (error: any) {
-        console.error('Error creating data table:', error);
+        logger.error('Error creating data table:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'
@@ -167,7 +168,7 @@ router.put('/:id', async (req: Request, res: Response) => {
             }
         });
     } catch (error) {
-        console.error('Error updating data table:', error);
+        logger.error('Error updating data table:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'
@@ -187,7 +188,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
         res.json({ success: true });
     } catch (error) {
-        console.error('Error deleting data table:', error);
+        logger.error('Error deleting data table:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'
@@ -225,7 +226,7 @@ router.post('/:tableId/rows', async (req: Request, res: Response) => {
             }
         });
     } catch (error) {
-        console.error('Error creating data row:', error);
+        logger.error('Error creating data row:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'
@@ -263,7 +264,7 @@ router.put('/:tableId/rows/:rowId', async (req: Request, res: Response) => {
             }
         });
     } catch (error) {
-        console.error('Error updating data row:', error);
+        logger.error('Error updating data row:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'
@@ -283,7 +284,7 @@ router.delete('/:tableId/rows/:rowId', async (req: Request, res: Response) => {
 
         res.json({ success: true });
     } catch (error) {
-        console.error('Error deleting data row:', error);
+        logger.error('Error deleting data row:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'
@@ -325,7 +326,7 @@ router.post('/:tableId/rows/bulk', async (req: Request, res: Response) => {
             count
         });
     } catch (error) {
-        console.error('Error bulk creating rows:', error);
+        logger.error('Error bulk creating rows:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'
@@ -364,7 +365,7 @@ router.get('/by-name/:workflowId/:tableName', async (req: Request, res: Response
             rowCount: data.length
         });
     } catch (error) {
-        console.error('Error fetching data table by name:', error);
+        logger.error('Error fetching data table by name:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'
@@ -394,7 +395,7 @@ router.get('/generate-code/:workflowId', async (req: Request, res: Response) => 
             contentType: 'text/typescript'
         });
     } catch (error) {
-        console.error('Error generating test data code:', error);
+        logger.error('Error generating test data code:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'
@@ -416,7 +417,7 @@ router.get('/generate-code/:workflowId/download', async (req: Request, res: Resp
         res.setHeader('Content-Disposition', 'attachment; filename="TestData.ts"');
         res.send(code);
     } catch (error) {
-        console.error('Error downloading test data code:', error);
+        logger.error('Error downloading test data code:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'

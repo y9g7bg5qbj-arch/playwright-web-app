@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { Modal, Button } from '@/components/ui';
 
 interface AISettings {
   id: string;
@@ -188,8 +189,6 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps): JSX.
     }
   }
 
-  if (!isOpen) return null;
-
   const providerConfig = {
     gemini: { name: 'Gemini', models: GEMINI_MODELS, color: 'blue' },
     openai: { name: 'OpenAI', models: OPENAI_MODELS, color: 'green' },
@@ -197,374 +196,339 @@ export function AISettingsModal({ isOpen, onClose }: AISettingsModalProps): JSX.
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-[#161b22] border border-[#30363d] rounded-xl w-full max-w-2xl max-h-[80vh] overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#30363d]">
-          <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-sky-400">auto_awesome</span>
-            <h2 className="text-lg font-semibold text-white">AI Provider Settings</h2>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-[#30363d] rounded transition-colors"
-          >
-            <span className="material-symbols-outlined text-[#8b949e]">close</span>
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[calc(80vh-140px)]">
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-500" />
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {/* Error Message */}
-              {error && (
-                <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
-                  <span className="material-symbols-outlined text-sm">error</span>
-                  {error}
-                </div>
-              )}
-
-              {/* Test Result */}
-              {testResult && (
-                <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
-                  testResult.success
-                    ? 'bg-green-500/10 border border-green-500/30 text-green-400'
-                    : 'bg-red-500/10 border border-red-500/30 text-red-400'
-                }`}>
-                  <span className="material-symbols-outlined text-sm">
-                    {testResult.success ? 'check_circle' : 'error'}
-                  </span>
-                  {testResult.message}
-                </div>
-              )}
-
-              {/* Provider Selection */}
-              <div>
-                <label className="block text-sm font-medium text-[#e6edf3] mb-2">
-                  AI Provider
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['gemini', 'openai', 'anthropic'] as const).map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setProvider(p)}
-                      className={`px-4 py-3 rounded-lg border text-sm font-medium transition-colors ${
-                        provider === p
-                          ? 'bg-sky-500/20 border-sky-500 text-sky-400'
-                          : 'bg-[#21262d] border-[#30363d] text-[#8b949e] hover:border-[#8b949e]'
-                      }`}
-                    >
-                      {providerConfig[p].name}
-                      {settings && (
-                        <span className="ml-2">
-                          {p === 'gemini' && settings.hasGeminiKey && (
-                            <span className="text-green-400">*</span>
-                          )}
-                          {p === 'openai' && settings.hasOpenaiKey && (
-                            <span className="text-green-400">*</span>
-                          )}
-                          {p === 'anthropic' && settings.hasAnthropicKey && (
-                            <span className="text-green-400">*</span>
-                          )}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Provider-specific settings */}
-              <div className="space-y-4">
-                {/* Gemini */}
-                {provider === 'gemini' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-[#e6edf3] mb-2">
-                        Gemini API Key
-                      </label>
-                      <div className="flex gap-2">
-                        <div className="flex-1 relative">
-                          <input
-                            type={showGeminiKey ? 'text' : 'password'}
-                            value={geminiApiKey}
-                            onChange={(e) => setGeminiApiKey(e.target.value)}
-                            placeholder={settings?.hasGeminiKey ? '(key configured)' : 'Enter API key'}
-                            className="w-full px-3 py-2 bg-[#0d1117] border border-[#30363d] rounded-lg text-white placeholder-[#6e7681] focus:outline-none focus:border-sky-500"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowGeminiKey(!showGeminiKey)}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-[#30363d] rounded"
-                          >
-                            <span className="material-symbols-outlined text-sm text-[#8b949e]">
-                              {showGeminiKey ? 'visibility_off' : 'visibility'}
-                            </span>
-                          </button>
-                        </div>
-                        {settings?.hasGeminiKey && (
-                          <button
-                            onClick={() => handleDeleteKey('gemini')}
-                            className="p-2 hover:bg-red-500/20 rounded-lg text-red-400"
-                            title="Delete key"
-                          >
-                            <span className="material-symbols-outlined text-sm">delete</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-[#e6edf3] mb-2">
-                        Model
-                      </label>
-                      <select
-                        value={geminiModel}
-                        onChange={(e) => setGeminiModel(e.target.value)}
-                        className="w-full px-3 py-2 bg-[#0d1117] border border-[#30363d] rounded-lg text-white focus:outline-none focus:border-sky-500"
-                      >
-                        {GEMINI_MODELS.map((m) => (
-                          <option key={m.value} value={m.value}>{m.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </>
-                )}
-
-                {/* OpenAI */}
-                {provider === 'openai' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-[#e6edf3] mb-2">
-                        OpenAI API Key
-                      </label>
-                      <div className="flex gap-2">
-                        <div className="flex-1 relative">
-                          <input
-                            type={showOpenaiKey ? 'text' : 'password'}
-                            value={openaiApiKey}
-                            onChange={(e) => setOpenaiApiKey(e.target.value)}
-                            placeholder={settings?.hasOpenaiKey ? '(key configured)' : 'Enter API key'}
-                            className="w-full px-3 py-2 bg-[#0d1117] border border-[#30363d] rounded-lg text-white placeholder-[#6e7681] focus:outline-none focus:border-sky-500"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowOpenaiKey(!showOpenaiKey)}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-[#30363d] rounded"
-                          >
-                            <span className="material-symbols-outlined text-sm text-[#8b949e]">
-                              {showOpenaiKey ? 'visibility_off' : 'visibility'}
-                            </span>
-                          </button>
-                        </div>
-                        {settings?.hasOpenaiKey && (
-                          <button
-                            onClick={() => handleDeleteKey('openai')}
-                            className="p-2 hover:bg-red-500/20 rounded-lg text-red-400"
-                            title="Delete key"
-                          >
-                            <span className="material-symbols-outlined text-sm">delete</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-[#e6edf3] mb-2">
-                        Model
-                      </label>
-                      <select
-                        value={openaiModel}
-                        onChange={(e) => setOpenaiModel(e.target.value)}
-                        className="w-full px-3 py-2 bg-[#0d1117] border border-[#30363d] rounded-lg text-white focus:outline-none focus:border-sky-500"
-                      >
-                        {OPENAI_MODELS.map((m) => (
-                          <option key={m.value} value={m.value}>{m.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </>
-                )}
-
-                {/* Anthropic */}
-                {provider === 'anthropic' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-[#e6edf3] mb-2">
-                        Anthropic API Key
-                      </label>
-                      <div className="flex gap-2">
-                        <div className="flex-1 relative">
-                          <input
-                            type={showAnthropicKey ? 'text' : 'password'}
-                            value={anthropicApiKey}
-                            onChange={(e) => setAnthropicApiKey(e.target.value)}
-                            placeholder={settings?.hasAnthropicKey ? '(key configured)' : 'Enter API key'}
-                            className="w-full px-3 py-2 bg-[#0d1117] border border-[#30363d] rounded-lg text-white placeholder-[#6e7681] focus:outline-none focus:border-sky-500"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowAnthropicKey(!showAnthropicKey)}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-[#30363d] rounded"
-                          >
-                            <span className="material-symbols-outlined text-sm text-[#8b949e]">
-                              {showAnthropicKey ? 'visibility_off' : 'visibility'}
-                            </span>
-                          </button>
-                        </div>
-                        {settings?.hasAnthropicKey && (
-                          <button
-                            onClick={() => handleDeleteKey('anthropic')}
-                            className="p-2 hover:bg-red-500/20 rounded-lg text-red-400"
-                            title="Delete key"
-                          >
-                            <span className="material-symbols-outlined text-sm">delete</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-[#e6edf3] mb-2">
-                        Model
-                      </label>
-                      <select
-                        value={anthropicModel}
-                        onChange={(e) => setAnthropicModel(e.target.value)}
-                        className="w-full px-3 py-2 bg-[#0d1117] border border-[#30363d] rounded-lg text-white focus:outline-none focus:border-sky-500"
-                      >
-                        {ANTHROPIC_MODELS.map((m) => (
-                          <option key={m.value} value={m.value}>{m.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Browserbase Settings */}
-              <div className="pt-4 border-t border-[#30363d]">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-sm font-medium text-[#e6edf3]">Browserbase (Cloud Browser)</h3>
-                    <p className="text-xs text-[#8b949e] mt-1">Use cloud browsers for test execution</p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={useBrowserbase}
-                      onChange={(e) => setUseBrowserbase(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-[#30363d] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-500"></div>
-                  </label>
-                </div>
-
-                {useBrowserbase && (
-                  <div>
-                    <label className="block text-sm font-medium text-[#e6edf3] mb-2">
-                      Browserbase API Key
-                    </label>
-                    <div className="flex gap-2">
-                      <div className="flex-1 relative">
-                        <input
-                          type={showBrowserbaseKey ? 'text' : 'password'}
-                          value={browserbaseApiKey}
-                          onChange={(e) => setBrowserbaseApiKey(e.target.value)}
-                          placeholder={settings?.hasBrowserbaseKey ? '(key configured)' : 'Enter API key'}
-                          className="w-full px-3 py-2 bg-[#0d1117] border border-[#30363d] rounded-lg text-white placeholder-[#6e7681] focus:outline-none focus:border-sky-500"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowBrowserbaseKey(!showBrowserbaseKey)}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-[#30363d] rounded"
-                        >
-                          <span className="material-symbols-outlined text-sm text-[#8b949e]">
-                            {showBrowserbaseKey ? 'visibility_off' : 'visibility'}
-                          </span>
-                        </button>
-                      </div>
-                      {settings?.hasBrowserbaseKey && (
-                        <button
-                          onClick={() => handleDeleteKey('browserbase')}
-                          className="p-2 hover:bg-red-500/20 rounded-lg text-red-400"
-                          title="Delete key"
-                        >
-                          <span className="material-symbols-outlined text-sm">delete</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Browser Settings */}
-              <div className="pt-4 border-t border-[#30363d]">
-                <h3 className="text-sm font-medium text-[#e6edf3] mb-4">Browser Settings</h3>
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={stagehandHeadless}
-                    onChange={(e) => setStagehandHeadless(e.target.checked)}
-                    className="w-4 h-4 rounded border-[#30363d] bg-[#0d1117] text-sky-500 focus:ring-sky-500"
-                  />
-                  <div>
-                    <span className="text-sm text-[#e6edf3]">Headless Mode</span>
-                    <p className="text-xs text-[#8b949e]">Run browser without visible window</p>
-                  </div>
-                </label>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-[#30363d]">
-          <button
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="AI Provider Settings"
+      size="2xl"
+      bodyClassName="max-h-[70vh]"
+      footer={
+        <div className="flex items-center justify-between w-full">
+          <Button
+            variant="secondary"
             onClick={handleTestConnection}
             disabled={testing || loading}
-            className="flex items-center gap-2 px-4 py-2 bg-[#21262d] border border-[#30363d] rounded-lg text-sm text-[#e6edf3] hover:bg-[#30363d] disabled:opacity-50 transition-colors"
+            leftIcon={testing ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" /> : <span className="material-symbols-outlined text-sm">science</span>}
           >
-            {testing ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                Testing...
-              </>
-            ) : (
-              <>
-                <span className="material-symbols-outlined text-sm">science</span>
-                Test Connection
-              </>
-            )}
-          </button>
+            {testing ? 'Testing...' : 'Test Connection'}
+          </Button>
           <div className="flex gap-2">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm text-[#8b949e] hover:text-white transition-colors"
-            >
-              Cancel
-            </button>
-            <button
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button
+              variant="primary"
               onClick={handleSave}
               disabled={saving || loading}
-              className="flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-sm disabled:opacity-50 transition-colors"
+              isLoading={saving}
+              leftIcon={!saving ? <span className="material-symbols-outlined text-sm">save</span> : undefined}
             >
-              {saving ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <span className="material-symbols-outlined text-sm">save</span>
-                  Save Settings
-                </>
-              )}
-            </button>
+              Save Settings
+            </Button>
           </div>
         </div>
-      </div>
-    </div>
+      }
+    >
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-status-info" />
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {/* Error Message */}
+          {error && (
+            <div className="flex items-center gap-2 p-3 bg-status-danger/10 border border-status-danger/30 rounded-lg text-status-danger text-sm">
+              <span className="material-symbols-outlined text-sm">error</span>
+              {error}
+            </div>
+          )}
+
+          {/* Test Result */}
+          {testResult && (
+            <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
+              testResult.success
+                ? 'bg-status-success/10 border border-status-success/30 text-status-success'
+                : 'bg-status-danger/10 border border-status-danger/30 text-status-danger'
+            }`}>
+              <span className="material-symbols-outlined text-sm">
+                {testResult.success ? 'check_circle' : 'error'}
+              </span>
+              {testResult.message}
+            </div>
+          )}
+
+          {/* Provider Selection */}
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-2">
+              AI Provider
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {(['gemini', 'openai', 'anthropic'] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setProvider(p)}
+                  className={`px-4 py-3 rounded-lg border text-sm font-medium transition-colors ${
+                    provider === p
+                      ? 'bg-status-info/20 border-status-info text-status-info'
+                      : 'bg-dark-elevated border-border-default text-text-secondary hover:border-border-default'
+                  }`}
+                >
+                  {providerConfig[p].name}
+                  {settings && (
+                    <span className="ml-2">
+                      {p === 'gemini' && settings.hasGeminiKey && (
+                        <span className="text-status-success">*</span>
+                      )}
+                      {p === 'openai' && settings.hasOpenaiKey && (
+                        <span className="text-status-success">*</span>
+                      )}
+                      {p === 'anthropic' && settings.hasAnthropicKey && (
+                        <span className="text-status-success">*</span>
+                      )}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Provider-specific settings */}
+          <div className="space-y-4">
+            {/* Gemini */}
+            {provider === 'gemini' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-2">
+                    Gemini API Key
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="flex-1 relative">
+                      <input
+                        type={showGeminiKey ? 'text' : 'password'}
+                        value={geminiApiKey}
+                        onChange={(e) => setGeminiApiKey(e.target.value)}
+                        placeholder={settings?.hasGeminiKey ? '(key configured)' : 'Enter API key'}
+                        className="w-full px-3 py-2 bg-dark-canvas border border-border-default rounded-lg text-white placeholder-text-muted focus:outline-none focus:border-status-info"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowGeminiKey(!showGeminiKey)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-dark-elevated rounded"
+                      >
+                        <span className="material-symbols-outlined text-sm text-text-secondary">
+                          {showGeminiKey ? 'visibility_off' : 'visibility'}
+                        </span>
+                      </button>
+                    </div>
+                    {settings?.hasGeminiKey && (
+                      <button
+                        onClick={() => handleDeleteKey('gemini')}
+                        className="p-2 hover:bg-status-danger/20 rounded-lg text-status-danger"
+                        title="Delete key"
+                      >
+                        <span className="material-symbols-outlined text-sm">delete</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-2">
+                    Model
+                  </label>
+                  <select
+                    value={geminiModel}
+                    onChange={(e) => setGeminiModel(e.target.value)}
+                    className="w-full px-3 py-2 bg-dark-canvas border border-border-default rounded-lg text-white focus:outline-none focus:border-status-info"
+                  >
+                    {GEMINI_MODELS.map((m) => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
+
+            {/* OpenAI */}
+            {provider === 'openai' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-2">
+                    OpenAI API Key
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="flex-1 relative">
+                      <input
+                        type={showOpenaiKey ? 'text' : 'password'}
+                        value={openaiApiKey}
+                        onChange={(e) => setOpenaiApiKey(e.target.value)}
+                        placeholder={settings?.hasOpenaiKey ? '(key configured)' : 'Enter API key'}
+                        className="w-full px-3 py-2 bg-dark-canvas border border-border-default rounded-lg text-white placeholder-text-muted focus:outline-none focus:border-status-info"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowOpenaiKey(!showOpenaiKey)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-dark-elevated rounded"
+                      >
+                        <span className="material-symbols-outlined text-sm text-text-secondary">
+                          {showOpenaiKey ? 'visibility_off' : 'visibility'}
+                        </span>
+                      </button>
+                    </div>
+                    {settings?.hasOpenaiKey && (
+                      <button
+                        onClick={() => handleDeleteKey('openai')}
+                        className="p-2 hover:bg-status-danger/20 rounded-lg text-status-danger"
+                        title="Delete key"
+                      >
+                        <span className="material-symbols-outlined text-sm">delete</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-2">
+                    Model
+                  </label>
+                  <select
+                    value={openaiModel}
+                    onChange={(e) => setOpenaiModel(e.target.value)}
+                    className="w-full px-3 py-2 bg-dark-canvas border border-border-default rounded-lg text-white focus:outline-none focus:border-status-info"
+                  >
+                    {OPENAI_MODELS.map((m) => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
+
+            {/* Anthropic */}
+            {provider === 'anthropic' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-2">
+                    Anthropic API Key
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="flex-1 relative">
+                      <input
+                        type={showAnthropicKey ? 'text' : 'password'}
+                        value={anthropicApiKey}
+                        onChange={(e) => setAnthropicApiKey(e.target.value)}
+                        placeholder={settings?.hasAnthropicKey ? '(key configured)' : 'Enter API key'}
+                        className="w-full px-3 py-2 bg-dark-canvas border border-border-default rounded-lg text-white placeholder-text-muted focus:outline-none focus:border-status-info"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowAnthropicKey(!showAnthropicKey)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-dark-elevated rounded"
+                      >
+                        <span className="material-symbols-outlined text-sm text-text-secondary">
+                          {showAnthropicKey ? 'visibility_off' : 'visibility'}
+                        </span>
+                      </button>
+                    </div>
+                    {settings?.hasAnthropicKey && (
+                      <button
+                        onClick={() => handleDeleteKey('anthropic')}
+                        className="p-2 hover:bg-status-danger/20 rounded-lg text-status-danger"
+                        title="Delete key"
+                      >
+                        <span className="material-symbols-outlined text-sm">delete</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-2">
+                    Model
+                  </label>
+                  <select
+                    value={anthropicModel}
+                    onChange={(e) => setAnthropicModel(e.target.value)}
+                    className="w-full px-3 py-2 bg-dark-canvas border border-border-default rounded-lg text-white focus:outline-none focus:border-status-info"
+                  >
+                    {ANTHROPIC_MODELS.map((m) => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Browserbase Settings */}
+          <div className="pt-4 border-t border-border-default">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-medium text-text-primary">Browserbase (Cloud Browser)</h3>
+                <p className="text-xs text-text-secondary mt-1">Use cloud browsers for test execution</p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useBrowserbase}
+                  onChange={(e) => setUseBrowserbase(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-dark-elevated peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-status-info"></div>
+              </label>
+            </div>
+
+            {useBrowserbase && (
+              <div>
+                <label className="block text-sm font-medium text-text-primary mb-2">
+                  Browserbase API Key
+                </label>
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <input
+                      type={showBrowserbaseKey ? 'text' : 'password'}
+                      value={browserbaseApiKey}
+                      onChange={(e) => setBrowserbaseApiKey(e.target.value)}
+                      placeholder={settings?.hasBrowserbaseKey ? '(key configured)' : 'Enter API key'}
+                      className="w-full px-3 py-2 bg-dark-canvas border border-border-default rounded-lg text-white placeholder-text-muted focus:outline-none focus:border-status-info"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowBrowserbaseKey(!showBrowserbaseKey)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-dark-elevated rounded"
+                    >
+                      <span className="material-symbols-outlined text-sm text-text-secondary">
+                        {showBrowserbaseKey ? 'visibility_off' : 'visibility'}
+                      </span>
+                    </button>
+                  </div>
+                  {settings?.hasBrowserbaseKey && (
+                    <button
+                      onClick={() => handleDeleteKey('browserbase')}
+                      className="p-2 hover:bg-status-danger/20 rounded-lg text-status-danger"
+                      title="Delete key"
+                    >
+                      <span className="material-symbols-outlined text-sm">delete</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Browser Settings */}
+          <div className="pt-4 border-t border-border-default">
+            <h3 className="text-sm font-medium text-text-primary mb-4">Browser Settings</h3>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={stagehandHeadless}
+                onChange={(e) => setStagehandHeadless(e.target.checked)}
+                className="w-4 h-4 rounded border-border-default bg-dark-canvas text-status-info focus:ring-status-info"
+              />
+              <div>
+                <span className="text-sm text-text-primary">Headless Mode</span>
+                <p className="text-xs text-text-secondary">Run browser without visible window</p>
+              </div>
+            </label>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }

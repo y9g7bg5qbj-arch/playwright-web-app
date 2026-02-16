@@ -19,7 +19,7 @@ const VARIABLE_PATTERN = /\{\{([^}]+)\}\}/g;
  * - "Static text" -> 'Static text'
  * - "{{user.email}}" -> user.email
  */
-export function interpolateVariables(value: string, ctx?: GeneratorContext): string {
+export function interpolateVariables(value: string, _ctx?: GeneratorContext): string {
     if (!value) return "''";
 
     // Check if the entire string is a single variable reference

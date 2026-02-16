@@ -5,13 +5,7 @@
  * Failed tests run first, then tests by duration for balance.
  */
 
-import {
-  TestFile,
-  TestAllocation,
-  ShardingStrategyType,
-  TestHistory,
-  TestHistoryStore,
-} from '../types';
+import { TestFile, TestAllocation, ShardingStrategyType, TestHistoryStore } from '../types';
 import { BaseStrategy } from './BaseStrategy';
 
 export interface FailFirstConfig {

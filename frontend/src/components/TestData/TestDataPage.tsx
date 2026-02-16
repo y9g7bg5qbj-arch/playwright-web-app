@@ -3,999 +3,512 @@
  *
  * Main page for managing test data sheets, rows, and Excel import/export.
  * Provides Excel-like grid editing with AG Grid and CSV support.
+ *
+ * State management is split across custom hooks:
+ * - useSheetOperations: sheet/row/column CRUD, import/export, messages
+ * - useQueryGenerator: query builder state, filter application
+ * - useInspectorData: data quality computations
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import Papa from 'papaparse';
-import {
-    Plus, Upload, Download, RefreshCw, Settings,
-    Check, AlertTriangle, MoreHorizontal, Database
-} from 'lucide-react';
-import { apiUrl } from '@/config';
-import { SheetList } from './SheetList';
-import { AGGridDataTable, DataColumn as AGDataColumn } from './AGGridDataTable';
-import type { SortLevel } from './MultiSortModal';
-import type { BulkUpdate } from './BulkUpdateModal';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Check, AlertTriangle } from 'lucide-react';
+import { AGGridDataTable } from './AGGridDataTable';
 import { SheetForm } from './SheetForm';
 import { ImportExcelModal } from './ImportExcelModal';
 import { ImportCSVModal } from './ImportCSVModal';
 import { ColumnEditorModal } from './ColumnEditorModal';
 import { EnvironmentManager } from './EnvironmentManager';
-import { SavedViewsDropdown } from './SavedViewsDropdown';
-import { testDataApi } from '@/api/testData';
-import type { SavedView } from '@/api/testData';
+import { QuoteGenerationModal } from './QuoteGenerationModal';
+import { QueryGeneratorModal } from './QueryGeneratorModal';
 import { DataStorageSettingsModal } from '@/components/settings/DataStorageSettingsModal';
 import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui';
+import {
+    TestDataCanvasLayout,
+    ExcelRibbon,
+    CanvasUtilityRail,
+    AdvancedToolsDrawer,
+    type AdvancedToolId,
+} from './canvas-v2';
+import { mapColumnType } from './testDataUtils';
+import { useSheetOperations } from './useSheetOperations';
+import { useQueryGenerator } from './useQueryGenerator';
+import { useInspectorData } from './useInspectorData';
 
-// ============================================
-// TYPES
-// ============================================
-
-export interface ReferenceConfig {
-    targetSheet: string;
-    targetColumn: string;
-    displayColumn: string;
-    allowMultiple: boolean;
-    separator?: string;
-}
-
-export interface DataColumn {
-    name: string;
-    type: 'string' | 'number' | 'boolean' | 'date' | 'formula' | 'reference';
-    required: boolean;
-    pattern?: string;
-    minLength?: number;
-    maxLength?: number;
-    formula?: string; // For computed columns
-    referenceConfig?: ReferenceConfig; // For reference columns
-}
-
-export interface DataSheet {
-    id: string;
-    name: string;
-    pageObject?: string;
-    description?: string;
-    columns: DataColumn[];
-    rowCount: number;
-    createdAt: string;
-    updatedAt: string;
-}
-
-export interface DataRow {
-    id: string;
-    sheetId: string;
-    scenarioId: string;
-    data: Record<string, any>;
-    enabled: boolean;
-    createdAt: string;
-    updatedAt: string;
-}
-
-interface TestDataPageProps {
-    projectId: string;
-}
-
-// ============================================
-// HELPERS
-// ============================================
-
-/**
- * Map backend column type strings to AGGridDataTable's type union.
- * Backend uses 'string' while the grid uses 'text'. This function
- * validates the type and defaults to 'text' for unknown values.
- */
-function mapColumnType(backendType: string): AGDataColumn['type'] {
-    const typeMap: Record<string, AGDataColumn['type']> = {
-        'string': 'text',
-        'text': 'text',
-        'number': 'number',
-        'boolean': 'boolean',
-        'date': 'date',
-        'formula': 'formula',
-        'reference': 'reference',
-    };
-    const mapped = typeMap[backendType];
-    if (!mapped) {
-        console.warn(`[TestData] Unknown column type "${backendType}", defaulting to "text"`);
-    }
-    return mapped || 'text';
-}
+// Re-export types so existing consumers are not broken
+export type { ReferenceConfig, DataColumn, DataSheet, DataRow } from './testDataTypes';
+import type { TestDataPageProps } from './testDataTypes';
 
 // ============================================
 // COMPONENT
 // ============================================
 
-export function TestDataPage({ projectId }: TestDataPageProps) {
-    // State
-    const [sheets, setSheets] = useState<DataSheet[]>([]);
-    const [selectedSheetId, setSelectedSheetId] = useState<string | null>(null);
-    const [selectedSheet, setSelectedSheet] = useState<DataSheet | null>(null);
-    const [rows, setRows] = useState<DataRow[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [loadingRows, setLoadingRows] = useState(false);
+export function TestDataPage({ projectId, nestedProjectId, onInsertQuery }: TestDataPageProps) {
+    const ops = useSheetOperations({ projectId, nestedProjectId });
 
-    // Modals
-    const [showSheetForm, setShowSheetForm] = useState(false);
-    const [editingSheet, setEditingSheet] = useState<DataSheet | null>(null);
-    const [showImportModal, setShowImportModal] = useState(false);
-    const [showCSVImportModal, setShowCSVImportModal] = useState(false);
-    const [showColumnEditor, setShowColumnEditor] = useState(false);
-    const [editingColumn, setEditingColumn] = useState<AGDataColumn | null>(null);
-    const [showEnvironments, setShowEnvironments] = useState(false);
-    const [showDataStorageSettings, setShowDataStorageSettings] = useState(false);
+    const query = useQueryGenerator({
+        sheets: ops.sheets,
+        rows: ops.rows,
+        selectedSheetId: ops.selectedSheetId,
+        setSelectedSheetId: ops.setSelectedSheetId,
+        loadingRows: ops.loadingRows,
+        gridHandleRef: ops.gridHandleRef,
+        showError: ops.showError,
+        showSuccess: ops.showSuccess,
+    });
 
-    // Saved views state - captured from grid for saving
-    const [currentFilterState, setCurrentFilterState] = useState<Record<string, unknown>>({});
-    const [currentSortState, setCurrentSortState] = useState<unknown[]>([]);
-    const [currentColumnState, setCurrentColumnState] = useState<unknown[]>([]);
+    const { inspectorData, qualityReportData } = useInspectorData({
+        selectedSheet: ops.selectedSheet,
+        rows: ops.rows,
+        filteredRowCount: query.filteredRowCount,
+        currentFilterState: query.currentFilterState,
+    });
 
-    // External view state - pushed to grid when loading a saved view
-    const [externalSortState, setExternalSortState] = useState<SortLevel[] | undefined>(undefined);
-    const [externalFilterState, setExternalFilterState] = useState<Record<string, unknown> | undefined>(undefined);
+    // Canvas v2 local UI state
+    const [showAdvancedTools, setShowAdvancedTools] = useState(false);
+    const [showQuoteGeneration, setShowQuoteGeneration] = useState(false);
+    const [quoteSelectedRowIds, _setQuoteSelectedRowIds] = useState<string[]>([]);
+    const [quoteFilteredRowIds, _setQuoteFilteredRowIds] = useState<string[]>([]);
 
-    // Sidebar dropdown
-    const [showSidebarMenu, setShowSidebarMenu] = useState(false);
-
-    // Messages
-    const [successMessage, setSuccessMessage] = useState<string | null>(null);
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-    // Fetch all sheets
-    const fetchSheets = useCallback(async () => {
-        setLoading(true);
-        try {
-            const res = await fetch(apiUrl(`/api/test-data/sheets?projectId=${projectId}`));
-            const data = await res.json();
-            if (data.success) {
-                setSheets(data.sheets);
-                // Auto-select first sheet if none selected
-                if (!selectedSheetId && data.sheets.length > 0) {
-                    setSelectedSheetId(data.sheets[0].id);
-                }
-            }
-        } catch (err) {
-            console.error('Failed to fetch sheets:', err);
-            showError('Failed to load test data sheets');
-        } finally {
-            setLoading(false);
-        }
-    }, [projectId, selectedSheetId]);
-
-    // Fetch rows for selected sheet
-    const fetchRows = useCallback(async (sheetId: string) => {
-        setLoadingRows(true);
-        try {
-            const res = await fetch(apiUrl(`/api/test-data/sheets/${sheetId}`));
-            const data = await res.json();
-            if (data.success) {
-                setSelectedSheet(data.sheet);
-                setRows(data.sheet.rows);
-            }
-        } catch (err) {
-            console.error('Failed to fetch rows:', err);
-            showError('Failed to load sheet data');
-        } finally {
-            setLoadingRows(false);
-        }
-    }, []);
-
+    // Load sheets on mount
     useEffect(() => {
-        fetchSheets();
-    }, [fetchSheets]);
+        ops.fetchSheets();
+    }, [ops.fetchSheets]);
 
+    // Reset transient filters when switching table tabs
     useEffect(() => {
-        if (selectedSheetId) {
-            fetchRows(selectedSheetId);
-        } else {
-            setSelectedSheet(null);
-            setRows([]);
+        query.setCurrentFilterState({});
+        query.setFilteredRowCount(0);
+        query.setSelectedRowCount(0);
+        ops.gridHandleRef.current?.clearFilterModel();
+        ops.gridHandleRef.current?.setQuickSearch('');
+        ops.gridHandleRef.current?.clearExternalRowScope();
+
+        if (ops.selectedSheetId) {
+            ops.fetchRows(ops.selectedSheetId);
         }
-    }, [selectedSheetId, fetchRows]);
+    }, [ops.selectedSheetId, ops.fetchRows]);
 
-    // Show messages
-    const showSuccess = (message: string) => {
-        setSuccessMessage(message);
-        setTimeout(() => setSuccessMessage(null), 3000);
-    };
-
-    const showError = (message: string) => {
-        setErrorMessage(message);
-        setTimeout(() => setErrorMessage(null), 5000);
-    };
-
-    // Sheet handlers
-    const handleCreateSheet = async (name: string, pageObject: string, description: string, columns: DataColumn[]) => {
-        // Validate projectId before making API call
-        if (!projectId) {
-            console.error('handleCreateSheet: projectId is missing or undefined');
-            showError('Cannot create sheet: No project selected. Please select a project first.');
-            return;
+    const handleRefreshCanvas = useCallback(() => {
+        void ops.fetchSheets();
+        if (ops.selectedSheetId) {
+            void ops.fetchRows(ops.selectedSheetId);
         }
+    }, [ops.fetchRows, ops.fetchSheets, ops.selectedSheetId]);
 
-        try {
-            const res = await fetch(apiUrl('/api/test-data/sheets'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    projectId,
-                    name,
-                    pageObject,
-                    description,
-                    columns
-                })
-            });
-            const data = await res.json();
-            if (data.success) {
-                showSuccess(`Sheet "${name}" created`);
-                fetchSheets();
-                setSelectedSheetId(data.sheet.id);
-            } else {
-                showError(data.error || 'Failed to create sheet');
-            }
-        } catch (err) {
-            showError('Failed to create sheet');
+    // Current generated query for "Insert into Editor" action
+    const currentGeneratedQuery = useMemo(() => {
+        if (query.queryModalMode === 'cell') {
+            return query.cellQueryPayload?.query || '';
         }
-        setShowSheetForm(false);
-        setEditingSheet(null);
-    };
+        return query.queryPreview.snippet;
+    }, [query.queryModalMode, query.cellQueryPayload, query.queryPreview.snippet]);
 
-    const handleUpdateSheet = async (id: string, updates: Partial<DataSheet>) => {
-        try {
-            const res = await fetch(apiUrl(`/api/test-data/sheets/${id}`), {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updates)
-            });
-            const data = await res.json();
-            if (data.success) {
-                showSuccess('Sheet updated');
-                fetchSheets();
-                if (selectedSheetId === id) {
-                    fetchRows(id);
-                }
-            } else {
-                showError(data.error || 'Failed to update sheet');
-            }
-        } catch (err) {
-            showError('Failed to update sheet');
-        }
-        setShowSheetForm(false);
-        setEditingSheet(null);
-    };
+    const handleInsertIntoEditor = useCallback(() => {
+        if (!onInsertQuery || !currentGeneratedQuery.trim()) return;
+        onInsertQuery(currentGeneratedQuery);
+        query.setShowQueryGeneratorModal(false);
+    }, [onInsertQuery, currentGeneratedQuery, query]);
 
-    const handleDeleteSheet = async (id: string) => {
-        if (!confirm('Delete this data table and all its rows? This cannot be undone.')) {
-            return;
+    const handleAdvancedToolSelect = (toolId: AdvancedToolId) => {
+        switch (toolId) {
+            case 'bulkUpdate':
+                ops.gridHandleRef.current?.openBulkUpdate();
+                break;
+            case 'findReplace':
+                ops.gridHandleRef.current?.openFindReplace();
+                break;
+            case 'duplicateRows':
+                ops.gridHandleRef.current?.duplicateSelectedRows();
+                break;
+            case 'fillSeries':
+                ops.gridHandleRef.current?.openFillColumn(ops.selectedSheet?.columns[0]?.name);
+                break;
+            case 'dataGenerator':
+                ops.gridHandleRef.current?.openDataGenerator(ops.selectedSheet?.columns[0]?.name);
+                break;
+            case 'multiSort':
+                ops.gridHandleRef.current?.openMultiSort();
+                break;
+            case 'conditionalFormatting':
+                ops.gridHandleRef.current?.openConditionalFormatting();
+                break;
+            case 'importCsv':
+                ops.setShowCSVImportModal(true);
+                break;
+            case 'exportCsv':
+                ops.handleExportCSV();
+                break;
+            default:
+                break;
         }
 
-        try {
-            const res = await fetch(apiUrl(`/api/test-data/sheets/${id}`), {
-                method: 'DELETE'
-            });
-            const data = await res.json();
-            if (data.success) {
-                showSuccess('Sheet deleted');
-                if (selectedSheetId === id) {
-                    setSelectedSheetId(null);
-                }
-                fetchSheets();
-            }
-        } catch (err) {
-            showError('Failed to delete sheet');
-        }
-    };
-
-    // Row handlers
-    const handleAddRow = async () => {
-        console.log('[handleAddRow] Called, selectedSheet:', selectedSheet?.id);
-        if (!selectedSheet) {
-            console.log('[handleAddRow] No sheet selected, returning');
-            return;
-        }
-
-        const defaultData: Record<string, any> = {};
-        selectedSheet.columns.forEach(col => {
-            defaultData[col.name] = col.type === 'boolean' ? false : '';
-        });
-
-        // Find the maximum existing scenario ID number to avoid duplicates
-        let maxIdNumber = 0;
-        rows.forEach(row => {
-            const match = row.scenarioId?.match(/^TC(\d+)$/);
-            if (match) {
-                const num = parseInt(match[1], 10);
-                if (num > maxIdNumber) {
-                    maxIdNumber = num;
-                }
-            }
-        });
-        const nextScenarioId = `TC${String(maxIdNumber + 1).padStart(3, '0')}`;
-
-        try {
-            console.log('[handleAddRow] Making API request to add row with scenarioId:', nextScenarioId);
-            const res = await fetch(apiUrl(`/api/test-data/sheets/${selectedSheet.id}/rows`), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    scenarioId: nextScenarioId,
-                    data: defaultData,
-                    enabled: true
-                })
-            });
-            const data = await res.json();
-            console.log('[handleAddRow] API response:', data);
-            if (data.success) {
-                console.log('[handleAddRow] Success! Adding row to state');
-                setRows([...rows, data.row]);
-            } else if (res.status === 409) {
-                showError(data.error || 'A row with this Test ID already exists');
-            } else if (data.error) {
-                showError(data.error);
-            }
-        } catch (err) {
-            console.error('[handleAddRow] Error:', err);
-            showError('Failed to add row');
-        }
-    };
-
-    const handleUpdateRow = async (rowId: string, updates: Partial<DataRow>) => {
-        try {
-            const res = await fetch(apiUrl(`/api/test-data/rows/${rowId}`), {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updates)
-            });
-            const data = await res.json();
-            if (data.success) {
-                setRows(rows.map(r => r.id === rowId ? { ...r, ...data.row } : r));
-            }
-        } catch (err) {
-            console.error('Failed to update row:', err);
-        }
-    };
-
-    const handleDeleteRow = async (rowId: string) => {
-        try {
-            const res = await fetch(apiUrl(`/api/test-data/rows/${rowId}`), {
-                method: 'DELETE'
-            });
-            const data = await res.json();
-            if (data.success) {
-                setRows(rows.filter(r => r.id !== rowId));
-            }
-        } catch (err) {
-            showError('Failed to delete row');
-        }
-    };
-
-    // Import handler
-    const handleImportComplete = (result: any) => {
-        showSuccess(`Imported ${result.sheets.length} sheets`);
-        setShowImportModal(false);
-        fetchSheets();
-    };
-
-    // Export Excel handler
-    const handleExport = async () => {
-        try {
-            const url = apiUrl(`/api/test-data/export?projectId=${projectId}`);
-            window.open(url, '_blank');
-        } catch (err) {
-            showError('Failed to export');
-        }
-    };
-
-    // Export CSV handler
-    const handleExportCSV = () => {
-        if (!selectedSheet || rows.length === 0) return;
-
-        // Convert rows to CSV format
-        const csvData = rows.map(row => {
-            const rowData: Record<string, any> = { TestID: row.scenarioId };
-            selectedSheet.columns.forEach(col => {
-                rowData[col.name] = row.data[col.name] ?? '';
-            });
-            rowData['enabled'] = row.enabled;
-            return rowData;
-        });
-
-        const csv = Papa.unparse(csvData);
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${selectedSheet.name}.csv`;
-        link.click();
-        URL.revokeObjectURL(url);
-    };
-
-    // CSV Import handler
-    const handleCSVImport = async (importedRows: Record<string, any>[], newColumns?: AGDataColumn[]) => {
-        if (!selectedSheet) return;
-
-        // Add new columns if any
-        if (newColumns && newColumns.length > 0) {
-            const updatedColumns: DataColumn[] = [
-                ...selectedSheet.columns,
-                ...newColumns.map(col => ({
-                    name: col.name,
-                    type: col.type === 'text' ? 'string' as const : col.type as DataColumn['type'],
-                    required: false
-                }))
-            ];
-            await handleUpdateSheet(selectedSheet.id, { columns: updatedColumns });
-        }
-
-        // Bulk add rows
-        try {
-            const res = await fetch(apiUrl(`/api/test-data/sheets/${selectedSheet.id}/rows/bulk`), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    rows: importedRows.map((rowData, idx) => ({
-                        scenarioId: `TC${String(rows.length + idx + 1).padStart(3, '0')}`,
-                        data: rowData,
-                        enabled: true
-                    }))
-                })
-            });
-            const data = await res.json();
-            if (data.success) {
-                showSuccess(`Imported ${importedRows.length} rows`);
-                fetchRows(selectedSheet.id);
-            } else {
-                showError(data.error || 'Failed to import rows');
-            }
-        } catch (err) {
-            showError('Failed to import rows');
-        }
-    };
-
-    // Column handlers for AG Grid
-    const handleAddColumn = () => {
-        setEditingColumn(null);
-        setShowColumnEditor(true);
-    };
-
-    // Edit existing column handler
-    const handleEditColumn = (columnName: string) => {
-        if (!selectedSheet) return;
-        const col = selectedSheet.columns.find(c => c.name === columnName);
-        if (!col) return;
-
-        // Convert to AGDataColumn format
-        const editColumn: AGDataColumn = {
-            name: col.name,
-            type: col.type === 'string' ? 'text' : col.type as AGDataColumn['type'],
-            required: col.required,
-            formula: (col as any).formula,
-            referenceConfig: (col as any).referenceConfig,
-        };
-        setEditingColumn(editColumn);
-        setShowColumnEditor(true);
-    };
-
-    const handleSaveColumn = async (column: AGDataColumn) => {
-        if (!selectedSheet) return;
-
-        const newColumn: DataColumn = {
-            name: column.name,
-            type: column.type === 'text' ? 'string' : column.type as DataColumn['type'],
-            required: column.required || false,
-            ...(column.formula && { formula: column.formula }),
-            ...(column.referenceConfig && { referenceConfig: column.referenceConfig }),
-        };
-
-        if (editingColumn) {
-            // Update existing column
-            const updatedColumns = selectedSheet.columns.map(c =>
-                c.name === editingColumn.name ? newColumn : c
-            );
-            await handleUpdateSheet(selectedSheet.id, { columns: updatedColumns });
-        } else {
-            // Add new column
-            await handleUpdateSheet(selectedSheet.id, {
-                columns: [...selectedSheet.columns, newColumn]
-            });
-        }
-        setEditingColumn(null);
-    };
-
-    const handleRemoveColumn = async (columnName: string) => {
-        if (!selectedSheet) return;
-        if (!confirm(`Remove column "${columnName}"? Data in this column will be lost.`)) return;
-
-        const updatedColumns = selectedSheet.columns.filter(c => c.name !== columnName);
-        await handleUpdateSheet(selectedSheet.id, { columns: updatedColumns });
-    };
-
-    const handleRenameColumn = async (oldName: string, newName: string) => {
-        if (!selectedSheet) return;
-
-        const updatedColumns = selectedSheet.columns.map(c =>
-            c.name === oldName ? { ...c, name: newName } : c
-        );
-
-        // Also update row data
-        const updatedRows = rows.map(r => {
-            const newData = { ...r.data };
-            if (oldName in newData) {
-                newData[newName] = newData[oldName];
-                delete newData[oldName];
-            }
-            return { ...r, data: newData };
-        });
-
-        await handleUpdateSheet(selectedSheet.id, { columns: updatedColumns });
-        // Update rows with new column name
-        for (const row of updatedRows) {
-            await handleUpdateRow(row.id, { data: row.data });
-        }
-    };
-
-    const handleColumnTypeChange = async (columnName: string, newType: AGDataColumn['type']) => {
-        if (!selectedSheet) return;
-
-        const updatedColumns = selectedSheet.columns.map(c =>
-            c.name === columnName ? { ...c, type: newType === 'text' ? 'string' as const : newType } : c
-        );
-        await handleUpdateSheet(selectedSheet.id, { columns: updatedColumns });
-    };
-
-    // Bulk operations for AG Grid
-    const handleBulkDeleteRows = async (rowIds: string[]) => {
-        if (!selectedSheet) return;
-        try {
-            const deleted = await testDataApi.bulkDeleteRows(selectedSheet.id, rowIds);
-            setRows(rows.filter(r => !rowIds.includes(r.id)));
-            showSuccess(`Deleted ${deleted} rows`);
-        } catch (err) {
-            showError('Failed to delete rows');
-        }
-    };
-
-    // Duplicate selected rows
-    const handleDuplicateRows = async (rowIds: string[]) => {
-        if (!selectedSheet) return;
-        try {
-            const newRows = await testDataApi.duplicateRows(selectedSheet.id, rowIds);
-            // Add the new rows to state with proper DataRow structure
-            const formattedRows: DataRow[] = newRows.map(r => ({
-                id: r.id,
-                sheetId: r.sheetId,
-                scenarioId: r.scenarioId,
-                data: r.data,
-                enabled: r.enabled,
-                createdAt: r.createdAt || new Date().toISOString(),
-                updatedAt: r.updatedAt || new Date().toISOString(),
-            }));
-            setRows([...rows, ...formattedRows]);
-            showSuccess(`Duplicated ${newRows.length} rows`);
-        } catch (err) {
-            showError('Failed to duplicate rows');
-        }
-    };
-
-    // Fill series for selected rows and column
-    const handleFillSeries = async (
-        rowIds: string[],
-        columnId: string,
-        fillType: 'value' | 'sequence' | 'pattern',
-        options: { value?: string; startValue?: number; step?: number; pattern?: string }
-    ) => {
-        if (!selectedSheet) return;
-        try {
-            const updated = await testDataApi.fillSeries(selectedSheet.id, rowIds, columnId, fillType, options);
-            // Refresh rows to get updated data
-            fetchRows(selectedSheet.id);
-            showSuccess(`Filled ${updated} cells`);
-        } catch (err) {
-            showError('Failed to fill series');
-        }
-    };
-
-    const handleBulkPaste = async (pastedRows: Record<string, any>[]) => {
-        if (!selectedSheet) return;
-
-        try {
-            const res = await fetch(apiUrl(`/api/test-data/sheets/${selectedSheet.id}/rows/bulk`), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    rows: pastedRows.map((data, idx) => ({
-                        scenarioId: `TC${String(rows.length + idx + 1).padStart(3, '0')}`,
-                        data,
-                        enabled: true
-                    }))
-                })
-            });
-            const data = await res.json();
-            if (data.success) {
-                showSuccess(`Added ${pastedRows.length} rows`);
-                fetchRows(selectedSheet.id);
-            }
-        } catch (err) {
-            showError('Failed to paste rows');
-        }
-    };
-
-    // Cell change handler for AG Grid
-    const handleCellChange = async (rowId: string, columnName: string, value: any) => {
-        const row = rows.find(r => r.id === rowId);
-        if (!row) return;
-
-        const updatedData = { ...row.data, [columnName]: value };
-        await handleUpdateRow(rowId, { data: updatedData });
-    };
-
-    // Generate column data handler for AG Grid
-    const handleGenerateColumnData = async (columnName: string, values: (string | number | boolean)[]) => {
-        if (!selectedSheet) return;
-
-        // Update each row with the generated value
-        const updatedRows = rows.map((row, index) => ({
-            ...row,
-            data: {
-                ...row.data,
-                [columnName]: values[index] ?? row.data[columnName]
-            }
-        }));
-
-        // Batch update all rows
-        try {
-            await Promise.all(
-                updatedRows.map((row, index) => {
-                    if (values[index] !== undefined) {
-                        return handleUpdateRow(row.id, { data: row.data });
-                    }
-                    return Promise.resolve();
-                })
-            );
-            setRows(updatedRows);
-            showSuccess(`Generated ${values.length} values for "${columnName}"`);
-        } catch (err) {
-            showError('Failed to generate column data');
-        }
-    };
-
-    // Bulk update handler for AG Grid
-    const handleBulkUpdate = async (updates: BulkUpdate[]) => {
-        if (!selectedSheet || updates.length === 0) return;
-
-        try {
-            // Group updates by row for the API
-            const rowUpdates = new Map<string, Record<string, any>>();
-            for (const update of updates) {
-                const row = rows.find(r => r.id === update.rowId);
-                if (row) {
-                    const existing = rowUpdates.get(update.rowId) || { ...row.data };
-                    existing[update.columnName] = update.newValue;
-                    rowUpdates.set(update.rowId, existing);
-                }
-            }
-
-            // Use the bulk update API endpoint
-            const res = await fetch(apiUrl(`/api/test-data/sheets/${selectedSheet.id}/rows/bulk-update`), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    updates: Array.from(rowUpdates.entries()).map(([rowId, data]) => ({
-                        rowId,
-                        data
-                    }))
-                })
-            });
-
-            const data = await res.json();
-            if (data.success) {
-                // Update local state
-                setRows(rows.map(row => {
-                    const newData = rowUpdates.get(row.id);
-                    return newData ? { ...row, data: newData } : row;
-                }));
-                showSuccess(`Updated ${rowUpdates.size} rows`);
-            } else {
-                showError(data.error || 'Failed to update rows');
-            }
-        } catch (err) {
-            console.error('Bulk update error:', err);
-            showError('Failed to update rows');
-        }
+        setShowAdvancedTools(false);
     };
 
     return (
         <div className="relative flex h-full overflow-hidden bg-dark-canvas">
-            <div className="pointer-events-none absolute inset-0">
-                <div className="absolute -left-28 -top-20 h-72 w-72 rounded-full bg-brand-primary/10 blur-3xl" />
-                <div className="absolute -right-28 bottom-0 h-72 w-72 rounded-full bg-status-info/10 blur-3xl" />
-            </div>
-
-            <div className="relative z-10 flex h-full w-full">
-                {/* Left Sidebar - Sheet List */}
-                <div className="flex w-72 shrink-0 flex-col border-r border-border-default bg-dark-bg/90 backdrop-blur-sm">
-                    <div className="border-b border-border-default px-3 py-3">
-                        <div className="mb-2 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <div className="rounded-md border border-brand-primary/25 bg-brand-primary/15 p-1.5">
-                                    <Database className="h-4 w-4 text-brand-secondary" />
-                                </div>
-                                <div>
-                                    <h1 className="text-sm font-semibold tracking-tight text-text-primary">Data Tables</h1>
-                                    <p className="text-xxs text-text-muted">Spreadsheet editing for VeroScript data</p>
-                                </div>
-                            </div>
-                            <span className="rounded-md border border-border-default bg-dark-elevated/70 px-2 py-0.5 text-xxs text-text-secondary">
-                                {sheets.length} {sheets.length === 1 ? 'table' : 'tables'}
-                            </span>
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                            <button
-                                onClick={() => setShowSheetForm(true)}
-                                className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-gradient-to-b from-brand-primary to-[#2c5fd9] px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-all hover:brightness-110"
-                                title="Create a new data table"
-                            >
-                                <Plus className="h-3.5 w-3.5" />
-                                New Table
-                            </button>
-
-                            <button
-                                onClick={() => setShowDataStorageSettings(true)}
-                                className="flex items-center gap-1 rounded-md border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1.5 text-xs text-emerald-300 transition-all hover:bg-emerald-500/20"
-                                title="Configure data storage provider"
-                            >
-                                <Database className="h-3.5 w-3.5" />
-                                DB
-                            </button>
-
-                            <div className="relative">
-                                <button
-                                    onClick={() => setShowSidebarMenu(!showSidebarMenu)}
-                                    className="rounded-md border border-border-default bg-dark-elevated/70 p-1.5 text-text-secondary transition-colors hover:border-border-emphasis hover:text-text-primary"
-                                    title="More actions"
-                                >
-                                    <MoreHorizontal className="h-3.5 w-3.5" />
-                                </button>
-                                {showSidebarMenu && (
-                                    <div className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-lg border border-border-default bg-dark-card shadow-2xl animate-scale-in">
-                                        <button
-                                            onClick={() => { setShowImportModal(true); setShowSidebarMenu(false); }}
-                                            className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
-                                        >
-                                            <Upload className="h-3.5 w-3.5 text-status-info" />
-                                            Import Excel
-                                        </button>
-                                        <button
-                                            onClick={() => { handleExport(); setShowSidebarMenu(false); }}
-                                            className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
-                                        >
-                                            <Download className="h-3.5 w-3.5 text-status-success" />
-                                            Export all
-                                        </button>
-                                        <div className="my-1 h-px bg-border-default" />
-                                        <button
-                                            onClick={() => { setShowEnvironments(true); setShowSidebarMenu(false); }}
-                                            className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
-                                        >
-                                            <Settings className="h-3.5 w-3.5 text-text-muted" />
-                                            Environments
-                                        </button>
-                                        <button
-                                            onClick={() => { setShowDataStorageSettings(true); setShowSidebarMenu(false); }}
-                                            className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
-                                        >
-                                            <Database className="h-3.5 w-3.5 text-text-muted" />
-                                            Data Storage
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-
-                    <SheetList
-                        sheets={sheets}
-                        loading={loading}
-                        selectedId={selectedSheetId}
-                        onSelect={setSelectedSheetId}
-                        onEdit={(sheet) => {
-                            setEditingSheet(sheet);
-                            setShowSheetForm(true);
-                        }}
-                        onDelete={handleDeleteSheet}
-                        onRefresh={fetchSheets}
+            <TestDataCanvasLayout
+                tables={ops.sheets.map((sheet) => ({
+                    id: sheet.id,
+                    name: sheet.name,
+                    rowCount: sheet.rowCount,
+                    pageObject: sheet.pageObject,
+                }))}
+                loadingTables={ops.loading}
+                selectedTableId={ops.selectedSheetId}
+                openTableIds={ops.selectedSheetId ? [ops.selectedSheetId] : []}
+                onSelectTable={ops.setSelectedSheetId}
+                onCreateTable={() => ops.setShowSheetForm(true)}
+                onRefreshTables={handleRefreshCanvas}
+                onImportExcel={() => ops.setShowImportModal(true)}
+                onOpenEnvironments={() => ops.setShowEnvironments(true)}
+                onOpenDataStorage={() => ops.setShowDataStorageSettings(true)}
+                onEditTable={(sheetId) => {
+                    const sheet = ops.sheets.find((entry) => entry.id === sheetId);
+                    if (!sheet) {
+                        return;
+                    }
+                    ops.setEditingSheet(sheet);
+                    ops.setShowSheetForm(true);
+                }}
+                onDeleteTable={ops.handleDeleteSheet}
+                activeTableName={ops.selectedSheet?.name}
+                utilityRailNode={(
+                    <CanvasUtilityRail
+                        onCreateTable={() => ops.setShowSheetForm(true)}
+                        onImportExcel={() => ops.setShowImportModal(true)}
+                        onRefresh={handleRefreshCanvas}
+                        onOpenEnvironments={() => ops.setShowEnvironments(true)}
+                        onOpenDataStorage={() => ops.setShowDataStorageSettings(true)}
+                        loading={ops.loading || ops.loadingRows}
                     />
-                </div>
-
-                {/* Main Content */}
-                <div className="flex min-w-0 flex-1 flex-col bg-gradient-to-b from-dark-bg/35 to-dark-canvas/95">
-                    {selectedSheet && (
-                        <div className="flex shrink-0 items-center justify-between border-b border-border-default bg-dark-bg/75 px-4 py-2.5 backdrop-blur-sm">
-                            <div className="flex items-center gap-3">
-                                <div className="rounded-md border border-brand-primary/35 bg-brand-primary/15 p-1.5">
-                                    <Database className="h-3.5 w-3.5 text-brand-secondary" />
-                                </div>
-                                <div>
-                                    <h2 className="text-sm font-semibold text-text-primary">{selectedSheet.name}</h2>
-                                    {selectedSheet.pageObject && selectedSheet.pageObject !== selectedSheet.name && (
-                                        <span className="text-xxs text-text-muted">Linked to: {selectedSheet.pageObject}</span>
-                                    )}
-                                </div>
-                                <span className="rounded-md border border-border-default bg-dark-elevated/75 px-2 py-0.5 text-xxs text-text-secondary">
-                                    {rows.length} {rows.length === 1 ? 'row' : 'rows'}
-                                </span>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                                <SavedViewsDropdown
-                                    sheetId={selectedSheet.id}
-                                    currentFilterState={currentFilterState}
-                                    currentSortState={currentSortState}
-                                    currentColumnState={currentColumnState}
-                                    onViewSelect={(view: SavedView) => {
-                                        setCurrentFilterState(view.filterState);
-                                        setCurrentSortState(view.sortState);
-                                        setCurrentColumnState(view.columnState);
-                                        setExternalSortState(view.sortState as SortLevel[]);
-                                        setExternalFilterState(view.filterState as Record<string, unknown>);
-                                    }}
-                                />
-                                <button
-                                    onClick={() => fetchRows(selectedSheetId!)}
-                                    className="rounded-md border border-border-default bg-dark-elevated/75 p-1.5 text-text-muted transition-all hover:border-border-emphasis hover:text-text-primary"
-                                    title="Refresh data"
-                                >
-                                    <RefreshCw className={`h-4 w-4 ${loadingRows ? 'animate-spin' : ''}`} />
-                                </button>
-                            </div>
+                )}
+                commandStripNode={(
+                    <ExcelRibbon
+                        activeFilterCount={Object.keys(query.currentFilterState || {}).length}
+                        queryStatusLabel={query.queryStatusLabel}
+                        warningCount={query.queryWarnings.length}
+                        onOpenQueryGenerator={query.handleOpenQueryGenerator}
+                        onAddRow={() => { void ops.handleAddRow(); }}
+                        onAddColumn={ops.handleAddColumn}
+                        onDeleteSelected={() => ops.gridHandleRef.current?.deleteSelectedRows()}
+                        onDuplicateSelected={() => ops.gridHandleRef.current?.duplicateSelectedRows()}
+                        onUndo={() => ops.gridHandleRef.current?.undo()}
+                        onRedo={() => ops.gridHandleRef.current?.redo()}
+                        onOpenFindReplace={() => ops.gridHandleRef.current?.openFindReplace()}
+                        onOpenBulkUpdate={() => ops.gridHandleRef.current?.openBulkUpdate()}
+                        onOpenDataGenerator={() => ops.gridHandleRef.current?.openDataGenerator(ops.selectedSheet?.columns[0]?.name)}
+                        onImportCSV={() => ops.setShowCSVImportModal(true)}
+                        onExportCSV={ops.handleExportCSV}
+                        onRefreshRows={() => {
+                            if (ops.selectedSheetId) {
+                                ops.fetchRows(ops.selectedSheetId);
+                            }
+                        }}
+                        onOpenColumnVisibility={() => ops.gridHandleRef.current?.openColumnVisibility()}
+                        onOpenMultiSort={() => ops.gridHandleRef.current?.openMultiSort()}
+                        onOpenConditionalFormatting={() => ops.gridHandleRef.current?.openConditionalFormatting()}
+                        onFreezeSelectedRows={() => ops.gridHandleRef.current?.freezeSelectedRows()}
+                        onUnfreezeRows={() => ops.gridHandleRef.current?.unfreezeAllRows()}
+                        onUnfreezeColumns={() => ops.gridHandleRef.current?.unfreezeAllColumns()}
+                        onRunQualityScan={() => {
+                            ops.setShowQualityReport(true);
+                        }}
+                        onOpenAdvancedTools={() => setShowAdvancedTools(true)}
+                        loadingRows={ops.loadingRows}
+                        selectedRowCount={query.selectedRowCount}
+                    />
+                )}
+                gridNode={ops.selectedSheet ? (
+                    <AGGridDataTable
+                        ref={ops.gridHandleRef}
+                        chromeMode="embedded"
+                        tableId={ops.selectedSheet.id}
+                        tableName={ops.selectedSheet.name}
+                        columns={ops.selectedSheet.columns.map(c => ({
+                            name: c.name,
+                            type: mapColumnType(c.type),
+                            required: c.required,
+                            validation: c.validation,
+                            min: c.min,
+                            max: c.max,
+                            minLength: c.minLength,
+                            maxLength: c.maxLength,
+                            pattern: c.pattern,
+                            enum: c.enum,
+                            formula: c.formula,
+                            referenceConfig: c.referenceConfig,
+                        }))}
+                        rows={ops.rows.map((r, idx) => ({
+                            id: r.id,
+                            data: r.data || {},
+                            order: idx
+                        }))}
+                        loading={ops.loadingRows}
+                        onCellChange={ops.handleCellChange}
+                        onRowAdd={ops.handleAddRow}
+                        onRowDelete={ops.handleDeleteRow}
+                        onRowsDelete={ops.handleBulkDeleteRows}
+                        onColumnAdd={ops.handleAddColumn}
+                        onColumnEdit={ops.handleEditColumn}
+                        onColumnRemove={ops.handleRemoveColumn}
+                        onColumnRename={ops.handleRenameColumn}
+                        onColumnTypeChange={ops.handleColumnTypeChange}
+                        onBulkPaste={ops.handleBulkPaste}
+                        onExportCSV={ops.handleExportCSV}
+                        onImportCSV={() => ops.setShowCSVImportModal(true)}
+                        onGenerateColumnData={ops.handleGenerateColumnData}
+                        onBulkUpdate={ops.handleBulkUpdate}
+                        onRowsDuplicate={ops.handleDuplicateRows}
+                        onFillSeries={ops.handleFillSeries}
+                        onFilterStateChanged={query.handleGridFilterStateChanged}
+                        externalFilterState={query.externalFilterState}
+                        onSelectionCountChange={query.setSelectedRowCount}
+                        onCellQueryGenerated={query.handleCellQueryGenerated}
+                    />
+                ) : (
+                    <div className="flex h-full items-center justify-center px-6">
+                        <div className="w-full max-w-md rounded-xl border border-border-default bg-dark-card/75 p-8 text-center shadow-2xl">
+                            <p className="mb-1 text-base font-semibold text-text-primary">No data table selected</p>
+                            <p className="text-sm text-text-secondary">Choose a table from the left sidebar or create a new one.</p>
                         </div>
-                    )}
-
-                    <div className="relative flex-1 min-h-0">
-                        {selectedSheet ? (
-                            <div className="absolute inset-0">
-                                <AGGridDataTable
-                                    tableName={selectedSheet.name}
-                                    columns={selectedSheet.columns.map(c => ({
-                                        name: c.name,
-                                        type: mapColumnType(c.type),
-                                        required: c.required,
-                                        formula: c.formula,
-                                        referenceConfig: c.referenceConfig,
-                                    }))}
-                                    rows={rows.map((r, idx) => ({
-                                        id: r.id,
-                                        data: r.data || {},
-                                        order: idx
-                                    }))}
-                                    loading={loadingRows}
-                                    onCellChange={handleCellChange}
-                                    onRowAdd={handleAddRow}
-                                    onRowDelete={handleDeleteRow}
-                                    onRowsDelete={handleBulkDeleteRows}
-                                    onColumnAdd={handleAddColumn}
-                                    onColumnEdit={handleEditColumn}
-                                    onColumnRemove={handleRemoveColumn}
-                                    onColumnRename={handleRenameColumn}
-                                    onColumnTypeChange={handleColumnTypeChange}
-                                    onBulkPaste={handleBulkPaste}
-                                    onExportCSV={handleExportCSV}
-                                    onImportCSV={() => setShowCSVImportModal(true)}
-                                    onGenerateColumnData={handleGenerateColumnData}
-                                    onBulkUpdate={handleBulkUpdate}
-                                    onRowsDuplicate={handleDuplicateRows}
-                                    onFillSeries={handleFillSeries}
-                                    onSortStateChanged={setCurrentSortState}
-                                    onFilterStateChanged={setCurrentFilterState}
-                                    onColumnStateChanged={setCurrentColumnState}
-                                    externalSortState={externalSortState}
-                                    externalFilterState={externalFilterState}
-                                />
-                            </div>
-                        ) : (
-                            <div className="flex h-full items-center justify-center px-6">
-                                <div className="w-full max-w-md rounded-xl border border-border-default bg-dark-card/75 p-8 text-center shadow-2xl">
-                                    <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-xl border border-border-default bg-dark-elevated">
-                                        <Database className="h-8 w-8 text-text-muted" />
-                                    </div>
-                                    <p className="mb-1 text-base font-semibold text-text-primary">No data table selected</p>
-                                    <p className="text-sm text-text-secondary">Choose a table from the left sidebar or create a new one.</p>
-                                </div>
-                            </div>
-                        )}
                     </div>
-                </div>
-            </div>
+                )}
+                drawerNode={(
+                    <AdvancedToolsDrawer
+                        isOpen={showAdvancedTools}
+                        onClose={() => setShowAdvancedTools(false)}
+                        onToolSelect={handleAdvancedToolSelect}
+                    />
+                )}
+            />
 
             {/* Messages */}
-            {successMessage && (
+            {ops.successMessage && (
                 <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-lg border border-status-success/45 bg-status-success/90 px-4 py-2.5 text-white shadow-xl animate-slide-up">
                     <Check className="h-4 w-4" />
-                    <span className="text-xs font-semibold">{successMessage}</span>
+                    <span className="text-xs font-semibold">{ops.successMessage}</span>
                 </div>
             )}
-            {errorMessage && (
+            {ops.errorMessage && (
                 <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-lg border border-status-danger/45 bg-status-danger/90 px-4 py-2.5 text-white shadow-xl animate-slide-up">
                     <AlertTriangle className="h-4 w-4" />
-                    <span className="text-xs font-semibold">{errorMessage}</span>
+                    <span className="text-xs font-semibold">{ops.errorMessage}</span>
                 </div>
             )}
 
             {/* Modals */}
             <Modal
-                isOpen={showSheetForm}
+                isOpen={ops.showSheetForm}
                 onClose={() => {
-                    setShowSheetForm(false);
-                    setEditingSheet(null);
+                    ops.setShowSheetForm(false);
+                    ops.setEditingSheet(null);
                 }}
-                title={editingSheet ? `Edit "${editingSheet.name}"` : 'Create Data Table'}
-                description={editingSheet ? 'Update table details and schema.' : 'Create a new table and define its columns.'}
+                title={ops.editingSheet ? `Edit "${ops.editingSheet.name}"` : 'Create Data Table'}
+                description={ops.editingSheet ? 'Update table details and schema.' : 'Create a new table and define its columns.'}
                 size="xl"
             >
                 <SheetForm
-                    sheet={editingSheet}
-                    onSubmit={editingSheet
-                        ? (name, pageObject, desc, cols) => handleUpdateSheet(editingSheet.id, { name, pageObject, description: desc, columns: cols })
-                        : handleCreateSheet
+                    sheet={ops.editingSheet}
+                    onSubmit={ops.editingSheet
+                        ? (name, pageObject, desc, cols) => ops.handleUpdateSheet(ops.editingSheet!.id, { name, pageObject, description: desc, columns: cols })
+                        : ops.handleCreateSheet
                     }
                     onClose={() => {
-                        setShowSheetForm(false);
-                        setEditingSheet(null);
+                        ops.setShowSheetForm(false);
+                        ops.setEditingSheet(null);
                     }}
                 />
             </Modal>
 
-            {showImportModal && (
+            <Modal
+                isOpen={ops.showQualityReport}
+                onClose={() => ops.setShowQualityReport(false)}
+                title="Quality Report"
+                description={ops.selectedSheet ? `Scan results for "${ops.selectedSheet.name}"` : 'No table selected'}
+                size="xl"
+                footer={
+                    <div className="flex w-full justify-end">
+                        <Button variant="action" onClick={() => ops.setShowQualityReport(false)}>
+                            Close
+                        </Button>
+                    </div>
+                }
+            >
+                <div className="space-y-4">
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                        <div className="rounded-md border border-border-default bg-dark-elevated/55 p-3">
+                            <p className="text-xxs text-text-muted">Type Conformance Issues</p>
+                            <p className={`text-lg font-semibold ${qualityReportData.typeIssueCount > 0 ? 'text-status-warning' : 'text-status-success'}`}>
+                                {qualityReportData.typeIssueCount}
+                            </p>
+                        </div>
+                        <div className="rounded-md border border-border-default bg-dark-elevated/55 p-3">
+                            <p className="text-xxs text-text-muted">Duplicate Key Rows</p>
+                            <p className={`text-lg font-semibold ${qualityReportData.duplicateIssueCount > 0 ? 'text-status-warning' : 'text-status-success'}`}>
+                                {qualityReportData.duplicateIssueCount}
+                            </p>
+                        </div>
+                        <div className="rounded-md border border-border-default bg-dark-elevated/55 p-3">
+                            <p className="text-xxs text-text-muted">Required Field Gaps</p>
+                            <p className={`text-lg font-semibold ${qualityReportData.requiredGapCount > 0 ? 'text-status-warning' : 'text-status-success'}`}>
+                                {qualityReportData.requiredGapCount}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="rounded-md border border-border-default bg-dark-elevated/45 p-3">
+                        <p className="mb-2 text-xs font-semibold text-text-primary">Type Conformance</p>
+                        {inspectorData.validationChecks.length === 0 ? (
+                            <p className="text-xs text-status-success">No type conformance issues detected.</p>
+                        ) : (
+                            <div className="space-y-1">
+                                {inspectorData.validationChecks.map((item) => (
+                                    <div key={item.column} className="flex items-center justify-between text-xs text-text-secondary">
+                                        <span className="truncate">{item.column}</span>
+                                        <span className="rounded bg-status-warning/20 px-1.5 py-0.5 text-status-warning">{item.count}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="rounded-md border border-border-default bg-dark-elevated/45 p-3">
+                        <p className="mb-2 text-xs font-semibold text-text-primary">Duplicate Key Checks</p>
+                        {qualityReportData.duplicateChecks.length === 0 ? (
+                            <p className="text-xs text-text-secondary">No key-like columns found for duplicate checks.</p>
+                        ) : (
+                            <div className="space-y-1">
+                                {qualityReportData.duplicateChecks.map((check) => (
+                                    <div key={check.column} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 text-xs text-text-secondary">
+                                        <span className="truncate">{check.column}</span>
+                                        <span className={`rounded px-1.5 py-0.5 ${check.duplicateRows > 0 ? 'bg-status-warning/20 text-status-warning' : 'bg-status-success/20 text-status-success'}`}>
+                                            dupes: {check.duplicateRows}
+                                        </span>
+                                        <span className="text-text-muted">
+                                            distinct {check.distinctValues}/{check.totalValues}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="rounded-md border border-border-default bg-dark-elevated/45 p-3">
+                        <p className="mb-2 text-xs font-semibold text-text-primary">Required Field Completion</p>
+                        {qualityReportData.requiredFields.length === 0 ? (
+                            <p className="text-xs text-text-secondary">No required columns configured yet.</p>
+                        ) : (
+                            <div className="space-y-1">
+                                {qualityReportData.requiredFields.map((field) => (
+                                    <div key={field.column} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 text-xs text-text-secondary">
+                                        <span className="truncate">{field.column}</span>
+                                        <span className={`rounded px-1.5 py-0.5 ${field.missing > 0 ? 'bg-status-warning/20 text-status-warning' : 'bg-status-success/20 text-status-success'}`}>
+                                            missing: {field.missing}
+                                        </span>
+                                        <span className="text-text-muted">{field.completionRate}% complete</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </Modal>
+
+            {ops.showImportModal && (
                 <ImportExcelModal
                     projectId={projectId}
-                    onImport={handleImportComplete}
-                    onClose={() => setShowImportModal(false)}
+                    onImport={ops.handleImportComplete}
+                    onClose={() => ops.setShowImportModal(false)}
                 />
             )}
 
-            {showEnvironments && (
+            {ops.showEnvironments && (
                 <EnvironmentManager
                     userId={projectId}
-                    onClose={() => setShowEnvironments(false)}
+                    onClose={() => ops.setShowEnvironments(false)}
                 />
             )}
 
-            {showCSVImportModal && selectedSheet && (
+            {ops.showCSVImportModal && ops.selectedSheet && (
                 <ImportCSVModal
-                    isOpen={showCSVImportModal}
-                    onClose={() => setShowCSVImportModal(false)}
-                    existingColumns={selectedSheet.columns.map(c => ({
+                    isOpen={ops.showCSVImportModal}
+                    onClose={() => ops.setShowCSVImportModal(false)}
+                    existingColumns={ops.selectedSheet.columns.map(c => ({
                         name: c.name,
                         type: c.type === 'string' ? 'text' : c.type
                     }))}
-                    onImport={handleCSVImport}
+                    onImport={ops.handleCSVImport}
                 />
             )}
 
-            {showColumnEditor && selectedSheet && (
+            {ops.showColumnEditor && ops.selectedSheet && (
                 <ColumnEditorModal
-                    isOpen={showColumnEditor}
+                    isOpen={ops.showColumnEditor}
                     onClose={() => {
-                        setShowColumnEditor(false);
-                        setEditingColumn(null);
+                        ops.setShowColumnEditor(false);
+                        ops.setEditingColumn(null);
                     }}
-                    onSave={handleSaveColumn}
-                    existingColumn={editingColumn || undefined}
-                    existingColumnNames={selectedSheet.columns.map(c => c.name)}
-                    mode={editingColumn ? 'edit' : 'add'}
-                    availableSheets={sheets.map(s => ({
+                    onSave={ops.handleSaveColumn}
+                    existingColumn={ops.editingColumn || undefined}
+                    existingColumnNames={ops.selectedSheet.columns.map(c => c.name)}
+                    mode={ops.editingColumn ? 'edit' : 'add'}
+                    availableSheets={ops.sheets.map(s => ({
                         id: s.id,
                         name: s.name,
                         columns: s.columns.map(c => ({ name: c.name, type: c.type })),
                     }))}
-                    currentSheetId={selectedSheet.id}
+                    currentSheetId={ops.selectedSheet.id}
                 />
             )}
 
             <DataStorageSettingsModal
-                isOpen={showDataStorageSettings}
-                onClose={() => setShowDataStorageSettings(false)}
+                isOpen={ops.showDataStorageSettings}
+                onClose={() => ops.setShowDataStorageSettings(false)}
                 applicationId={projectId}
+            />
+
+            <QueryGeneratorModal
+                isOpen={query.showQueryGeneratorModal}
+                mode={query.queryModalMode}
+                onClose={() => query.setShowQueryGeneratorModal(false)}
+                tables={query.queryTables}
+                selectedTableId={query.selectedQueryTable?.id || query.queryDraft.tableId}
+                draft={query.queryDraft}
+                distinctValueMap={query.queryDistinctValueMap}
+                loadingValues={query.queryValuesLoading}
+                generatedQuery={query.queryModalMode === 'cell' ? (query.cellQueryPayload?.query || '') : query.queryPreview.snippet}
+                generatedShape={query.queryModalMode === 'cell' ? 'ROW' : query.queryPreview.shape}
+                matchCount={query.queryModalMode === 'cell' ? 1 : query.queryPreview.matchCount}
+                warnings={query.queryModalMode === 'cell' ? [] : (query.queryWarnings.length > 0 ? query.queryWarnings : query.queryPreview.warnings)}
+                validationError={query.queryModalMode === 'cell' ? null : (query.queryValidationError || query.queryPreview.validationError)}
+                cellPayload={query.cellQueryPayload}
+                onTableChange={query.handleQueryTableChange}
+                onAnswerChange={query.handleQueryAnswerChange}
+                onResultControlChange={query.handleQueryResultControlChange}
+                onSortColumnChange={query.handleQuerySortColumnChange}
+                onSortDirectionChange={query.handleQuerySortDirectionChange}
+                onLimitChange={query.handleQueryLimitChange}
+                onApplyFilters={() => { void query.handleApplyQueryFilters(); }}
+                onCopyQuery={() => { void query.handleCopyGeneratedQuery(); }}
+                onUseCellAsBuilder={query.handleUseCellAsBuilder}
+                onInsertIntoEditor={onInsertQuery ? handleInsertIntoEditor : undefined}
+            />
+
+            <QuoteGenerationModal
+                isOpen={showQuoteGeneration}
+                onClose={() => setShowQuoteGeneration(false)}
+                rows={ops.rows.map((row) => ({
+                    id: row.id,
+                    scenarioId: row.scenarioId,
+                    data: row.data || {},
+                }))}
+                columns={(ops.selectedSheet?.columns || []).map((column) => ({ name: column.name }))}
+                selectedRowIds={quoteSelectedRowIds}
+                filteredRowIds={quoteFilteredRowIds}
+                onCopySuccess={ops.showSuccess}
+                onCopyError={ops.showError}
             />
         </div>
     );

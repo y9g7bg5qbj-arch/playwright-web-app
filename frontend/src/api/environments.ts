@@ -30,7 +30,7 @@ export interface ActiveEnvironment extends AppEnvironment {
 
 // Helper to get auth headers
 function getHeaders(): HeadersInit {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('auth_token') || localStorage.getItem('token');
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),

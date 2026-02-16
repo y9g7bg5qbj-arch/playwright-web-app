@@ -2,11 +2,12 @@ import { Token, TokenType } from '../lexer/tokens.js';
 import {
     ProgramNode, PageNode, PageActionsNode, FeatureNode, ScenarioNode, FieldNode, UseNode,
     VariableNode, ActionDefinitionNode, HookNode, StatementNode,
-    SelectorNode, SelectorType, TargetNode, ExpressionNode, VerifyCondition,
+    SelectorNode, SelectorType, SelectorModifier, TargetNode, ExpressionNode, VerifyCondition,
     ParseError, LoadStatement, ForEachStatement, WhereClause,
     FixtureNode, FixtureUseNode, FixtureOptionNode, FixtureOptionValue,
     FeatureAnnotation, ScenarioAnnotation,
     VerifyUrlStatement, VerifyTitleStatement, VerifyHasStatement, UploadStatement,
+    VerifyScreenshotStatement, VerifyScreenshotOptions,
     HasCondition, VariableCondition, VariableReference,
     PerformAssignmentStatement, ActionCallNode, ReturnStatement,
     CoordinateTarget,
@@ -18,7 +19,11 @@ import {
     SplitExpression, JoinExpression, LengthExpression, PadExpression,
     TodayExpression, NowExpression, AddDateExpression, SubtractDateExpression,
     FormatExpression, DatePartExpression, RoundExpression, AbsoluteExpression,
-    GenerateExpression, RandomNumberExpression, ChainedExpression
+    GenerateExpression, RandomNumberExpression, ChainedExpression,
+    SwitchToNewTabStatement,
+    SwitchToTabStatement,
+    OpenInNewTabStatement,
+    CloseTabStatement
 } from './ast.js';
 
 const UTILITY_KEYWORDS = new Set([
@@ -80,6 +85,20 @@ export class Parser {
         const line = this.peek().line;
         this.consume(TokenType.PAGE, "Expected 'PAGE'");
         const name = this.consume(TokenType.IDENTIFIER, "Expected page name").value;
+
+        // Optionally consume URL pattern(s): PAGE Name ("/url") { or PAGE Name ("/url1", "/url2") {
+        if (this.check(TokenType.LPAREN)) {
+            this.advance(); // skip (
+            if (this.check(TokenType.STRING)) {
+                this.advance(); // skip the URL string
+                while (this.check(TokenType.COMMA)) {
+                    this.advance(); // skip comma
+                    if (this.check(TokenType.STRING)) this.advance();
+                }
+            }
+            this.consume(TokenType.RPAREN, "Expected ')'");
+        }
+
         this.consume(TokenType.LBRACE, "Expected '{'");
 
         const fields: FieldNode[] = [];
@@ -180,7 +199,10 @@ export class Parser {
                 nameParam = this.consume(TokenType.STRING, "Expected string after NAME").value;
             }
 
-            return { type: 'Selector', selectorType, value, nameParam };
+            // Parse optional trailing modifiers: WITH TEXT "...", FIRST, LAST, NTH n, HAS ...
+            const modifiers = this.parseSelectorModifiers();
+
+            return { type: 'Selector', selectorType, value, nameParam, ...(modifiers.length > 0 ? { modifiers } : {}) };
         }
 
         // Legacy: plain string selector with auto-detection
@@ -191,6 +213,99 @@ export class Parser {
 
         this.error("Expected selector (e.g., BUTTON \"Submit\" or \"#myId\")");
         return { type: 'Selector', selectorType: 'auto', value: '' };
+    }
+
+    /**
+     * Parse optional selector modifiers that may appear after a base selector
+     * in FIELD definitions: WITH TEXT "...", WITHOUT TEXT "...", FIRST, LAST,
+     * NTH <number>, HAS <selector>, HAS NOT <selector>.
+     */
+    private parseSelectorModifiers(): SelectorModifier[] {
+        const modifiers: SelectorModifier[] = [];
+        let safety = 20; // Prevent infinite loops
+        while (safety-- > 0) {
+            const tok = this.peek();
+
+            // FIRST / LAST
+            if (tok.type === TokenType.FIRST) {
+                this.advance();
+                modifiers.push({ type: 'first' });
+                continue;
+            }
+            if (tok.type === TokenType.LAST) {
+                this.advance();
+                modifiers.push({ type: 'last' });
+                continue;
+            }
+
+            // NTH <number>
+            if (tok.type === TokenType.IDENTIFIER && tok.value.toUpperCase() === 'NTH') {
+                this.advance(); // consume NTH
+                if (this.check(TokenType.NUMBER_LITERAL)) {
+                    const index = parseInt(this.advance().value, 10);
+                    modifiers.push({ type: 'nth', index });
+                }
+                continue;
+            }
+
+            // WITH TEXT "..." or WITHOUT TEXT "..."
+            if (tok.type === TokenType.WITH) {
+                this.advance(); // consume WITH
+                if (this.check(TokenType.TEXT)) {
+                    this.advance(); // consume TEXT
+                    if (this.check(TokenType.STRING)) {
+                        const text = this.advance().value;
+                        modifiers.push({ type: 'withText', text });
+                    }
+                }
+                continue;
+            }
+            if (tok.type === TokenType.IDENTIFIER && tok.value.toUpperCase() === 'WITHOUT') {
+                this.advance(); // consume WITHOUT
+                if (this.check(TokenType.TEXT)) {
+                    this.advance(); // consume TEXT
+                    if (this.check(TokenType.STRING)) {
+                        const text = this.advance().value;
+                        modifiers.push({ type: 'withoutText', text });
+                    }
+                }
+                continue;
+            }
+
+            // HAS <selector> or HAS NOT <selector>
+            if (tok.type === TokenType.HAS) {
+                this.advance(); // consume HAS
+                const isNot = this.check(TokenType.NOT);
+                if (isNot) {
+                    this.advance(); // consume NOT
+                }
+                // Parse the nested selector
+                const nestedTok = this.peek();
+                const nestedType = (nestedTok.type === TokenType.IDENTIFIER || nestedTok.type === TokenType.TEXT || nestedTok.type === TokenType.TITLE)
+                    ? Parser.SELECTOR_KEYWORD_MAP.get(nestedTok.value.toUpperCase())
+                    : undefined;
+                if (nestedType !== undefined) {
+                    this.advance(); // consume selector keyword
+                    if (this.check(TokenType.STRING)) {
+                        const value = this.advance().value;
+                        let nameParam: string | undefined;
+                        if (nestedType === 'role' && this.peek().type === TokenType.IDENTIFIER && this.peek().value.toUpperCase() === 'NAME') {
+                            this.advance(); // consume NAME
+                            if (this.check(TokenType.STRING)) {
+                                nameParam = this.advance().value;
+                            }
+                        }
+                        const selector: SelectorNode = { type: 'Selector', selectorType: nestedType, value, nameParam };
+                        modifiers.push(isNot ? { type: 'hasNot', selector } : { type: 'has', selector });
+                    }
+                }
+                continue;
+            }
+
+            // No more modifiers
+            break;
+        }
+        return modifiers;
     }
 
     private parseVariable(): VariableNode {
@@ -561,11 +676,23 @@ export class Parser {
 
         if (this.match(TokenType.OPEN)) {
             const url = this.parseExpression();
+            // OPEN "url" IN NEW TAB
+            if (this.match(TokenType.IN)) {
+                this.consume(TokenType.NEW, "Expected 'NEW' after 'IN'");
+                this.consume(TokenType.TAB, "Expected 'TAB' after 'IN NEW'");
+                return { type: 'OpenInNewTab', url, line } as OpenInNewTabStatement;
+            }
             return { type: 'Open', url, line };
         }
 
         // VERIFY keyword for assertions
         if (this.match(TokenType.VERIFY)) {
+            // VERIFY SCREENSHOT [AS "name"] [WITH ...]
+            if (this.match(TokenType.SCREENSHOT)) {
+                const { name, options } = this.parseVerifyScreenshotTail();
+                return { type: 'VerifyScreenshot', name, options, line };
+            }
+
             // Check for URL assertion: verify url contains/equals/matches "value"
             if (this.match(TokenType.URL)) {
                 const condition = this.parseUrlCondition();
@@ -596,6 +723,15 @@ export class Parser {
                 this.consume(TokenType.IS, "Expected 'IS'");
                 const count = this.parseExpression();
                 return { type: 'VerifyHas', target, hasCondition: { type: 'HasCount', count }, line };
+            }
+
+            // VERIFY <target> MATCHES SCREENSHOT [AS "name"] [WITH ...]
+            if (this.isVerifyTargetScreenshotAssertion()) {
+                const target = this.parseTarget();
+                this.consume(TokenType.MATCHES, "Expected 'MATCHES' in screenshot assertion");
+                this.consume(TokenType.SCREENSHOT, "Expected 'SCREENSHOT' after 'MATCHES'");
+                const { name, options } = this.parseVerifyScreenshotTail();
+                return { type: 'VerifyScreenshot', target, name, options, line };
             }
 
             // Check for variable assertion: VERIFY variableName IS TRUE/FALSE or VERIFY variableName CONTAINS "text"
@@ -686,9 +822,41 @@ export class Parser {
             return { type: 'Refresh', line };
         }
 
+        // SWITCH TO NEW TAB "url" | SWITCH TO TAB N
+        if (this.match(TokenType.SWITCH)) {
+            this.consume(TokenType.TO, "Expected 'TO' after 'SWITCH'");
+            // SWITCH TO NEW TAB "url"
+            if (this.match(TokenType.NEW)) {
+                this.consume(TokenType.TAB, "Expected 'TAB' after 'SWITCH TO NEW'");
+                let url: ExpressionNode | undefined;
+                if (this.check(TokenType.STRING) || this.check(TokenType.IDENTIFIER) || this.check(TokenType.ENV_VAR_REF)) {
+                    url = this.parseExpression();
+                }
+                return { type: 'SwitchToNewTab', url, line } as SwitchToNewTabStatement;
+            }
+            // SWITCH TO TAB N (1-based index)
+            if (this.match(TokenType.TAB)) {
+                const tabIndex = this.parseExpression();
+                return { type: 'SwitchToTab', tabIndex, line } as SwitchToTabStatement;
+            }
+            this.error("Expected 'NEW TAB' or 'TAB' after 'SWITCH TO'");
+            return { type: 'SwitchToNewTab', line } as SwitchToNewTabStatement;
+        }
+
+        // CLOSE TAB
+        if (this.match(TokenType.CLOSE)) {
+            this.consume(TokenType.TAB, "Expected 'TAB' after 'CLOSE'");
+            return { type: 'CloseTab', line } as CloseTabStatement;
+        }
+
         if (this.match(TokenType.CHECK)) {
             const target = this.parseTarget();
             return { type: 'Check', target, line };
+        }
+
+        if (this.match(TokenType.UNCHECK)) {
+            const target = this.parseTarget();
+            return { type: 'Uncheck', target, line };
         }
 
         if (this.match(TokenType.HOVER)) {
@@ -1170,7 +1338,7 @@ export class Parser {
 
     private parseRowStatement(line: number): RowStatement {
         const variableName = this.consume(TokenType.IDENTIFIER, "Expected variable name after 'ROW'").value;
-        this.consume(TokenType.EQUALS_SIGN, "Expected '='");
+        this.consumeAssignmentOrFrom();
 
         // Check for optional modifier: FIRST, LAST, RANDOM
         let modifier: RowStatement['modifier'];
@@ -1202,7 +1370,7 @@ export class Parser {
 
     private parseRowsStatement(line: number): RowsStatement {
         const variableName = this.consume(TokenType.IDENTIFIER, "Expected variable name after 'ROWS'").value;
-        this.consume(TokenType.EQUALS_SIGN, "Expected '='");
+        this.consumeAssignmentOrFrom();
 
         // Parse table reference
         const tableRef = this.parseSimpleTableReference();
@@ -1237,7 +1405,7 @@ export class Parser {
     private parseCountStatement(line: number): CountStatement {
         this.consume(TokenType.NUMBER, "Expected 'NUMBER'");
         const variableName = this.consume(TokenType.IDENTIFIER, "Expected variable name").value;
-        this.consume(TokenType.EQUALS_SIGN, "Expected '='");
+        this.consume(TokenType.EQUALS_SIGN, "Expected '='");  // NUMBER count = COUNT — always uses =
         this.consume(TokenType.COUNT, "Expected 'COUNT'");
 
         // Parse table reference
@@ -1400,6 +1568,97 @@ export class Parser {
 
         const value = this.parseExpression();
         return { type: 'Comparison', column, operator, value } as DataComparison;
+    }
+
+    private isVerifyTargetScreenshotAssertion(): boolean {
+        if (this.check(TokenType.STRING)) {
+            return this.lookahead(1)?.type === TokenType.MATCHES
+                && this.lookahead(2)?.type === TokenType.SCREENSHOT;
+        }
+
+        if (!this.check(TokenType.IDENTIFIER)) {
+            return false;
+        }
+
+        const second = this.lookahead(1);
+        if (!second) {
+            return false;
+        }
+
+        if (second.type === TokenType.MATCHES) {
+            return this.lookahead(2)?.type === TokenType.SCREENSHOT;
+        }
+
+        if (second.type === TokenType.DOT) {
+            return this.lookahead(3)?.type === TokenType.MATCHES
+                && this.lookahead(4)?.type === TokenType.SCREENSHOT;
+        }
+
+        return false;
+    }
+
+    private parseVerifyScreenshotTail(): Pick<VerifyScreenshotStatement, 'name' | 'options'> {
+        let name: string | undefined;
+        let options: VerifyScreenshotOptions | undefined;
+
+        let advanced = true;
+        while (advanced) {
+            advanced = false;
+
+            if (this.match(TokenType.AS)) {
+                name = this.consume(TokenType.STRING, "Expected screenshot name after 'AS'").value;
+                advanced = true;
+            }
+
+            if (this.match(TokenType.WITH)) {
+                options = this.parseVerifyScreenshotOptions();
+                advanced = true;
+            }
+        }
+
+        return { name, options };
+    }
+
+    private parseVerifyScreenshotOptions(): VerifyScreenshotOptions {
+        const options: VerifyScreenshotOptions = {};
+
+        while (!this.isAtEnd()) {
+            if (this.match(TokenType.STRICT)) {
+                options.preset = 'STRICT';
+            } else if (this.match(TokenType.BALANCED)) {
+                options.preset = 'BALANCED';
+            } else if (this.match(TokenType.RELAXED)) {
+                options.preset = 'RELAXED';
+            } else if (this.match(TokenType.THRESHOLD)) {
+                const value = parseFloat(this.consume(TokenType.NUMBER_LITERAL, "Expected number after 'THRESHOLD'").value);
+                options.threshold = value;
+            } else if (this.match(TokenType.MAX_DIFF_PIXELS)) {
+                const value = parseFloat(this.consume(TokenType.NUMBER_LITERAL, "Expected number after 'MAX_DIFF_PIXELS'").value);
+                options.maxDiffPixels = value;
+            } else if (this.match(TokenType.MAX_DIFF_RATIO)) {
+                const value = parseFloat(this.consume(TokenType.NUMBER_LITERAL, "Expected number after 'MAX_DIFF_RATIO'").value);
+                options.maxDiffPixelRatio = value;
+            } else {
+                break;
+            }
+
+            if (this.match(TokenType.COMMA) || this.match(TokenType.AND)) {
+                continue;
+            }
+
+            if (this.check(TokenType.AS) || this.check(TokenType.WITH)) {
+                break;
+            }
+        }
+
+        if (!options.preset &&
+            options.threshold === undefined &&
+            options.maxDiffPixels === undefined &&
+            options.maxDiffPixelRatio === undefined) {
+            this.error("Expected screenshot option after 'WITH'");
+        }
+
+        return options;
     }
 
     private parseVerifyCondition(): VerifyCondition {
@@ -1590,6 +1849,14 @@ export class Parser {
     }
 
     // ==================== HELPER METHODS ====================
+
+    /** Accept either `=` or `FROM` for ROW/ROWS table assignment. */
+    private consumeAssignmentOrFrom(): void {
+        if (this.match(TokenType.FROM) || this.match(TokenType.EQUALS_SIGN)) {
+            return;
+        }
+        this.error("Expected '=' or 'FROM'");
+    }
 
     private isVariableType(): boolean {
         return VARIABLE_TYPES.has(this.peek().type);

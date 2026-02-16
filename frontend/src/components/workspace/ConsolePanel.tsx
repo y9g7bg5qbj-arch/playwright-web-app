@@ -1,4 +1,5 @@
 import { useRef, useEffect } from 'react';
+import { IconButton } from '@/components/ui';
 
 export interface ConsolePanelProps {
   output: string[];
@@ -43,36 +44,36 @@ export function ConsolePanel({ output, onClear, onClose }: ConsolePanelProps): J
       {/* Header */}
       <div className="h-8 px-3 flex items-center justify-between border-b border-border-default bg-dark-primary shrink-0">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-text-muted text-[14px]">terminal</span>
-          <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">
+          <span className="material-symbols-outlined text-text-muted text-base">terminal</span>
+          <span className="text-3xs font-semibold text-text-muted uppercase tracking-wider">
             Console
           </span>
-          <span className="text-[10px] text-text-muted ml-1 tabular-nums">
+          <span className="text-3xs text-text-muted ml-1 tabular-nums">
             {output.length} {output.length === 1 ? 'line' : 'lines'}
           </span>
         </div>
         <div className="flex items-center gap-0.5">
-          <button
+          <IconButton
+            icon={<span className="material-symbols-outlined text-base">delete</span>}
+            size="sm"
+            variant="ghost"
+            tooltip="Clear console"
             onClick={onClear}
-            className="p-1 rounded hover:bg-white/[0.06] text-text-muted hover:text-text-primary transition-colors duration-fast"
-            title="Clear console"
-          >
-            <span className="material-symbols-outlined text-[14px]">delete</span>
-          </button>
-          <button
+          />
+          <IconButton
+            icon={<span className="material-symbols-outlined text-base">close</span>}
+            size="sm"
+            variant="ghost"
+            tooltip="Close console"
             onClick={onClose}
-            className="p-1 rounded hover:bg-white/[0.06] text-text-muted hover:text-text-primary transition-colors duration-fast"
-            title="Close console"
-          >
-            <span className="material-symbols-outlined text-[14px]">close</span>
-          </button>
+          />
         </div>
       </div>
 
       {/* Output */}
       <div
         ref={outputRef}
-        className="flex-1 overflow-auto p-2 font-mono text-[11px] leading-relaxed"
+        className="flex-1 overflow-auto p-2 font-mono text-xxs leading-relaxed"
       >
         {output.length === 0 ? (
           <div className="text-text-muted italic">No output yet...</div>

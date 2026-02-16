@@ -5,14 +5,7 @@
  * Runs as a low-priority skill after main action skills.
  */
 
-import {
-    BaseSkill,
-    type ExecutionContext,
-    type SkillDetection,
-    type PrepareResult,
-    type ExecuteResult,
-    type VerifyResult,
-} from '../interfaces';
+import { BaseSkill, type ExecutionContext, type SkillDetection, type PrepareResult, type ExecuteResult, type VerifyResult } from '../interfaces';
 
 /** Verification strategies by action type */
 type VerificationStrategy = (

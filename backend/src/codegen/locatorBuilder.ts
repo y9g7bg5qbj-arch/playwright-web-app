@@ -179,3 +179,29 @@ export function buildCommonOptions(config: Record<string, any>): string {
 
     return opts.length ? `{ ${opts.join(', ')} }` : '';
 }
+
+/**
+ * Build options code string from config and key list.
+ * Boolean keys emit `key: true`, number/string keys emit `key: value`.
+ * Returns empty string if no options, otherwise `{ key: val, ... }`.
+ * Use `prefix` to prepend `, ` when options follow another argument.
+ */
+export function buildOptsCode(
+    config: Record<string, any>,
+    keys: string[],
+    prefix = false
+): string {
+    const opts: string[] = [];
+    for (const key of keys) {
+        const val = config[key];
+        if (val === undefined || val === null || val === false) continue;
+        if (val === true) {
+            opts.push(`${key}: true`);
+        } else {
+            opts.push(`${key}: ${val}`);
+        }
+    }
+    if (opts.length === 0) return '';
+    const code = `{ ${opts.join(', ')} }`;
+    return prefix ? `, ${code}` : code;
+}

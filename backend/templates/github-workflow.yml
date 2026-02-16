@@ -91,6 +91,7 @@ jobs:
       - name: Run Playwright tests
         run: |
           npx playwright test \
+            --reporter=blob,json,allure-playwright \
             --project=${{ github.event.inputs.browser || 'chromium' }} \
             --shard=${{ matrix.shard }}/${{ github.event.inputs.shard_count || '1' }} \
             --retries=${{ github.event.inputs.retries || '0' }} \
@@ -117,6 +118,15 @@ jobs:
           name: traces-shard-${{ matrix.shard }}
           path: test-results/**/*.zip
           retention-days: 7
+
+      - name: Upload Allure results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: allure-results-shard-${{ matrix.shard }}
+          path: allure-results/
+          retention-days: 14
+          if-no-files-found: ignore
 
   merge-reports:
     if: always()
@@ -150,6 +160,34 @@ jobs:
           name: merged-playwright-report
           path: playwright-report/
           retention-days: 30
+
+      - name: Install Allure 3 CLI
+        run: npm install -g allure@3
+
+      - name: Download Allure results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: allure-results-*
+          merge-multiple: true
+          path: allure-results-merged
+        continue-on-error: true
+
+      - name: Generate merged Allure report
+        run: |
+          if [ -d "allure-results-merged" ] && [ "$(ls -A allure-results-merged 2>/dev/null)" ]; then
+            allure generate allure-results-merged --clean -o allure-report-merged
+          else
+            echo "No Allure results to merge"
+          fi
+
+      - name: Upload merged Allure report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: allure-report-merged
+          path: allure-report-merged/
+          retention-days: 30
+          if-no-files-found: ignore
 
       - name: Add summary
         if: always()

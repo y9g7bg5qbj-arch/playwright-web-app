@@ -1,12 +1,13 @@
 import {
     ProgramNode, PageNode, PageActionsNode, FeatureNode, ScenarioNode,
     FieldNode, ActionDefinitionNode, HookNode, StatementNode,
-    SelectorNode, TargetNode, ExpressionNode, VerifyCondition,
+    SelectorNode, SelectorModifier, TargetNode, ExpressionNode, VerifyCondition,
     LoadStatement, ForEachStatement, WhereClause,
-    DataQueryStatement, DataQuery, TableQuery, AggregationQuery,
+    DataQueryStatement,
     DataCondition, DataComparison,
     FixtureNode,
     UploadStatement, VerifyUrlStatement, VerifyTitleStatement, VerifyHasStatement,
+    VerifyScreenshotStatement, VerifyScreenshotOptions,
     // Variable verification types
     VerifyVariableStatement, VariableCondition, PerformAssignmentStatement,
     // Wait and Return statements
@@ -19,8 +20,29 @@ import {
     SplitExpression, JoinExpression, LengthExpression, PadExpression,
     TodayExpression, NowExpression, AddDateExpression, SubtractDateExpression,
     FormatExpression, DatePartExpression, RoundExpression, AbsoluteExpression,
-    GenerateExpression, RandomNumberExpression, ChainedExpression
+    GenerateExpression, RandomNumberExpression, ChainedExpression,
+    SwitchToNewTabStatement,
+    SwitchToTabStatement,
+    OpenInNewTabStatement,
+    CloseTabStatement
 } from '../parser/ast.js';
+import {
+    camelCase, pascalCase, inferTypeFromValue, toReadableTestName, escapeString
+} from './transpilerUtils.js';
+import {
+    generateDebugHelper as generateDebugHelperFn,
+    wrapWithDebug as wrapWithDebugFn,
+    getStatementTarget as getStatementTargetFn
+} from './transpilerDebug.js';
+import {
+    transpileDataQueryStatement as transpileDataQueryStatementFn,
+    type TranspilerHelpers
+} from './transpilerVdql.js';
+import {
+    transpileTabOperation as transpileTabOperationFn,
+    generatePageObjectReInit as generatePageObjectReInitFn,
+    type TabTranspilerHelpers
+} from './transpilerTabs.js';
 
 export interface TranspileOptions {
     baseUrl?: string;
@@ -42,6 +64,7 @@ export class Transpiler {
     private options: TranspileOptions;
     private indent = 0;
     private usedTables: Set<string> = new Set();  // Track tables used in VDQL
+    private tempVarCounter = 0;
 
     constructor(options: TranspileOptions = {}) {
         this.options = {
@@ -116,6 +139,7 @@ export class Transpiler {
     }
 
     transpile(ast: ProgramNode): TranspileResult {
+        this.tempVarCounter = 0;
         const pages = new Map<string, string>();
         const pageActions = new Map<string, string>();
         const tests = new Map<string, string>();
@@ -332,11 +356,16 @@ export class Transpiler {
             case 'Press': {
                 return `await this.page.keyboard.press('${statement.key}');`;
             }
+            case 'Open': {
+                return `await this.page.goto(${this.transpileExpression(statement.url)});`;
+            }
             default:
                 // Fall back to regular transpilation for other statement types
                 let code = this.transpileStatement(statement, [forPage], forPage);
                 // Remove test.step wrappers
                 code = code.replace(/await test\.step\([^)]+, async \(\) => \{ (.*) \}\);/g, '$1');
+                // Ensure page-scoped operations are bound to the PageActions instance.
+                code = code.replace(/\bpage\./g, 'this.page.');
                 // Fix field references
                 code = code.replace(/this\.(\w+)\./g, (match, fieldName) => {
                     if (boundPage && boundPage.fields.some(f => f.name === fieldName)) {
@@ -368,6 +397,11 @@ export class Transpiler {
         lines.push(this.line('}'));
 
         return lines.join('\n');
+    }
+
+    private unwrapTestStepForFixture(code: string): string {
+        const match = code.match(/^await test\.step\([^,]+,\s*async \(\) => \{ (.*) \}\);$/);
+        return match ? match[1] : code;
     }
 
     // ==================== FIXTURE TRANSPILATION ====================
@@ -403,7 +437,9 @@ export class Transpiler {
         this.indent++;
 
         // Build dependencies string
-        const deps = dependencies.length > 0 ? dependencies.join(', ') : 'page';
+        // Worker fixtures cannot depend on test-scoped fixtures like "page".
+        const defaultDependency = scope === 'worker' ? 'browser' : 'page';
+        const deps = dependencies.length > 0 ? dependencies.join(', ') : defaultDependency;
 
         // Auto fixture option
         const scopeAndAuto = [];
@@ -426,7 +462,7 @@ export class Transpiler {
             lines.push(this.line('// Setup'));
             for (const stmt of setup) {
                 const code = this.transpileStatement(stmt);
-                if (code) lines.push(this.line(code));
+                if (code) lines.push(this.line(this.unwrapTestStepForFixture(code)));
             }
         }
 
@@ -439,7 +475,7 @@ export class Transpiler {
             lines.push(this.line('// Teardown'));
             for (const stmt of teardown) {
                 const code = this.transpileStatement(stmt);
-                if (code) lines.push(this.line(code));
+                if (code) lines.push(this.line(this.unwrapTestStepForFixture(code)));
             }
         }
 
@@ -510,6 +546,10 @@ export class Transpiler {
         return this.featureHasStatement(feature, stmt => stmt.type === 'UtilityAssignment');
     }
 
+    private usesAllureTags(feature: FeatureNode): boolean {
+        return feature.scenarios.some(s => s.tags.length > 0);
+    }
+
     private transpileFeature(feature: FeatureNode, allFixtures: FixtureNode[] = []): string {
         const lines: string[] = [];
 
@@ -529,12 +569,17 @@ export class Transpiler {
         // Check if feature uses utility functions
         const hasUtilityFunctions = this.usesUtilityFunctions(feature);
 
+        // Check if any scenarios have @tags for Allure labels
+        const hasAllureTags = this.usesAllureTags(feature);
+
         // Imports - use fixtures test if fixtures are used
         if (usesFixtures) {
             lines.push("import { test, expect } from '../fixtures';");
         } else {
             lines.push("import { test, expect } from '@playwright/test';");
         }
+        lines.push("import path from 'path';");
+        lines.push("import fsPromises from 'fs/promises';");
         for (const use of feature.uses) {
             lines.push(`import { ${use.name} } from '../${this.options.pageObjectDir}/${use.name}';`);
         }
@@ -543,6 +588,13 @@ export class Transpiler {
         if (hasUtilityFunctions) {
             lines.push("import { veroString, veroDate, veroNumber, veroConvert, veroGenerate } from '../runtime/VeroUtils';");
         }
+
+        // Add allure-js-commons imports: always parentSuite/suite for breadcrumbs, tag if @tags used
+        const allureImports = ['parentSuite', 'suite', 'subSuite', 'label as allureLabel'];
+        if (hasAllureTags) {
+            allureImports.push('tag as allureTag');
+        }
+        lines.push(`import { ${allureImports.join(', ')} } from 'allure-js-commons';`);
 
         // Add debug helper when debug mode is enabled
         if (this.options.debugMode) {
@@ -591,6 +643,12 @@ export class Transpiler {
         lines.push(`${describeCall}('${feature.name}', () => {`);
         this.indent++;
 
+        // Enable per-feature parallel execution unless the feature is explicitly serial.
+        if (!hasSerial) {
+            lines.push(this.line("test.describe.configure({ mode: 'parallel' });"));
+            lines.push('');
+        }
+
         // Page object variables
         if (feature.uses.length > 0) {
             for (const use of feature.uses) {
@@ -610,13 +668,30 @@ export class Transpiler {
             lines.push(this.line('});'));
             lines.push('');
 
+            // Data proxy object — populated in beforeAll after preloading
+            lines.push(this.line('const Data: Record<string, any> & {'));
+            this.indent++;
+            lines.push(this.line('resolveReferences: (table: string, row: any) => any;'));
+            lines.push(this.line('resolveReferencesMany: (table: string, rows: any[]) => any[];'));
+            this.indent--;
+            lines.push(this.line('} = {'));
+            this.indent++;
+            lines.push(this.line('resolveReferences: (_table, row) => row,'));
+            lines.push(this.line('resolveReferencesMany: (_table, rows) => rows,'));
+            this.indent--;
+            lines.push(this.line('};'));
+            lines.push('');
+
             // Generate beforeAll to preload tables
             lines.push(this.line('// Preload all test data tables ONCE before tests run'));
-            lines.push(this.line('// This is the ONLY time database calls are made'));
             lines.push(this.line('test.beforeAll(async () => {'));
             this.indent++;
             const tableList = usedTables.map(t => `'${t}'`).join(', ');
             lines.push(this.line(`await dataManager.preloadTables([${tableList}]);`));
+            // Populate Data object with loaded table arrays
+            for (const table of usedTables) {
+                lines.push(this.line(`Data['${table}'] = dataManager.query('${table}').execute();`));
+            }
             this.indent--;
             lines.push(this.line('});'));
             lines.push('');
@@ -624,14 +699,15 @@ export class Transpiler {
 
         // User-defined hooks
         for (const hook of feature.hooks) {
-            lines.push(this.transpileHook(hook, useNames));
+            const hookNeedsContext = this.hookNeedsContext(hook);
+            lines.push(this.transpileHook(hook, useNames, hookNeedsContext));
             lines.push('');
         }
 
         // Add default beforeEach if none exists but pages are used
         const hasBeforeEach = feature.hooks.some(h => h.hookType === 'BEFORE_EACH');
         if (!hasBeforeEach && feature.uses.length > 0) {
-            lines.push(this.line('test.beforeEach(async ({ page }) => {'));
+            lines.push(this.line(`test.beforeEach(async ({ page }) => {`));
             this.indent++;
             for (const use of feature.uses) {
                 const varName = this.camelCase(use.name);
@@ -644,7 +720,7 @@ export class Transpiler {
 
         // Scenarios
         for (const scenario of feature.scenarios) {
-            lines.push(this.transpileScenario(scenario, useNames));
+            lines.push(this.transpileScenario(scenario, useNames, feature.name));
             lines.push('');
         }
 
@@ -654,7 +730,7 @@ export class Transpiler {
         return lines.join('\n');
     }
 
-    private transpileHook(hook: HookNode, uses: string[]): string {
+    private transpileHook(hook: HookNode, uses: string[], needsContext = false): string {
         const lines: string[] = [];
 
         const hookMap: Record<string, string> = {
@@ -664,8 +740,20 @@ export class Transpiler {
             'AFTER_EACH': 'test.afterEach'
         };
 
-        lines.push(this.line(`${hookMap[hook.hookType]}(async ({ page }) => {`));
+        const isAllHook = hook.hookType === 'BEFORE_ALL' || hook.hookType === 'AFTER_ALL';
+        if (isAllHook) {
+            // Playwright does not allow page/context fixtures in beforeAll/afterAll.
+            lines.push(this.line(`${hookMap[hook.hookType]}(async () => {`));
+        } else {
+            const params = needsContext ? '{ page: _page, context }' : '{ page }';
+            lines.push(this.line(`${hookMap[hook.hookType]}(async (${params}, testInfo) => {`));
+        }
         this.indent++;
+
+        // When tab operations are used, declare page as a mutable let variable
+        if (needsContext && !isAllHook) {
+            lines.push(this.line('let page = _page;'));
+        }
 
         // Initialize page objects in beforeEach
         if (hook.hookType === 'BEFORE_EACH') {
@@ -686,8 +774,9 @@ export class Transpiler {
         return lines.join('\n');
     }
 
-    private transpileScenario(scenario: ScenarioNode, uses: string[]): string {
+    private transpileScenario(scenario: ScenarioNode, uses: string[], featureName: string): string {
         const lines: string[] = [];
+        const needsContext = this.scenarioNeedsContext(scenario);
 
         const tags = scenario.tags.map(t => `@${t}`).join(' ');
         const readableName = this.toReadableTestName(scenario.name);
@@ -709,12 +798,51 @@ export class Transpiler {
             testCall = 'test.fixme';
         }
 
-        lines.push(this.line(`${testCall}('${testName}', async ({ page }, testInfo) => {`));
+        const params = needsContext ? '{ page: _page, context }' : '{ page }';
+        lines.push(this.line(`${testCall}('${testName}', async (${params}, testInfo) => {`));
         this.indent++;
+
+        // When tab operations are used, declare page as a mutable let variable
+        // so that SWITCH TO NEW TAB / SWITCH TO TAB / etc. can reassign it
+        if (needsContext) {
+            lines.push(this.line('let page = _page;'));
+        }
 
         // Add test.slow() inside test body if @slow annotation is present
         if (hasSlow) {
             lines.push(this.line('test.slow(); // Triple the timeout'));
+        }
+
+        // Set Allure 4-tier breadcrumb hierarchy from environment variables
+        // Tiers: Application → Project Folder → Sandbox → Feature (describe block)
+        lines.push(this.line('{'));
+        this.indent++;
+        lines.push(this.line(`const __projectName = process.env.VERO_PROJECT_NAME || 'Vero';`));
+        lines.push(this.line(`const __nestedProjectName = process.env.VERO_NESTED_PROJECT_NAME || 'default';`));
+        lines.push(this.line(`const __sandboxName = process.env.VERO_SANDBOX_NAME || 'default';`));
+        lines.push(this.line(''));
+        lines.push(this.line('// Standard Allure suite hierarchy (drives tree view)'));
+        lines.push(this.line(`await parentSuite(__projectName);`));
+        lines.push(this.line(`await suite(__nestedProjectName);`));
+        lines.push(this.line(`await subSuite(__sandboxName);`));
+        lines.push(this.line(''));
+        lines.push(this.line('// Custom descriptive labels (appear in test detail)'));
+        lines.push(this.line(`await allureLabel('Application', __projectName);`));
+        lines.push(this.line(`await allureLabel('Project Folder', __nestedProjectName);`));
+        lines.push(this.line(`await allureLabel('Sandbox', __sandboxName);`));
+        lines.push(this.line(''));
+        lines.push(this.line('// Package & titlePath for grouping views'));
+        lines.push(this.line(`await allureLabel('package', __projectName + '.' + __nestedProjectName + '.' + __sandboxName);`));
+        lines.push(this.line(`await allureLabel('titlePath', __projectName + ' > ' + __nestedProjectName + ' > ' + __sandboxName + ' > ${featureName}');`));
+        this.indent--;
+        lines.push(this.line('}'));
+
+        // Emit Allure tag labels for each user-defined @tag
+        if (scenario.tags.length > 0) {
+            for (const tagName of scenario.tags) {
+                lines.push(this.line(`await allureTag('${tagName}');`));
+            }
+            lines.push('');
         }
 
         for (const statement of scenario.statements) {
@@ -736,6 +864,17 @@ export class Transpiler {
         lines.push(this.line("await testInfo.attach('evidence-screenshot', { path: screenshotPath, contentType: 'image/png' });"));
         this.indent--;
         lines.push(this.line("});"));
+
+        // Attach trace file if available (for Allure report trace viewer support)
+        lines.push('');
+        lines.push(this.line("// Attach trace file for Allure report"));
+        lines.push(this.line("try {"));
+        this.indent++;
+        lines.push(this.line("const __traceFile = path.join(testInfo.outputDir, 'trace.zip');"));
+        lines.push(this.line("await fsPromises.access(__traceFile);"));
+        lines.push(this.line("await testInfo.attach('trace', { path: __traceFile, contentType: 'application/zip' });"));
+        this.indent--;
+        lines.push(this.line("} catch { /* trace not available */ }"));
 
         this.indent--;
         lines.push(this.line('});'));
@@ -795,6 +934,11 @@ export class Transpiler {
                 return `await test.step('Check ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses, currentPage)}.check(); });`;
             }
 
+            case 'Uncheck': {
+                const targetDesc = this.getTargetDescription(statement.target);
+                return `await test.step('Uncheck ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses, currentPage)}.uncheck(); });`;
+            }
+
             case 'Hover': {
                 const targetDesc = this.getTargetDescription(statement.target);
                 return `await test.step('Hover ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses, currentPage)}.hover(); });`;
@@ -821,19 +965,32 @@ export class Transpiler {
             case 'Refresh':
                 return `await test.step('Refresh page', async () => { await page.reload(); });`;
 
+            case 'SwitchToNewTab': {
+                return this.transpileTabOperation(statement, uses);
+            }
+
+            case 'SwitchToTab': {
+                return this.transpileTabOperation(statement, uses);
+            }
+
+            case 'OpenInNewTab': {
+                return this.transpileTabOperation(statement, uses);
+            }
+
+            case 'CloseTab': {
+                return this.transpileTabOperation(statement, uses);
+            }
+
             case 'TakeScreenshot':
                 if (statement.target) {
-                    // Element screenshot
+                    // Element screenshot — capture and attach to Allure step
                     const locator = this.transpileTarget(statement.target, uses, currentPage);
-                    const opts = statement.filename ? `{ path: '${statement.filename}' }` : '';
-                    const stepName = statement.filename ? `Take screenshot of element as ${statement.filename}` : 'Take screenshot of element';
-                    return `await test.step('${stepName}', async () => { await ${locator}.screenshot(${opts}); });`;
+                    const elemDesc = statement.filename || 'Element screenshot';
+                    return `await test.step('${elemDesc}', async () => { const __ssPath = testInfo.outputPath('screenshot-' + Date.now() + '.png'); await ${locator}.screenshot({ path: __ssPath }); await testInfo.attach('${elemDesc}', { path: __ssPath, contentType: 'image/png' }); });`;
                 } else {
-                    // Full page screenshot
-                    if (statement.filename) {
-                        return `await test.step('Take screenshot as ${statement.filename}', async () => { await page.screenshot({ path: '${statement.filename}' }); });`;
-                    }
-                    return `await test.step('Take screenshot', async () => { await page.screenshot(); });`;
+                    // Full page screenshot — capture and attach to Allure step
+                    const fullDesc = statement.filename || 'Screenshot';
+                    return `await test.step('${fullDesc}', async () => { const __ssPath = testInfo.outputPath('screenshot-' + Date.now() + '.png'); await page.screenshot({ path: __ssPath }); await testInfo.attach('${fullDesc}', { path: __ssPath, contentType: 'image/png' }); });`;
                 }
 
             case 'Log':
@@ -859,6 +1016,9 @@ export class Transpiler {
 
             case 'VerifyHas':
                 return this.transpileVerifyHasStatement(statement, uses, currentPage);
+
+            case 'VerifyScreenshot':
+                return this.transpileVerifyScreenshotStatement(statement, uses, currentPage);
 
             case 'Row':
                 return this.transpileRowStatement(statement);
@@ -1283,6 +1443,88 @@ export class Transpiler {
         }
     }
 
+    private static readonly VERIFY_SCREENSHOT_PRESETS: Record<'STRICT' | 'BALANCED' | 'RELAXED', VerifyScreenshotOptions> = {
+        STRICT: { threshold: 0.1, maxDiffPixels: 0, maxDiffPixelRatio: 0 },
+        BALANCED: { threshold: 0.2 },
+        RELAXED: { threshold: 0.3, maxDiffPixelRatio: 0.01 },
+    };
+
+    private transpileVerifyScreenshotStatement(
+        statement: VerifyScreenshotStatement,
+        uses: string[],
+        currentPage?: string
+    ): string {
+        const targetExpr = statement.target ? this.transpileTarget(statement.target, uses, currentPage) : 'page';
+        const normalizedName = statement.name ? this.normalizeScreenshotName(statement.name) : undefined;
+        const optionsCode = this.transpileVerifyScreenshotOptions(statement.options);
+        const helperArgs = [`${targetExpr}`, 'testInfo'];
+        if (normalizedName) {
+            helperArgs.push(`'${this.escapeString(normalizedName)}'`);
+        } else if (optionsCode) {
+            helperArgs.push('undefined');
+        }
+        if (optionsCode) {
+            helperArgs.push(optionsCode);
+        }
+        const methodCall = `await __veroExpectScreenshot(${helperArgs.join(', ')});`;
+
+        const targetLabel = statement.target ? ` for ${this.getTargetDescription(statement.target)}` : '';
+        const label = normalizedName
+            ? `Verify screenshot ${normalizedName}${targetLabel}`
+            : `Verify screenshot${targetLabel}`;
+
+        return `await test.step('${this.escapeString(label)}', async () => { ${methodCall} });`;
+    }
+
+    private transpileVerifyScreenshotOptions(options?: VerifyScreenshotOptions): string | undefined {
+        if (!options) {
+            return undefined;
+        }
+
+        const preset = options.preset ? Transpiler.VERIFY_SCREENSHOT_PRESETS[options.preset] : undefined;
+        const resolved: VerifyScreenshotOptions = { ...(preset || {}) };
+
+        if (typeof options.threshold === 'number' && Number.isFinite(options.threshold)) {
+            resolved.threshold = options.threshold;
+        }
+
+        if (typeof options.maxDiffPixels === 'number' && Number.isFinite(options.maxDiffPixels)) {
+            resolved.maxDiffPixels = Math.max(0, Math.floor(options.maxDiffPixels));
+        }
+
+        if (typeof options.maxDiffPixelRatio === 'number' && Number.isFinite(options.maxDiffPixelRatio)) {
+            resolved.maxDiffPixelRatio = Math.max(0, Math.min(1, options.maxDiffPixelRatio));
+        }
+
+        const entries: string[] = [];
+        if (typeof resolved.threshold === 'number') {
+            entries.push(`threshold: ${resolved.threshold}`);
+        }
+        if (typeof resolved.maxDiffPixels === 'number') {
+            entries.push(`maxDiffPixels: ${resolved.maxDiffPixels}`);
+        }
+        if (typeof resolved.maxDiffPixelRatio === 'number') {
+            entries.push(`maxDiffPixelRatio: ${resolved.maxDiffPixelRatio}`);
+        }
+
+        if (entries.length === 0) {
+            return undefined;
+        }
+
+        return `{ ${entries.join(', ')} }`;
+    }
+
+    private normalizeScreenshotName(name: string): string {
+        const trimmed = name.trim();
+        if (!trimmed) {
+            return 'screenshot.png';
+        }
+        if (/\.png$/i.test(trimmed)) {
+            return trimmed;
+        }
+        return `${trimmed}.png`;
+    }
+
     private transpileLoadStatement(statement: LoadStatement): string {
         const { variable, tableName, projectName, whereClause } = statement;
 
@@ -1356,9 +1598,10 @@ export class Transpiler {
         if (modifier === 'RANDOM') {
             // RANDOM: filter, then pick random
             if (where) {
+                const filteredVar = this.nextTempVarName('filtered', variableName);
                 const filterCode = this.transpileDataConditionForFilter(where, filterVar);
-                lines.push(`const _filtered = ${tableName}.filter(${filterVar} => ${filterCode});`);
-                lines.push(`const ${rawVar} = _filtered[Math.floor(Math.random() * _filtered.length)];`);
+                lines.push(`const ${filteredVar} = ${tableName}.filter(${filterVar} => ${filterCode});`);
+                lines.push(`const ${rawVar} = ${filteredVar}[Math.floor(Math.random() * ${filteredVar}.length)];`);
             } else {
                 lines.push(`const ${rawVar} = ${tableName}[Math.floor(Math.random() * ${tableName}.length)];`);
             }
@@ -1372,18 +1615,20 @@ export class Transpiler {
             // FIRST/LAST: sort (if orderBy), then pick first/last
             let sortedRef = tableName;
             if (orderBy && orderBy.length > 0) {
+                const sortedVar = this.nextTempVarName('sorted', variableName);
                 const sortCode = this.generateSortCode(orderBy);
-                lines.push(`const _sorted = [...${tableName}].sort(${sortCode});`);
-                sortedRef = '_sorted';
+                lines.push(`const ${sortedVar} = [...${tableName}].sort(${sortCode});`);
+                sortedRef = sortedVar;
             }
 
             if (where) {
+                const filteredVar = this.nextTempVarName('filtered', variableName);
                 const filterCode = this.transpileDataConditionForFilter(where, filterVar);
-                lines.push(`const _filtered = ${sortedRef}.filter(${filterVar} => ${filterCode});`);
+                lines.push(`const ${filteredVar} = ${sortedRef}.filter(${filterVar} => ${filterCode});`);
                 if (modifier === 'FIRST') {
-                    lines.push(`const ${rawVar} = _filtered[0];`);
+                    lines.push(`const ${rawVar} = ${filteredVar}[0];`);
                 } else {
-                    lines.push(`const ${rawVar} = _filtered[_filtered.length - 1];`);
+                    lines.push(`const ${rawVar} = ${filteredVar}[${filteredVar}.length - 1];`);
                 }
             } else {
                 if (modifier === 'FIRST') {
@@ -1409,6 +1654,12 @@ export class Transpiler {
         // Resolve references
         lines.push(`const ${variableName} = ${dataClass}.resolveReferences('${tableRef.tableName}', ${rawVar});`);
         return lines.join('\n' + '  '.repeat(this.indent));
+    }
+
+    private nextTempVarName(prefix: string, variableName: string): string {
+        this.tempVarCounter += 1;
+        const safeVariableName = variableName.replace(/[^A-Za-z0-9_$]/g, '_') || 'temp';
+        return `_${prefix}_${safeVariableName}_${this.tempVarCounter}`;
     }
 
     /**
@@ -1603,203 +1854,18 @@ export class Transpiler {
     }
 
     // ==================== VDQL (Data Query) TRANSPILATION ====================
+    // Delegated to transpilerVdql.ts
+
+    private getVdqlHelpers(): TranspilerHelpers {
+        return {
+            indent: this.indent,
+            line: (content: string) => this.line(content),
+            transpileExpression: (expr: ExpressionNode) => this.transpileExpression(expr),
+        };
+    }
 
     private transpileDataQueryStatement(statement: DataQueryStatement): string {
-        const { resultType, variableName, query } = statement;
-        const tsType = this.getVDQLResultType(resultType);
-        const queryCode = this.transpileDataQuery(query);
-        return `const ${variableName}: ${tsType} = ${queryCode};`;
-    }
-
-    private getVDQLResultType(resultType: DataQueryStatement['resultType']): string {
-        const typeMap: Record<string, string> = {
-            'DATA': 'Record<string, unknown>',
-            'LIST': 'unknown[]',
-            'TEXT': 'string',
-            'NUMBER': 'number',
-            'FLAG': 'boolean'
-        };
-        return typeMap[resultType] || 'unknown';
-    }
-
-    private transpileDataQuery(query: DataQuery): string {
-        if (query.type === 'TableQuery') {
-            return this.transpileTableQuery(query);
-        } else {
-            return this.transpileAggregationQuery(query);
-        }
-    }
-
-    private transpileTableQuery(query: TableQuery): string {
-        const parts: string[] = [];
-
-        // Build the query chain
-        parts.push(`await dataManager.query('${query.tableRef.tableName}')`);
-
-        // Add column selection if specified (single column)
-        if (query.tableRef.column) {
-            parts.push(`.select('${query.tableRef.column}')`);
-        }
-
-        // Add multi-column selection: .(email, name)
-        if (query.columns && query.columns.length > 0) {
-            const columnList = query.columns.map(c => `'${c}'`).join(', ');
-            parts.push(`.select([${columnList}])`);
-        }
-
-        // Add row index access if specified
-        if (query.tableRef.rowIndex !== undefined) {
-            parts.push(`.row(${this.transpileExpression(query.tableRef.rowIndex)})`);
-        }
-
-        // Add row range access: [5..10]
-        if (query.tableRef.rangeStart !== undefined && query.tableRef.rangeEnd !== undefined) {
-            parts.push(`.range(${this.transpileExpression(query.tableRef.rangeStart)}, ${this.transpileExpression(query.tableRef.rangeEnd)})`);
-        }
-
-        // Add cell access if specified
-        if (query.tableRef.cellRow !== undefined && query.tableRef.cellCol !== undefined) {
-            parts.push(`.cell(${this.transpileExpression(query.tableRef.cellRow)}, ${this.transpileExpression(query.tableRef.cellCol)})`);
-        }
-
-        // Add WHERE clause
-        if (query.where) {
-            const whereCode = this.transpileDataCondition(query.where);
-            parts.push(`.where(${whereCode})`);
-        }
-
-        // Add ORDER BY
-        if (query.orderBy && query.orderBy.length > 0) {
-            const orderFields = query.orderBy.map(o =>
-                `{ column: '${o.column}', direction: '${o.direction}' }`
-            ).join(', ');
-            parts.push(`.orderBy([${orderFields}])`);
-        }
-
-        // Add LIMIT
-        if (query.limit !== undefined) {
-            parts.push(`.limit(${query.limit})`);
-        }
-
-        // Add OFFSET
-        if (query.offset !== undefined) {
-            parts.push(`.offset(${query.offset})`);
-        }
-
-        // Add position modifier (first/last/random)
-        if (query.position === 'first') {
-            parts.push('.first()');
-        } else if (query.position === 'last') {
-            parts.push('.last()');
-        } else if (query.position === 'random') {
-            parts.push('.random()');
-        }
-
-        // Add default value
-        if (query.defaultValue) {
-            parts.push(`.default(${this.transpileExpression(query.defaultValue)})`);
-        }
-
-        return parts.join('');
-    }
-
-    private transpileAggregationQuery(query: AggregationQuery): string {
-        const funcMap: Record<string, string> = {
-            'COUNT': 'count',
-            'SUM': 'sum',
-            'AVERAGE': 'average',
-            'MIN': 'min',
-            'MAX': 'max',
-            'DISTINCT': 'distinct',
-            'ROWS': 'rowCount',
-            'COLUMNS': 'columnCount',
-            'HEADERS': 'headers'
-        };
-
-        const funcName = funcMap[query.function] || 'count';
-        const parts: string[] = [];
-
-        parts.push(`await dataManager.query('${query.tableRef.tableName}')`);
-
-        // Add WHERE clause before aggregation
-        if (query.where) {
-            const whereCode = this.transpileDataCondition(query.where);
-            parts.push(`.where(${whereCode})`);
-        }
-
-        // Add aggregation function
-        if (query.column) {
-            parts.push(`.${funcName}('${query.column}')`);
-        } else {
-            parts.push(`.${funcName}()`);
-        }
-
-        // Handle distinct modifier
-        if (query.distinct && query.function === 'COUNT') {
-            // Rewrite for count distinct
-            return `await dataManager.query('${query.tableRef.tableName}')${query.where ? `.where(${this.transpileDataCondition(query.where)})` : ''}.countDistinct('${query.column || '*'}')`;
-        }
-
-        return parts.join('');
-    }
-
-    private transpileDataCondition(condition: DataCondition): string {
-        switch (condition.type) {
-            case 'And':
-                return `and(${this.transpileDataCondition(condition.left)}, ${this.transpileDataCondition(condition.right)})`;
-            case 'Or':
-                return `or(${this.transpileDataCondition(condition.left)}, ${this.transpileDataCondition(condition.right)})`;
-            case 'Not':
-                return `not(${this.transpileDataCondition(condition.condition)})`;
-            case 'Comparison':
-                return this.transpileDataComparison(condition);
-            default:
-                return 'true';
-        }
-    }
-
-    private transpileDataComparison(comparison: DataComparison): string {
-        const { column, operator, value, values } = comparison;
-
-        // Handle null/empty checks
-        if (operator === 'IS_NULL') {
-            return `isNull('${column}')`;
-        }
-        if (operator === 'IS_EMPTY') {
-            return `isEmpty('${column}')`;
-        }
-        if (operator === 'IS_NOT_EMPTY') {
-            return `isNotEmpty('${column}')`;
-        }
-
-        // Handle IN/NOT IN
-        if (operator === 'IN' && values) {
-            const valuesCode = values.map(v => this.transpileExpression(v)).join(', ');
-            return `isIn('${column}', [${valuesCode}])`;
-        }
-        if (operator === 'NOT_IN' && values) {
-            const valuesCode = values.map(v => this.transpileExpression(v)).join(', ');
-            return `notIn('${column}', [${valuesCode}])`;
-        }
-
-        // Handle standard comparisons
-        const valueCode = value ? this.transpileExpression(value) : 'null';
-
-        const opMap: Record<string, string> = {
-            '==': 'eq',
-            '!=': 'neq',
-            '>': 'gt',
-            '<': 'lt',
-            '>=': 'gte',
-            '<=': 'lte',
-            'CONTAINS': 'contains',
-            'STARTS_WITH': 'startsWith',
-            'ENDS_WITH': 'endsWith',
-            'MATCHES': 'matches'
-        };
-
-        const funcName = opMap[operator] || 'eq';
-        return `${funcName}('${column}', ${valueCode})`;
+        return transpileDataQueryStatementFn(statement, this.getVdqlHelpers());
     }
 
     private transpileVerify(
@@ -1884,45 +1950,141 @@ export class Transpiler {
         return false;
     }
 
+    private isTabOperationStatement(
+        statement: StatementNode
+    ): statement is SwitchToNewTabStatement | SwitchToTabStatement | OpenInNewTabStatement | CloseTabStatement {
+        return statement.type === 'SwitchToNewTab'
+            || statement.type === 'SwitchToTab'
+            || statement.type === 'OpenInNewTab'
+            || statement.type === 'CloseTab';
+    }
+
+    private statementsContainTabOperations(statements: StatementNode[]): boolean {
+        for (const statement of statements) {
+            if (this.isTabOperationStatement(statement)) {
+                return true;
+            }
+            if (statement.type === 'ForEach' && this.statementsContainTabOperations(statement.statements)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private hookNeedsContext(hook: HookNode): boolean {
+        if (hook.hookType !== 'BEFORE_EACH' && hook.hookType !== 'AFTER_EACH') {
+            return false;
+        }
+        return this.statementsContainTabOperations(hook.statements);
+    }
+
+    private scenarioNeedsContext(scenario: ScenarioNode): boolean {
+        return this.statementsContainTabOperations(scenario.statements);
+    }
+
+    private formatMultiline(lines: string[]): string {
+        return lines.join('\n' + '  '.repeat(this.indent));
+    }
+
+    // Delegated to transpilerTabs.ts
+    private transpileTabOperation(
+        statement: SwitchToNewTabStatement | SwitchToTabStatement | OpenInNewTabStatement | CloseTabStatement,
+        uses: string[]
+    ): string {
+        const helpers: TabTranspilerHelpers = {
+            transpileExpression: (expr: ExpressionNode) => this.transpileExpression(expr),
+            formatMultiline: (lines: string[]) => this.formatMultiline(lines),
+        };
+        return transpileTabOperationFn(statement, uses, helpers);
+    }
+
     private transpileSelector(selector: SelectorNode): string {
         const v = selector.value.replace(/'/g, "\\'");
 
+        let base: string;
         switch (selector.selectorType) {
             // Role shorthands
-            case 'button':    return `page.getByRole('button', { name: '${v}' })`;
-            case 'textbox':   return `page.getByRole('textbox', { name: '${v}' })`;
-            case 'link':      return `page.getByRole('link', { name: '${v}' })`;
-            case 'checkbox':  return `page.getByRole('checkbox', { name: '${v}' })`;
-            case 'heading':   return `page.getByRole('heading', { name: '${v}' })`;
-            case 'combobox':  return `page.getByRole('combobox', { name: '${v}' })`;
-            case 'radio':     return `page.getByRole('radio', { name: '${v}' })`;
+            case 'button':    base = `page.getByRole('button', { name: '${v}' })`; break;
+            case 'textbox':   base = `page.getByRole('textbox', { name: '${v}' })`; break;
+            case 'link':      base = `page.getByRole('link', { name: '${v}' })`; break;
+            case 'checkbox':  base = `page.getByRole('checkbox', { name: '${v}' })`; break;
+            case 'heading':   base = `page.getByRole('heading', { name: '${v}' })`; break;
+            case 'combobox':  base = `page.getByRole('combobox', { name: '${v}' })`; break;
+            case 'radio':     base = `page.getByRole('radio', { name: '${v}' })`; break;
 
             // Generic role
             case 'role':
                 if (selector.nameParam) {
                     const nameEsc = selector.nameParam.replace(/'/g, "\\'");
-                    return `page.getByRole('${v}', { name: '${nameEsc}' })`;
+                    base = `page.getByRole('${v}', { name: '${nameEsc}', exact: true })`;
+                } else {
+                    base = `page.getByRole('${v}')`;
                 }
-                return `page.getByRole('${v}')`;
+                break;
 
             // Other locator methods
-            case 'label':       return `page.getByLabel('${v}')`;
-            case 'placeholder': return `page.getByPlaceholder('${v}')`;
-            case 'testid':      return `page.getByTestId('${v}')`;
-            case 'text':        return `page.getByText('${v}')`;
-            case 'alt':         return `page.getByAltText('${v}')`;
-            case 'title':       return `page.getByTitle('${v}')`;
+            case 'label':       base = `page.getByLabel('${v}')`; break;
+            case 'placeholder': base = `page.getByPlaceholder('${v}')`; break;
+            case 'testid':      base = `page.getByTestId('${v}')`; break;
+            case 'text':        base = `page.getByText('${v}')`; break;
+            case 'alt':         base = `page.getByAltText('${v}')`; break;
+            case 'title':       base = `page.getByTitle('${v}')`; break;
 
             // Raw CSS/XPath selectors
             case 'css':
             case 'xpath':
-                return `page.locator('${v}')`;
+                base = `page.locator('${v}')`; break;
 
             // Legacy auto-detection
             case 'auto':
             default:
-                return this.transpileAutoSelector(selector.value);
+                base = this.transpileAutoSelector(selector.value); break;
         }
+
+        // Append modifier chains
+        if (selector.modifiers && selector.modifiers.length > 0) {
+            base = this.appendModifiers(base, selector.modifiers);
+        }
+
+        return base;
+    }
+
+    private appendModifiers(base: string, modifiers: SelectorModifier[]): string {
+        let result = base;
+        for (const mod of modifiers) {
+            switch (mod.type) {
+                case 'first':
+                    result += '.first()';
+                    break;
+                case 'last':
+                    result += '.last()';
+                    break;
+                case 'nth':
+                    result += `.nth(${mod.index})`;
+                    break;
+                case 'withText': {
+                    const text = mod.text.replace(/'/g, "\\'");
+                    result += `.filter({ hasText: '${text}' })`;
+                    break;
+                }
+                case 'withoutText': {
+                    const text = mod.text.replace(/'/g, "\\'");
+                    result += `.filter({ hasNotText: '${text}' })`;
+                    break;
+                }
+                case 'has': {
+                    const inner = this.transpileSelector(mod.selector);
+                    result += `.filter({ has: ${inner} })`;
+                    break;
+                }
+                case 'hasNot': {
+                    const inner = this.transpileSelector(mod.selector);
+                    result += `.filter({ hasNot: ${inner} })`;
+                    break;
+                }
+            }
+        }
+        return result;
     }
 
     /**
@@ -2015,198 +2177,49 @@ export class Transpiler {
         return typeMap[veroType.toUpperCase()] || 'unknown';
     }
 
+    // Delegated to transpilerUtils.ts
+
     private camelCase(str: string): string {
-        return str.charAt(0).toLowerCase() + str.slice(1);
+        return camelCase(str);
+    }
+
+    private generatePageObjectReInit(uses: string[]): string[] {
+        return generatePageObjectReInitFn(uses);
     }
 
     private pascalCase(str: string): string {
-        return str.charAt(0).toUpperCase() + str.slice(1);
+        return pascalCase(str);
     }
 
     private inferTypeFromValue(value: string): string {
-        // Infer TypeScript type from transpiled value string
-        if (value.startsWith("'") || value.startsWith('"')) {
-            return 'string';
-        }
-        if (value === 'true' || value === 'false') {
-            return 'boolean';
-        }
-        if (!isNaN(Number(value))) {
-            return 'number';
-        }
-        return 'unknown';
+        return inferTypeFromValue(value);
     }
 
     private line(content: string): string {
         return '  '.repeat(this.indent) + content;
     }
 
-    /**
-     * Convert PascalCase/camelCase identifier to readable test name.
-     * e.g., "LoginWithValidCredentials" → "Login With Valid Credentials"
-     */
     private toReadableTestName(identifier: string): string {
-        return identifier
-            .replace(/([a-z])([A-Z])/g, '$1 $2')  // Insert space before uppercase letters
-            .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')  // Handle acronyms
-            .replace(/_/g, ' ')  // Replace underscores with spaces
-            .trim();
+        return toReadableTestName(identifier);
     }
 
     // ==================== DEBUG MODE ====================
+    // Delegated to transpilerDebug.ts
 
-    /**
-     * Generate the debug helper object that enables line-by-line debugging.
-     * This helper communicates with the parent process via IPC.
-     */
     private generateDebugHelper(): string {
-        return `
-// Debug helper for line-by-line debugging
-const __debug__ = {
-    breakpoints: new Set<number>(process.env.VERO_BREAKPOINTS?.split(',').map(Number).filter(n => !isNaN(n)) || []),
-    currentLine: 0,
-    isPaused: false,
-    stepMode: false,
-
-    async beforeStep(line: number, action: string, target?: string): Promise<void> {
-        this.currentLine = line;
-        // Notify parent process of step start
-        if (process.send) {
-            process.send({ type: 'step:before', line, action, target, timestamp: Date.now() });
-        }
-
-        // Check if we should pause (breakpoint hit or step mode)
-        if (this.breakpoints.has(line) || this.stepMode) {
-            this.isPaused = true;
-            if (process.send) {
-                process.send({ type: 'execution:paused', line, action, target });
-            }
-            await this.waitForResume();
-        }
-    },
-
-    async afterStep(line: number, action: string, success: boolean = true, duration?: number): Promise<void> {
-        // Notify parent process of step completion
-        if (process.send) {
-            process.send({ type: 'step:after', line, action, success, duration, timestamp: Date.now() });
-        }
-    },
-
-    async waitForResume(): Promise<void> {
-        return new Promise<void>((resolve) => {
-            const handler = (msg: any) => {
-                if (msg.type === 'resume') {
-                    this.isPaused = false;
-                    this.stepMode = false;
-                    process.removeListener('message', handler);
-                    resolve();
-                } else if (msg.type === 'step') {
-                    this.stepMode = true;
-                    this.isPaused = false;
-                    process.removeListener('message', handler);
-                    resolve();
-                } else if (msg.type === 'stop') {
-                    process.exit(0);
-                } else if (msg.type === 'set-breakpoints') {
-                    this.breakpoints = new Set(msg.lines || []);
-                }
-            };
-            process.on('message', handler);
-        });
-    },
-
-    logVariable(name: string, value: unknown): void {
-        if (process.send) {
-            process.send({
-                type: 'variable',
-                name,
-                value: JSON.stringify(value),
-                valueType: typeof value
-            });
-        }
-    }
-};
-`;
+        return generateDebugHelperFn();
     }
 
-    /**
-     * Wrap a statement with debug markers for line-by-line debugging.
-     * Returns the original statement if debug mode is disabled.
-     */
     private wrapWithDebug(statement: StatementNode, code: string): string {
-        if (!this.options.debugMode) {
-            return code;
-        }
-
-        const line = statement.line;
-        const action = statement.type;
-        const target = this.getStatementTarget(statement);
-        const targetStr = target ? `, '${this.escapeString(target)}'` : '';
-
-        const lines: string[] = [];
-        lines.push(`const __start_${line}__ = Date.now();`);
-        lines.push(`await __debug__.beforeStep(${line}, '${action}'${targetStr});`);
-        lines.push(`try {`);
-        lines.push(`  ${code}`);
-        lines.push(`  await __debug__.afterStep(${line}, '${action}', true, Date.now() - __start_${line}__);`);
-        lines.push(`} catch (e) {`);
-        lines.push(`  await __debug__.afterStep(${line}, '${action}', false, Date.now() - __start_${line}__);`);
-        lines.push(`  throw e;`);
-        lines.push(`}`);
-
-        return lines.join('\n' + '  '.repeat(this.indent));
+        return wrapWithDebugFn(statement, code, this.options, this.indent, getStatementTargetFn);
     }
 
-    /**
-     * Extract target information from a statement for debug logging.
-     */
     private getStatementTarget(statement: StatementNode): string | undefined {
-        switch (statement.type) {
-            case 'Click':
-            case 'RightClick':
-            case 'DoubleClick':
-            case 'ForceClick':
-            case 'Fill':
-            case 'Check':
-            case 'Hover':
-            case 'Upload':
-            case 'VerifyHas':
-                if ('target' in statement && statement.target) {
-                    const t = statement.target as TargetNode;
-                    return t.text || t.field || (t.selector?.value) || undefined;
-                }
-                return undefined;
-            case 'Drag':
-                if ('source' in statement && statement.source) {
-                    const t = statement.source as TargetNode;
-                    return t.text || t.field || (t.selector?.value) || undefined;
-                }
-                return undefined;
-            case 'Open':
-                if ('url' in statement) {
-                    const url = statement.url as ExpressionNode;
-                    return url.type === 'StringLiteral' ? url.value : undefined;
-                }
-                return undefined;
-            case 'Press':
-                return (statement as any).key;
-            case 'VerifyUrl':
-            case 'VerifyTitle':
-                if ('value' in statement) {
-                    const val = (statement as any).value as ExpressionNode;
-                    return val.type === 'StringLiteral' ? val.value : undefined;
-                }
-                return undefined;
-            default:
-                return undefined;
-        }
+        return getStatementTargetFn(statement);
     }
 
-    /**
-     * Escape a string for use in generated code.
-     */
     private escapeString(str: string): string {
-        return str.replace(/'/g, "\\'").replace(/\n/g, '\\n');
+        return escapeString(str);
     }
 }
 

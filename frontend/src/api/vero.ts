@@ -65,6 +65,23 @@ export interface VeroRenameResponse {
 export interface VeroRunConfig {
   browserMode?: 'headless' | 'headed';
   workers?: number;
+  retries?: number;
+  timeout?: number;
+  grep?: string;
+  grepInvert?: string;
+  lastFailed?: boolean;
+  tagExpression?: string;
+  selectionScope?: 'active-file' | 'current-sandbox';
+  namePatterns?: string[];
+  tags?: string[];
+  tagMode?: 'any' | 'all';
+  excludeTags?: string[];
+  visualPreset?: 'strict' | 'balanced' | 'relaxed' | 'custom';
+  visualThreshold?: number;
+  visualMaxDiffPixels?: number;
+  visualMaxDiffPixelRatio?: number;
+  visualUpdateSnapshots?: boolean;
+  updateSnapshotsMode?: 'all' | 'changed' | 'missing';
 }
 
 export interface VeroRunScenario {
@@ -87,10 +104,76 @@ export interface VeroRunResponse {
   status: string;
   output: string;
   error?: string;
+  errors?: Array<{
+    line?: number;
+    message?: string;
+    suggestion?: string;
+    code?: string;
+  }>;
+  errorCode?: string;
+  diagnostics?: {
+    phase: 'startup' | 'test' | 'selection';
+    tempSpecPath?: string;
+    configPath?: string;
+    stderrSnippet?: string;
+    preservedSpecPath?: string;
+    selection?: {
+      scenarioNames?: string[];
+      namePatterns?: string[];
+      tagExpression?: string;
+    };
+    selectionSummary?: {
+      selectionScope?: 'active-file' | 'current-sandbox';
+      scannedFileCount?: number;
+      selectedFileCount?: number;
+      totalScenarios?: number;
+      selectedScenarios?: number;
+    };
+    detail?: string;
+  };
+  selection?: {
+    totalScenarios: number;
+    selectedScenarios: number;
+    selectedFeatures: number;
+    hasFilters: boolean;
+    filters: {
+      scenarioNames: string[];
+      namePatterns: string[];
+      tagExpression?: string;
+    };
+  };
+  selectionSummary?: {
+    selectionScope: 'active-file' | 'current-sandbox';
+    selectedFileCount: number;
+    selectedScenarioCount: number;
+    parameterCombinationCount: number;
+    plannedTestInvocations: number;
+    selectedFiles: Array<{
+      filePath: string;
+      selectedScenarioCount: number;
+    }>;
+  };
+  executionSummary?: {
+    workers: number;
+    shard?: { current: number; total: number };
+    selectedFileCount: number;
+    selectedScenarioCount: number;
+    parameterCombinationCount: number;
+    plannedTestInvocations: number;
+  };
   generatedCode?: string;
   executionId?: string;
   scenarios?: VeroRunScenario[];
   summary?: { passed: number; failed: number; skipped: number };
+  isMatrix?: boolean;
+  matrixChildren?: Array<{
+    executionId: string;
+    label: string;
+    status: string;
+    passedCount: number;
+    failedCount: number;
+    skippedCount: number;
+  }>;
 }
 
 export interface VeroValidationError {
@@ -114,17 +197,40 @@ export interface VeroValidationResponse {
 }
 
 export interface ScenarioMeta {
+  id?: string;
   name: string;
   tags: string[];
   line: number;
   featureName: string;
   filePath: string;
+  projectId?: string;
+  projectName?: string;
 }
 
 export interface FeatureWithScenarios {
   name: string;
   filePath: string;
+  projectId?: string;
+  projectName?: string;
   scenarios: ScenarioMeta[];
+}
+
+export interface ScenarioProjectFacet {
+  id: string;
+  name: string;
+  scenarioCount: number;
+}
+
+export interface ScenarioFolderFacet {
+  path: string;
+  name: string;
+  scenarioCount: number;
+}
+
+export interface ScenarioFacets {
+  tags: { name: string; count: number }[];
+  projects: ScenarioProjectFacet[];
+  folders: ScenarioFolderFacet[];
 }
 
 export interface ScenarioIndex {
@@ -132,6 +238,18 @@ export interface ScenarioIndex {
   totalFeatures: number;
   tags: { name: string; count: number }[];
   features: FeatureWithScenarios[];
+  facets?: ScenarioFacets;
+}
+
+export interface ScenarioQueryOptions {
+  applicationId?: string;
+  projectId?: string;
+  folder?: string;
+  search?: string;
+  tags?: string[];
+  excludeTags?: string[];
+  tagMode?: 'any' | 'all';
+  veroPath?: string;
 }
 
 export const veroApi = {
@@ -178,6 +296,20 @@ export const veroApi = {
   },
 
   /**
+   * Delete file
+   */
+  async deleteFile(filePath: string, projectId?: string, veroPath?: string): Promise<void> {
+    const encodedPath = filePath.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+    let url = `/vero/files/${encodedPath}`;
+    const params: string[] = [];
+    if (projectId) params.push(`projectId=${encodeURIComponent(projectId)}`);
+    if (veroPath) params.push(`veroPath=${encodeURIComponent(veroPath)}`);
+    if (params.length > 0) url += '?' + params.join('&');
+
+    await request<VeroSaveResponse>(url, { method: 'DELETE' });
+  },
+
+  /**
    * Rename file
    */
   async renameFile(oldPath: string, newPath: string): Promise<string> {
@@ -201,6 +333,7 @@ export const veroApi = {
       content?: string;
       config?: VeroRunConfig;
       scenarioName?: string;
+      projectId?: string;
     }
   ): Promise<VeroRunResponse> {
     return request<VeroRunResponse>('/vero/run', {
@@ -246,12 +379,32 @@ export const veroApi = {
   /**
    * Get all scenarios with tags for dashboard
    */
-  async getScenarios(projectId?: string, veroPath?: string): Promise<ScenarioIndex> {
+  async getScenarios(optionsOrProjectId?: ScenarioQueryOptions | string, legacyVeroPath?: string): Promise<ScenarioIndex> {
+    const options: ScenarioQueryOptions =
+      typeof optionsOrProjectId === 'string' || optionsOrProjectId === undefined
+        ? { projectId: optionsOrProjectId, veroPath: legacyVeroPath }
+        : optionsOrProjectId;
+
     let url = '/vero/scenarios';
-    const params: string[] = [];
-    if (projectId) params.push(`projectId=${encodeURIComponent(projectId)}`);
-    if (veroPath) params.push(`veroPath=${encodeURIComponent(veroPath)}`);
-    if (params.length > 0) url += '?' + params.join('&');
+    const params = new URLSearchParams();
+
+    if (options.applicationId) params.set('applicationId', options.applicationId);
+    if (options.projectId) params.set('projectId', options.projectId);
+    if (options.folder) params.set('folder', options.folder);
+    if (options.search) params.set('search', options.search);
+    if (options.tagMode) params.set('tagMode', options.tagMode);
+    if (options.veroPath) params.set('veroPath', options.veroPath);
+    if (options.tags && options.tags.length > 0) {
+      params.set('tags', options.tags.join(','));
+    }
+    if (options.excludeTags && options.excludeTags.length > 0) {
+      params.set('excludeTags', options.excludeTags.join(','));
+    }
+
+    const query = params.toString();
+    if (query) {
+      url += `?${query}`;
+    }
 
     const response = await request<{ success: boolean; data: ScenarioIndex }>(url);
     return response.data;

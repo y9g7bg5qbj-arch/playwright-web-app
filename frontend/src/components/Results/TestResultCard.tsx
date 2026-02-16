@@ -47,22 +47,22 @@ export interface TestResultCardProps {
 const getStatusIcon = (status: TestResult['status']) => {
   switch (status) {
     case 'passed':
-      return <CheckCircle2 className="w-4 h-4 text-green-400" />;
+      return <CheckCircle2 className="w-4 h-4 text-status-success" />;
     case 'failed':
-      return <XCircle className="w-4 h-4 text-red-400" />;
+      return <XCircle className="w-4 h-4 text-status-danger" />;
     case 'skipped':
-      return <SkipForward className="w-4 h-4 text-slate-400" />;
+      return <SkipForward className="w-4 h-4 text-text-secondary" />;
     default:
-      return <Clock className="w-4 h-4 text-blue-400 animate-pulse" />;
+      return <Clock className="w-4 h-4 text-status-info animate-pulse" />;
   }
 };
 
 const getStatusColor = (status: TestResult['status']): string => {
   switch (status) {
-    case 'passed': return 'bg-green-500/10 border-green-500/30';
-    case 'failed': return 'bg-red-500/10 border-red-500/30';
-    case 'skipped': return 'bg-slate-500/10 border-slate-500/30';
-    default: return 'bg-blue-500/10 border-blue-500/30';
+    case 'passed': return 'bg-status-success/10 border-status-success/30';
+    case 'failed': return 'bg-status-danger/10 border-status-danger/30';
+    case 'skipped': return 'bg-text-secondary/10 border-text-secondary/30';
+    default: return 'bg-status-info/10 border-status-info/30';
   }
 };
 
@@ -88,12 +88,12 @@ export const TestResultCard: React.FC<TestResultCardProps> = ({
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-2 min-w-0">
           {getStatusIcon(result.status)}
-          <span className="font-medium text-sm text-slate-200 truncate" title={result.name}>
+          <span className="font-medium text-sm text-text-primary truncate" title={result.name}>
             {result.name}
           </span>
         </div>
         {result.isFlaky && (
-          <span className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 text-[10px] font-medium rounded">
+          <span className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 bg-status-warning/20 text-status-warning text-3xs font-medium rounded">
             <AlertTriangle className="w-3 h-3" />
             Flaky
           </span>
@@ -101,17 +101,17 @@ export const TestResultCard: React.FC<TestResultCardProps> = ({
       </div>
 
       {/* Metadata */}
-      <div className="flex items-center gap-3 text-xs text-slate-500 mb-2">
+      <div className="flex items-center gap-3 text-xs text-text-secondary mb-2">
         <span className="flex items-center gap-1">
           <Clock className="w-3 h-3" />
           {formatDuration(result.duration)}
         </span>
-        <span className="text-slate-600">{result.browser}</span>
+        <span className="text-text-muted">{result.browser}</span>
         {result.worker !== undefined && (
-          <span className="text-slate-600">Worker {result.worker}</span>
+          <span className="text-text-muted">Worker {result.worker}</span>
         )}
         {result.retries !== undefined && result.retries > 0 && (
-          <span className="text-orange-400/80">
+          <span className="text-status-warning/80">
             {result.retries} {result.retries === 1 ? 'retry' : 'retries'}
           </span>
         )}
@@ -119,8 +119,8 @@ export const TestResultCard: React.FC<TestResultCardProps> = ({
 
       {/* Error preview */}
       {result.error && (
-        <div className="mt-2 p-2 bg-red-900/20 border border-red-900/30 rounded text-xs">
-          <p className="text-red-400 font-mono line-clamp-2" title={result.error.message}>
+        <div className="mt-2 p-2 bg-status-danger/20 border border-status-danger/30 rounded text-xs">
+          <p className="text-status-danger font-mono line-clamp-2" title={result.error.message}>
             {result.error.message}
           </p>
         </div>
@@ -128,11 +128,11 @@ export const TestResultCard: React.FC<TestResultCardProps> = ({
 
       {/* Artifacts */}
       {hasArtifacts && (
-        <div className="mt-3 flex items-center gap-2 pt-2 border-t border-slate-700/50">
+        <div className="mt-3 flex items-center gap-2 pt-2 border-t border-border-default/50">
           {result.traceUrl && (
             <button
               onClick={() => onViewTrace?.(result.id, result.traceUrl!)}
-              className="flex items-center gap-1 px-2 py-1 bg-slate-800/50 hover:bg-slate-700/50 text-slate-400 hover:text-blue-400 rounded text-xs transition-colors"
+              className="flex items-center gap-1 px-2 py-1 bg-dark-card/50 hover:bg-dark-elevated/50 text-text-secondary hover:text-status-info rounded text-xs transition-colors"
               title="View trace"
             >
               <Eye className="w-3 h-3" />
@@ -142,7 +142,7 @@ export const TestResultCard: React.FC<TestResultCardProps> = ({
           {result.videoUrl && (
             <button
               onClick={() => onViewVideo?.(result.id, result.videoUrl!)}
-              className="flex items-center gap-1 px-2 py-1 bg-slate-800/50 hover:bg-slate-700/50 text-slate-400 hover:text-green-400 rounded text-xs transition-colors"
+              className="flex items-center gap-1 px-2 py-1 bg-dark-card/50 hover:bg-dark-elevated/50 text-text-secondary hover:text-status-success rounded text-xs transition-colors"
               title="View video"
             >
               <Play className="w-3 h-3" />
@@ -152,7 +152,7 @@ export const TestResultCard: React.FC<TestResultCardProps> = ({
           {result.screenshotUrl && (
             <button
               onClick={() => onViewScreenshot?.(result.id, result.screenshotUrl!)}
-              className="flex items-center gap-1 px-2 py-1 bg-slate-800/50 hover:bg-slate-700/50 text-slate-400 hover:text-purple-400 rounded text-xs transition-colors"
+              className="flex items-center gap-1 px-2 py-1 bg-dark-card/50 hover:bg-dark-elevated/50 text-text-secondary hover:text-accent-purple rounded text-xs transition-colors"
               title="View screenshot"
             >
               <Image className="w-3 h-3" />

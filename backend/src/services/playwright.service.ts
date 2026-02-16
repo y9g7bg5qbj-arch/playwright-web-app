@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { EventEmitter } from 'events';
 import { logger } from '../utils/logger';
-import { config } from '../config';
+import { stripVeroSpecPrefix } from '../routes/veroRunExecution.utils';
 
 /**
  * Debug session state
@@ -167,7 +167,6 @@ export class PlaywrightService extends EventEmitter {
       const process = spawn('npx', args, {
         cwd: STORAGE_PATH,
         stdio: ['ignore', 'pipe', 'pipe'],
-        shell: true,
       });
 
       this.activeProcesses.set(executionId, process);
@@ -385,7 +384,7 @@ export default defineConfig({
   /**
    * Inject tracing and screenshot capture into test code
    */
-  private injectTracingAndScreenshots(code: string, screenshotsDir: string, traceDir: string): string {
+  private injectTracingAndScreenshots(code: string, screenshotsDir: string, _traceDir: string): string {
     // First inject screenshots
     const withScreenshots = injectScreenshots(code, screenshotsDir);
     return withScreenshots;
@@ -507,7 +506,8 @@ export default defineConfig({
 
       // Process suites recursively
       const processSuite = (suite: any, parentName?: string) => {
-        const suiteName = parentName ? `${parentName} > ${suite.title}` : suite.title;
+        const cleanTitle = stripVeroSpecPrefix(suite.title);
+        const suiteName = parentName ? `${parentName} > ${cleanTitle}` : cleanTitle;
 
         // Process specs/tests in this suite
         for (const spec of suite.specs || []) {
@@ -587,7 +587,8 @@ export default defineConfig({
     breakpoints: number[],
     onDebugEvent: (event: DebugEvent) => void,
     onLog: (message: string, level: 'info' | 'warn' | 'error') => void,
-    onComplete: (exitCode: number, duration: number) => void
+    onComplete: (exitCode: number, duration: number) => void,
+    options?: { projectId?: string; authToken?: string }
   ): Promise<void> {
     const startTime = Date.now();
 
@@ -635,11 +636,12 @@ const { spawn } = require('child_process');
 const child = spawn('npx', ['playwright', 'test', 'test.spec.ts', '--headed'], {
   cwd: '${storageDir.replace(/\\/g, '/')}',
   stdio: ['inherit', 'pipe', 'pipe'],
-  shell: true,
   env: {
     ...process.env,
     VERO_DEBUG: 'true',
-    VERO_BREAKPOINTS: '${breakpoints.join(',')}'
+    VERO_BREAKPOINTS: '${breakpoints.join(',')}',
+    ${options?.projectId ? `VERO_PROJECT_ID: '${options.projectId.replace(/'/g, "\\'")}',` : ''}
+    ${options?.authToken ? `VERO_AUTH_TOKEN: '${options.authToken.replace(/'/g, "\\'")}',` : ''}
   }
 });
 

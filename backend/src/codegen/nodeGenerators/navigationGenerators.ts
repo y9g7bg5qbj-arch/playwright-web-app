@@ -39,7 +39,7 @@ export class NavigateGenerator implements NodeGenerator {
  * → await page.goBack({ waitUntil: 'load' });
  */
 export class GoBackGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { waitUntil, timeout } = node.data;
         const opts: string[] = [];
 
@@ -61,7 +61,7 @@ export class GoBackGenerator implements NodeGenerator {
  * → await page.goForward({ waitUntil: 'load' });
  */
 export class GoForwardGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { waitUntil, timeout } = node.data;
         const opts: string[] = [];
 
@@ -83,7 +83,7 @@ export class GoForwardGenerator implements NodeGenerator {
  * → await page.reload({ waitUntil: 'load' });
  */
 export class ReloadGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { waitUntil, timeout } = node.data;
         const opts: string[] = [];
 
@@ -127,7 +127,7 @@ export class NewPageGenerator implements NodeGenerator {
  * → await page.close();
  */
 export class ClosePageGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(_node: FlowNode, _ctx: GeneratorContext): string[] {
         return ['await page.close();'];
     }
 }
@@ -136,9 +136,12 @@ export class ClosePageGenerator implements NodeGenerator {
  * Switch Tab
  * { type: "switch-tab", data: { tabIndex: 1 } }
  * → page = context.pages()[1];
+ *
+ * NOTE: This generator is for visual-flow codegen, not Vero DSL transpilation.
+ * Canonical Vero tab semantics live in vero-lang transpiler/validator.
  */
 export class SwitchTabGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { tabIndex } = node.data;
         return [`page = context.pages()[${tabIndex || 0}];`];
     }
@@ -151,9 +154,12 @@ export class SwitchTabGenerator implements NodeGenerator {
  *     context.waitForEvent('page'),
  *     // trigger action that opens new tab (previous node should handle this)
  *   ]);
+ *
+ * NOTE: This generator is for visual-flow codegen, not Vero DSL transpilation.
+ * Canonical Vero tab semantics live in vero-lang transpiler/validator.
  */
 export class WaitForNewTabGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { switchToNewTab, waitForLoad } = node.data;
         const lines: string[] = [];
 
@@ -177,7 +183,7 @@ export class WaitForNewTabGenerator implements NodeGenerator {
  * → const frame = page.frameLocator('iframe#myFrame');
  */
 export class SwitchFrameGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { selector, frameName } = node.data;
 
         if (frameName) {
@@ -194,7 +200,7 @@ export class SwitchFrameGenerator implements NodeGenerator {
  * → // Switch back to main frame (use page directly)
  */
 export class SwitchMainFrameGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(_node: FlowNode, _ctx: GeneratorContext): string[] {
         return ['// Switched back to main frame - use page directly'];
     }
 }

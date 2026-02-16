@@ -125,6 +125,12 @@ export class SemanticValidator {
                 findSimilar(pa.forPage, [...this.symbols.pages.keys()]),
             );
         }
+
+        for (const action of pa.actions) {
+            for (const stmt of action.statements) {
+                this.validatePageActionsStatement(stmt);
+            }
+        }
     }
 
     /**
@@ -162,7 +168,7 @@ export class SemanticValidator {
 
         for (const hook of feature.hooks) {
             for (const stmt of hook.statements) {
-                this.validateStatement(stmt, usedPages, usedPageActions);
+                this.validateStatement(stmt, usedPages, usedPageActions, hook.hookType);
             }
         }
     }
@@ -176,7 +182,7 @@ export class SemanticValidator {
         usedPageActions: Set<string>
     ): void {
         for (const stmt of scenario.statements) {
-            this.validateStatement(stmt, usedPages, usedPageActions);
+            this.validateStatement(stmt, usedPages, usedPageActions, 'SCENARIO');
         }
     }
 
@@ -186,8 +192,21 @@ export class SemanticValidator {
     private validateStatement(
         stmt: StatementNode,
         usedPages: Set<string>,
-        usedPageActions: Set<string>
+        usedPageActions: Set<string>,
+        scope: 'SCENARIO' | 'BEFORE_ALL' | 'BEFORE_EACH' | 'AFTER_ALL' | 'AFTER_EACH'
     ): void {
+        if (this.isTabStatement(stmt)) {
+            if (scope === 'BEFORE_ALL' || scope === 'AFTER_ALL') {
+                this.addError(
+                    VeroErrorCode.INVALID_TAB_CONTEXT,
+                    `Tab operation '${this.getTabStatementName(stmt)}' is not allowed in ${scope.replace('_', ' ')} hooks.`,
+                    stmt.line,
+                    this.getTabStatementName(stmt).length,
+                    'error',
+                );
+            }
+        }
+
         const target = this.extractTarget(stmt);
         if (target) {
             this.validateTarget(target, usedPages, stmt);
@@ -202,8 +221,48 @@ export class SemanticValidator {
 
         if (stmt.type === 'ForEach') {
             for (const bodyStmt of (stmt as ForEachStatement).statements) {
-                this.validateStatement(bodyStmt, usedPages, usedPageActions);
+                this.validateStatement(bodyStmt, usedPages, usedPageActions, scope);
             }
+        }
+    }
+
+    private validatePageActionsStatement(stmt: StatementNode): void {
+        if (this.isTabStatement(stmt)) {
+            this.addError(
+                VeroErrorCode.INVALID_TAB_CONTEXT,
+                `Tab operation '${this.getTabStatementName(stmt)}' is not allowed in PAGEACTIONS.`,
+                stmt.line,
+                this.getTabStatementName(stmt).length,
+                'error',
+            );
+        }
+
+        if (stmt.type === 'ForEach') {
+            for (const nested of stmt.statements) {
+                this.validatePageActionsStatement(nested);
+            }
+        }
+    }
+
+    private isTabStatement(stmt: StatementNode): boolean {
+        return stmt.type === 'SwitchToNewTab'
+            || stmt.type === 'SwitchToTab'
+            || stmt.type === 'OpenInNewTab'
+            || stmt.type === 'CloseTab';
+    }
+
+    private getTabStatementName(stmt: StatementNode): string {
+        switch (stmt.type) {
+            case 'SwitchToNewTab':
+                return 'SWITCH TO NEW TAB';
+            case 'SwitchToTab':
+                return 'SWITCH TO TAB';
+            case 'OpenInNewTab':
+                return 'OPEN IN NEW TAB';
+            case 'CloseTab':
+                return 'CLOSE TAB';
+            default:
+                return stmt.type;
         }
     }
 

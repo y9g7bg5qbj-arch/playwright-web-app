@@ -375,6 +375,10 @@ actionStatement
     | screenshotAction
     | logAction
     | uploadAction
+    | switchToNewTabAction
+    | switchToTabAction
+    | openInNewTabAction
+    | closeTabAction
     ;
 
 // click element
@@ -387,9 +391,10 @@ fillAction
     : FILL selectorExpression WITH expression
     ;
 
-// open "url"
+// open "url" | open "url" in new tab
 openAction
     : OPEN expression
+    | OPEN expression IN NEW TAB
     ;
 
 // check element
@@ -463,6 +468,26 @@ uploadAction
 
 fileList
     : expression (COMMA expression)*
+    ;
+
+// switch to new tab "url"
+switchToNewTabAction
+    : SWITCH TO NEW TAB expression?
+    ;
+
+// switch to tab N (1-based index)
+switchToTabAction
+    : SWITCH TO TAB expression
+    ;
+
+// open "url" in new tab
+openInNewTabAction
+    : OPEN expression IN NEW TAB
+    ;
+
+// close tab
+closeTabAction
+    : CLOSE TAB
     ;
 
 // ==================== ASSERTIONS ====================
@@ -836,6 +861,10 @@ TAKE        : T A K E ;
 SCREENSHOT  : S C R E E N S H O T ;
 LOG         : L O G ;
 UPLOAD      : U P L O A D ;
+SWITCH      : S W I T C H ;
+NEW         : N E W ;
+TAB         : T A B ;
+CLOSE       : C L O S E ;
 FOR         : F O R ;
 
 // Assertions

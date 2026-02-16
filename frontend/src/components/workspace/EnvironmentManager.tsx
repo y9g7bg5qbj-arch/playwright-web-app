@@ -8,6 +8,7 @@
 import { useState, useEffect } from 'react';
 import { useEnvironmentStore } from '@/store/environmentStore';
 import type { EnvVariable } from '@/api/environments';
+import { IconButton, PanelHeader, EmptyState, Modal, Button } from '@/components/ui';
 
 export function EnvironmentManager() {
   const {
@@ -159,39 +160,22 @@ export function EnvironmentManager() {
     });
   };
 
-  if (!isManagerOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={() => setManagerOpen(false)}
-      />
-
-      {/* Modal */}
-      <div className="relative w-full max-w-4xl max-h-[85vh] bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#30363d]">
-          <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-[24px] text-[#58a6ff]">
-              settings_applications
-            </span>
-            <h2 className="text-lg font-semibold text-white">Manage Environments</h2>
-          </div>
-          <button
-            onClick={() => setManagerOpen(false)}
-            className="p-2 rounded-md hover:bg-[#21262d] text-[#8b949e] hover:text-white transition-colors"
-          >
-            <span className="material-symbols-outlined">close</span>
-          </button>
-        </div>
-
+    <Modal
+      isOpen={isManagerOpen}
+      onClose={() => setManagerOpen(false)}
+      title="Manage Environments"
+      size="full"
+      bodyClassName="max-h-[75vh]"
+      footer={
+        <Button variant="secondary" onClick={() => setManagerOpen(false)}>Close</Button>
+      }
+    >
         {/* Error Banner */}
         {error && (
-          <div className="mx-6 mt-4 px-4 py-3 bg-[#da3633]/10 border border-[#da3633]/30 rounded-md">
-            <div className="flex items-center gap-2 text-[#f85149]">
-              <span className="material-symbols-outlined text-[18px]">error</span>
+          <div className="mx-6 mt-4 px-4 py-3 bg-status-danger/10 border border-status-danger/30 rounded-md">
+            <div className="flex items-center gap-2 text-status-danger">
+              <span className="material-symbols-outlined text-xl">error</span>
               <span className="text-sm">{error}</span>
             </div>
           </div>
@@ -200,20 +184,20 @@ export function EnvironmentManager() {
         {/* Content */}
         <div className="flex flex-1 min-h-0">
           {/* Left Panel - Environment List */}
-          <div className="w-64 border-r border-[#30363d] flex flex-col">
+          <div className="w-64 border-r border-border-default flex flex-col">
             {/* Environment List Header */}
-            <div className="px-4 py-3 border-b border-[#30363d] flex items-center justify-between">
-              <span className="text-xs font-medium text-[#8b949e] uppercase tracking-wider">
-                Environments
-              </span>
-              <button
-                onClick={() => setIsCreatingEnv(true)}
-                className="p-1 rounded hover:bg-[#21262d] text-[#8b949e] hover:text-white transition-colors"
-                title="New Environment"
-              >
-                <span className="material-symbols-outlined text-[18px]">add</span>
-              </button>
-            </div>
+            <PanelHeader
+              title="Environments"
+              actions={
+                <IconButton
+                  icon={<span className="material-symbols-outlined text-xl">add</span>}
+                  size="sm"
+                  tooltip="New Environment"
+                  onClick={() => setIsCreatingEnv(true)}
+                />
+              }
+              className="h-auto px-4 py-3"
+            />
 
             {/* Environment List */}
             <div className="flex-1 overflow-y-auto py-2">
@@ -232,14 +216,14 @@ export function EnvironmentManager() {
                       }
                     }}
                     placeholder="Environment name..."
-                    className="w-full px-3 py-2 text-sm bg-[#0d1117] border border-[#30363d] rounded-md text-white placeholder-[#6e7681] focus:outline-none focus:border-[#58a6ff]"
+                    className="w-full px-3 py-2 text-sm bg-dark-canvas border border-border-default rounded-md text-white placeholder-text-muted focus:outline-none focus:border-brand-secondary"
                     autoFocus
                   />
                   <div className="flex gap-2 mt-2">
                     <button
                       onClick={handleCreateEnvironment}
                       disabled={!newEnvName.trim()}
-                      className="flex-1 px-3 py-1.5 text-xs bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md transition-colors"
+                      className="flex-1 px-3 py-1.5 text-xs bg-status-success hover:bg-status-success/90 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md transition-colors"
                     >
                       Create
                     </button>
@@ -248,7 +232,7 @@ export function EnvironmentManager() {
                         setIsCreatingEnv(false);
                         setNewEnvName('');
                       }}
-                      className="flex-1 px-3 py-1.5 text-xs bg-[#21262d] hover:bg-[#30363d] text-white rounded-md transition-colors"
+                      className="flex-1 px-3 py-1.5 text-xs bg-dark-elevated hover:bg-border-default text-white rounded-md transition-colors"
                     >
                       Cancel
                     </button>
@@ -262,8 +246,8 @@ export function EnvironmentManager() {
                   key={env.id}
                   className={`group relative px-3 py-2 cursor-pointer transition-colors ${
                     selectedEnvId === env.id
-                      ? 'bg-[#21262d]'
-                      : 'hover:bg-[#21262d]/50'
+                      ? 'bg-dark-elevated'
+                      : 'hover:bg-dark-elevated/50'
                   }`}
                   onClick={() => setSelectedEnvId(env.id)}
                 >
@@ -277,7 +261,7 @@ export function EnvironmentManager() {
                         if (e.key === 'Escape') setEditingEnvName(null);
                       }}
                       onBlur={() => handleRenameEnvironment(env.id)}
-                      className="w-full px-2 py-1 text-sm bg-[#0d1117] border border-[#58a6ff] rounded text-white focus:outline-none"
+                      className="w-full px-2 py-1 text-sm bg-dark-canvas border border-brand-secondary rounded text-white focus:outline-none"
                       autoFocus
                       onClick={(e) => e.stopPropagation()}
                     />
@@ -286,7 +270,7 @@ export function EnvironmentManager() {
                       {/* Active indicator */}
                       <span className="w-2 h-2 rounded-full shrink-0">
                         {env.isActive && (
-                          <span className="block w-2 h-2 rounded-full bg-[#238636]" />
+                          <span className="block w-2 h-2 rounded-full bg-status-success" />
                         )}
                       </span>
 
@@ -296,51 +280,47 @@ export function EnvironmentManager() {
                       </span>
 
                       {/* Variable count */}
-                      <span className="text-xs text-[#6e7681]">
+                      <span className="text-xs text-text-muted">
                         {env.variables.length}
                       </span>
 
                       {/* Actions (visible on hover) */}
                       <div className="hidden group-hover:flex items-center gap-1">
                         {!env.isActive && (
-                          <button
+                          <IconButton
+                            icon={<span className="material-symbols-outlined text-base">check_circle</span>}
+                            size="sm"
+                            tone="success"
+                            tooltip="Set as Active"
                             onClick={(e) => {
                               e.stopPropagation();
                               activateEnvironment(env.id);
                             }}
-                            className="p-1 rounded hover:bg-[#30363d] text-[#8b949e] hover:text-[#238636] transition-colors"
-                            title="Set as Active"
-                          >
-                            <span className="material-symbols-outlined text-[14px]">
-                              check_circle
-                            </span>
-                          </button>
+                            className="hover:bg-border-default"
+                          />
                         )}
-                        <button
+                        <IconButton
+                          icon={<span className="material-symbols-outlined text-base">edit</span>}
+                          size="sm"
+                          tooltip="Rename"
                           onClick={(e) => {
                             e.stopPropagation();
                             setEditingEnvName(env.id);
                             setEditedName(env.name);
                           }}
-                          className="p-1 rounded hover:bg-[#30363d] text-[#8b949e] hover:text-white transition-colors"
-                          title="Rename"
-                        >
-                          <span className="material-symbols-outlined text-[14px]">
-                            edit
-                          </span>
-                        </button>
-                        <button
+                          className="hover:bg-border-default"
+                        />
+                        <IconButton
+                          icon={<span className="material-symbols-outlined text-base">delete</span>}
+                          size="sm"
+                          tone="danger"
+                          tooltip="Delete"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleDeleteEnvironment(env.id);
                           }}
-                          className="p-1 rounded hover:bg-[#30363d] text-[#8b949e] hover:text-[#f85149] transition-colors"
-                          title="Delete"
-                        >
-                          <span className="material-symbols-outlined text-[14px]">
-                            delete
-                          </span>
-                        </button>
+                          className="hover:bg-border-default"
+                        />
                       </div>
                     </div>
                   )}
@@ -349,18 +329,20 @@ export function EnvironmentManager() {
 
               {/* Empty State */}
               {environments.length === 0 && !isCreatingEnv && (
-                <div className="px-4 py-8 text-center">
-                  <span className="material-symbols-outlined text-4xl text-[#30363d] mb-2 block">
-                    folder_off
-                  </span>
-                  <p className="text-sm text-[#8b949e] mb-3">No environments yet</p>
-                  <button
-                    onClick={() => setIsCreatingEnv(true)}
-                    className="px-4 py-2 text-sm bg-[#238636] hover:bg-[#2ea043] text-white rounded-md transition-colors"
-                  >
-                    Create Environment
-                  </button>
-                </div>
+                <EmptyState
+                  icon={<span className="material-symbols-outlined text-4xl text-border-default">folder_off</span>}
+                  title="No environments yet"
+                  action={
+                    <button
+                      onClick={() => setIsCreatingEnv(true)}
+                      className="px-4 py-2 text-sm bg-status-success hover:bg-status-success/90 text-white rounded-md transition-colors"
+                    >
+                      Create Environment
+                    </button>
+                  }
+                  compact
+                  className="px-4"
+                />
               )}
             </div>
           </div>
@@ -370,18 +352,18 @@ export function EnvironmentManager() {
             {selectedEnv ? (
               <>
                 {/* Variables Header */}
-                <div className="px-6 py-4 border-b border-[#30363d]">
+                <div className="px-6 py-4 border-b border-border-default">
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="text-white font-medium flex items-center gap-2">
                         {selectedEnv.name}
                         {selectedEnv.isActive && (
-                          <span className="px-2 py-0.5 text-xs bg-[#238636]/20 text-[#3fb950] rounded-full">
+                          <span className="px-2 py-0.5 text-xs bg-status-success/20 text-status-success rounded-full">
                             Active
                           </span>
                         )}
                       </h3>
-                      <p className="text-xs text-[#8b949e] mt-1">
+                      <p className="text-xs text-text-secondary mt-1">
                         {selectedEnv.variables.length} variable
                         {selectedEnv.variables.length !== 1 ? 's' : ''}
                       </p>
@@ -389,9 +371,9 @@ export function EnvironmentManager() {
                     {!selectedEnv.isActive && (
                       <button
                         onClick={() => activateEnvironment(selectedEnv.id)}
-                        className="px-3 py-1.5 text-sm bg-[#21262d] hover:bg-[#30363d] text-white rounded-md transition-colors flex items-center gap-2"
+                        className="px-3 py-1.5 text-sm bg-dark-elevated hover:bg-border-default text-white rounded-md transition-colors flex items-center gap-2"
                       >
-                        <span className="material-symbols-outlined text-[16px]">
+                        <span className="material-symbols-outlined text-lg">
                           check_circle
                         </span>
                         Set as Active
@@ -403,18 +385,18 @@ export function EnvironmentManager() {
                 {/* Variables Table */}
                 <div className="flex-1 overflow-y-auto">
                   <table className="w-full">
-                    <thead className="sticky top-0 bg-[#161b22]">
-                      <tr className="border-b border-[#30363d]">
-                        <th className="px-6 py-3 text-left text-xs font-medium text-[#8b949e] uppercase tracking-wider w-1/3">
+                    <thead className="sticky top-0 bg-dark-card">
+                      <tr className="border-b border-border-default">
+                        <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider w-1/3">
                           Variable
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-[#8b949e] uppercase tracking-wider">
+                        <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
                           Value
                         </th>
-                        <th className="px-6 py-3 text-center text-xs font-medium text-[#8b949e] uppercase tracking-wider w-20">
+                        <th className="px-6 py-3 text-center text-xs font-medium text-text-secondary uppercase tracking-wider w-20">
                           Secret
                         </th>
-                        <th className="px-6 py-3 text-right text-xs font-medium text-[#8b949e] uppercase tracking-wider w-24">
+                        <th className="px-6 py-3 text-right text-xs font-medium text-text-secondary uppercase tracking-wider w-24">
                           Actions
                         </th>
                       </tr>
@@ -424,7 +406,7 @@ export function EnvironmentManager() {
                       {selectedEnv.variables.map((variable) => (
                         <tr
                           key={variable.id}
-                          className="border-b border-[#21262d] hover:bg-[#21262d]/30"
+                          className="border-b border-border-muted hover:bg-dark-elevated/30"
                         >
                           {editingVarId === variable.id ? (
                             <>
@@ -433,7 +415,7 @@ export function EnvironmentManager() {
                                   type="text"
                                   value={editedVarKey}
                                   onChange={(e) => setEditedVarKey(e.target.value)}
-                                  className="w-full px-2 py-1 text-sm bg-[#0d1117] border border-[#30363d] rounded text-white focus:outline-none focus:border-[#58a6ff]"
+                                  className="w-full px-2 py-1 text-sm bg-dark-canvas border border-border-default rounded text-white focus:outline-none focus:border-brand-secondary"
                                 />
                               </td>
                               <td className="px-6 py-3">
@@ -441,7 +423,7 @@ export function EnvironmentManager() {
                                   type={editedVarIsSecret ? 'password' : 'text'}
                                   value={editedVarValue}
                                   onChange={(e) => setEditedVarValue(e.target.value)}
-                                  className="w-full px-2 py-1 text-sm bg-[#0d1117] border border-[#30363d] rounded text-white focus:outline-none focus:border-[#58a6ff]"
+                                  className="w-full px-2 py-1 text-sm bg-dark-canvas border border-border-default rounded text-white focus:outline-none focus:border-brand-secondary"
                                 />
                               </td>
                               <td className="px-6 py-3 text-center">
@@ -449,94 +431,90 @@ export function EnvironmentManager() {
                                   type="checkbox"
                                   checked={editedVarIsSecret}
                                   onChange={(e) => setEditedVarIsSecret(e.target.checked)}
-                                  className="w-4 h-4 rounded border-[#30363d] bg-[#0d1117] text-[#58a6ff] focus:ring-[#58a6ff]"
+                                  className="w-4 h-4 rounded border-border-default bg-dark-canvas text-brand-secondary focus:ring-brand-secondary"
                                 />
                               </td>
                               <td className="px-6 py-3 text-right">
                                 <div className="flex items-center justify-end gap-1">
-                                  <button
+                                  <IconButton
+                                    icon={<span className="material-symbols-outlined text-lg">check</span>}
+                                    size="sm"
+                                    tone="success"
+                                    tooltip="Save"
                                     onClick={() => handleUpdateVariable(variable.id)}
-                                    className="p-1 rounded hover:bg-[#238636]/20 text-[#3fb950] transition-colors"
-                                    title="Save"
-                                  >
-                                    <span className="material-symbols-outlined text-[16px]">
-                                      check
-                                    </span>
-                                  </button>
-                                  <button
+                                    className="hover:bg-status-success/20"
+                                  />
+                                  <IconButton
+                                    icon={<span className="material-symbols-outlined text-lg">close</span>}
+                                    size="sm"
+                                    tooltip="Cancel"
                                     onClick={() => setEditingVarId(null)}
-                                    className="p-1 rounded hover:bg-[#21262d] text-[#8b949e] transition-colors"
-                                    title="Cancel"
-                                  >
-                                    <span className="material-symbols-outlined text-[16px]">
-                                      close
-                                    </span>
-                                  </button>
+                                    className="hover:bg-dark-elevated"
+                                  />
                                 </div>
                               </td>
                             </>
                           ) : (
                             <>
                               <td className="px-6 py-3">
-                                <span className="text-sm font-mono text-[#58a6ff]">
+                                <span className="text-sm font-mono text-brand-secondary">
                                   {variable.key}
                                 </span>
                               </td>
                               <td className="px-6 py-3">
                                 <div className="flex items-center gap-2">
                                   {variable.isSecret && !showSecrets.has(variable.id) ? (
-                                    <span className="text-sm font-mono text-[#6e7681]">
+                                    <span className="text-sm font-mono text-text-muted">
                                       ••••••••
                                     </span>
                                   ) : (
-                                    <span className="text-sm font-mono text-[#c9d1d9]">
+                                    <span className="text-sm font-mono text-text-primary">
                                       {variable.value || (
-                                        <span className="italic text-[#6e7681]">empty</span>
+                                        <span className="italic text-text-muted">empty</span>
                                       )}
                                     </span>
                                   )}
                                   {variable.isSecret && (
-                                    <button
+                                    <IconButton
+                                      icon={
+                                        <span className="material-symbols-outlined text-base">
+                                          {showSecrets.has(variable.id)
+                                            ? 'visibility_off'
+                                            : 'visibility'}
+                                        </span>
+                                      }
+                                      size="sm"
+                                      tooltip={showSecrets.has(variable.id) ? 'Hide' : 'Show'}
                                       onClick={() => toggleShowSecret(variable.id)}
-                                      className="p-1 rounded hover:bg-[#21262d] text-[#8b949e] hover:text-white transition-colors"
-                                      title={showSecrets.has(variable.id) ? 'Hide' : 'Show'}
-                                    >
-                                      <span className="material-symbols-outlined text-[14px]">
-                                        {showSecrets.has(variable.id)
-                                          ? 'visibility_off'
-                                          : 'visibility'}
-                                      </span>
-                                    </button>
+                                      className="hover:bg-dark-elevated"
+                                    />
                                   )}
                                 </div>
                               </td>
                               <td className="px-6 py-3 text-center">
                                 {variable.isSecret && (
-                                  <span className="material-symbols-outlined text-[16px] text-[#f0883e]">
+                                  <span className="material-symbols-outlined text-lg text-status-warning">
                                     lock
                                   </span>
                                 )}
                               </td>
                               <td className="px-6 py-3 text-right">
                                 <div className="flex items-center justify-end gap-1">
-                                  <button
+                                  <IconButton
+                                    icon={<span className="material-symbols-outlined text-lg">edit</span>}
+                                    size="sm"
+                                    tooltip="Edit"
                                     onClick={() => startEditingVariable(variable)}
-                                    className="p-1 rounded hover:bg-[#21262d] text-[#8b949e] hover:text-white transition-colors"
-                                    title="Edit"
-                                  >
-                                    <span className="material-symbols-outlined text-[16px]">
-                                      edit
-                                    </span>
-                                  </button>
-                                  <button
+                                    className="hover:bg-dark-elevated"
+                                  />
+                                  <IconButton
+                                    icon={<span className="material-symbols-outlined text-lg">delete</span>}
+                                    size="sm"
+                                    tone="danger"
+                                    tooltip="Delete"
                                     onClick={() => handleDeleteVariable(variable.id)}
-                                    className="p-1 rounded hover:bg-[#21262d] text-[#8b949e] hover:text-[#f85149] transition-colors"
-                                    title="Delete"
-                                  >
-                                    <span className="material-symbols-outlined text-[16px]">
-                                      delete
-                                    </span>
-                                  </button>
+                                    className="hover:bg-dark-elevated"
+                                  />
                                 </div>
                               </td>
                             </>
@@ -545,7 +523,7 @@ export function EnvironmentManager() {
                       ))}
 
                       {/* New Variable Row */}
-                      <tr className="border-b border-[#21262d] bg-[#0d1117]/50">
+                      <tr className="border-b border-border-muted bg-dark-canvas/50">
                         <td className="px-6 py-3">
                           <input
                             type="text"
@@ -555,7 +533,7 @@ export function EnvironmentManager() {
                               if (e.key === 'Enter') handleAddVariable();
                             }}
                             placeholder="VARIABLE_NAME"
-                            className="w-full px-2 py-1 text-sm bg-transparent border border-[#30363d] rounded text-white placeholder-[#6e7681] focus:outline-none focus:border-[#58a6ff] font-mono"
+                            className="w-full px-2 py-1 text-sm bg-transparent border border-border-default rounded text-white placeholder-text-muted focus:outline-none focus:border-brand-secondary font-mono"
                           />
                         </td>
                         <td className="px-6 py-3">
@@ -567,7 +545,7 @@ export function EnvironmentManager() {
                               if (e.key === 'Enter') handleAddVariable();
                             }}
                             placeholder="value"
-                            className="w-full px-2 py-1 text-sm bg-transparent border border-[#30363d] rounded text-white placeholder-[#6e7681] focus:outline-none focus:border-[#58a6ff] font-mono"
+                            className="w-full px-2 py-1 text-sm bg-transparent border border-border-default rounded text-white placeholder-text-muted focus:outline-none focus:border-brand-secondary font-mono"
                           />
                         </td>
                         <td className="px-6 py-3 text-center">
@@ -575,14 +553,14 @@ export function EnvironmentManager() {
                             type="checkbox"
                             checked={newVarIsSecret}
                             onChange={(e) => setNewVarIsSecret(e.target.checked)}
-                            className="w-4 h-4 rounded border-[#30363d] bg-[#0d1117] text-[#58a6ff] focus:ring-[#58a6ff]"
+                            className="w-4 h-4 rounded border-border-default bg-dark-canvas text-brand-secondary focus:ring-brand-secondary"
                           />
                         </td>
                         <td className="px-6 py-3 text-right">
                           <button
                             onClick={handleAddVariable}
                             disabled={!newVarKey.trim()}
-                            className="px-3 py-1 text-sm bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded transition-colors"
+                            className="px-3 py-1 text-sm bg-status-success hover:bg-status-success/90 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded transition-colors"
                           >
                             Add
                           </button>
@@ -593,10 +571,10 @@ export function EnvironmentManager() {
                 </div>
 
                 {/* Usage Hint */}
-                <div className="px-6 py-3 border-t border-[#30363d] bg-[#0d1117]/50">
-                  <p className="text-xs text-[#6e7681]">
-                    <span className="text-[#8b949e]">Tip:</span> Use{' '}
-                    <code className="px-1.5 py-0.5 bg-[#21262d] rounded text-[#58a6ff]">
+                <div className="px-6 py-3 border-t border-border-default bg-dark-canvas/50">
+                  <p className="text-xs text-text-muted">
+                    <span className="text-text-secondary">Tip:</span> Use{' '}
+                    <code className="px-1.5 py-0.5 bg-dark-elevated rounded text-brand-secondary">
                       {'{{VARIABLE_NAME}}'}
                     </code>{' '}
                     in your Vero scripts to reference these variables.
@@ -605,31 +583,15 @@ export function EnvironmentManager() {
               </>
             ) : (
               /* No Environment Selected */
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-center">
-                  <span className="material-symbols-outlined text-6xl text-[#30363d] mb-4 block">
-                    tune
-                  </span>
-                  <p className="text-[#8b949e]">Select an environment to view its variables</p>
-                  <p className="text-sm text-[#6e7681] mt-1">
-                    or create a new one to get started
-                  </p>
-                </div>
-              </div>
+              <EmptyState
+                icon={<span className="material-symbols-outlined text-6xl text-border-default">tune</span>}
+                title="Select an environment to view its variables"
+                message="or create a new one to get started"
+                className="flex-1"
+              />
             )}
           </div>
         </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-[#30363d] bg-[#0d1117]/50">
-          <button
-            onClick={() => setManagerOpen(false)}
-            className="px-4 py-2 text-sm bg-[#21262d] hover:bg-[#30363d] text-white rounded-md transition-colors"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

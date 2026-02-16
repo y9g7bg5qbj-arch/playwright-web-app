@@ -191,7 +191,7 @@ async function suggestAlternative(page: Page, failedSelector: string): Promise<s
  * Suggest a more specific selector when multiple elements match
  */
 async function suggestMoreSpecific(
-    page: Page,
+    _page: Page,
     selector: string,
     locator: ReturnType<Page['locator']>
 ): Promise<string | undefined> {

@@ -3,15 +3,29 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { EventEmitter } from 'events';
-import {
-    PageObjectRegistry,
-    initPageObjectRegistry,
-    ElementInfo
-} from './pageObjectRegistry';
+import { PageObjectRegistry } from './pageObjectRegistry';
 import { recordingPersistenceService, CreateStepDTO } from './recordingPersistence.service';
-import { generateResilientSelector, CapturedElement } from './selectorHealing';
+import { generateResilientSelector } from './selectorHealing';
 import { generateVeroAction, generateVeroAssertion } from './veroSyntaxReference';
 import { logger } from '../utils/logger';
+import { ParsedAction, DuplicateWarning, splitMethodChain, extractQuotedValue, chainToModifier, parseChainedSelector, parseLocatorAndAction, parseExpect, parsePlaywrightCode, extractSelector, stripSelectorModifiers, generateFieldName, selectorToElementInfo, selectorToCapturedElement } from './codegenRecorder.parser';
+
+// Re-export types and parser functions so existing consumers and tests continue to work
+export type { ParsedAction, DuplicateWarning };
+export {
+    splitMethodChain,
+    extractQuotedValue,
+    chainToModifier,
+    parseChainedSelector,
+    parseLocatorAndAction,
+    parseExpect,
+    parsePlaywrightCode,
+    extractSelector,
+    stripSelectorModifiers,
+    generateFieldName,
+    selectorToElementInfo,
+    selectorToCapturedElement,
+};
 
 interface CodegenSession {
     sessionId: string;
@@ -26,22 +40,6 @@ interface CodegenSession {
     stepCount: number;
 }
 
-interface ParsedAction {
-    type: 'click' | 'fill' | 'check' | 'select' | 'goto' | 'press' | 'hover' | 'expect' | 'unknown';
-    selector?: string;
-    value?: string;
-    originalLine: string;
-}
-
-interface DuplicateWarning {
-    newSelector: string;
-    existingField: string;
-    similarity: number;
-    matchType: string;
-    recommendation: 'reuse' | 'create' | 'review';
-    reason: string;
-}
-
 export class CodegenRecorderService extends EventEmitter {
     private sessions: Map<string, CodegenSession> = new Map();
     private projectPath: string;
@@ -50,6 +48,21 @@ export class CodegenRecorderService extends EventEmitter {
         super();
         this.projectPath = projectPath;
     }
+
+    // Expose parser functions as instance methods so tests using bracket notation
+    // (e.g. service.splitMethodChain(...)) continue to work unchanged.
+    splitMethodChain = splitMethodChain;
+    extractQuotedValue = extractQuotedValue;
+    chainToModifier = chainToModifier;
+    parseChainedSelector = parseChainedSelector;
+    parseLocatorAndAction = parseLocatorAndAction;
+    parseExpect = parseExpect;
+    parsePlaywrightCode = parsePlaywrightCode;
+    extractSelector = extractSelector;
+    stripSelectorModifiers = stripSelectorModifiers;
+    generateFieldName = generateFieldName;
+    selectorToElementInfo = selectorToElementInfo;
+    selectorToCapturedElement = selectorToCapturedElement;
 
     /**
      * Start Playwright codegen for recording
@@ -68,11 +81,13 @@ export class CodegenRecorderService extends EventEmitter {
         onComplete?: () => void,
         scenarioName?: string,
         userId?: string,
-        testFlowId?: string
+        testFlowId?: string,
+        projectPath?: string
     ): Promise<void> {
         try {
-            // Initialize page object registry
-            const registry = initPageObjectRegistry(this.projectPath);
+            // Initialize page object registry (per-session path overrides default)
+            const effectivePath = projectPath || this.projectPath;
+            const registry = new PageObjectRegistry(effectivePath);
             await registry.loadFromDisk();
 
             // Create database session for persistence
@@ -208,9 +223,14 @@ export class CodegenRecorderService extends EventEmitter {
                         currentSession.lastCode = currentCode;
                     }
                 } catch (e: any) {
-                    // File might not exist yet - log occasionally
-                    if (pollCount % 20 === 1) {
-                        logger.debug(`[CodegenRecorder] Poll #${pollCount}: File not ready yet (${e.code || e.message})`);
+                    if (e.code === 'ENOENT') {
+                        // File doesn't exist yet -- expected during startup
+                        if (pollCount % 20 === 1) {
+                            logger.debug(`[CodegenRecorder] Poll #${pollCount}: File not ready yet`);
+                        }
+                    } else {
+                        // Real error -- log it so we can debug dropped steps
+                        logger.error(`[CodegenRecorder] Error processing code changes (poll #${pollCount}):`, e);
                     }
                 }
             }, 500); // Poll every 500ms
@@ -241,354 +261,102 @@ export class CodegenRecorderService extends EventEmitter {
         ) => void
     ): Promise<void> {
         // Parse all actions from new code
-        const actions = this.parsePlaywrightCode(newCode);
+        const actions = parsePlaywrightCode(newCode);
         logger.debug(`[CodegenRecorder] Parsed ${actions.length} total actions from code`);
 
         // Find new actions (compare line counts)
         const newActions = actions.slice(session.lastLineCount);
-        session.lastLineCount = actions.length;
+        // NOTE: Don't update lastLineCount here -- update AFTER processing
+        // so that if an error interrupts the loop, we can retry on next poll.
 
         logger.debug(`[CodegenRecorder] Processing ${newActions.length} new actions`);
 
         // Convert each new action to Vero DSL
-        for (const action of newActions) {
-            const result = await this.convertToVero(action, session);
-            if (result) {
-                logger.debug(`[CodegenRecorder] Emitting: ${result.veroCode}`);
-
-                // Log duplicate warning if present
-                if (result.duplicateWarning) {
-                    logger.info(`[CodegenRecorder] Duplicate warning: ${result.duplicateWarning.reason}`);
-                    // Emit duplicate detection event
-                    this.emit('duplicate-detected', {
-                        sessionId: session.sessionId,
-                        warning: result.duplicateWarning
-                    });
-                }
-
-                // Persist step to database if session is tracked
-                if (session.dbSessionId) {
-                    try {
-                        // Generate resilient selector with fallbacks
-                        const capturedElement = this.selectorToCapturedElement(action.selector || '');
-                        const resilientSelector = generateResilientSelector(capturedElement);
-
-                        const stepData: CreateStepDTO = {
-                            sessionId: session.dbSessionId,
-                            stepNumber: session.stepCount,
-                            actionType: action.type,
-                            veroCode: result.veroCode,
-                            primarySelector: resilientSelector.primary.selector,
-                            selectorType: resilientSelector.primary.strategy,
-                            fallbackSelectors: resilientSelector.fallbacks.map(f => f.selector),
-                            confidence: resilientSelector.overallConfidence,
-                            isStable: resilientSelector.isReliable,
-                            value: action.value,
-                            url: session.url,
-                            pageName: result.fieldCreated?.pageName,
-                            fieldName: result.fieldCreated?.fieldName,
-                            elementTag: capturedElement.tagName,
-                            elementText: capturedElement.innerText,
-                        };
-                        await recordingPersistenceService.addStep(stepData);
-                        logger.debug(`[CodegenRecorder] Persisted step ${session.stepCount} with ${resilientSelector.fallbacks.length} fallbacks`);
-                    } catch (dbError) {
-                        logger.warn('[CodegenRecorder] Failed to persist step:', dbError);
+        let processedCount = 0;
+        for (let i = 0; i < newActions.length; i++) {
+            const action = newActions[i];
+            try {
+                // When a switchTab or openInNewTab is immediately followed by a goto, merge them:
+                // the goto URL becomes the tab action's URL, and goto is skipped.
+                if ((action.type === 'switchTab' || action.type === 'openInNewTab') && i + 1 < newActions.length && newActions[i + 1].type === 'goto') {
+                    const gotoAction = newActions[i + 1];
+                    if (gotoAction.value) {
+                        action.value = gotoAction.value;
+                        session.url = gotoAction.value; // update session URL for page object mapping
                     }
+                    // Skip the next goto action
+                    i++;
+                    processedCount++; // count the skipped goto
                 }
 
-                session.stepCount++;
+                const result = await this.convertToVero(action, session);
+                if (result) {
+                    // Comment out VERIFY lines that came from commented-out Playwright assertions
+                    if (action.isCommented) {
+                        result.veroCode = `# ${result.veroCode}`;
+                    }
+                    logger.debug(`[CodegenRecorder] Emitting: ${result.veroCode}`);
 
-                onAction(
-                    result.veroCode,
-                    result.pagePath,
-                    result.pageCode,
-                    result.fieldCreated,
-                    result.duplicateWarning
-                );
-            }
-        }
-    }
+                    // Log duplicate warning if present
+                    if (result.duplicateWarning) {
+                        logger.info(`[CodegenRecorder] Duplicate warning: ${result.duplicateWarning.reason}`);
+                        // Emit duplicate detection event
+                        this.emit('duplicate-detected', {
+                            sessionId: session.sessionId,
+                            warning: result.duplicateWarning
+                        });
+                    }
 
-    /**
-     * Convert a Vero selector string to a CapturedElement for resilient selector generation
-     */
-    private selectorToCapturedElement(selector: string): CapturedElement {
-        const element: CapturedElement = {
-            tagName: 'div', // Default tag
-        };
+                    // Persist step to database if session is tracked
+                    if (session.dbSessionId) {
+                        try {
+                            // Generate resilient selector with fallbacks
+                            const capturedElement = selectorToCapturedElement(action.selector || '');
+                            const resilientSelector = generateResilientSelector(capturedElement);
 
-        // testId "login-btn"
-        let match = selector.match(/testId "(.+?)"/);
-        if (match) {
-            element.testId = match[1];
-            return element;
-        }
+                            const stepData: CreateStepDTO = {
+                                sessionId: session.dbSessionId,
+                                stepNumber: session.stepCount,
+                                actionType: action.type,
+                                veroCode: result.veroCode,
+                                primarySelector: resilientSelector.primary.selector,
+                                selectorType: resilientSelector.primary.strategy,
+                                fallbackSelectors: resilientSelector.fallbacks.map(f => f.selector),
+                                confidence: resilientSelector.overallConfidence,
+                                isStable: resilientSelector.isReliable,
+                                value: action.value,
+                                url: session.url,
+                                pageName: result.fieldCreated?.pageName,
+                                fieldName: result.fieldCreated?.fieldName,
+                                elementTag: capturedElement.tagName,
+                                elementText: capturedElement.innerText,
+                            };
+                            await recordingPersistenceService.addStep(stepData);
+                            logger.debug(`[CodegenRecorder] Persisted step ${session.stepCount} with ${resilientSelector.fallbacks.length} fallbacks`);
+                        } catch (dbError) {
+                            logger.warn('[CodegenRecorder] Failed to persist step:', dbError);
+                        }
+                    }
 
-        // button "Submit" or role "button"
-        match = selector.match(/^(\w+) "(.+?)"/);
-        if (match) {
-            element.role = match[1];
-            element.innerText = match[2];
-            // Infer tag from role
-            if (match[1] === 'button') element.tagName = 'button';
-            else if (match[1] === 'link') element.tagName = 'a';
-            else if (match[1] === 'textbox') element.tagName = 'input';
-            return element;
-        }
+                    session.stepCount++;
 
-        // label "Email"
-        match = selector.match(/label "(.+?)"/);
-        if (match) {
-            element.ariaLabel = match[1];
-            element.tagName = 'input';
-            return element;
-        }
-
-        // placeholder "Enter email"
-        match = selector.match(/placeholder "(.+?)"/);
-        if (match) {
-            element.placeholder = match[1];
-            element.tagName = 'input';
-            return element;
-        }
-
-        // text "Click me"
-        match = selector.match(/text "(.+?)"/);
-        if (match) {
-            element.innerText = match[1];
-            return element;
-        }
-
-        // alt "Logo"
-        match = selector.match(/alt "(.+?)"/);
-        if (match) {
-            element.alt = match[1];
-            element.tagName = 'img';
-            return element;
-        }
-
-        // title "Tooltip"
-        match = selector.match(/title "(.+?)"/);
-        if (match) {
-            element.title = match[1];
-            return element;
-        }
-
-        // #id
-        match = selector.match(/^#([\w-]+)/);
-        if (match) {
-            element.id = match[1];
-            return element;
-        }
-
-        // .class
-        match = selector.match(/^\.([\w-]+)/);
-        if (match) {
-            element.className = match[1];
-            return element;
-        }
-
-        // CSS selector with tag: input[type="text"]
-        match = selector.match(/^(\w+)/);
-        if (match) {
-            element.tagName = match[1];
-        }
-
-        // Extract type from selector
-        match = selector.match(/\[type="(\w+)"\]/);
-        if (match) {
-            element.type = match[1];
-        }
-
-        // Extract name from selector
-        match = selector.match(/\[name="(\w+)"\]/);
-        if (match) {
-            element.name = match[1];
-        }
-
-        return element;
-    }
-
-    /**
-     * Parse Playwright code to extract actions
-     */
-    private parsePlaywrightCode(code: string): ParsedAction[] {
-        const actions: ParsedAction[] = [];
-        const lines = code.split('\n');
-
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith('await')) continue;
-
-            let action: ParsedAction | null = null;
-
-            // page.goto('url')
-            const gotoMatch = trimmed.match(/await page\.goto\(['"](.+?)['"]\)/);
-            if (gotoMatch) {
-                action = {
-                    type: 'goto',
-                    value: gotoMatch[1],
-                    originalLine: trimmed
-                };
-            }
-
-            // click with various locators
-            const clickMatch = trimmed.match(/await page\.(getBy\w+|locator)\((.+?)\)\.click\(\)/);
-            if (clickMatch) {
-                action = {
-                    type: 'click',
-                    selector: this.extractSelector(clickMatch[1], clickMatch[2]),
-                    originalLine: trimmed
-                };
-            }
-
-            // fill with various locators
-            const fillMatch = trimmed.match(/await page\.(getBy\w+|locator)\((.+?)\)\.fill\(['"](.+?)['"]\)/);
-            if (fillMatch) {
-                action = {
-                    type: 'fill',
-                    selector: this.extractSelector(fillMatch[1], fillMatch[2]),
-                    value: fillMatch[3],
-                    originalLine: trimmed
-                };
-            }
-
-            // press key
-            const pressMatch = trimmed.match(/await page\.(getBy\w+|locator)\((.+?)\)\.press\(['"](.+?)['"]\)/);
-            if (pressMatch) {
-                action = {
-                    type: 'press',
-                    selector: this.extractSelector(pressMatch[1], pressMatch[2]),
-                    value: pressMatch[3],
-                    originalLine: trimmed
-                };
-            }
-
-            // keyboard press
-            const keyboardMatch = trimmed.match(/await page\.keyboard\.press\(['"](.+?)['"]\)/);
-            if (keyboardMatch) {
-                action = {
-                    type: 'press',
-                    value: keyboardMatch[1],
-                    originalLine: trimmed
-                };
-            }
-
-            // check
-            const checkMatch = trimmed.match(/await page\.(getBy\w+|locator)\((.+?)\)\.check\(\)/);
-            if (checkMatch) {
-                action = {
-                    type: 'check',
-                    selector: this.extractSelector(checkMatch[1], checkMatch[2]),
-                    originalLine: trimmed
-                };
-            }
-
-            // selectOption
-            const selectMatch = trimmed.match(/await page\.(getBy\w+|locator)\((.+?)\)\.selectOption\(['"](.+?)['"]\)/);
-            if (selectMatch) {
-                action = {
-                    type: 'select',
-                    selector: this.extractSelector(selectMatch[1], selectMatch[2]),
-                    value: selectMatch[3],
-                    originalLine: trimmed
-                };
-            }
-
-            // hover
-            const hoverMatch = trimmed.match(/await page\.(getBy\w+|locator)\((.+?)\)\.hover\(\)/);
-            if (hoverMatch) {
-                action = {
-                    type: 'hover',
-                    selector: this.extractSelector(hoverMatch[1], hoverMatch[2]),
-                    originalLine: trimmed
-                };
-            }
-
-            // expect visible
-            const expectVisibleMatch = trimmed.match(/await expect\(page\.(getBy\w+|locator)\((.+?)\)\)\.toBeVisible\(\)/);
-            if (expectVisibleMatch) {
-                action = {
-                    type: 'expect',
-                    selector: this.extractSelector(expectVisibleMatch[1], expectVisibleMatch[2]),
-                    value: 'visible',
-                    originalLine: trimmed
-                };
-            }
-
-            // expect text
-            const expectTextMatch = trimmed.match(/await expect\(page\.(getBy\w+|locator)\((.+?)\)\)\.toHaveText\(['"](.+?)['"]\)/);
-            if (expectTextMatch) {
-                action = {
-                    type: 'expect',
-                    selector: this.extractSelector(expectTextMatch[1], expectTextMatch[2]),
-                    value: expectTextMatch[3],
-                    originalLine: trimmed
-                };
-            }
-
-            if (action) {
-                actions.push(action);
+                    onAction(
+                        result.veroCode,
+                        result.pagePath,
+                        result.pageCode,
+                        result.fieldCreated,
+                        result.duplicateWarning
+                    );
+                }
+                processedCount++;
+            } catch (actionError) {
+                logger.warn(`[CodegenRecorder] Failed to convert action "${action.type}" (selector: ${action.selector || 'none'}):`, actionError);
+                processedCount++; // Count it so we don't retry the same failed action forever
             }
         }
 
-        return actions;
-    }
-
-    /**
-     * Extract selector from Playwright locator
-     */
-    private extractSelector(method: string, args: string): string {
-        // Remove outer quotes
-        args = args.trim();
-
-        if (method === 'getByRole') {
-            // getByRole('button', { name: 'Submit' })
-            const roleMatch = args.match(/['"](\w+)['"](?:,\s*\{\s*name:\s*['"](.+?)['"]\s*\})?/);
-            if (roleMatch) {
-                return roleMatch[2]
-                    ? `${roleMatch[1]} "${roleMatch[2]}"`
-                    : `role "${roleMatch[1]}"`;
-            }
-        }
-
-        if (method === 'getByTestId') {
-            const match = args.match(/['"](.+?)['"]/);
-            return match ? `testId "${match[1]}"` : args;
-        }
-
-        if (method === 'getByLabel') {
-            const match = args.match(/['"](.+?)['"]/);
-            return match ? `label "${match[1]}"` : args;
-        }
-
-        if (method === 'getByPlaceholder') {
-            const match = args.match(/['"](.+?)['"]/);
-            return match ? `placeholder "${match[1]}"` : args;
-        }
-
-        if (method === 'getByText') {
-            const match = args.match(/['"](.+?)['"]/);
-            return match ? `text "${match[1]}"` : args;
-        }
-
-        if (method === 'getByAltText') {
-            const match = args.match(/['"](.+?)['"]/);
-            return match ? `alt "${match[1]}"` : args;
-        }
-
-        if (method === 'getByTitle') {
-            const match = args.match(/['"](.+?)['"]/);
-            return match ? `title "${match[1]}"` : args;
-        }
-
-        if (method === 'locator') {
-            const match = args.match(/['"](.+?)['"]/);
-            return match ? match[1] : args;
-        }
-
-        return args;
+        // Update lastLineCount AFTER successful processing
+        session.lastLineCount += processedCount;
     }
 
     /**
@@ -606,9 +374,50 @@ export class CodegenRecorderService extends EventEmitter {
     } | null> {
         const registry = session.registry;
 
-        // Handle goto
+        // Handle goto -- also update session URL so page objects map to the new page
         if (action.type === 'goto') {
+            if (action.value) {
+                session.url = action.value;
+            }
             return { veroCode: generateVeroAction('open', undefined, action.value) };
+        }
+
+        // Handle refresh
+        if (action.type === 'refresh') {
+            return { veroCode: generateVeroAction('refresh') };
+        }
+
+        // Handle tab switch -- value is either a merged URL (from goto) or the tab variable name
+        if (action.type === 'switchTab') {
+            // If value looks like a URL (merged from a following goto), use it directly
+            // Otherwise it's just the Playwright variable name (e.g. "page1") -- pass empty
+            const url = action.value?.startsWith('http') ? action.value : '';
+            return { veroCode: generateVeroAction('switchTab', undefined, url) };
+        }
+
+        // Handle switch to specific tab by index
+        if (action.type === 'switchToTab') {
+            return { veroCode: generateVeroAction('switchToTab', undefined, action.value) };
+        }
+
+        // Handle open in new tab -- may be merged with a following goto
+        if (action.type === 'openInNewTab') {
+            const url = action.value?.startsWith('http') ? action.value : '';
+            if (url) {
+                return { veroCode: generateVeroAction('openInNewTab', undefined, url) };
+            }
+            // If no URL yet (will be merged with goto), just emit SWITCH TO NEW TAB
+            return { veroCode: generateVeroAction('switchTab', undefined, '') };
+        }
+
+        // Handle close tab
+        if (action.type === 'closeTab') {
+            return { veroCode: generateVeroAction('closeTab') };
+        }
+
+        // Handle page-level assertions (URL/title)
+        if (action.type === 'expect' && !action.selector && (action.assertionType === 'url' || action.assertionType === 'title')) {
+            return { veroCode: generateVeroAssertion('', action.assertionType, action.value) };
         }
 
         // Handle keyboard press without selector
@@ -618,8 +427,12 @@ export class CodegenRecorderService extends EventEmitter {
 
         // For actions with selectors, check page object registry
         if (action.selector) {
-            // Check if selector exists in registry
-            let fieldRef = registry.findBySelector(action.selector);
+            // Get or create the page FIRST so we can scope lookups to this page only
+            const pageObj = registry.getOrCreatePage(session.url);
+            const pageName = pageObj.name;
+
+            // Check if selector exists in registry -- scoped to current page only
+            let fieldRef = registry.findBySelector(action.selector, pageName);
 
             let pagePath: string | undefined;
             let pageCode: string | undefined;
@@ -627,11 +440,9 @@ export class CodegenRecorderService extends EventEmitter {
             let duplicateWarning: DuplicateWarning | undefined;
 
             if (!fieldRef) {
-                // Get target page name
-                const pageName = registry.suggestPageName(session.url);
 
                 // Convert selector to ElementInfo for duplicate detection
-                const elementInfo = this.selectorToElementInfo(action.selector);
+                const elementInfo = selectorToElementInfo(action.selector);
 
                 // Check for duplicates using fuzzy matching
                 const duplicateCheck = registry.checkForDuplicate(elementInfo, action.selector, pageName);
@@ -652,9 +463,9 @@ export class CodegenRecorderService extends EventEmitter {
                     logger.info(`[CodegenRecorder] Duplicate detected: reusing ${fieldRef.pageName}.${fieldRef.fieldName} (${Math.round(duplicateCheck.similarity * 100)}% match)`);
                 } else if (duplicateCheck.recommendation === 'review' && duplicateCheck.existingRef) {
                     // Create new field but emit warning for review
-                    const fieldName = this.generateFieldName(action);
-                    registry.getOrCreatePage(session.url);
-                    fieldRef = registry.addField(pageName, fieldName, action.selector);
+                    const fieldName = generateFieldName(action);
+                    const baseSelector = stripSelectorModifiers(action.selector);
+                    fieldRef = registry.addField(pageName, fieldName, baseSelector);
                     pagePath = await registry.persist(pageName);
                     pageCode = registry.getPageContent(pageName) || undefined;
 
@@ -675,13 +486,13 @@ export class CodegenRecorderService extends EventEmitter {
                     logger.info(`[CodegenRecorder] Created field with warning: ${fieldRef.pageName}.${fieldRef.fieldName} (similar to ${duplicateCheck.existingRef.pageName}.${duplicateCheck.existingRef.fieldName})`);
                 } else {
                     // No duplicate - create new page object field
-                    const fieldName = this.generateFieldName(action);
+                    const fieldName = generateFieldName(action);
 
-                    // Get or create the page
-                    registry.getOrCreatePage(session.url);
+                    // Strip modifiers (WITH TEXT, FIRST, etc.) -- store only base selector in page object
+                    const baseSelector = stripSelectorModifiers(action.selector);
 
-                    // Add the field
-                    fieldRef = registry.addField(pageName, fieldName, action.selector);
+                    // Add the field to the page we already got/created above
+                    fieldRef = registry.addField(pageName, fieldName, baseSelector);
 
                     // Persist to disk
                     pagePath = await registry.persist(pageName);
@@ -701,8 +512,7 @@ export class CodegenRecorderService extends EventEmitter {
             let veroCode: string;
 
             if (action.type === 'expect') {
-                const assertType = action.value === 'visible' ? 'visible' : 'hasValue';
-                veroCode = generateVeroAssertion(ref, assertType, action.value === 'visible' ? undefined : action.value);
+                veroCode = generateVeroAssertion(ref, action.assertionType || 'visible', action.value);
             } else {
                 veroCode = generateVeroAction(action.type, ref, action.value);
             }
@@ -711,131 +521,6 @@ export class CodegenRecorderService extends EventEmitter {
         }
 
         return null;
-    }
-
-    /**
-     * Convert a Vero selector to ElementInfo for duplicate detection
-     */
-    private selectorToElementInfo(selector: string): ElementInfo {
-        const element: ElementInfo = {
-            tagName: 'div', // Default tag
-        };
-
-        // testId "login-btn"
-        let match = selector.match(/testId "(.+?)"/);
-        if (match) {
-            element.testId = match[1];
-            return element;
-        }
-
-        // button "Submit" or link "Click here"
-        match = selector.match(/^(\w+) "(.+?)"/);
-        if (match) {
-            element.role = match[1];
-            element.ariaLabel = match[2];
-            element.text = match[2];
-            if (match[1] === 'button') element.tagName = 'button';
-            else if (match[1] === 'link') element.tagName = 'a';
-            else if (match[1] === 'textbox') element.tagName = 'input';
-            return element;
-        }
-
-        // label "Email"
-        match = selector.match(/label "(.+?)"/);
-        if (match) {
-            element.ariaLabel = match[1];
-            element.tagName = 'input';
-            return element;
-        }
-
-        // placeholder "Enter email"
-        match = selector.match(/placeholder "(.+?)"/);
-        if (match) {
-            element.placeholder = match[1];
-            element.tagName = 'input';
-            return element;
-        }
-
-        // text "Click me"
-        match = selector.match(/text "(.+?)"/);
-        if (match) {
-            element.text = match[1];
-            return element;
-        }
-
-        // #id
-        match = selector.match(/^#([\w-]+)/);
-        if (match) {
-            element.id = match[1];
-            return element;
-        }
-
-        // .class
-        match = selector.match(/^\.([\w-]+)/);
-        if (match) {
-            element.className = match[1];
-            return element;
-        }
-
-        return element;
-    }
-
-    /**
-     * Generate a field name from action
-     */
-    private generateFieldName(action: ParsedAction): string {
-        const selector = action.selector || '';
-
-        // Extract meaningful name from selector
-        let baseName = '';
-
-        // testId "login-btn" -> loginBtn
-        const testIdMatch = selector.match(/testId "(.+?)"/);
-        if (testIdMatch) {
-            baseName = testIdMatch[1];
-        }
-
-        // button "Submit" -> submitButton
-        const roleMatch = selector.match(/(\w+) "(.+?)"/);
-        if (roleMatch && !baseName) {
-            baseName = `${roleMatch[2]}${roleMatch[1].charAt(0).toUpperCase() + roleMatch[1].slice(1)}`;
-        }
-
-        // label "Email" -> emailField
-        const labelMatch = selector.match(/label "(.+?)"/);
-        if (labelMatch && !baseName) {
-            baseName = `${labelMatch[1]}Field`;
-        }
-
-        // placeholder "Enter email" -> enterEmailInput
-        const placeholderMatch = selector.match(/placeholder "(.+?)"/);
-        if (placeholderMatch && !baseName) {
-            baseName = `${placeholderMatch[1]}Input`;
-        }
-
-        // text "Click me" -> clickMeText
-        const textMatch = selector.match(/text "(.+?)"/);
-        if (textMatch && !baseName) {
-            baseName = `${textMatch[1]}Text`;
-        }
-
-        // CSS selector #id or .class
-        const idMatch = selector.match(/#([\w-]+)/);
-        if (idMatch && !baseName) {
-            baseName = idMatch[1];
-        }
-
-        if (!baseName) {
-            baseName = `${action.type}Element`;
-        }
-
-        // Convert to camelCase
-        return baseName
-            .replace(/[^a-zA-Z0-9]/g, ' ')
-            .trim()
-            .split(/\s+/)
-            .map((word, i) => i === 0 ? word.toLowerCase() : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-            .join('');
     }
 
     /**

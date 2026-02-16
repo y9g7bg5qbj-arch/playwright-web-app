@@ -7,11 +7,18 @@
  * - Looking up selectors to find existing fields
  * - Creating new fields with auto-generated names
  * - Persisting page object changes to disk
+ *
+ * Fuzzy matching algorithms live in selector/selectorMatching.ts.
+ * Selector parsing and utility helpers live in selector/selectorUtils.ts.
  */
 
 import { readFile, writeFile, mkdir, readdir } from 'fs/promises';
-import { join, basename } from 'path';
+import { join } from 'path';
 import { existsSync } from 'fs';
+import { logger } from '../utils/logger';
+import { calculateSimilarity, extractSelectorText, areSemanticallyRelated } from './selector/selectorMatching';
+import { parseSelectorValue, normalizeSelector, toPascalCase } from './selector/selectorUtils';
+import { generateSelector as generateSelectorFromElement, generateFieldName as generateFieldNameFromElement } from './selector/selectorGenerator';
 
 // Element information captured from browser
 export interface ElementInfo {
@@ -87,7 +94,7 @@ export class PageObjectRegistry {
         const pagesDir = join(this.projectPath, 'Pages');
 
         if (!existsSync(pagesDir)) {
-            console.log('[PageObjectRegistry] No pages directory found');
+            logger.debug('[PageObjectRegistry] No pages directory found');
             return;
         }
 
@@ -105,18 +112,18 @@ export class PageObjectRegistry {
                 this.pages.set(pageName, pageObject);
 
                 // Index all selectors
-                for (const [fieldName, field] of pageObject.fields) {
+                for (const [, field] of pageObject.fields) {
                     this.indexSelector(field.selector, {
                         pageName,
-                        fieldName,
+                        fieldName: field.name,
                         selector: field.selector
                     });
                 }
             }
 
-            console.log(`[PageObjectRegistry] Loaded ${this.pages.size} pages with ${this.selectorIndex.size} indexed selectors`);
+            logger.debug(`[PageObjectRegistry] Loaded ${this.pages.size} pages with ${this.selectorIndex.size} indexed selectors`);
         } catch (error) {
-            console.error('[PageObjectRegistry] Error loading pages:', error);
+            logger.error('[PageObjectRegistry] Error loading pages:', error);
         }
     }
 
@@ -133,7 +140,6 @@ export class PageObjectRegistry {
         const pageUrlPatternMatch = content.match(/PAGE\s+\w+\s*\(([^)]+)\)/i);
         if (pageUrlPatternMatch) {
             const patternsStr = pageUrlPatternMatch[1];
-            // Extract all quoted strings
             const patternMatches = patternsStr.matchAll(/"([^"]+)"/g);
             for (const m of patternMatches) {
                 urlPatterns.push(m[1]);
@@ -141,18 +147,13 @@ export class PageObjectRegistry {
         }
 
         // Parse field declarations: field name = selector
-        // Supports: field emailInput = testId "email"
-        //           field submitBtn = button "Submit"
-        //           field loginLink = "#login-link"
-        //           FIELD emailInput = TEXTBOX "Email" (legacy uppercase)
         const fieldRegex = /field\s+(\w+)\s*=\s*(.+?)(?=\n|$)/gi;
         let match;
 
         while ((match = fieldRegex.exec(content)) !== null) {
             const fieldName = match[1];
             const selectorValue = match[2].trim();
-
-            const { type, rawValue } = this.parseSelectorValue(selectorValue);
+            const { type, rawValue } = parseSelectorValue(selectorValue);
 
             fields.set(fieldName, {
                 name: fieldName,
@@ -166,10 +167,10 @@ export class PageObjectRegistry {
         const altFieldRegex = /^\s{2,}(\w+)\s*=\s*(.+?)(?=\n|$)/gm;
         while ((match = altFieldRegex.exec(content)) !== null) {
             const fieldName = match[1];
-            if (fields.has(fieldName)) continue; // Skip if already parsed
+            if (fields.has(fieldName)) continue;
 
             const selectorValue = match[2].trim();
-            const { type, rawValue } = this.parseSelectorValue(selectorValue);
+            const { type, rawValue } = parseSelectorValue(selectorValue);
 
             fields.set(fieldName, {
                 name: fieldName,
@@ -190,84 +191,31 @@ export class PageObjectRegistry {
     }
 
     /**
-     * Parse a selector value to determine its type and extract raw value
-     */
-    private parseSelectorValue(value: string): { type: PageField['selectorType']; rawValue: string } {
-        // testId "value"
-        const testIdMatch = value.match(/^testId\s+"([^"]+)"$/i);
-        if (testIdMatch) return { type: 'testid', rawValue: testIdMatch[1] };
-
-        // role "button" name "Submit" or just button "Submit"
-        const roleMatch = value.match(/^(?:role\s+")?(\w+)"\s+(?:name\s+)?"([^"]+)"$/i);
-        if (roleMatch) return { type: 'role', rawValue: `${roleMatch[1]}:${roleMatch[2]}` };
-
-        // button "Submit" (shorthand)
-        const buttonMatch = value.match(/^button\s+"([^"]+)"$/i);
-        if (buttonMatch) return { type: 'role', rawValue: `button:${buttonMatch[1]}` };
-
-        // link "Click here"
-        const linkMatch = value.match(/^link\s+"([^"]+)"$/i);
-        if (linkMatch) return { type: 'role', rawValue: `link:${linkMatch[1]}` };
-
-        // TEXTBOX "Email" (legacy format - maps to label)
-        const textboxMatch = value.match(/^textbox\s+"([^"]+)"$/i);
-        if (textboxMatch) return { type: 'label', rawValue: textboxMatch[1] };
-
-        // label "Username"
-        const labelMatch = value.match(/^label\s+"([^"]+)"$/i);
-        if (labelMatch) return { type: 'label', rawValue: labelMatch[1] };
-
-        // placeholder "Enter email"
-        const placeholderMatch = value.match(/^placeholder\s+"([^"]+)"$/i);
-        if (placeholderMatch) return { type: 'placeholder', rawValue: placeholderMatch[1] };
-
-        // text "Click me"
-        const textMatch = value.match(/^text\s+"([^"]+)"$/i);
-        if (textMatch) return { type: 'text', rawValue: textMatch[1] };
-
-        // "Simple text selector"
-        const simpleTextMatch = value.match(/^"([^"]+)"$/);
-        if (simpleTextMatch) return { type: 'text', rawValue: simpleTextMatch[1] };
-
-        // #id or .class or complex CSS
-        if (value.startsWith('#')) return { type: 'id', rawValue: value.slice(1) };
-        if (value.startsWith('.') || value.includes('[')) return { type: 'css', rawValue: value };
-
-        return { type: 'css', rawValue: value };
-    }
-
-    /**
      * Index a selector for quick lookup
      */
     private indexSelector(selector: string, ref: PageFieldRef): void {
-        // Normalize selector for comparison
-        const normalized = this.normalizeSelector(selector);
+        const normalized = normalizeSelector(selector);
         this.selectorIndex.set(normalized, ref);
-    }
-
-    /**
-     * Normalize a selector for comparison
-     */
-    private normalizeSelector(selector: string): string {
-        return selector
-            .toLowerCase()
-            .replace(/\s+/g, ' ')
-            .trim();
     }
 
     /**
      * Find an existing page field by selector
      */
-    findBySelector(selector: string): PageFieldRef | null {
-        const normalized = this.normalizeSelector(selector);
-        return this.selectorIndex.get(normalized) || null;
+    findBySelector(selector: string, pageName?: string): PageFieldRef | null {
+        const normalized = normalizeSelector(selector);
+        const ref = this.selectorIndex.get(normalized) || null;
+        // When pageName is provided, only return matches from that specific page
+        if (pageName && ref && ref.pageName !== pageName) {
+            return null;
+        }
+        return ref;
     }
 
     /**
      * Find a similar selector that might match the same element
      * Useful for detecting duplicate selectors with different syntax
      */
-    findSimilarSelector(element: ElementInfo): PageFieldRef | null {
+    findSimilarSelector(element: ElementInfo, pageName?: string): PageFieldRef | null {
         // Try different selector variations
         const variations: string[] = [];
 
@@ -295,7 +243,7 @@ export class PageObjectRegistry {
         }
 
         for (const variation of variations) {
-            const ref = this.findBySelector(variation);
+            const ref = this.findBySelector(variation, pageName);
             if (ref) return ref;
         }
 
@@ -303,113 +251,12 @@ export class PageObjectRegistry {
     }
 
     /**
-     * Calculate Levenshtein distance between two strings
-     */
-    private levenshteinDistance(a: string, b: string): number {
-        if (a.length === 0) return b.length;
-        if (b.length === 0) return a.length;
-
-        const matrix: number[][] = [];
-
-        // Initialize first column
-        for (let i = 0; i <= b.length; i++) {
-            matrix[i] = [i];
-        }
-
-        // Initialize first row
-        for (let j = 0; j <= a.length; j++) {
-            matrix[0][j] = j;
-        }
-
-        // Fill in the rest of the matrix
-        for (let i = 1; i <= b.length; i++) {
-            for (let j = 1; j <= a.length; j++) {
-                if (b.charAt(i - 1) === a.charAt(j - 1)) {
-                    matrix[i][j] = matrix[i - 1][j - 1];
-                } else {
-                    matrix[i][j] = Math.min(
-                        matrix[i - 1][j - 1] + 1, // substitution
-                        matrix[i][j - 1] + 1,     // insertion
-                        matrix[i - 1][j] + 1      // deletion
-                    );
-                }
-            }
-        }
-
-        return matrix[b.length][a.length];
-    }
-
-    /**
-     * Calculate similarity score between two strings (0-1)
-     */
-    private calculateSimilarity(a: string, b: string): number {
-        const normalizedA = a.toLowerCase().trim();
-        const normalizedB = b.toLowerCase().trim();
-
-        if (normalizedA === normalizedB) return 1.0;
-        if (normalizedA.length === 0 || normalizedB.length === 0) return 0;
-
-        const distance = this.levenshteinDistance(normalizedA, normalizedB);
-        const maxLength = Math.max(normalizedA.length, normalizedB.length);
-        return 1 - distance / maxLength;
-    }
-
-    /**
-     * Extract the text value from a selector for comparison
-     */
-    private extractSelectorText(selector: string): string | null {
-        // Extract quoted values from selectors
-        const match = selector.match(/"([^"]+)"/);
-        return match ? match[1] : null;
-    }
-
-    /**
-     * Check if two selectors target semantically similar elements
-     */
-    private areSemanticallyRelated(selector1: string, selector2: string): boolean {
-        // Extract selector types
-        const type1 = this.extractSelectorType(selector1);
-        const type2 = this.extractSelectorType(selector2);
-
-        // Related types that might select the same element
-        const relatedGroups = [
-            ['button', 'role', 'text'],       // Interactive elements
-            ['label', 'placeholder', 'text'], // Form field identifiers
-            ['link', 'text'],                 // Navigation elements
-        ];
-
-        for (const group of relatedGroups) {
-            if (group.includes(type1) && group.includes(type2)) {
-                return true;
-            }
-        }
-
-        return type1 === type2;
-    }
-
-    /**
-     * Extract the selector type from a selector string
-     */
-    private extractSelectorType(selector: string): string {
-        if (selector.startsWith('testId') || selector.startsWith('testid')) return 'testid';
-        if (selector.startsWith('button')) return 'button';
-        if (selector.startsWith('link')) return 'link';
-        if (selector.startsWith('label')) return 'label';
-        if (selector.startsWith('placeholder')) return 'placeholder';
-        if (selector.startsWith('text')) return 'text';
-        if (selector.startsWith('role')) return 'role';
-        if (selector.startsWith('#')) return 'id';
-        if (selector.startsWith('.') || selector.includes('[')) return 'css';
-        return 'unknown';
-    }
-
-    /**
      * Comprehensive duplicate detection with fuzzy matching
      * Returns details about potential duplicates
      */
     checkForDuplicate(element: ElementInfo, newSelector: string, pageName?: string): DuplicateCheckResult {
-        // 1. Check for exact match first
-        const exactRef = this.findBySelector(newSelector);
+        // 1. Check for exact match on the CURRENT page only
+        const exactRef = this.findBySelector(newSelector, pageName);
         if (exactRef) {
             return {
                 isDuplicate: true,
@@ -421,8 +268,8 @@ export class PageObjectRegistry {
             };
         }
 
-        // 2. Check for similar selector (exact variations)
-        const similarRef = this.findSimilarSelector(element);
+        // 2. Check for similar selector on the CURRENT page only
+        const similarRef = this.findSimilarSelector(element, pageName);
         if (similarRef) {
             return {
                 isDuplicate: true,
@@ -435,75 +282,8 @@ export class PageObjectRegistry {
         }
 
         // 3. Fuzzy matching against all existing selectors
-        const newText = this.extractSelectorText(newSelector);
-        let bestMatch: { ref: PageFieldRef; similarity: number; matchType: 'fuzzy' | 'semantic' } | null = null;
+        const bestMatch = this.findBestFuzzyMatch(newSelector, pageName);
 
-        // Search in specified page first, then all pages
-        const pagesToSearch = pageName
-            ? [this.pages.get(pageName), ...Array.from(this.pages.values()).filter(p => p.name !== pageName)]
-            : Array.from(this.pages.values());
-
-        for (const page of pagesToSearch) {
-            if (!page) continue;
-
-            for (const [, field] of page.fields) {
-                const existingText = this.extractSelectorText(field.selector);
-
-                if (newText && existingText) {
-                    const similarity = this.calculateSimilarity(newText, existingText);
-
-                    // Check for high text similarity
-                    if (similarity >= 0.8) {
-                        const ref: PageFieldRef = {
-                            pageName: page.name,
-                            fieldName: field.name,
-                            selector: field.selector
-                        };
-
-                        if (!bestMatch || similarity > bestMatch.similarity) {
-                            bestMatch = { ref, similarity, matchType: 'fuzzy' };
-                        }
-                    }
-                    // Check for semantic relationship with lower threshold
-                    else if (similarity >= 0.6 && this.areSemanticallyRelated(newSelector, field.selector)) {
-                        const ref: PageFieldRef = {
-                            pageName: page.name,
-                            fieldName: field.name,
-                            selector: field.selector
-                        };
-
-                        if (!bestMatch || similarity > bestMatch.similarity) {
-                            bestMatch = { ref, similarity, matchType: 'semantic' };
-                        }
-                    }
-                }
-
-                // Also check for substring matches (e.g., "Submit" matches "Submit Button")
-                if (newText && existingText) {
-                    const lowerNew = newText.toLowerCase();
-                    const lowerExisting = existingText.toLowerCase();
-
-                    if (lowerNew.includes(lowerExisting) || lowerExisting.includes(lowerNew)) {
-                        const similarity = Math.min(lowerNew.length, lowerExisting.length) /
-                            Math.max(lowerNew.length, lowerExisting.length);
-
-                        if (similarity >= 0.7) {
-                            const ref: PageFieldRef = {
-                                pageName: page.name,
-                                fieldName: field.name,
-                                selector: field.selector
-                            };
-
-                            if (!bestMatch || similarity > bestMatch.similarity) {
-                                bestMatch = { ref, similarity, matchType: 'semantic' };
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Return best fuzzy match if found
         if (bestMatch) {
             const { ref, similarity, matchType } = bestMatch;
 
@@ -544,6 +324,67 @@ export class PageObjectRegistry {
     }
 
     /**
+     * Find the best fuzzy match for a selector across all pages
+     */
+    private findBestFuzzyMatch(
+        newSelector: string,
+        pageName?: string
+    ): { ref: PageFieldRef; similarity: number; matchType: 'fuzzy' | 'semantic' } | null {
+        const newText = extractSelectorText(newSelector);
+        let bestMatch: { ref: PageFieldRef; similarity: number; matchType: 'fuzzy' | 'semantic' } | null = null;
+
+        // Search in specified page first, then all pages
+        const pagesToSearch = pageName
+            ? [this.pages.get(pageName), ...Array.from(this.pages.values()).filter(p => p.name !== pageName)]
+            : Array.from(this.pages.values());
+
+        for (const page of pagesToSearch) {
+            if (!page) continue;
+
+            for (const [, field] of page.fields) {
+                const existingText = extractSelectorText(field.selector);
+                if (!newText || !existingText) continue;
+
+                const ref: PageFieldRef = {
+                    pageName: page.name,
+                    fieldName: field.name,
+                    selector: field.selector
+                };
+
+                // Check for high text similarity
+                const similarity = calculateSimilarity(newText, existingText);
+
+                if (similarity >= 0.8) {
+                    if (!bestMatch || similarity > bestMatch.similarity) {
+                        bestMatch = { ref, similarity, matchType: 'fuzzy' };
+                    }
+                } else if (similarity >= 0.6 && areSemanticallyRelated(newSelector, field.selector)) {
+                    if (!bestMatch || similarity > bestMatch.similarity) {
+                        bestMatch = { ref, similarity, matchType: 'semantic' };
+                    }
+                }
+
+                // Also check for substring matches (e.g., "Submit" matches "Submit Button")
+                const lowerNew = newText.toLowerCase();
+                const lowerExisting = existingText.toLowerCase();
+
+                if (lowerNew.includes(lowerExisting) || lowerExisting.includes(lowerNew)) {
+                    const substringSimlarity = Math.min(lowerNew.length, lowerExisting.length) /
+                        Math.max(lowerNew.length, lowerExisting.length);
+
+                    if (substringSimlarity >= 0.7) {
+                        if (!bestMatch || substringSimlarity > bestMatch.similarity) {
+                            bestMatch = { ref, similarity: substringSimlarity, matchType: 'semantic' };
+                        }
+                    }
+                }
+            }
+        }
+
+        return bestMatch;
+    }
+
+    /**
      * Find all fields in a page that might be duplicates of each other
      * Useful for cleanup and deduplication
      */
@@ -567,11 +408,11 @@ export class PageObjectRegistry {
 
         for (let i = 0; i < fields.length; i++) {
             for (let j = i + 1; j < fields.length; j++) {
-                const text1 = this.extractSelectorText(fields[i].selector);
-                const text2 = this.extractSelectorText(fields[j].selector);
+                const text1 = extractSelectorText(fields[i].selector);
+                const text2 = extractSelectorText(fields[j].selector);
 
                 if (text1 && text2) {
-                    const similarity = this.calculateSimilarity(text1, text2);
+                    const similarity = calculateSimilarity(text1, text2);
 
                     if (similarity >= 0.7) {
                         duplicates.push({
@@ -594,187 +435,44 @@ export class PageObjectRegistry {
      * Generate the best selector for an element (Playwright codegen style)
      */
     generateSelector(element: ElementInfo): SelectorResult {
-        // Priority order: testId > role+name > label > placeholder > text > id > css
-
-        // 1. data-testid (highest priority)
-        if (element.testId) {
-            return {
-                veroSelector: `testId "${element.testId}"`,
-                selectorType: 'testid',
-                confidence: 1.0,
-                rawValue: element.testId
-            };
-        }
-
-        // 2. Role with name (semantic)
-        if (element.role && element.ariaLabel) {
-            return {
-                veroSelector: `${element.role} "${element.ariaLabel}"`,
-                selectorType: 'role',
-                confidence: 0.95,
-                rawValue: `${element.role}:${element.ariaLabel}`
-            };
-        }
-
-        // 2b. Button/link by text content
-        if (element.role === 'button' && element.text && element.text.length < 30) {
-            return {
-                veroSelector: `button "${element.text}"`,
-                selectorType: 'role',
-                confidence: 0.9,
-                rawValue: `button:${element.text}`
-            };
-        }
-
-        if (element.role === 'link' && element.text && element.text.length < 30) {
-            return {
-                veroSelector: `link "${element.text}"`,
-                selectorType: 'role',
-                confidence: 0.9,
-                rawValue: `link:${element.text}`
-            };
-        }
-
-        // 3. Label (for form elements)
-        if (element.ariaLabel) {
-            return {
-                veroSelector: `label "${element.ariaLabel}"`,
-                selectorType: 'label',
-                confidence: 0.85,
-                rawValue: element.ariaLabel
-            };
-        }
-
-        // 4. Placeholder (for inputs)
-        if (element.placeholder) {
-            return {
-                veroSelector: `placeholder "${element.placeholder}"`,
-                selectorType: 'placeholder',
-                confidence: 0.8,
-                rawValue: element.placeholder
-            };
-        }
-
-        // 5. Text content (for buttons, links, etc.)
-        if (element.text && element.text.length < 30 && !this.isAutoGenerated(element.text)) {
-            return {
-                veroSelector: `text "${element.text}"`,
-                selectorType: 'text',
-                confidence: 0.7,
-                rawValue: element.text
-            };
-        }
-
-        // 6. ID (if not auto-generated)
-        if (element.id && !this.isAutoGenerated(element.id)) {
-            return {
-                veroSelector: `#${element.id}`,
-                selectorType: 'id',
-                confidence: 0.6,
-                rawValue: element.id
-            };
-        }
-
-        // 7. Name attribute
-        if (element.name) {
-            return {
-                veroSelector: `[name="${element.name}"]`,
-                selectorType: 'css',
-                confidence: 0.5,
-                rawValue: element.name
-            };
-        }
-
-        // 8. Fallback to CSS selector
-        const cssSelector = this.buildCssSelector(element);
-        return {
-            veroSelector: cssSelector,
-            selectorType: 'css',
-            confidence: 0.3,
-            rawValue: cssSelector
-        };
-    }
-
-    /**
-     * Check if a value looks auto-generated (random/hash-like)
-     */
-    private isAutoGenerated(value: string): boolean {
-        // Check for common auto-generated patterns
-        const autoGenPatterns = [
-            /^[a-f0-9]{8,}$/i,           // Hex hashes
-            /^[a-z]{1,3}[0-9a-f]{6,}$/i, // Prefixed hashes (e.g., "r1a2b3c4")
-            /^:r[0-9a-z]+:$/,            // React IDs
-            /^sc-[a-z]+$/i,              // Styled-components
-            /^css-[a-z0-9]+$/i,          // CSS modules
-            /^ember\d+$/,                // Ember
-            /^ng-[a-z]+-\d+$/,           // Angular
-            /__[a-z]+_\d+$/i,            // BEM-like generated
-        ];
-
-        return autoGenPatterns.some(pattern => pattern.test(value));
-    }
-
-    /**
-     * Build a CSS selector from element info
-     */
-    private buildCssSelector(element: ElementInfo): string {
-        const parts: string[] = [element.tagName.toLowerCase()];
-
-        if (element.className) {
-            const classes = element.className.split(/\s+/).filter(c => !this.isAutoGenerated(c));
-            if (classes.length > 0) {
-                parts.push(`.${classes[0]}`);
-            }
-        }
-
-        if (element.inputType) {
-            parts.push(`[type="${element.inputType}"]`);
-        }
-
-        return parts.join('');
+        return generateSelectorFromElement(element);
     }
 
     /**
      * Generate a field name from element info
      */
     generateFieldName(element: ElementInfo, action: string = 'click'): string {
-        let baseName = '';
-
-        // Try to extract a meaningful name
-        if (element.testId) {
-            baseName = element.testId;
-        } else if (element.ariaLabel) {
-            baseName = element.ariaLabel;
-        } else if (element.placeholder) {
-            baseName = element.placeholder;
-        } else if (element.text && element.text.length < 20) {
-            baseName = element.text;
-        } else if (element.name) {
-            baseName = element.name;
-        } else if (element.id && !this.isAutoGenerated(element.id)) {
-            baseName = element.id;
-        } else {
-            // Fallback: use tag + action
-            baseName = `${element.tagName}${action.charAt(0).toUpperCase() + action.slice(1)}`;
-        }
-
-        // Convert to camelCase
-        return this.toCamelCase(baseName);
+        return generateFieldNameFromElement(element, action);
     }
 
-    /**
-     * Convert a string to camelCase
-     */
-    private toCamelCase(str: string): string {
-        return str
-            .replace(/[^a-zA-Z0-9\s]/g, ' ')
-            .trim()
-            .split(/\s+/)
-            .map((word, i) => {
-                if (i === 0) return word.toLowerCase();
-                return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-            })
-            .join('');
+    private getDomainLabel(hostname: string): string {
+        const suffixes = new Set([
+            'www', 'com', 'org', 'net', 'co', 'uk', 'us', 'io', 'app', 'dev', 'edu', 'gov',
+            'okta', 'herokuapp', 'vercel'
+        ]);
+
+        const parts = hostname.toLowerCase().split('.').filter(Boolean);
+        const meaningful = parts.filter(part => !suffixes.has(part));
+        if (meaningful.length === 0) return '';
+
+        // Prefer the registrable/domain-like part over subdomains.
+        const chosen = meaningful[meaningful.length - 1];
+        // Keep only first hyphen chunk (the-internet -> the) for shorter deterministic names.
+        const compact = chosen.split('-')[0];
+        return toPascalCase(compact);
+    }
+
+    private getPathLabel(pathname: string): string {
+        const cleanPath = pathname.replace(/^\/+|\/+$/g, '');
+        if (!cleanPath) return 'Home';
+
+        const parts = cleanPath
+            .split(/[\/._-]+/)
+            .filter(Boolean)
+            .map(part => toPascalCase(part))
+            .filter(Boolean);
+
+        return parts.length > 0 ? parts.join('') : 'Home';
     }
 
     /**
@@ -783,20 +481,60 @@ export class PageObjectRegistry {
     suggestPageName(url: string): string {
         try {
             const urlObj = new URL(url);
-            const path = urlObj.pathname.replace(/^\/|\/$/g, '');
+            const domainLabel = this.getDomainLabel(urlObj.hostname);
+            const pathLabel = this.getPathLabel(urlObj.pathname);
 
-            if (!path || path === '') return 'HomePage';
+            if (pathLabel === 'Home') {
+                return domainLabel ? `${domainLabel}HomePage` : 'HomePage';
+            }
 
-            // Convert path to PascalCase page name
-            const parts = path.split(/[\/\-_]/);
-            const name = parts
-                .map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
-                .join('');
-
-            return name + 'Page';
+            const prefix = domainLabel ? `${domainLabel}` : '';
+            return `${prefix}${pathLabel}Page`;
         } catch {
             return 'MainPage';
         }
+    }
+
+    /**
+     * Suggest a page name from a browser tab title.
+     * Examples:
+     *   Home | Salesforce -> SalesforceHomePage
+     *   Sign In - Okta -> OktaSignInPage
+     */
+    suggestPageNameFromTitle(title: string): string {
+        const trimmed = title.trim();
+        if (!trimmed) return '';
+
+        let left = '';
+        let right = '';
+
+        if (trimmed.includes('|')) {
+            const [lhs, rhs] = trimmed.split('|').map(s => s.trim());
+            left = lhs || '';
+            right = rhs || '';
+        } else if (trimmed.includes(' - ')) {
+            const [lhs, rhs] = trimmed.split(' - ').map(s => s.trim());
+            left = lhs || '';
+            right = rhs || '';
+        }
+
+        // For plain single-title pages (e.g. Dashboard), use "<Title>HomePage".
+        const brand = toPascalCase((right || trimmed).replace(/:.+$/, '').trim());
+        const page = toPascalCase((left || 'Home').replace(/:.+$/, '').trim()) || 'Home';
+
+        let name = `${brand}${page}Page`;
+        if (!right && !left) {
+            name = `${toPascalCase(trimmed)}HomePage`;
+        }
+
+        // Keep names short and deterministic.
+        if (name.length > 40) {
+            const suffix = 'Page';
+            const base = name.replace(/Page$/, '');
+            name = `${base.slice(0, 40 - suffix.length)}${suffix}`;
+        }
+
+        return name;
     }
 
     /**
@@ -826,7 +564,6 @@ export class PageObjectRegistry {
             const urlObj = new URL(url);
             return urlObj.pathname;
         } catch {
-            // If not a valid URL, treat as path
             return url.split('?')[0];
         }
     }
@@ -840,25 +577,21 @@ export class PageObjectRegistry {
      *   - Contains: "*\/auth\/*" matches any URL containing "/auth/"
      */
     private matchUrlPattern(urlPath: string, pattern: string): boolean {
-        // Remove leading/trailing whitespace
         pattern = pattern.trim();
         urlPath = urlPath.trim();
 
         // Handle wildcard patterns
         if (pattern.startsWith('*') && pattern.endsWith('*')) {
-            // Contains pattern: *\/auth\/*
             const inner = pattern.slice(1, -1);
             return urlPath.includes(inner);
         }
 
         if (pattern.startsWith('*/')) {
-            // Wildcard prefix: */login matches any path ending with /login
-            const suffix = pattern.slice(1); // Remove leading *
+            const suffix = pattern.slice(1);
             return urlPath === suffix || urlPath.endsWith(suffix);
         }
 
         if (pattern.endsWith('*')) {
-            // Wildcard suffix: /login* matches /login, /login/x, /login?y
             const prefix = pattern.slice(0, -1);
             return urlPath.startsWith(prefix);
         }
@@ -871,7 +604,7 @@ export class PageObjectRegistry {
      * Get or create a page for the given URL
      * First tries to find an existing page by URL pattern match
      */
-    getOrCreatePage(url: string): PageObject {
+    getOrCreatePage(url: string, title?: string): PageObject {
         // First, try to find an existing page by URL pattern
         const existingPage = this.findPageByUrl(url);
         if (existingPage) {
@@ -879,7 +612,8 @@ export class PageObjectRegistry {
         }
 
         // Next, check if page exists by suggested name
-        const suggestedName = this.suggestPageName(url);
+        const titleBasedName = title ? this.suggestPageNameFromTitle(title) : '';
+        const suggestedName = titleBasedName || this.suggestPageName(url);
         if (this.pages.has(suggestedName)) {
             return this.pages.get(suggestedName)!;
         }
@@ -890,10 +624,10 @@ export class PageObjectRegistry {
         const newPage: PageObject = {
             name: suggestedName,
             filePath,
-            urlPatterns: [urlPath],  // Initialize with current URL path
+            urlPatterns: [urlPath],
             fields: new Map(),
             actions: [],
-            rawContent: ''  // Will be generated by updatePageContent
+            rawContent: ''
         };
 
         this.updatePageContent(newPage);
@@ -910,7 +644,6 @@ export class PageObjectRegistry {
             throw new Error(`Page not found: ${pageName}`);
         }
 
-        // Avoid duplicates
         if (!page.urlPatterns.includes(pattern)) {
             page.urlPatterns.push(pattern);
             this.updatePageContent(page);
@@ -942,7 +675,7 @@ export class PageObjectRegistry {
             counter++;
         }
 
-        const { type, rawValue } = this.parseSelectorValue(selector);
+        const { type, rawValue } = parseSelectorValue(selector);
 
         const field: PageField = {
             name: uniqueName,
@@ -971,13 +704,11 @@ export class PageObjectRegistry {
      * Update the raw content of a page after adding fields
      */
     private updatePageContent(page: PageObject): void {
-        // Rebuild the page content with URL patterns and fields
         const lines: string[] = [
             `# ${page.name}`,
             ''
         ];
 
-        // Build PAGE declaration with URL patterns
         if (page.urlPatterns.length > 0) {
             const patternsStr = page.urlPatterns.map(p => `"${p}"`).join(', ');
             lines.push(`PAGE ${page.name} (${patternsStr}) {`);
@@ -985,12 +716,10 @@ export class PageObjectRegistry {
             lines.push(`PAGE ${page.name} {`);
         }
 
-        // Add all fields
         for (const [, field] of page.fields) {
             lines.push(`    FIELD ${field.name} = ${field.selector}`);
         }
 
-        // Add actions if any
         for (const action of page.actions) {
             lines.push('');
             lines.push(action);
@@ -1011,16 +740,14 @@ export class PageObjectRegistry {
             throw new Error(`Page not found: ${pageName}`);
         }
 
-        // Ensure pages directory exists
         const pagesDir = join(this.projectPath, 'Pages');
         if (!existsSync(pagesDir)) {
             await mkdir(pagesDir, { recursive: true });
         }
 
-        // Write the page file
         await writeFile(page.filePath, page.rawContent, 'utf-8');
 
-        console.log(`[PageObjectRegistry] Persisted ${pageName} to ${page.filePath}`);
+        logger.debug(`[PageObjectRegistry] Persisted ${pageName} to ${page.filePath}`);
 
         return page.filePath;
     }

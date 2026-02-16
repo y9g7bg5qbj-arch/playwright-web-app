@@ -4,13 +4,14 @@
  * Provides CRUD operations for test data using MongoDB Atlas.
  */
 
-import { ObjectId, WithId, Document } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import { connectMongoDB, getDb, COLLECTIONS } from '../db/mongodb';
 
 // Types
 export interface TestDataSheet {
   id: string;
   applicationId: string;
+  projectId?: string;
   name: string;
   pageObject?: string;
   description?: string;
@@ -18,7 +19,30 @@ export interface TestDataSheet {
     name: string;
     type: string;
     required: boolean;
+    validation?: {
+      min?: number;
+      max?: number;
+      minLength?: number;
+      maxLength?: number;
+      pattern?: string;
+      enum?: string[];
+    };
+    min?: number;
+    max?: number;
+    minLength?: number;
+    maxLength?: number;
+    pattern?: string;
+    enum?: string[];
+    formula?: string;
+    referenceConfig?: {
+      targetSheet: string;
+      targetColumn: string;
+      displayColumn: string;
+      allowMultiple: boolean;
+      separator?: string;
+    };
   }>;
+  version: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -35,17 +59,70 @@ export interface TestDataRow {
 
 export interface CreateSheetInput {
   applicationId: string;
+  projectId?: string;
   name: string;
   pageObject?: string;
   description?: string;
-  columns?: Array<{ name: string; type: string; required: boolean }>;
+  columns?: Array<{
+    name: string;
+    type: string;
+    required: boolean;
+    validation?: {
+      min?: number;
+      max?: number;
+      minLength?: number;
+      maxLength?: number;
+      pattern?: string;
+      enum?: string[];
+    };
+    min?: number;
+    max?: number;
+    minLength?: number;
+    maxLength?: number;
+    pattern?: string;
+    enum?: string[];
+    formula?: string;
+    referenceConfig?: {
+      targetSheet: string;
+      targetColumn: string;
+      displayColumn: string;
+      allowMultiple: boolean;
+      separator?: string;
+    };
+  }>;
 }
 
 export interface UpdateSheetInput {
   name?: string;
   pageObject?: string;
   description?: string;
-  columns?: Array<{ name: string; type: string; required: boolean }>;
+  columns?: Array<{
+    name: string;
+    type: string;
+    required: boolean;
+    validation?: {
+      min?: number;
+      max?: number;
+      minLength?: number;
+      maxLength?: number;
+      pattern?: string;
+      enum?: string[];
+    };
+    min?: number;
+    max?: number;
+    minLength?: number;
+    maxLength?: number;
+    pattern?: string;
+    enum?: string[];
+    formula?: string;
+    referenceConfig?: {
+      targetSheet: string;
+      targetColumn: string;
+      displayColumn: string;
+      allowMultiple: boolean;
+      separator?: string;
+    };
+  }>;
 }
 
 export interface CreateRowInput {
@@ -72,11 +149,18 @@ class MongoDBTestDataService {
 
   // ==================== SHEETS ====================
 
-  async getSheets(applicationId: string): Promise<TestDataSheet[]> {
+  async getSheets(applicationId: string, projectId?: string): Promise<TestDataSheet[]> {
     await this.init();
     const db = getDb();
+    const filter: Record<string, unknown> = { applicationId };
+    if (projectId) {
+      filter.projectId = projectId;
+    } else {
+      // Backward compatibility: app-level sheets have no nested project scope
+      filter.$or = [{ projectId: { $exists: false } }, { projectId: null }, { projectId: '' }];
+    }
     const sheets = await db.collection(COLLECTIONS.TEST_DATA_SHEETS)
-      .find({ applicationId })
+      .find(filter)
       .sort({ name: 1 })
       .toArray();
     return sheets as unknown as TestDataSheet[];
@@ -90,11 +174,18 @@ class MongoDBTestDataService {
     return sheet as unknown as TestDataSheet | null;
   }
 
-  async getSheetByName(applicationId: string, name: string): Promise<TestDataSheet | null> {
+  async getSheetByName(applicationId: string, name: string, projectId?: string): Promise<TestDataSheet | null> {
     await this.init();
     const db = getDb();
+    const filter: Record<string, unknown> = { applicationId, name };
+    if (projectId) {
+      filter.projectId = projectId;
+    } else {
+      // Backward compatibility: app-level sheets have no nested project scope
+      filter.$or = [{ projectId: { $exists: false } }, { projectId: null }, { projectId: '' }];
+    }
     const sheet = await db.collection(COLLECTIONS.TEST_DATA_SHEETS)
-      .findOne({ applicationId, name });
+      .findOne(filter);
     return sheet as unknown as TestDataSheet | null;
   }
 
@@ -106,10 +197,12 @@ class MongoDBTestDataService {
     const sheet: TestDataSheet = {
       id: new ObjectId().toString(),
       applicationId: input.applicationId,
+      projectId: input.projectId,
       name: input.name,
       pageObject: input.pageObject,
       description: input.description,
       columns: input.columns || [],
+      version: 1,
       createdAt: now,
       updatedAt: now,
     };
@@ -131,7 +224,7 @@ class MongoDBTestDataService {
     const result = await db.collection(COLLECTIONS.TEST_DATA_SHEETS)
       .findOneAndUpdate(
         { id },
-        { $set: updateData },
+        { $set: updateData, $inc: { version: 1 } },
         { returnDocument: 'after' }
       );
 
@@ -148,6 +241,83 @@ class MongoDBTestDataService {
     // Delete the sheet
     const result = await db.collection(COLLECTIONS.TEST_DATA_SHEETS).deleteOne({ id });
     return result.deletedCount > 0;
+  }
+
+  // ==================== VERSION TRACKING ====================
+
+  /**
+   * Increment the version of a sheet. Called after any row mutation
+   * so the runtime cache knows data has changed.
+   */
+  async incrementSheetVersion(sheetId: string): Promise<number> {
+    await this.init();
+    const db = getDb();
+    const result = await db.collection(COLLECTIONS.TEST_DATA_SHEETS)
+      .findOneAndUpdate(
+        { id: sheetId },
+        { $inc: { version: 1 }, $set: { updatedAt: new Date() } },
+        { returnDocument: 'after' }
+      );
+    return (result as any)?.version ?? 0;
+  }
+
+  /**
+   * Get version manifest for all sheets in an application.
+   * Returns { [sheetName]: { version, rowCount, updatedAt } }
+   *
+   * The runtime sends applicationId as "projectId" (matching frontend naming).
+   * This looks up all sheets for the application, regardless of nested project scope.
+   */
+  async getVersionManifest(applicationId: string): Promise<Record<string, { version: string; rowCount: number; updatedAt: string }>> {
+    await this.init();
+    const db = getDb();
+
+    const sheets = await db.collection(COLLECTIONS.TEST_DATA_SHEETS)
+      .find({ applicationId })
+      .toArray();
+
+    const manifest: Record<string, { version: string; rowCount: number; updatedAt: string }> = {};
+    for (const sheet of sheets) {
+      const s = sheet as any;
+      const rowCount = await db.collection(COLLECTIONS.TEST_DATA_ROWS)
+        .countDocuments({ sheetId: s.id });
+      manifest[s.name] = {
+        version: String(s.version ?? 1),
+        rowCount,
+        updatedAt: s.updatedAt?.toISOString() ?? new Date().toISOString(),
+      };
+    }
+    return manifest;
+  }
+
+  /**
+   * Get a sheet by application ID and name (for runtime table lookup by name).
+   *
+   * The runtime sends applicationId as "projectId" (matching frontend naming).
+   * Searches across all sheets in the application regardless of nested project scope.
+   */
+  async getSheetByApplicationAndName(applicationId: string, name: string): Promise<TestDataSheet | null> {
+    await this.init();
+    const db = getDb();
+    const sheet = await db.collection(COLLECTIONS.TEST_DATA_SHEETS)
+      .findOne({ applicationId, name });
+    return sheet as unknown as TestDataSheet | null;
+  }
+
+  /**
+   * Get all sheets for an application (for runtime table listing).
+   *
+   * The runtime sends applicationId as "projectId" (matching frontend naming).
+   * Returns all sheets in the application regardless of nested project scope.
+   */
+  async getSheetsByApplicationId(applicationId: string): Promise<TestDataSheet[]> {
+    await this.init();
+    const db = getDb();
+    const sheets = await db.collection(COLLECTIONS.TEST_DATA_SHEETS)
+      .find({ applicationId })
+      .sort({ name: 1 })
+      .toArray();
+    return sheets as unknown as TestDataSheet[];
   }
 
   // ==================== ROWS ====================
@@ -194,6 +364,7 @@ class MongoDBTestDataService {
     };
 
     await db.collection(COLLECTIONS.TEST_DATA_ROWS).insertOne(row as any);
+    await this.incrementSheetVersion(input.sheetId);
     return row;
   }
 
@@ -213,13 +384,22 @@ class MongoDBTestDataService {
         { returnDocument: 'after' }
       );
 
-    return result as unknown as TestDataRow | null;
+    const row = result as unknown as TestDataRow | null;
+    if (row) {
+      await this.incrementSheetVersion(row.sheetId);
+    }
+    return row;
   }
 
   async deleteRow(id: string): Promise<boolean> {
     await this.init();
     const db = getDb();
+    // Look up the row first to get sheetId for version bump
+    const row = await db.collection(COLLECTIONS.TEST_DATA_ROWS).findOne({ id });
     const result = await db.collection(COLLECTIONS.TEST_DATA_ROWS).deleteOne({ id });
+    if (result.deletedCount > 0 && row) {
+      await this.incrementSheetVersion((row as any).sheetId);
+    }
     return result.deletedCount > 0;
   }
 
@@ -227,6 +407,9 @@ class MongoDBTestDataService {
     await this.init();
     const db = getDb();
     const result = await db.collection(COLLECTIONS.TEST_DATA_ROWS).deleteMany({ sheetId });
+    if (result.deletedCount > 0) {
+      await this.incrementSheetVersion(sheetId);
+    }
     return result.deletedCount;
   }
 
@@ -249,6 +432,11 @@ class MongoDBTestDataService {
 
     if (newRows.length > 0) {
       await db.collection(COLLECTIONS.TEST_DATA_ROWS).insertMany(newRows as any[]);
+      // Increment version for each affected sheet
+      const affectedSheetIds = [...new Set(newRows.map(r => r.sheetId))];
+      for (const sid of affectedSheetIds) {
+        await this.incrementSheetVersion(sid);
+      }
     }
     return newRows;
   }
@@ -273,6 +461,18 @@ class MongoDBTestDataService {
 
     if (bulkOps.length > 0) {
       const result = await db.collection(COLLECTIONS.TEST_DATA_ROWS).bulkWrite(bulkOps);
+      if (result.modifiedCount > 0) {
+        // Find affected sheets to bump their versions
+        const rowIds = updates.map(u => u.id);
+        const affectedRows = await db.collection(COLLECTIONS.TEST_DATA_ROWS)
+          .find({ id: { $in: rowIds } })
+          .project({ sheetId: 1 })
+          .toArray();
+        const affectedSheetIds = [...new Set(affectedRows.map(r => (r as any).sheetId))];
+        for (const sid of affectedSheetIds) {
+          await this.incrementSheetVersion(sid);
+        }
+      }
       return result.modifiedCount;
     }
     return 0;
@@ -322,12 +522,19 @@ class MongoDBTestDataService {
     return { totalRows, enabledRows };
   }
 
-  async getApplicationStats(applicationId: string): Promise<{ totalSheets: number; totalRows: number }> {
+  async getApplicationStats(applicationId: string, projectId?: string): Promise<{ totalSheets: number; totalRows: number }> {
     await this.init();
     const db = getDb();
 
+    const filter: Record<string, unknown> = { applicationId };
+    if (projectId) {
+      filter.projectId = projectId;
+    } else {
+      filter.$or = [{ projectId: { $exists: false } }, { projectId: null }, { projectId: '' }];
+    }
+
     const sheets = await db.collection(COLLECTIONS.TEST_DATA_SHEETS)
-      .find({ applicationId })
+      .find(filter)
       .toArray();
 
     const sheetIds = sheets.map(s => (s as any).id);

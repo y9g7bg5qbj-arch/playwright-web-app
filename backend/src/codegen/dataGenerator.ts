@@ -5,12 +5,7 @@
  * variable interpolation, and environment variable handling.
  */
 
-import {
-    VariableScope,
-    FlowVariableConfig,
-    VariableDataSourceConfig,
-    VariableContextState
-} from '@playwright-web-app/shared';
+import { FlowVariableConfig, VariableDataSourceConfig, VariableContextState } from '@playwright-web-app/shared';
 import { VariableContext } from '../data/variableResolver';
 
 // ============================================
@@ -230,9 +225,9 @@ export class DataDrivenCodeGenerator {
     /**
      * Generate variable interpolation in template literals
      */
-    generateTemplateString(template: string, context: VariableContext): string {
+    generateTemplateString(template: string, _context: VariableContext): string {
         // Replace {{var}} with ${var} for JavaScript template literals
-        let result = template.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
+        let result = template.replace(/\{\{([^}]+)\}\}/g, (_match, path) => {
             const trimmedPath = path.trim();
 
             // Check scope prefixes
@@ -318,7 +313,7 @@ export function generateVariableDeclarations(
  * Transform {{variable}} in code to JavaScript interpolation
  */
 export function transformVariableReferences(code: string): string {
-    return code.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
+    return code.replace(/\{\{([^}]+)\}\}/g, (_match, path) => {
         const trimmedPath = path.trim();
 
         if (trimmedPath.startsWith('env.')) {

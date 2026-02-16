@@ -179,6 +179,101 @@ describe('SemanticValidator', () => {
 
             assert.strictEqual(result.valid, true);
         });
+
+        it('should error when tab operations are used inside PAGEACTIONS', () => {
+            const ast = createTestAST({
+                pages: [createPage('LoginPage')],
+                pageActions: [{
+                    type: 'PageActions' as const,
+                    name: 'LoginActions',
+                    forPage: 'LoginPage',
+                    actions: [{
+                        type: 'ActionDefinition' as const,
+                        name: 'openPopup',
+                        parameters: [],
+                        statements: [{ type: 'SwitchToNewTab' as const, line: 4 }],
+                        line: 3,
+                    }],
+                    line: 2,
+                }],
+            });
+
+            const validator = new SemanticValidator();
+            const result = validator.validate(ast);
+
+            assert.strictEqual(result.valid, false);
+            assert.ok(result.errors.some(e => e.code === VeroErrorCode.INVALID_TAB_CONTEXT));
+        });
+    });
+
+    describe('Tab operation context validation', () => {
+        it('should error when tab operations are used in BEFORE_ALL hook', () => {
+            const ast = createTestAST({
+                pages: [createPage('HomePage')],
+                features: [{
+                    type: 'Feature' as const,
+                    name: 'TabHooks',
+                    annotations: [],
+                    uses: [{ name: 'HomePage', line: 2 }],
+                    fixtures: [],
+                    hooks: [{
+                        type: 'Hook' as const,
+                        hookType: 'BEFORE_ALL',
+                        statements: [{ type: 'SwitchToNewTab' as const, line: 5 }],
+                        line: 4,
+                    }],
+                    scenarios: [{
+                        type: 'Scenario' as const,
+                        name: 'Smoke',
+                        annotations: [],
+                        tags: [],
+                        statements: [],
+                        line: 7,
+                    }],
+                    line: 1,
+                }],
+            });
+
+            const validator = new SemanticValidator();
+            const result = validator.validate(ast);
+
+            assert.strictEqual(result.valid, false);
+            assert.ok(result.errors.some(e => e.code === VeroErrorCode.INVALID_TAB_CONTEXT));
+        });
+
+        it('should error when tab operations are used in AFTER_ALL hook', () => {
+            const ast = createTestAST({
+                pages: [createPage('HomePage')],
+                features: [{
+                    type: 'Feature' as const,
+                    name: 'TabHooks',
+                    annotations: [],
+                    uses: [{ name: 'HomePage', line: 2 }],
+                    fixtures: [],
+                    hooks: [{
+                        type: 'Hook' as const,
+                        hookType: 'AFTER_ALL',
+                        statements: [{ type: 'CloseTab' as const, line: 5 }],
+                        line: 4,
+                    }],
+                    scenarios: [{
+                        type: 'Scenario' as const,
+                        name: 'Smoke',
+                        annotations: [],
+                        tags: [],
+                        statements: [],
+                        line: 7,
+                    }],
+                    line: 1,
+                }],
+            });
+
+            const validator = new SemanticValidator();
+            const result = validator.validate(ast);
+
+            assert.strictEqual(result.valid, false);
+            assert.ok(result.errors.some(e => e.code === VeroErrorCode.INVALID_TAB_CONTEXT));
+        });
     });
 
     describe('Page.field reference validation', () => {

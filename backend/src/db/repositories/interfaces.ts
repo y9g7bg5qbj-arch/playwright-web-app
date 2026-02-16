@@ -2,17 +2,7 @@
 // These interfaces define the contract for database operations
 // Currently using MongoDB as the database backend
 
-import {
-    ObjectRepository,
-    ObjectRepositoryCreate,
-    ObjectRepositoryUpdate,
-    PageObject,
-    PageObjectCreate,
-    PageObjectUpdate,
-    PageElement,
-    PageElementCreate,
-    PageElementUpdate,
-} from '@playwright-web-app/shared';
+import { ObjectRepository, ObjectRepositoryCreate, ObjectRepositoryUpdate, PageObject, PageObjectCreate, PageObjectUpdate, PageElementCreate, PageElementUpdate } from '@playwright-web-app/shared';
 
 // ============================================
 // GENERIC REPOSITORY INTERFACE

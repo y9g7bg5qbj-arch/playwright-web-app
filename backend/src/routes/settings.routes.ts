@@ -6,22 +6,9 @@
 
 import { Router, Response, NextFunction } from 'express';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
-import settingsService, {
-  getDatabaseConfig,
-  updateDatabaseConfig,
-  testDatabaseConnection,
-  getAllSettings,
-  getSetting,
-  setSetting,
-  getSettingsByCategory
-} from '../services/settings.service';
-import {
-  exportData,
-  importData,
-  copyToDatabase,
-  validateExportData,
-  getMigrationInfo
-} from '../services/dataMigration.service';
+import { getDatabaseConfig, updateDatabaseConfig, testDatabaseConnection, getAllSettings, getSetting, setSetting, getSettingsByCategory } from '../services/settings.service';
+import { exportData, importData, copyToDatabase, validateExportData, getMigrationInfo } from '../services/dataMigration.service';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -31,7 +18,7 @@ const router = Router();
  * GET /api/settings/database
  * Get current database configuration
  */
-router.get('/database', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/database', authenticateToken, async (_req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const config = await getDatabaseConfig();
 
@@ -52,7 +39,7 @@ router.get('/database', authenticateToken, async (req: AuthRequest, res: Respons
       }
     });
   } catch (error) {
-    console.error('[Settings] Failed to get database config:', error);
+    logger.error('[Settings] Failed to get database config:', error);
     res.status(500).json({ success: false, error: 'Failed to get database configuration' });
   }
 });
@@ -61,7 +48,7 @@ router.get('/database', authenticateToken, async (req: AuthRequest, res: Respons
  * PUT /api/settings/database
  * Update database configuration
  */
-router.put('/database', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.put('/database', authenticateToken, async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { uri, database } = req.body;
 
@@ -83,7 +70,7 @@ router.put('/database', authenticateToken, async (req: AuthRequest, res: Respons
       message: 'Database configuration updated'
     });
   } catch (error) {
-    console.error('[Settings] Failed to update database config:', error);
+    logger.error('[Settings] Failed to update database config:', error);
     res.status(500).json({ success: false, error: 'Failed to update database configuration' });
   }
 });
@@ -92,7 +79,7 @@ router.put('/database', authenticateToken, async (req: AuthRequest, res: Respons
  * POST /api/settings/database/test
  * Test database connection
  */
-router.post('/database/test', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/database/test', authenticateToken, async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { uri, database } = req.body;
 
@@ -111,7 +98,7 @@ router.post('/database/test', authenticateToken, async (req: AuthRequest, res: R
       error: result.error
     });
   } catch (error) {
-    console.error('[Settings] Failed to test database connection:', error);
+    logger.error('[Settings] Failed to test database connection:', error);
     res.status(500).json({ success: false, error: 'Failed to test database connection' });
   }
 });
@@ -122,7 +109,7 @@ router.post('/database/test', authenticateToken, async (req: AuthRequest, res: R
  * GET /api/settings
  * Get all settings
  */
-router.get('/', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/', authenticateToken, async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const category = req.query.category as string | undefined;
 
@@ -152,7 +139,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response, next:
       data: safeSettings
     });
   } catch (error) {
-    console.error('[Settings] Failed to get settings:', error);
+    logger.error('[Settings] Failed to get settings:', error);
     res.status(500).json({ success: false, error: 'Failed to get settings' });
   }
 });
@@ -161,7 +148,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response, next:
  * GET /api/settings/:key
  * Get a specific setting
  */
-router.get('/:key', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/:key', authenticateToken, async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { key } = req.params;
     const value = await getSetting(key);
@@ -178,7 +165,7 @@ router.get('/:key', authenticateToken, async (req: AuthRequest, res: Response, n
       data: { key, value }
     });
   } catch (error) {
-    console.error('[Settings] Failed to get setting:', error);
+    logger.error('[Settings] Failed to get setting:', error);
     res.status(500).json({ success: false, error: 'Failed to get setting' });
   }
 });
@@ -187,7 +174,7 @@ router.get('/:key', authenticateToken, async (req: AuthRequest, res: Response, n
  * PUT /api/settings/:key
  * Update a specific setting
  */
-router.put('/:key', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.put('/:key', authenticateToken, async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { key } = req.params;
     const { value, description } = req.body;
@@ -206,7 +193,7 @@ router.put('/:key', authenticateToken, async (req: AuthRequest, res: Response, n
       message: 'Setting updated'
     });
   } catch (error) {
-    console.error('[Settings] Failed to update setting:', error);
+    logger.error('[Settings] Failed to update setting:', error);
     res.status(500).json({ success: false, error: 'Failed to update setting' });
   }
 });
@@ -217,12 +204,12 @@ router.put('/:key', authenticateToken, async (req: AuthRequest, res: Response, n
  * GET /api/settings/migration/info
  * Get migration info for current database
  */
-router.get('/migration/info', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/migration/info', authenticateToken, async (_req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const info = await getMigrationInfo();
     res.json({ success: true, data: info });
   } catch (error) {
-    console.error('[Migration] Failed to get migration info:', error);
+    logger.error('[Migration] Failed to get migration info:', error);
     res.status(500).json({ success: false, error: 'Failed to get migration info' });
   }
 });
@@ -231,9 +218,9 @@ router.get('/migration/info', authenticateToken, async (req: AuthRequest, res: R
  * POST /api/settings/migration/export
  * Export all data from current database
  */
-router.post('/migration/export', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/migration/export', authenticateToken, async (_req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
-    console.log('[Migration] Starting data export...');
+    logger.info('[Migration] Starting data export...');
     const data = await exportData();
 
     res.json({
@@ -242,7 +229,7 @@ router.post('/migration/export', authenticateToken, async (req: AuthRequest, res
       message: `Exported ${data.metadata.totalDocuments} documents from ${Object.keys(data.collections).length} collections`
     });
   } catch (error) {
-    console.error('[Migration] Failed to export data:', error);
+    logger.error('[Migration] Failed to export data:', error);
     res.status(500).json({ success: false, error: 'Failed to export data' });
   }
 });
@@ -251,7 +238,7 @@ router.post('/migration/export', authenticateToken, async (req: AuthRequest, res
  * POST /api/settings/migration/import
  * Import data into a target database
  */
-router.post('/migration/import', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/migration/import', authenticateToken, async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { targetUri, targetDatabase, data, overwrite, merge } = req.body;
 
@@ -279,7 +266,7 @@ router.post('/migration/import', authenticateToken, async (req: AuthRequest, res
       });
     }
 
-    console.log('[Migration] Starting data import...');
+    logger.info('[Migration] Starting data import...');
     const result = await importData(targetUri, targetDatabase, data, { overwrite, merge });
 
     res.json({
@@ -290,7 +277,7 @@ router.post('/migration/import', authenticateToken, async (req: AuthRequest, res
         : 'Import completed with errors'
     });
   } catch (error) {
-    console.error('[Migration] Failed to import data:', error);
+    logger.error('[Migration] Failed to import data:', error);
     res.status(500).json({ success: false, error: 'Failed to import data' });
   }
 });
@@ -299,7 +286,7 @@ router.post('/migration/import', authenticateToken, async (req: AuthRequest, res
  * POST /api/settings/migration/copy
  * Copy all data from current database to target database
  */
-router.post('/migration/copy', authenticateToken, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/migration/copy', authenticateToken, async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { targetUri, targetDatabase, overwrite, merge } = req.body;
 
@@ -310,7 +297,7 @@ router.post('/migration/copy', authenticateToken, async (req: AuthRequest, res: 
       });
     }
 
-    console.log('[Migration] Starting database copy...');
+    logger.info('[Migration] Starting database copy...');
     const result = await copyToDatabase(targetUri, targetDatabase, { overwrite, merge });
 
     res.json({
@@ -321,7 +308,7 @@ router.post('/migration/copy', authenticateToken, async (req: AuthRequest, res: 
         : 'Copy completed with errors'
     });
   } catch (error) {
-    console.error('[Migration] Failed to copy database:', error);
+    logger.error('[Migration] Failed to copy database:', error);
     res.status(500).json({ success: false, error: 'Failed to copy database' });
   }
 });

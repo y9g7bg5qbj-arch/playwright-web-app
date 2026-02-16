@@ -18,6 +18,7 @@ import {
   Layers,
 } from 'lucide-react';
 import type { ConsoleEntry, DebugVariable, WatchExpression, DebugFrame } from '@/hooks/useDebugger';
+import { IconButton, Toolbar, ToolbarGroup, Tabs, TabsList, TabsTrigger } from '@/components/ui';
 
 type DebugTab = 'execution' | 'output' | 'variables' | 'watches' | 'callstack' | 'problems';
 
@@ -49,13 +50,13 @@ function formatDuration(ms: number): string {
 function StatusIcon({ status }: { status?: ConsoleEntry['status'] }) {
   switch (status) {
     case 'running':
-      return <Clock className="w-3.5 h-3.5 text-[#58a6ff] animate-pulse" />;
+      return <Clock className="w-3.5 h-3.5 text-status-info animate-pulse" />;
     case 'success':
-      return <Check className="w-3.5 h-3.5 text-[#3fb950]" />;
+      return <Check className="w-3.5 h-3.5 text-status-success" />;
     case 'failure':
-      return <X className="w-3.5 h-3.5 text-[#f85149]" />;
+      return <X className="w-3.5 h-3.5 text-status-danger" />;
     case 'paused':
-      return <Pause className="w-3.5 h-3.5 text-[#d29922]" />;
+      return <Pause className="w-3.5 h-3.5 text-status-warning" />;
     default:
       return null;
   }
@@ -67,17 +68,17 @@ function StatusIcon({ status }: { status?: ConsoleEntry['status'] }) {
 function getEntryColor(type: ConsoleEntry['type']): string {
   switch (type) {
     case 'step':
-      return 'text-[#58a6ff]';
+      return 'text-status-info';
     case 'error':
-      return 'text-[#f85149]';
+      return 'text-status-danger';
     case 'warning':
-      return 'text-[#d29922]';
+      return 'text-status-warning';
     case 'info':
-      return 'text-[#8b949e]';
+      return 'text-text-secondary';
     case 'log':
-      return 'text-[#e6edf3]';
+      return 'text-text-primary';
     default:
-      return 'text-[#8b949e]';
+      return 'text-text-secondary';
   }
 }
 
@@ -102,7 +103,7 @@ function VariableValue({ value }: { value: any }) {
           ) : (
             <ChevronRight className="w-3 h-3" />
           )}
-          <span className="text-[#a371f7]">
+          <span className="text-accent-purple">
             {isArray ? `Array(${entries.length})` : `Object`}
           </span>
         </button>
@@ -121,13 +122,13 @@ function VariableValue({ value }: { value: any }) {
   }
 
   if (typeof value === 'string') {
-    return <span className="text-[#3fb950]">"{value}"</span>;
+    return <span className="text-status-success">"{value}"</span>;
   }
   if (typeof value === 'number') {
-    return <span className="text-[#58a6ff]">{value}</span>;
+    return <span className="text-status-info">{value}</span>;
   }
   if (typeof value === 'boolean') {
-    return <span className="text-[#d29922]">{value.toString()}</span>;
+    return <span className="text-status-warning">{value.toString()}</span>;
   }
   if (value === null) {
     return <span className="text-text-muted">null</span>;
@@ -167,19 +168,19 @@ export function DebugConsolePanel({
   if (isMinimized) {
     return (
       <div className="h-7 bg-dark-canvas border-t border-border-default flex items-center justify-between px-2">
-        <div className="flex items-center gap-1.5 text-[10px] text-text-muted">
+        <div className="flex items-center gap-1.5 text-3xs text-text-muted">
           <Terminal className="w-3 h-3" />
           <span>Debug Console</span>
           {entries.length > 0 && (
             <span className="text-text-muted/60 tabular-nums">({entries.length})</span>
           )}
         </div>
-        <button
+        <IconButton
+          icon={<Maximize2 className="w-3 h-3" />}
+          size="sm"
+          tooltip="Maximize"
           onClick={onToggleMinimize}
-          className="p-0.5 hover:bg-white/[0.06] rounded transition-colors duration-fast"
-        >
-          <Maximize2 className="w-3 h-3 text-text-muted" />
-        </button>
+        />
       </div>
     );
   }
@@ -187,122 +188,40 @@ export function DebugConsolePanel({
   return (
     <div className="h-56 bg-dark-canvas border-t border-border-default flex flex-col">
       {/* Tabs Header */}
-      <div className="h-8 border-b border-border-default flex items-center justify-between px-1.5">
-        <div className="flex items-center gap-0.5">
-          <button
-            onClick={() => setActiveTab('execution')}
-            className={`px-2 py-1 text-[10px] font-medium rounded transition-colors duration-fast ${
-              activeTab === 'execution'
-                ? 'bg-white/[0.06] text-text-primary'
-                : 'text-text-muted hover:text-text-secondary'
-            }`}
-          >
-            <div className="flex items-center gap-1">
-              <Play className="w-3 h-3" />
-              Execution
-            </div>
-          </button>
-          <button
-            onClick={() => setActiveTab('output')}
-            className={`px-2 py-1 text-[10px] font-medium rounded transition-colors duration-fast ${
-              activeTab === 'output'
-                ? 'bg-white/[0.06] text-text-primary'
-                : 'text-text-muted hover:text-text-secondary'
-            }`}
-          >
-            <div className="flex items-center gap-1">
-              <Terminal className="w-3 h-3" />
-              Output
-            </div>
-          </button>
-          <button
-            onClick={() => setActiveTab('variables')}
-            className={`px-2 py-1 text-[10px] font-medium rounded transition-colors duration-fast ${
-              activeTab === 'variables'
-                ? 'bg-white/[0.06] text-text-primary'
-                : 'text-text-muted hover:text-text-secondary'
-            }`}
-          >
-            <div className="flex items-center gap-1">
-              <Variable className="w-3 h-3" />
-              Variables
-              {variables.length > 0 && (
-                <span className="text-text-muted/60 tabular-nums">({variables.length})</span>
-              )}
-            </div>
-          </button>
-          <button
-            onClick={() => setActiveTab('watches')}
-            className={`px-2 py-1 text-[10px] font-medium rounded transition-colors duration-fast ${
-              activeTab === 'watches'
-                ? 'bg-white/[0.06] text-text-primary'
-                : 'text-text-muted hover:text-text-secondary'
-            }`}
-          >
-            <div className="flex items-center gap-1">
-              <Eye className="w-3 h-3" />
-              Watches
-              {watches.length > 0 && (
-                <span className="text-text-muted/60 tabular-nums">({watches.length})</span>
-              )}
-            </div>
-          </button>
-          <button
-            onClick={() => setActiveTab('callstack')}
-            className={`px-2 py-1 text-[10px] font-medium rounded transition-colors duration-fast ${
-              activeTab === 'callstack'
-                ? 'bg-white/[0.06] text-text-primary'
-                : 'text-text-muted hover:text-text-secondary'
-            }`}
-          >
-            <div className="flex items-center gap-1">
-              <Layers className="w-3 h-3" />
-              Stack
-              {callStack.length > 0 && (
-                <span className="text-text-muted/60 tabular-nums">({callStack.length})</span>
-              )}
-            </div>
-          </button>
-          <button
-            onClick={() => setActiveTab('problems')}
-            className={`px-2 py-1 text-[10px] font-medium rounded transition-colors duration-fast ${
-              activeTab === 'problems'
-                ? 'bg-white/[0.06] text-text-primary'
-                : 'text-text-muted hover:text-text-secondary'
-            }`}
-          >
-            <div className="flex items-center gap-1">
-              <AlertCircle className="w-3 h-3" />
-              Problems
-              {problems.length > 0 && (
-                <span className="text-[#f85149] tabular-nums">({problems.length})</span>
-              )}
-            </div>
-          </button>
-        </div>
+      <Toolbar position="top" size="sm" className="justify-between px-1.5">
+        <ToolbarGroup>
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as DebugTab)} variant="pill" size="sm">
+            <TabsList>
+              <TabsTrigger value="execution" icon={<Play className="w-3 h-3" />}>Execution</TabsTrigger>
+              <TabsTrigger value="output" icon={<Terminal className="w-3 h-3" />}>Output</TabsTrigger>
+              <TabsTrigger value="variables" icon={<Variable className="w-3 h-3" />} count={variables.length || undefined}>Variables</TabsTrigger>
+              <TabsTrigger value="watches" icon={<Eye className="w-3 h-3" />} count={watches.length || undefined}>Watches</TabsTrigger>
+              <TabsTrigger value="callstack" icon={<Layers className="w-3 h-3" />} count={callStack.length || undefined}>Stack</TabsTrigger>
+              <TabsTrigger value="problems" icon={<AlertCircle className="w-3 h-3" />} count={problems.length || undefined}>Problems</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </ToolbarGroup>
 
-        <div className="flex items-center gap-0.5">
+        <ToolbarGroup>
           {onClearConsole && (
-            <button
+            <IconButton
+              icon={<Trash2 className="w-3 h-3" />}
+              size="sm"
+              tooltip="Clear Console"
               onClick={onClearConsole}
-              className="p-1 hover:bg-white/[0.06] rounded transition-colors duration-fast"
-              title="Clear Console"
-            >
-              <Trash2 className="w-3 h-3 text-text-muted" />
-            </button>
+            />
           )}
-          <button
+          <IconButton
+            icon={<Minimize2 className="w-3 h-3" />}
+            size="sm"
+            tooltip="Minimize"
             onClick={onToggleMinimize}
-            className="p-1 hover:bg-white/[0.06] rounded transition-colors duration-fast"
-            title="Minimize"
-          >
-            <Minimize2 className="w-3 h-3 text-text-muted" />
-          </button>
-        </div>
-      </div>
+          />
+        </ToolbarGroup>
+      </Toolbar>
 
       {/* Content */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto font-mono text-[11px]">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto font-mono text-xxs">
         {activeTab === 'execution' && (
           <div className="p-2">
             {entries.length === 0 ? (
@@ -334,7 +253,7 @@ export function DebugConsolePanel({
                         {entry.line && (
                           <button
                             onClick={() => onGoToLine?.(entry.line!)}
-                            className="text-[#58a6ff] hover:text-[#79c0ff] hover:underline tabular-nums"
+                            className="text-status-info hover:text-status-info hover:underline tabular-nums"
                           >
                             Line {entry.line}
                           </button>
@@ -342,7 +261,7 @@ export function DebugConsolePanel({
                       </td>
 
                       {/* Action */}
-                      <td className="px-2 py-1 text-[#a371f7] whitespace-nowrap align-top">
+                      <td className="px-2 py-1 text-accent-purple whitespace-nowrap align-top">
                         {entry.action}
                       </td>
 
@@ -410,7 +329,7 @@ export function DebugConsolePanel({
                 <tbody>
                   {variables.map((v, i) => (
                     <tr key={i} className="hover:bg-white/[0.03]">
-                      <td className="px-2 py-1 text-[#56d4dd]">${v.name}</td>
+                      <td className="px-2 py-1 text-accent-cyan">${v.name}</td>
                       <td className="px-2 py-1">
                         <VariableValue value={v.value} />
                       </td>
@@ -441,7 +360,11 @@ export function DebugConsolePanel({
                 placeholder="Add expression to watch..."
                 className="flex-1 bg-dark-canvas border border-border-default rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/15 transition-colors duration-fast"
               />
-              <button
+              <IconButton
+                icon={<Plus className="w-4 h-4" />}
+                size="sm"
+                tooltip="Add Watch"
+                disabled={!watchInput.trim()}
                 onClick={() => {
                   if (watchInput.trim()) {
                     onAddWatch?.(watchInput);
@@ -449,12 +372,7 @@ export function DebugConsolePanel({
                     watchInputRef.current?.focus();
                   }
                 }}
-                disabled={!watchInput.trim()}
-                className="p-1 hover:bg-white/[0.06] rounded disabled:opacity-50 transition-colors duration-fast"
-                title="Add Watch"
-              >
-                <Plus className="w-4 h-4 text-text-secondary" />
-              </button>
+              />
             </div>
 
             {/* Watch list */}
@@ -482,15 +400,16 @@ export function DebugConsolePanel({
                   {watches.map((watch) => (
                     <tr key={watch.id} className="hover:bg-white/[0.03] group">
                       <td className="px-2 py-1">
-                        <button
+                        <IconButton
+                          icon={<X className="w-3 h-3" />}
+                          size="sm"
+                          tone="danger"
+                          tooltip="Remove Watch"
                           onClick={() => onRemoveWatch?.(watch.id)}
-                          className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-white/[0.06] rounded transition-opacity duration-fast"
-                          title="Remove Watch"
-                        >
-                          <X className="w-3 h-3 text-text-muted hover:text-status-danger" />
-                        </button>
+                          className="opacity-0 group-hover:opacity-100 transition-opacity duration-fast"
+                        />
                       </td>
-                      <td className="px-2 py-1 text-[#56d4dd]">{watch.expression}</td>
+                      <td className="px-2 py-1 text-accent-cyan">{watch.expression}</td>
                       <td className="px-2 py-1">
                         {watch.error ? (
                           <span className="text-status-danger">{watch.error}</span>
@@ -524,7 +443,7 @@ export function DebugConsolePanel({
                     key={frame.id}
                     className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors duration-fast ${
                       frame.isCurrent
-                        ? 'bg-brand-primary/20 text-[#79c0ff]'
+                        ? 'bg-brand-primary/20 text-status-info'
                         : 'hover:bg-white/[0.03] text-text-secondary'
                     }`}
                     onClick={() => onGoToLine?.(frame.line)}
@@ -536,13 +455,13 @@ export function DebugConsolePanel({
                     >
                       {/* Frame type icon */}
                       {frame.type === 'feature' && (
-                        <span className="w-4 h-4 flex items-center justify-center text-[#58a6ff] text-xs">F</span>
+                        <span className="w-4 h-4 flex items-center justify-center text-status-info text-xs">F</span>
                       )}
                       {frame.type === 'scenario' && (
-                        <span className="w-4 h-4 flex items-center justify-center text-[#3fb950] text-xs">S</span>
+                        <span className="w-4 h-4 flex items-center justify-center text-status-success text-xs">S</span>
                       )}
                       {frame.type === 'action' && (
-                        <span className="w-4 h-4 flex items-center justify-center text-[#a371f7] text-xs">→</span>
+                        <span className="w-4 h-4 flex items-center justify-center text-accent-purple text-xs">→</span>
                       )}
                     </div>
 

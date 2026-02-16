@@ -4,16 +4,7 @@
 
 import { NotFoundError, ForbiddenError } from '../utils/errors';
 import { workflowRepository, objectRepositoryRepository, pageObjectRepository } from '../db/repositories/mongo';
-import {
-    ObjectRepository,
-    ObjectRepositoryUpdate,
-    PageObject,
-    PageObjectCreate,
-    PageObjectUpdate,
-    PageElement,
-    PageElementCreate,
-    PageElementUpdate,
-} from '@playwright-web-app/shared';
+import { ObjectRepository, ObjectRepositoryUpdate, PageObject, PageObjectCreate, PageObjectUpdate, PageElementCreate, PageElementUpdate } from '@playwright-web-app/shared';
 
 export class RepositoryService {
     private objectRepoRepo = objectRepositoryRepository;

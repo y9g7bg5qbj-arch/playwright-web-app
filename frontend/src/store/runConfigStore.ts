@@ -1,10 +1,32 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import { normalizeExecutionTarget } from '@playwright-web-app/shared';
+import { runConfigurationApi } from '@/api/runConfiguration';
+import { toBackendCreate, fromBackendConfig, toBackendUpdate } from './runConfigMapper';
+
+const RUN_CONFIG_STORAGE_KEY = 'run-config-storage-v2';
+const LEGACY_RUN_CONFIG_STORAGE_KEY = 'run-config-storage';
+
+function cleanupLegacyRunConfigStorage(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (window.localStorage.getItem(RUN_CONFIG_STORAGE_KEY) !== null) {
+      window.localStorage.removeItem(RUN_CONFIG_STORAGE_KEY);
+    }
+    if (window.localStorage.getItem(LEGACY_RUN_CONFIG_STORAGE_KEY) !== null) {
+      window.localStorage.removeItem(LEGACY_RUN_CONFIG_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.warn('[RunConfig] Failed to cleanup legacy run-config localStorage key:', error);
+  }
+}
+
+cleanupLegacyRunConfigStorage();
 
 // Run configuration types matching Playwright options
 export interface RunConfiguration {
   id: string;
+  workflowId?: string;
+  projectId?: string;
   name: string;
 
   // Execution Target
@@ -29,6 +51,9 @@ export interface RunConfiguration {
   // Test Filtering
   grep?: string;
   grepInvert?: string;
+  tagExpression?: string;
+  selectionScope?: 'active-file' | 'current-sandbox';
+  namePatterns?: string[];
   lastFailed: boolean;
 
   // Retry & Timeout
@@ -40,6 +65,11 @@ export interface RunConfiguration {
   trace: 'off' | 'on' | 'retain-on-failure' | 'on-first-retry';
   screenshot: 'off' | 'on' | 'only-on-failure';
   video: 'off' | 'on' | 'on-failure' | 'retain-on-failure';
+  visualPreset: 'strict' | 'balanced' | 'relaxed' | 'custom';
+  visualThreshold: number;
+  visualMaxDiffPixels?: number;
+  visualMaxDiffPixelRatio?: number;
+  visualUpdateSnapshots: boolean;
 
   // Reporting
   reporter: ('list' | 'html' | 'json' | 'junit' | 'allure')[];
@@ -72,6 +102,10 @@ export interface RunConfiguration {
   // Custom environment variables (can override environment variables)
   envVars?: Record<string, string>;
 
+  // Run Parameters
+  parameterSetId?: string;
+  parameterOverrides?: Record<string, string | number | boolean>;
+
   // Metadata
   lastUsedAt?: string;
   createdAt: string;
@@ -96,6 +130,7 @@ export const DEFAULT_CONFIG: Omit<RunConfiguration, 'id' | 'createdAt' | 'update
   debug: false,
   ui: false,
   workers: 1,
+  selectionScope: 'current-sandbox',
   lastFailed: false,
   retries: 0,
   timeout: 30000,
@@ -103,6 +138,9 @@ export const DEFAULT_CONFIG: Omit<RunConfiguration, 'id' | 'createdAt' | 'update
   trace: 'retain-on-failure',
   screenshot: 'only-on-failure',
   video: 'off',
+  visualPreset: 'balanced',
+  visualThreshold: 0.2,
+  visualUpdateSnapshots: false,
   reporter: ['list'],
   baseURL: 'http://localhost:3000',
 };
@@ -162,12 +200,25 @@ interface RunConfigState {
   // Modal open state
   isModalOpen: boolean;
 
+  // API sync state
+  isLoading: boolean;
+  syncError: string | null;
+  seededScopeKeys: string[];
+  seedingScopeKeys: string[];
+
   // Actions
   setConfigurations: (configs: RunConfiguration[]) => void;
-  addConfiguration: (config: Omit<RunConfiguration, 'id' | 'createdAt' | 'updatedAt'>) => RunConfiguration;
+  addConfiguration: (
+    config: Omit<RunConfiguration, 'id' | 'createdAt' | 'updatedAt'>,
+    workflowId?: string,
+    projectId?: string
+  ) => Promise<RunConfiguration>;
   updateConfiguration: (id: string, updates: Partial<RunConfiguration>) => void;
   deleteConfiguration: (id: string) => void;
   duplicateConfiguration: (id: string) => RunConfiguration;
+
+  // API sync
+  loadConfigurations: (workflowId: string, projectId?: string) => Promise<void>;
 
   // Recent configs
   addRecentConfig: (config: RunConfigSummary) => void;
@@ -185,7 +236,7 @@ interface RunConfigState {
   runWithConfig: (configId: string) => void;
 }
 
-// Generate unique ID
+// Generate unique ID (fallback for offline)
 const generateId = () => `config_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
 function normalizeStoreTarget(target: unknown): 'local' | 'github-actions' {
@@ -193,34 +244,77 @@ function normalizeStoreTarget(target: unknown): 'local' | 'github-actions' {
   return normalized === 'github-actions' ? 'github-actions' : 'local';
 }
 
+function getScopeKey(workflowId: string, projectId?: string): string {
+  return `${workflowId}::${projectId || 'none'}`;
+}
+
+function isConfigInScope(config: RunConfiguration, workflowId: string, projectId?: string): boolean {
+  return config.workflowId === workflowId && config.projectId === projectId;
+}
+
 export const useRunConfigStore = create<RunConfigState>()(
-  persist(
-    (set, get) => ({
+  (set, get) => ({
       configurations: [],
       recentConfigs: [],
       activeConfigId: null,
       isDropdownOpen: false,
       isModalOpen: false,
+      isLoading: false,
+      syncError: null,
+      seededScopeKeys: [],
+      seedingScopeKeys: [],
 
       setConfigurations: (configs) => set({ configurations: configs }),
 
-      addConfiguration: (config) => {
-        const now = new Date().toISOString();
-        const newConfig: RunConfiguration = {
-          ...config,
-          id: generateId(),
-          createdAt: now,
-          updatedAt: now,
+      addConfiguration: async (config, workflowId?, projectId?) => {
+        const createLocalConfig = (errorMessage?: string): RunConfiguration => {
+          const now = new Date().toISOString();
+          const newConfig: RunConfiguration = {
+            ...config,
+            id: generateId(),
+            workflowId,
+            projectId,
+            createdAt: now,
+            updatedAt: now,
+          };
+
+          set((state) => ({
+            configurations: [...state.configurations, newConfig],
+            syncError: errorMessage || null,
+          }));
+
+          return newConfig;
         };
 
-        set((state) => ({
-          configurations: [...state.configurations, newConfig],
-        }));
+        // Try API first if workflowId is available
+        if (workflowId) {
+          try {
+            const backendPayload = toBackendCreate(config);
+            const backendConfig = await runConfigurationApi.create(workflowId, backendPayload, projectId);
+            const frontendConfig = fromBackendConfig(backendConfig);
 
-        return newConfig;
+            set((state) => ({
+              configurations: state.configurations.some((existing) => existing.id === frontendConfig.id)
+                ? state.configurations.map((existing) => existing.id === frontendConfig.id ? frontendConfig : existing)
+                : [...state.configurations, frontendConfig],
+              syncError: null,
+            }));
+
+            return frontendConfig;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to create run configuration on server';
+            console.warn('[RunConfig] API create failed:', err);
+            set({ syncError: message });
+            throw new Error(message);
+          }
+        }
+
+        // Local-only fallback
+        return createLocalConfig();
       },
 
       updateConfiguration: (id, updates) => {
+        // Optimistic local update
         set((state) => ({
           configurations: state.configurations.map((c) =>
             c.id === id
@@ -228,6 +322,14 @@ export const useRunConfigStore = create<RunConfigState>()(
               : c
           ),
         }));
+
+        // Fire-and-forget API sync (skip for local-only IDs during migration)
+        if (!id.startsWith('config_')) {
+          const backendUpdates = toBackendUpdate(updates);
+          runConfigurationApi.update(id, backendUpdates).catch((err) => {
+            console.warn('[RunConfig] API update failed:', err);
+          });
+        }
       },
 
       deleteConfiguration: (id) => {
@@ -236,21 +338,131 @@ export const useRunConfigStore = create<RunConfigState>()(
           recentConfigs: state.recentConfigs.filter((c) => c.id !== id),
           activeConfigId: state.activeConfigId === id ? null : state.activeConfigId,
         }));
+
+        // Fire-and-forget API delete (skip for local-only IDs)
+        if (!id.startsWith('config_')) {
+          runConfigurationApi.delete(id).catch((err) => {
+            console.warn('[RunConfig] API delete failed:', err);
+          });
+        }
       },
 
       duplicateConfiguration: (id) => {
-        const { configurations, addConfiguration } = get();
+        const { configurations } = get();
         const original = configurations.find((c) => c.id === id);
 
         if (!original) {
           throw new Error('Configuration not found');
         }
 
+        // Create a temporary local duplicate for immediate UI feedback
+        const now = new Date().toISOString();
+        const tempId = generateId();
         const { id: _id, createdAt: _c, updatedAt: _u, ...configData } = original;
-        return addConfiguration({
+        const newConfig: RunConfiguration = {
           ...configData,
           name: `${original.name} (Copy)`,
-        });
+          id: tempId,
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        set((state) => ({
+          configurations: [...state.configurations, newConfig],
+        }));
+
+        // For API-backed configs, duplicate via API and replace the temp entry
+        if (!id.startsWith('config_')) {
+          runConfigurationApi.duplicate(id, newConfig.name)
+            .then((backendConfig) => {
+              const frontendConfig = fromBackendConfig(backendConfig);
+              set((state) => ({
+                configurations: state.configurations.map((c) =>
+                  c.id === tempId ? frontendConfig : c
+                ),
+              }));
+            })
+            .catch((err) => {
+              console.warn('[RunConfig] API duplicate failed, keeping local copy:', err);
+            });
+        }
+
+        return newConfig;
+      },
+
+      loadConfigurations: async (workflowId, projectId) => {
+        const scopeKey = getScopeKey(workflowId, projectId);
+        set({ isLoading: true, syncError: null });
+        try {
+          let backendConfigs = await runConfigurationApi.getAll(workflowId, projectId);
+
+          // Project-folder scope: auto-seed a default configuration once per scope
+          // when the backend has no records yet.
+          if (projectId && backendConfigs.length === 0) {
+            const { seededScopeKeys, seedingScopeKeys } = get();
+            if (!seededScopeKeys.includes(scopeKey) && !seedingScopeKeys.includes(scopeKey)) {
+              set((state) => ({
+                seedingScopeKeys: [...new Set([...state.seedingScopeKeys, scopeKey])],
+              }));
+              try {
+                const backendPayload = toBackendCreate({ ...DEFAULT_CONFIG, projectId });
+                const created = await runConfigurationApi.create(workflowId, backendPayload, projectId);
+                backendConfigs = [created];
+              } catch (error) {
+                const message = error instanceof Error ? error.message : 'Failed to create default run configuration';
+                set({ syncError: message });
+              } finally {
+                set((state) => ({
+                  seededScopeKeys: [...new Set([...state.seededScopeKeys, scopeKey])],
+                  seedingScopeKeys: state.seedingScopeKeys.filter((key) => key !== scopeKey),
+                }));
+              }
+            }
+          }
+
+          const frontendConfigs = backendConfigs.map(fromBackendConfig);
+
+          set((state) => {
+            const apiIds = new Set(frontendConfigs.map((c) => c.id));
+            const localOnlyForScope = state.configurations.filter(
+              (c) =>
+                c.id.startsWith('config_') &&
+                isConfigInScope(c, workflowId, projectId) &&
+                !apiIds.has(c.id)
+            );
+            const preservedForOtherScopes = state.configurations.filter(
+              (c) => !isConfigInScope(c, workflowId, projectId)
+            );
+
+            const scopedConfigs = [...frontendConfigs, ...localOnlyForScope];
+            const hasActive = scopedConfigs.some((c) => c.id === state.activeConfigId);
+
+            return {
+              configurations: [...preservedForOtherScopes, ...scopedConfigs],
+              activeConfigId: hasActive ? state.activeConfigId : scopedConfigs[0]?.id || null,
+              isLoading: false,
+            };
+          });
+        } catch (err) {
+          console.warn('[RunConfig] Failed to load from API, using cached configs:', err);
+          set((state) => {
+            const scopedConfigs = state.configurations.filter(
+              (c) =>
+                c.id.startsWith('config_') &&
+                isConfigInScope(c, workflowId, projectId)
+            );
+            const preservedForOtherScopes = state.configurations.filter(
+              (c) => !isConfigInScope(c, workflowId, projectId)
+            );
+            const hasActive = scopedConfigs.some((c) => c.id === state.activeConfigId);
+            return {
+              configurations: [...preservedForOtherScopes, ...scopedConfigs],
+              activeConfigId: hasActive ? state.activeConfigId : scopedConfigs[0]?.id || null,
+              isLoading: false,
+              syncError: 'Failed to load configurations from server',
+            };
+          });
+        }
       },
 
       addRecentConfig: (config) => {
@@ -299,25 +511,15 @@ export const useRunConfigStore = create<RunConfigState>()(
         setActiveConfig(configId);
         // The actual run will be triggered by the component that calls this
       },
-    }),
-    {
-      name: 'run-config-storage',
-      partialize: (state) => ({
-        configurations: state.configurations,
-        recentConfigs: state.recentConfigs,
-        activeConfigId: state.activeConfigId,
-      }),
-    }
-  )
+    })
 );
 
-// Initialize default config if none exists
+// Legacy helper retained for backward compatibility with old call sites.
+// It now only normalizes persisted target values and does not create shared defaults.
 export const initializeDefaultConfig = () => {
   const {
     configurations,
     recentConfigs,
-    addConfiguration,
-    setActiveConfig,
   } = useRunConfigStore.getState();
 
   // Migrate legacy persisted target values.
@@ -338,11 +540,6 @@ export const initializeDefaultConfig = () => {
       recentConfigs: normalizedRecentConfigs,
     });
   }
-
-  if (normalizedConfigs.length === 0) {
-    const defaultConfig = addConfiguration(DEFAULT_CONFIG);
-    setActiveConfig(defaultConfig.id);
-  }
 };
 
 // Helper to convert config to Playwright CLI args
@@ -361,7 +558,7 @@ export const configToPlaywrightArgs = (config: RunConfiguration): string[] => {
   args.push(`--workers=${config.workers}`);
 
   // Shards
-  if (config.shards) {
+  if (config.shards && config.target === 'github-actions') {
     args.push(`--shard=${config.shards.current}/${config.shards.total}`);
   }
 
@@ -379,6 +576,9 @@ export const configToPlaywrightArgs = (config: RunConfiguration): string[] => {
   args.push(`--trace=${config.trace}`);
   args.push(`--screenshot=${config.screenshot}`);
   args.push(`--video=${config.video}`);
+  if (config.visualUpdateSnapshots) {
+    args.push('--update-snapshots=changed');
+  }
 
   // Reporter
   if (config.reporter.length > 0) {

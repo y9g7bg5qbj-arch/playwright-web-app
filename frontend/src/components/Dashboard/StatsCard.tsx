@@ -1,5 +1,6 @@
 import React from 'react';
 import { LucideIcon } from 'lucide-react';
+import { Card } from '@/components/ui';
 
 interface StatsCardProps {
   title: string;
@@ -43,7 +44,7 @@ export const StatsCard: React.FC<StatsCardProps> = ({
   const styles = variantStyles[variant];
 
   return (
-    <div className="bg-dark-card border border-border-default rounded-lg p-5 hover:border-border-muted transition-colors">
+    <Card padding="lg" hover>
       <div className="flex items-start justify-between">
         <div>
           <p className="text-sm font-medium text-text-secondary">{title}</p>
@@ -63,7 +64,7 @@ export const StatsCard: React.FC<StatsCardProps> = ({
           <Icon className="w-6 h-6" />
         </div>
       </div>
-    </div>
+    </Card>
   );
 };
 

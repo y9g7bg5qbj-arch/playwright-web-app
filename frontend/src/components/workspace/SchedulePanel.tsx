@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useEnvironmentStore } from '@/store/environmentStore';
 import { useScheduleStore } from '@/store/scheduleStore';
+import { IconButton, PanelHeader, EmptyState } from '@/components/ui';
 
 export interface Schedule {
   id: string;
@@ -24,6 +25,7 @@ export interface Schedule {
   cronDescription: string;
   environment: string;
   environmentId?: string;
+  parameterSetId?: string;
   retryStrategy: string;
   enabled: boolean;
   nextRun: string;
@@ -38,7 +40,6 @@ export interface Schedule {
     teams: { enabled: boolean };
   };
   reporting: {
-    allureReport: boolean;
     traceOnFailure: boolean;
     recordVideo: boolean;
   };
@@ -70,7 +71,6 @@ const defaultSchedule: Schedule = {
     teams: { enabled: false },
   },
   reporting: {
-    allureReport: true,
     traceOnFailure: true,
     recordVideo: false,
   },
@@ -134,7 +134,7 @@ export function SchedulePanel(props: SchedulePanelProps) {
     if (!props.schedules) {
       store.fetchSchedules();
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const [editedSchedule, setEditedSchedule] = useState<Schedule>(
     schedules.find((schedule) => schedule.id === selectedScheduleId) || defaultSchedule
@@ -176,29 +176,28 @@ export function SchedulePanel(props: SchedulePanelProps) {
   return (
     <div className="flex h-full bg-dark-canvas">
       <aside className="flex w-[300px] shrink-0 flex-col border-r border-border-default bg-dark-bg">
-        <div className="flex h-11 items-center justify-between border-b border-border-default px-3">
-          <div className="flex items-center gap-2">
-            <CalendarClock className="h-4 w-4 text-brand-secondary" />
-            <span className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Schedules</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              className="inline-flex h-7 w-7 items-center justify-center rounded border border-border-default text-text-secondary transition-colors hover:border-border-emphasis hover:text-text-primary"
-              title="Filter schedules"
-            >
-              <Filter className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={onCreateSchedule}
-              className="inline-flex h-7 w-7 items-center justify-center rounded border border-border-default text-text-secondary transition-colors hover:border-border-emphasis hover:text-text-primary"
-              title="Create schedule"
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
+        <PanelHeader
+          icon={<CalendarClock className="h-4 w-4 text-brand-secondary" />}
+          title="Schedules"
+          actions={
+            <>
+              <IconButton
+                icon={<Filter className="h-3.5 w-3.5" />}
+                size="sm"
+                variant="outlined"
+                tooltip="Filter schedules"
+              />
+              <IconButton
+                icon={<Plus className="h-3.5 w-3.5" />}
+                size="sm"
+                variant="outlined"
+                tooltip="Create schedule"
+                onClick={onCreateSchedule}
+              />
+            </>
+          }
+          className="h-11 px-3"
+        />
 
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {store.loading && !props.schedules ? (
@@ -234,18 +233,22 @@ export function SchedulePanel(props: SchedulePanelProps) {
               })}
             </div>
           ) : (
-            <div className="mt-8 rounded-lg border border-dashed border-border-default p-4 text-center">
-              <CalendarClock className="mx-auto h-8 w-8 text-text-muted" />
-              <p className="mt-2 text-sm text-text-secondary">No schedules configured</p>
-              <button
-                type="button"
-                onClick={onCreateSchedule}
-                className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-brand-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-brand-hover"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Create schedule
-              </button>
-            </div>
+            <EmptyState
+              icon={<CalendarClock className="w-5 h-5" />}
+              title="No schedules configured"
+              compact
+              className="mt-8"
+              action={
+                <button
+                  type="button"
+                  onClick={onCreateSchedule}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-brand-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-brand-hover"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Create schedule
+                </button>
+              }
+            />
           )}
         </div>
       </aside>
@@ -405,14 +408,14 @@ export function SchedulePanel(props: SchedulePanelProps) {
                       className="inline-flex items-center gap-1 rounded-full border border-brand-primary/35 bg-brand-primary/15 px-2.5 py-1 text-xs font-mono text-brand-secondary"
                     >
                       {tag}
-                      <button
-                        type="button"
+                      <IconButton
+                        icon={<X className="h-3 w-3" />}
+                        size="sm"
+                        variant="ghost"
+                        tooltip={`Remove ${tag}`}
                         onClick={() => handleTagRemove(tag)}
-                        className="text-text-secondary transition-colors hover:text-text-primary"
-                        title={`Remove ${tag}`}
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
+                        className="h-auto w-auto p-0"
+                      />
                     </span>
                   ))}
                 </div>
@@ -527,11 +530,6 @@ export function SchedulePanel(props: SchedulePanelProps) {
               <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Artifacts</p>
               <div className="mt-3 grid gap-3 sm:grid-cols-3">
                 {[
-                  {
-                    key: 'allureReport',
-                    label: 'Generate Allure Report',
-                    value: editedSchedule.reporting.allureReport,
-                  },
                   {
                     key: 'traceOnFailure',
                     label: 'Retain Trace on Failure',

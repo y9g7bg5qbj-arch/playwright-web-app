@@ -116,7 +116,8 @@
 | `expect(locator).toBeFocused()` | MISSING | - | - |
 | `expect(locator).toBeEditable()` | MISSING | - | - |
 | `expect(locator).toBeAttached()` | MISSING | - | - |
-| `expect(locator).toHaveScreenshot()` | MISSING | - | - |
+| `expect(page).toHaveScreenshot()` | YES | `VERIFY SCREENSHOT AS "home" WITH BALANCED` | `await expect(page).toHaveScreenshot('home.png', { threshold: 0.2 });` |
+| `expect(locator).toHaveScreenshot()` | YES | `VERIFY LoginPage.header MATCHES SCREENSHOT AS "header" WITH STRICT` | `await expect(loginPage.header).toHaveScreenshot('header.png', { threshold: 0.1, maxDiffPixels: 0, maxDiffPixelRatio: 0 });` |
 | `expect.poll(() => ...)` | MISSING | - | - |
 | `expect.toPass(() => ...)` | MISSING | - | - |
 

@@ -15,6 +15,20 @@ export interface Column {
   choices?: string[];
   description?: string;
   formula?: string; // For computed columns: e.g., "price * quantity"
+  validation?: {
+    min?: number;
+    max?: number;
+    minLength?: number;
+    maxLength?: number;
+    pattern?: string;
+    enum?: string[];
+  };
+  min?: number;
+  max?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  enum?: string[];
 }
 
 // Saved Views
@@ -26,7 +40,7 @@ export interface SavedView {
   isDefault: boolean;
   filterState: Record<string, unknown>;
   sortState: unknown[];
-  columnState: unknown[];
+  columnState: unknown;
   groupState: unknown[];
   createdAt: string;
   updatedAt: string;
@@ -38,7 +52,7 @@ export interface SavedViewCreate {
   isDefault?: boolean;
   filterState?: Record<string, unknown>;
   sortState?: unknown[];
-  columnState?: unknown[];
+  columnState?: unknown;
   groupState?: unknown[];
 }
 
@@ -104,9 +118,13 @@ export interface RowUpdate {
 
 export interface ImportResult {
   success: boolean;
-  sheets: string[];
-  rowsImported: number;
+  sheets: Array<{
+    name: string;
+    rows: number;
+  }>;
   errors: string[];
+  warnings?: string[];
+  validationErrors?: TestDataValidationErrorItem[];
 }
 
 export interface ExcelPreview {
@@ -114,6 +132,20 @@ export interface ExcelPreview {
   columns: Column[];
   rowCount: number;
   sampleRows: Record<string, unknown>[];
+}
+
+export interface TestDataValidationErrorItem {
+  rowId: string;
+  column: string;
+  expectedType: string;
+  value: unknown;
+  reason: string;
+}
+
+export interface TestDataApiError extends Error {
+  status: number;
+  code?: string;
+  validationErrors?: TestDataValidationErrorItem[];
 }
 
 // API Response types
@@ -138,19 +170,65 @@ interface RowResponse {
 }
 
 // Helper for direct fetch calls (test-data API returns responses without 'data' wrapper)
+// Uses apiClient's token management for authentication.
+import { apiClient } from './client';
+
 const API_BASE = (import.meta as any).env?.VITE_API_URL || '/api';
 
+function createTestDataApiError(status: number, payload: any): TestDataApiError {
+  const payloadMessage =
+    payload?.message ||
+    payload?.error ||
+    (Array.isArray(payload?.errors) && payload.errors.length > 0
+      ? payload.errors.join(' ')
+      : undefined) ||
+    'Request failed';
+  const error = new Error(
+    payloadMessage
+  ) as TestDataApiError;
+  error.status = status;
+  if (typeof payload?.code === 'string') {
+    error.code = payload.code;
+  }
+  if (Array.isArray(payload?.validationErrors)) {
+    error.validationErrors = payload.validationErrors;
+  }
+  return error;
+}
+
+export function isTestDataValidationError(error: unknown): error is TestDataApiError {
+  return Boolean(
+    error &&
+    typeof error === 'object' &&
+    'status' in error &&
+    (error as TestDataApiError).status === 422 &&
+    Array.isArray((error as TestDataApiError).validationErrors)
+  );
+}
+
 async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string>),
+  };
+
+  const token = apiClient.getToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
+    headers,
   });
-  const data = await response.json();
-  if (!response.ok || !data.success) {
-    throw new Error(data.error || 'Request failed');
+  let data: any = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+  if (!response.ok || !data?.success) {
+    throw createTestDataApiError(response.status, data);
   }
   return data;
 }
@@ -288,13 +366,27 @@ export const testDataApi = {
     formData.append('file', file);
     formData.append('projectId', projectId);
 
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'}/test-data/import`, {
+    const headers: Record<string, string> = {};
+    const token = apiClient.getToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_BASE}/test-data/import`, {
       method: 'POST',
       body: formData,
-      credentials: 'include',
+      headers,
     });
-
-    return response.json();
+    let payload: any = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!response.ok || payload?.success === false) {
+      throw createTestDataApiError(response.status, payload);
+    }
+    return payload;
   },
 
   /**
@@ -306,11 +398,13 @@ export const testDataApi = {
       url += `&sheetIds=${sheetIds.join(',')}`;
     }
 
-    const response = await fetch(
-      `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'}${url}`,
-      { credentials: 'include' }
-    );
+    const headers: Record<string, string> = {};
+    const token = apiClient.getToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
+    const response = await fetch(`${API_BASE}${url}`, { headers });
     return response.blob();
   },
 
@@ -321,10 +415,16 @@ export const testDataApi = {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'}/test-data/preview`, {
+    const headers: Record<string, string> = {};
+    const token = apiClient.getToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_BASE}/test-data/preview`, {
       method: 'POST',
       body: formData,
-      credentials: 'include',
+      headers,
     });
 
     const data = await response.json();
@@ -337,11 +437,13 @@ export const testDataApi = {
   async downloadTemplate(pageName: string, columns: string[]): Promise<Blob> {
     const url = `/test-data/template?pageName=${encodeURIComponent(pageName)}&columns=${columns.join(',')}`;
 
-    const response = await fetch(
-      `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'}${url}`,
-      { credentials: 'include' }
-    );
+    const headers: Record<string, string> = {};
+    const token = apiClient.getToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
+    const response = await fetch(`${API_BASE}${url}`, { headers });
     return response.blob();
   },
 
@@ -357,17 +459,6 @@ export const testDataApi = {
       `/test-data/schema?projectId=${encodeURIComponent(projectId)}`
     );
     return response.schema || [];
-  },
-
-  /**
-   * Validate a sheet
-   */
-  async validateSheet(sheetId: string): Promise<{ valid: boolean; errors: string[] }> {
-    const response = await fetchJson<{ success: boolean; validation: any }>(
-      `/test-data/validate/${sheetId}`,
-      { method: 'POST' }
-    );
-    return response.validation;
   },
 
   // ============================================
@@ -431,22 +522,8 @@ export const testDataApi = {
     };
   },
 
-  /**
-   * Compute all formula columns for all rows in a sheet
-   */
-  async computeAllFormulas(sheetId: string): Promise<{ message: string; updatedRows: number }> {
-    const response = await fetchJson<{ success: boolean; message: string; updatedRows: number }>(
-      `/test-data/sheets/${sheetId}/compute-all`,
-      { method: 'POST' }
-    );
-    return {
-      message: response.message,
-      updatedRows: response.updatedRows,
-    };
-  },
-
   // ============================================
-  // BULK OPERATIONS (New Endpoints)
+  // BULK OPERATIONS
   // ============================================
 
   /**
@@ -562,11 +639,13 @@ export const testDataApi = {
       url += `&rowIds=${rowIds.join(',')}`;
     }
 
-    const response = await fetch(
-      `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'}${url}`,
-      { credentials: 'include' }
-    );
+    const headers: Record<string, string> = {};
+    const token = apiClient.getToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
+    const response = await fetch(`${API_BASE}${url}`, { headers });
     return response.blob();
   },
 

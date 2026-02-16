@@ -27,6 +27,27 @@ export type ReducedMotion = 'reduce' | 'no-preference';
 
 export type ReporterType = 'html' | 'json' | 'junit' | 'github' | 'allure' | 'list' | 'dot' | 'line';
 
+/**
+ * Normalizes loosely-typed execution target input to a supported value.
+ * Accepts legacy aliases to remain backward-compatible across frontend stores.
+ */
+export function normalizeExecutionTarget(
+  target: string | null | undefined,
+  fallback: ExecutionTarget = 'local'
+): ExecutionTarget {
+  const normalized = (target || '').trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (normalized === 'local') return 'local';
+  if (normalized === 'github-actions' || normalized === 'github' || normalized === 'gha') return 'github-actions';
+  if (normalized === 'docker') return 'docker';
+  // 'remote' was a legacy target type that is no longer supported — remap to 'local'.
+  if (normalized === 'remote') return 'local';
+  return fallback;
+}
+
 // ============================================
 // DEVICE EMULATION
 // ============================================
@@ -432,6 +453,7 @@ export interface AdvancedConfig {
 export interface RunConfiguration {
   id: string;
   workflowId: string;
+  projectId?: string;
   name: string;
   description?: string;
   isDefault: boolean;
@@ -442,6 +464,8 @@ export interface RunConfiguration {
   excludeTags: string[];
   testFlowIds: string[];
   grep?: string;              // Filter tests by title pattern
+  tagExpression?: string;     // Cucumber-style expression for scenario tags
+  namePatterns?: string[];    // Scenario name regex filters
 
   // Environment
   environmentId?: string;
@@ -485,15 +509,68 @@ export interface RunConfiguration {
   // Advanced options
   advancedConfig?: AdvancedConfig;
 
+  // Visual Snapshot Testing
+  visualPreset?: 'strict' | 'balanced' | 'relaxed' | 'custom';
+  visualThreshold?: number;
+  visualMaxDiffPixels?: number;
+  visualMaxDiffPixelRatio?: number;
+  visualUpdateSnapshots?: boolean;
+
+  // Scenario selection scope
+  selectionScope?: 'active-file' | 'current-sandbox';
+
+  // Custom environment variables (override environment manager vars)
+  envVars?: Record<string, string>;
+
+  // Run parameters linkage
+  parameterSetId?: string;
+  parameterOverrides?: Record<string, string | number | boolean>;
+
   // GitHub Actions specific
   githubRepository?: string;    // 'owner/repo' for GitHub Actions target
   githubWorkflowPath?: string;  // Path to workflow file
+
+  // Runtime config — frontend-specific fields stored as JSON
+  runtimeConfig?: RunConfigRuntimeFields;
 
   createdAt: string;
   updatedAt: string;
 }
 
+/**
+ * Frontend-specific runtime fields that don't map directly to Playwright CLI args.
+ * Stored as a JSON blob in the DB to avoid schema bloat.
+ */
+export interface RunConfigRuntimeFields {
+  headed?: boolean;
+  debug?: boolean;
+  ui?: boolean;
+  lastFailed?: boolean;
+  globalTimeout?: number;
+  grepInvert?: string;
+  baseURL?: string;
+  reporter?: string[];
+  outputDir?: string;
+  locale?: string;
+  timezoneId?: string;
+  geolocation?: { latitude: number; longitude: number };
+  lastUsedAt?: string;
+  // GitHub metadata that does not have dedicated top-level fields
+  githubBranch?: string;
+  githubInputs?: Record<string, string>;
+  // Backward-compat snapshot used when migrating legacy schedules
+  legacyScheduleMigration?: {
+    scheduleId: string;
+    executionTarget?: string;
+    testSelector?: Record<string, unknown>;
+    parameters?: Array<Record<string, unknown>>;
+    defaultExecutionConfig?: Record<string, unknown>;
+    githubConfig?: Record<string, unknown>;
+  };
+}
+
 export interface RunConfigurationCreate {
+  projectId?: string;
   name: string;
   description?: string;
   isDefault?: boolean;
@@ -504,6 +581,8 @@ export interface RunConfigurationCreate {
   excludeTags?: string[];
   testFlowIds?: string[];
   grep?: string;
+  tagExpression?: string;
+  namePatterns?: string[];
 
   // Environment
   environmentId?: string;
@@ -544,9 +623,29 @@ export interface RunConfigurationCreate {
   // Advanced options
   advancedConfig?: AdvancedConfig;
 
+  // Visual Snapshot Testing
+  visualPreset?: 'strict' | 'balanced' | 'relaxed' | 'custom';
+  visualThreshold?: number;
+  visualMaxDiffPixels?: number;
+  visualMaxDiffPixelRatio?: number;
+  visualUpdateSnapshots?: boolean;
+
+  // Scenario selection scope
+  selectionScope?: 'active-file' | 'current-sandbox';
+
+  // Custom environment variables
+  envVars?: Record<string, string>;
+
+  // Run parameters linkage
+  parameterSetId?: string;
+  parameterOverrides?: Record<string, string | number | boolean>;
+
   // GitHub Actions specific
   githubRepository?: string;
   githubWorkflowPath?: string;
+
+  // Runtime config
+  runtimeConfig?: RunConfigRuntimeFields;
 }
 
 export interface RunConfigurationUpdate extends Partial<RunConfigurationCreate> {}
@@ -561,6 +660,8 @@ export interface QuickRunRequest {
   tags?: string[];
   tagMode?: TagMatchMode;
   excludeTags?: string[];
+  tagExpression?: string;
+  namePatterns?: string[];
 
   // Where to run
   environmentId?: string;
@@ -607,6 +708,8 @@ export const DEFAULT_RUN_CONFIGURATION: Omit<RunConfiguration, 'id' | 'workflowI
   excludeTags: [],
   testFlowIds: [],
   grep: undefined,
+  tagExpression: undefined,
+  namePatterns: [],
   environmentId: undefined,
   target: 'local',
   localConfig: { workers: 1 },
@@ -633,6 +736,8 @@ export const DEFAULT_QUICK_RUN: QuickRunRequest = {
   tags: [],
   tagMode: 'any',
   excludeTags: [],
+  tagExpression: undefined,
+  namePatterns: [],
   target: 'local',
   browser: 'chromium',
   headless: false, // Quick runs default to headed for debugging

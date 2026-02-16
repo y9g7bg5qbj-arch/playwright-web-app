@@ -9,27 +9,27 @@ export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
 // Terminal-style status colors with subtle backgrounds
 const variantClasses = {
   default: 'bg-dark-elevated text-text-muted border border-border-default',
-  blue: 'bg-[rgba(88,166,255,0.12)] text-[#58a6ff] border border-[rgba(88,166,255,0.2)]',
-  green: 'bg-[rgba(63,185,80,0.12)] text-[#3fb950] border border-[rgba(63,185,80,0.2)]',
-  red: 'bg-[rgba(248,81,73,0.12)] text-[#f85149] border border-[rgba(248,81,73,0.2)]',
-  yellow: 'bg-[rgba(210,153,34,0.12)] text-[#d29922] border border-[rgba(210,153,34,0.2)]',
-  purple: 'bg-[rgba(163,113,247,0.12)] text-[#a371f7] border border-[rgba(163,113,247,0.2)]',
-  orange: 'bg-[rgba(229,127,73,0.12)] text-[#e57f49] border border-[rgba(229,127,73,0.2)]',
+  blue: 'bg-status-info/12 text-status-info border border-status-info/20',
+  green: 'bg-status-success/12 text-status-success border border-status-success/20',
+  red: 'bg-status-danger/12 text-status-danger border border-status-danger/20',
+  yellow: 'bg-status-warning/12 text-status-warning border border-status-warning/20',
+  purple: 'bg-accent-purple/12 text-accent-purple border border-accent-purple/20',
+  orange: 'bg-status-warning/12 text-status-warning border border-status-warning/20',
 };
 
 const dotColors = {
   default: 'bg-text-muted',
-  blue: 'bg-[#58a6ff]',
-  green: 'bg-[#3fb950]',
-  red: 'bg-[#f85149]',
-  yellow: 'bg-[#d29922]',
-  purple: 'bg-[#a371f7]',
-  orange: 'bg-[#e57f49]',
+  blue: 'bg-status-info',
+  green: 'bg-status-success',
+  red: 'bg-status-danger',
+  yellow: 'bg-status-warning',
+  purple: 'bg-accent-purple',
+  orange: 'bg-status-warning',
 };
 
 const sizeClasses = {
-  sm: 'px-1.5 py-0.5 text-[10px]',
-  md: 'px-2 py-0.5 text-[11px]',
+  sm: 'px-1.5 py-0.5 text-3xs',
+  md: 'px-2 py-0.5 text-xxs',
 };
 
 export const Badge = React.forwardRef<HTMLSpanElement, BadgeProps>(

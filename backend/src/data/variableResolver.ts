@@ -6,20 +6,7 @@
  * RUNTIME > DATA > FLOW > WORKFLOW > ENVIRONMENT > GLOBAL
  */
 
-import {
-    VariableScope,
-    SCOPE_PRECEDENCE,
-    Variable,
-    VariableType,
-    VariableContextState,
-    ResolvedVariable,
-    VariableReference,
-    VARIABLE_PATTERN,
-    VARIABLE_PATTERN_SINGLE,
-    ENV_PREFIX,
-    GLOBAL_PREFIX,
-    EXTRACT_PREFIX
-} from '@playwright-web-app/shared';
+import { VariableScope, SCOPE_PRECEDENCE, VariableType, VariableContextState, ResolvedVariable, VariableReference, VARIABLE_PATTERN, VARIABLE_PATTERN_SINGLE, ENV_PREFIX, GLOBAL_PREFIX, EXTRACT_PREFIX } from '@playwright-web-app/shared';
 
 // ============================================
 // VARIABLE CONTEXT CLASS

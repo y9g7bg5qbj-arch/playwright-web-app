@@ -429,7 +429,8 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
     testFlowId: string,
     code: string,
     newExecutionId: string,
-    scenarioName?: string
+    scenarioName?: string,
+    projectId?: string
   ) => {
     if (!socket) return;
 
@@ -462,6 +463,7 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
       code,
       breakpoints: breakpointsMuted ? [] : serializeBreakpoints(breakpoints, breakpointConditions),
       scenarioName,
+      projectId,
     });
   }, [socket, breakpoints, breakpointsMuted, breakpointConditions, addConsoleEntry]);
 

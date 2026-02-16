@@ -6,15 +6,7 @@
  */
 
 import type { Page, Locator, BrowserContext } from 'playwright';
-import type {
-  PlaywrightClient,
-  PlaywrightActionResult,
-  ElementInfo,
-  ClickOptions,
-  FillOptions,
-  SelectOptions,
-  ScreenshotOptions,
-} from '../interfaces/PlaywrightClient';
+import type { PlaywrightClient, PlaywrightActionResult, ElementInfo, ClickOptions, FillOptions, SelectOptions, ScreenshotOptions } from '../interfaces/PlaywrightClient';
 import { toLocatorString } from '../interfaces/PlaywrightClient';
 import type { ResolvedSelector } from '../interfaces/Skill';
 

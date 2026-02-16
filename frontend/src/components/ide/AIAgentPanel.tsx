@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Bot, Sparkles, Play, Loader2, Copy, Check, AlertCircle, Settings, History, Trash2, ChevronRight, X } from 'lucide-react';
+import { IconButton } from '@/components/ui';
 
 interface AIAgentPanelProps {
     onGeneratedCode?: (code: string) => void;
@@ -263,13 +264,13 @@ export function AIAgentPanel({ onGeneratedCode, onInsertCode, isVisible = true, 
     if (!isVisible) return null;
 
     return (
-        <div className="flex flex-col h-full bg-slate-900/50 border-l border-slate-800 w-80">
+        <div className="flex flex-col h-full bg-dark-bg/50 border-l border-border-default w-80">
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-900">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border-default bg-dark-bg">
                 <div className="flex items-center gap-2">
-                    <Bot className="w-5 h-5 text-purple-400" />
-                    <h3 className="font-semibold text-slate-200">AI Agent</h3>
-                    <span className="text-xs px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded-full">
+                    <Bot className="w-5 h-5 text-accent-purple" />
+                    <h3 className="font-semibold text-text-primary">AI Agent</h3>
+                    <span className="text-xs px-2 py-0.5 bg-accent-purple/20 text-accent-purple rounded-full">
                         Beta
                     </span>
                 </div>
@@ -278,86 +279,89 @@ export function AIAgentPanel({ onGeneratedCode, onInsertCode, isVisible = true, 
                     <button
                         onClick={checkHealth}
                         className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs ${agentHealth?.agentStatus === 'healthy'
-                            ? 'bg-green-500/20 text-green-400'
+                            ? 'bg-status-success/20 text-status-success'
                             : agentHealth?.agentStatus === 'offline'
-                                ? 'bg-red-500/20 text-red-400'
-                                : 'bg-slate-700 text-slate-400'
+                                ? 'bg-status-danger/20 text-status-danger'
+                                : 'bg-dark-elevated text-text-secondary'
                             }`}
                     >
                         <div className={`w-2 h-2 rounded-full ${agentHealth?.agentStatus === 'healthy'
-                            ? 'bg-green-400'
+                            ? 'bg-status-success'
                             : agentHealth?.agentStatus === 'offline'
-                                ? 'bg-red-400'
-                                : 'bg-slate-500'
+                                ? 'bg-status-danger'
+                                : 'bg-text-secondary'
                             }`} />
                         {agentHealth?.llmProvider || 'Check'}
                     </button>
-                    <button
+                    <IconButton
+                        icon={<History className="w-4 h-4" />}
+                        variant="ghost"
+                        active={showHistory}
+                        tooltip="View History"
                         onClick={() => setShowHistory(!showHistory)}
-                        className={`p-1.5 rounded transition-colors ${showHistory ? 'bg-purple-500/20 text-purple-400' : 'hover:bg-slate-700 text-slate-400 hover:text-slate-200'}`}
-                        title="View History"
-                    >
-                        <History className="w-4 h-4" />
-                    </button>
-                    <button
+                        className={showHistory ? 'bg-accent-purple/20 text-accent-purple' : ''}
+                    />
+                    <IconButton
+                        icon={<Settings className="w-4 h-4" />}
+                        variant="ghost"
+                        active={showSettings}
+                        tooltip="Settings"
                         onClick={() => setShowSettings(!showSettings)}
-                        className={`p-1.5 rounded transition-colors ${showSettings ? 'bg-purple-500/20 text-purple-400' : 'hover:bg-slate-700 text-slate-400 hover:text-slate-200'}`}
-                    >
-                        <Settings className="w-4 h-4" />
-                    </button>
+                        className={showSettings ? 'bg-accent-purple/20 text-accent-purple' : ''}
+                    />
                     {onClose && (
-                        <button
+                        <IconButton
+                            icon={<X className="w-4 h-4" />}
+                            variant="ghost"
+                            tooltip="Close"
                             onClick={onClose}
-                            className="p-1.5 hover:bg-slate-700 rounded transition-colors text-slate-400 hover:text-slate-200"
-                        >
-                            <X className="w-4 h-4" />
-                        </button>
+                        />
                     )}
                 </div>
             </div>
 
             {/* Settings Panel */}
             {showSettings && (
-                <div className="p-3 border-b border-slate-800 bg-slate-800/50 space-y-3">
+                <div className="p-3 border-b border-border-default bg-dark-card/50 space-y-3">
                     <div className="flex items-center gap-3">
-                        <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <label className="flex items-center gap-2 text-sm text-text-primary cursor-pointer">
                             <input
                                 type="checkbox"
                                 checked={useAi}
                                 onChange={(e) => setUseAi(e.target.checked)}
-                                className="w-4 h-4 rounded text-purple-500 bg-slate-700 border-slate-600"
+                                className="w-4 h-4 rounded text-accent-purple bg-dark-elevated border-border-default"
                             />
                             Use AI (requires API key)
                         </label>
                     </div>
                     <div className="flex items-center gap-3">
-                        <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <label className="flex items-center gap-2 text-sm text-text-primary cursor-pointer">
                             <input
                                 type="checkbox"
                                 checked={useStreaming}
                                 onChange={(e) => setUseStreaming(e.target.checked)}
-                                className="w-4 h-4 rounded text-purple-500 bg-slate-700 border-slate-600"
+                                className="w-4 h-4 rounded text-accent-purple bg-dark-elevated border-border-default"
                             />
                             Stream progress updates
                         </label>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                         <div>
-                            <label className="text-xs text-slate-500 mb-1 block">Feature Name</label>
+                            <label className="text-xs text-text-secondary mb-1 block">Feature Name</label>
                             <input
                                 type="text"
                                 value={featureName}
                                 onChange={(e) => setFeatureName(e.target.value)}
-                                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-200"
+                                className="w-full bg-dark-card border border-border-default rounded px-2 py-1 text-sm text-text-primary"
                             />
                         </div>
                         <div>
-                            <label className="text-xs text-slate-500 mb-1 block">Scenario Name</label>
+                            <label className="text-xs text-text-secondary mb-1 block">Scenario Name</label>
                             <input
                                 type="text"
                                 value={scenarioName}
                                 onChange={(e) => setScenarioName(e.target.value)}
-                                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-200"
+                                className="w-full bg-dark-card border border-border-default rounded px-2 py-1 text-sm text-text-primary"
                             />
                         </div>
                     </div>
@@ -366,53 +370,56 @@ export function AIAgentPanel({ onGeneratedCode, onInsertCode, isVisible = true, 
 
             {/* History Panel */}
             {showHistory && (
-                <div className="border-b border-slate-800 bg-slate-800/30 max-h-64 overflow-y-auto">
-                    <div className="p-2 border-b border-slate-700 flex items-center justify-between">
-                        <span className="text-xs text-slate-400 font-medium">Recent Generations</span>
-                        <span className="text-xs text-slate-600">{history.length} items</span>
+                <div className="border-b border-border-default bg-dark-card/30 max-h-64 overflow-y-auto">
+                    <div className="p-2 border-b border-border-default flex items-center justify-between">
+                        <span className="text-xs text-text-secondary font-medium">Recent Generations</span>
+                        <span className="text-xs text-text-muted">{history.length} items</span>
                     </div>
                     {history.length === 0 ? (
-                        <div className="p-4 text-center text-sm text-slate-500">
+                        <div className="p-4 text-center text-sm text-text-secondary">
                             No history yet
                         </div>
                     ) : (
-                        <div className="divide-y divide-slate-800">
+                        <div className="divide-y divide-border-default">
                             {history.slice(0, 10).map((entry) => (
                                 <div
                                     key={entry.id}
-                                    className="p-2 hover:bg-slate-700/30 group cursor-pointer"
+                                    className="p-2 hover:bg-dark-elevated/30 group cursor-pointer"
                                     onClick={() => loadHistoryEntry(entry)}
                                 >
                                     <div className="flex items-start justify-between gap-2">
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-xs text-slate-300 truncate">
+                                            <p className="text-xs text-text-primary truncate">
                                                 {entry.steps.split('\n')[0]}
                                             </p>
-                                            <p className="text-xs text-slate-500 mt-0.5">
+                                            <p className="text-xs text-text-secondary mt-0.5">
                                                 {entry.featureName} • {new Date(entry.createdAt).toLocaleDateString()}
                                             </p>
                                         </div>
                                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button
+                                            <IconButton
+                                                icon={<ChevronRight className="w-3 h-3" />}
+                                                size="sm"
+                                                variant="ghost"
+                                                tooltip="Load"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     loadHistoryEntry(entry);
                                                 }}
-                                                className="p-1 hover:bg-slate-600 rounded"
-                                                title="Load"
-                                            >
-                                                <ChevronRight className="w-3 h-3 text-slate-400" />
-                                            </button>
-                                            <button
+                                                className="h-auto w-auto p-1"
+                                            />
+                                            <IconButton
+                                                icon={<Trash2 className="w-3 h-3" />}
+                                                size="sm"
+                                                variant="ghost"
+                                                tone="danger"
+                                                tooltip="Delete"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     deleteHistoryEntry(entry.id);
                                                 }}
-                                                className="p-1 hover:bg-red-500/20 rounded"
-                                                title="Delete"
-                                            >
-                                                <Trash2 className="w-3 h-3 text-red-400" />
-                                            </button>
+                                                className="h-auto w-auto p-1"
+                                            />
                                         </div>
                                     </div>
                                 </div>
@@ -426,19 +433,19 @@ export function AIAgentPanel({ onGeneratedCode, onInsertCode, isVisible = true, 
             <div className="flex-1 overflow-auto p-4 space-y-4">
                 {/* Target URL */}
                 <div>
-                    <label className="text-xs text-slate-500 mb-1 block">Target URL (optional)</label>
+                    <label className="text-xs text-text-secondary mb-1 block">Target URL (optional)</label>
                     <input
                         type="text"
                         value={targetUrl}
                         onChange={(e) => setTargetUrl(e.target.value)}
                         placeholder="https://your-app.com"
-                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-purple-500/50"
+                        className="w-full bg-dark-card border border-border-default rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-purple/50"
                     />
                 </div>
 
                 {/* Steps Input */}
                 <div>
-                    <label className="text-xs text-slate-500 mb-1 block flex items-center gap-1">
+                    <label className="text-xs text-text-secondary mb-1 block flex items-center gap-1">
                         <Sparkles className="w-3 h-3" />
                         Enter Test Steps (plain English)
                     </label>
@@ -451,15 +458,15 @@ Fill password with secret123
 Click the Submit button
 Verify "Dashboard" is visible`}
                         rows={6}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-purple-500/50 resize-none font-mono"
+                        className="w-full bg-dark-card border border-border-default rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-purple/50 resize-none font-mono"
                     />
                 </div>
 
                 {/* Progress Indicator */}
                 {streamProgress && (
-                    <div className="flex items-center gap-2 p-2 bg-purple-500/10 border border-purple-500/20 rounded-lg">
-                        <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
-                        <span className="text-xs text-purple-300">{streamProgress.message}</span>
+                    <div className="flex items-center gap-2 p-2 bg-accent-purple/10 border border-accent-purple/20 rounded-lg">
+                        <Loader2 className="w-4 h-4 animate-spin text-accent-purple" />
+                        <span className="text-xs text-accent-purple">{streamProgress.message}</span>
                     </div>
                 )}
 
@@ -467,7 +474,7 @@ Verify "Dashboard" is visible`}
                 <button
                     onClick={handleGenerate}
                     disabled={isGenerating || !steps.trim()}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-purple-900/20"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-accent-purple to-brand-primary hover:from-accent-purple hover:to-status-info text-white rounded-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-accent-purple/20"
                 >
                     {isGenerating ? (
                         <>
@@ -484,13 +491,13 @@ Verify "Dashboard" is visible`}
 
                 {/* Error */}
                 {error && (
-                    <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                    <div className="flex items-start gap-2 p-3 bg-status-danger/10 border border-status-danger/30 rounded-lg text-status-danger text-sm">
                         <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                         <div>
                             <p>{error}</p>
                             {error.includes('not available') && (
-                                <p className="text-xs mt-1 text-red-400/70">
-                                    Start the agent: <code className="bg-red-500/20 px-1 rounded">cd vero-agent && uvicorn src.main:app --port 5001</code>
+                                <p className="text-xs mt-1 text-status-danger/70">
+                                    Start the agent: <code className="bg-status-danger/20 px-1 rounded">cd vero-agent && uvicorn src.main:app --port 5001</code>
                                 </p>
                             )}
                         </div>
@@ -501,19 +508,19 @@ Verify "Dashboard" is visible`}
                 {generatedCode && (
                     <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                            <span className="text-xs text-slate-500">Generated Vero DSL</span>
+                            <span className="text-xs text-text-secondary">Generated Vero DSL</span>
                             <div className="flex items-center gap-1">
                                 <button
                                     onClick={handleCopy}
-                                    className="flex items-center gap-1 px-2 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition-colors"
+                                    className="flex items-center gap-1 px-2 py-1 text-xs bg-dark-card hover:bg-dark-elevated text-text-primary rounded transition-colors"
                                 >
-                                    {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+                                    {copied ? <Check className="w-3 h-3 text-status-success" /> : <Copy className="w-3 h-3" />}
                                     {copied ? 'Copied!' : 'Copy'}
                                 </button>
                                 {onInsertCode && (
                                     <button
                                         onClick={handleInsert}
-                                        className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-600 hover:bg-purple-500 text-white rounded transition-colors"
+                                        className="flex items-center gap-1 px-2 py-1 text-xs bg-accent-purple hover:bg-accent-purple text-white rounded transition-colors"
                                     >
                                         <Play className="w-3 h-3" />
                                         Insert
@@ -521,7 +528,7 @@ Verify "Dashboard" is visible`}
                                 )}
                             </div>
                         </div>
-                        <pre className="p-3 bg-slate-950 border border-slate-800 rounded-lg text-sm text-slate-300 overflow-auto max-h-48 font-mono">
+                        <pre className="p-3 bg-dark-canvas border border-border-default rounded-lg text-sm text-text-primary overflow-auto max-h-48 font-mono">
                             {generatedCode}
                         </pre>
                     </div>
@@ -529,8 +536,8 @@ Verify "Dashboard" is visible`}
             </div>
 
             {/* Footer */}
-            <div className="px-4 py-2 border-t border-slate-800 bg-slate-900/50">
-                <p className="text-xs text-slate-600 text-center">
+            <div className="px-4 py-2 border-t border-border-default bg-dark-bg/50">
+                <p className="text-xs text-text-muted text-center">
                     Powered by {agentHealth?.llmProvider || 'Gemini/Claude'} • Self-healing enabled
                 </p>
             </div>

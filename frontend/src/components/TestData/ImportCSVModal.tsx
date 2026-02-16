@@ -11,7 +11,8 @@
 
 import { useState, useCallback, useRef } from 'react';
 import Papa from 'papaparse';
-import { X, Upload, FileText, AlertCircle, Check } from 'lucide-react';
+import { Upload, FileText, AlertCircle, Check } from 'lucide-react';
+import { Modal, Button } from '@/components/ui';
 import type { DataColumn } from './AGGridDataTable';
 
 interface ImportCSVModalProps {
@@ -202,232 +203,208 @@ export function ImportCSVModal({
         onClose();
     };
 
-    if (!isOpen) return null;
-
     return (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-            <div className="bg-slate-900 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
-                {/* Header */}
-                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-                    <h2 className="text-lg font-semibold text-slate-200">Import CSV</h2>
-                    <button
-                        onClick={handleClose}
-                        className="p-1 hover:bg-slate-800 rounded-md transition-colors"
-                    >
-                        <X className="w-5 h-5 text-slate-400" />
-                    </button>
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 overflow-auto p-6">
-                    {error && (
-                        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-md flex items-start gap-2">
-                            <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                            <p className="text-sm text-red-400">{error}</p>
-                        </div>
-                    )}
-
-                    {!parsedData ? (
-                        /* File Upload */
-                        <div
-                            onDrop={handleDrop}
-                            onDragOver={(e) => {
-                                e.preventDefault();
-                                setDragOver(true);
-                            }}
-                            onDragLeave={() => setDragOver(false)}
-                            className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
-                                dragOver
-                                    ? 'border-emerald-500 bg-emerald-500/10'
-                                    : 'border-slate-700 hover:border-slate-600'
-                            }`}
-                        >
-                            <Upload className="w-12 h-12 text-slate-500 mx-auto mb-4" />
-                            <p className="text-slate-300 mb-2">
-                                Drag and drop a CSV file here, or{' '}
-                                <button
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className="text-emerald-400 hover:text-emerald-300"
-                                >
-                                    browse
-                                </button>
-                            </p>
-                            <p className="text-xs text-slate-500">
-                                First row will be used as column headers
-                            </p>
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                accept=".csv"
-                                onChange={handleFileSelect}
-                                className="hidden"
-                            />
-                        </div>
-                    ) : (
-                        /* Preview & Mapping */
-                        <div className="space-y-6">
-                            {/* Summary */}
-                            <div className="flex items-center gap-4 p-3 bg-slate-800/50 rounded-md">
-                                <FileText className="w-5 h-5 text-emerald-400" />
-                                <div>
-                                    <p className="text-sm text-slate-200">
-                                        {parsedData.rows.length} rows, {parsedData.headers.length} columns
-                                    </p>
-                                    {parsedData.errors.length > 0 && (
-                                        <p className="text-xs text-amber-400">
-                                            {parsedData.errors.length} parsing warnings
-                                        </p>
-                                    )}
-                                </div>
-                                <button
-                                    onClick={() => setParsedData(null)}
-                                    className="ml-auto text-xs text-slate-400 hover:text-slate-300"
-                                >
-                                    Choose different file
-                                </button>
-                            </div>
-
-                            {/* Column Mapping */}
-                            <div>
-                                <h3 className="text-sm font-medium text-slate-300 mb-3">Column Mapping</h3>
-                                <div className="border border-slate-800 rounded-md overflow-hidden">
-                                    <table className="w-full text-sm">
-                                        <thead>
-                                            <tr className="bg-slate-800/50">
-                                                <th className="px-3 py-2 text-left text-xs font-medium text-slate-400">
-                                                    CSV Column
-                                                </th>
-                                                <th className="px-3 py-2 text-left text-xs font-medium text-slate-400">
-                                                    Target Column
-                                                </th>
-                                                <th className="px-3 py-2 text-left text-xs font-medium text-slate-400">
-                                                    Type
-                                                </th>
-                                                <th className="px-3 py-2 text-left text-xs font-medium text-slate-400">
-                                                    Sample Values
-                                                </th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-800">
-                                            {parsedData.headers.map((header) => (
-                                                <tr key={header} className="hover:bg-slate-800/30">
-                                                    <td className="px-3 py-2 text-slate-300">{header}</td>
-                                                    <td className="px-3 py-2">
-                                                        <input
-                                                            type="text"
-                                                            value={columnMapping[header] || ''}
-                                                            onChange={(e) =>
-                                                                setColumnMapping({
-                                                                    ...columnMapping,
-                                                                    [header]: e.target.value,
-                                                                })
-                                                            }
-                                                            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
-                                                        />
-                                                    </td>
-                                                    <td className="px-3 py-2">
-                                                        <select
-                                                            value={columnTypes[header] || 'text'}
-                                                            onChange={(e) =>
-                                                                setColumnTypes({
-                                                                    ...columnTypes,
-                                                                    [header]: e.target.value as DataColumn['type'],
-                                                                })
-                                                            }
-                                                            className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
-                                                        >
-                                                            <option value="text">Text</option>
-                                                            <option value="number">Number</option>
-                                                            <option value="boolean">Boolean</option>
-                                                            <option value="date">Date</option>
-                                                        </select>
-                                                    </td>
-                                                    <td className="px-3 py-2 text-xs text-slate-500 max-w-xs truncate">
-                                                        {parsedData.rows
-                                                            .slice(0, 3)
-                                                            .map((r) => r[header])
-                                                            .filter(Boolean)
-                                                            .join(', ')}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            {/* Data Preview */}
-                            <div>
-                                <h3 className="text-sm font-medium text-slate-300 mb-3">
-                                    Data Preview (first 5 rows)
-                                </h3>
-                                <div className="border border-slate-800 rounded-md overflow-auto max-h-48">
-                                    <table className="w-full text-xs">
-                                        <thead>
-                                            <tr className="bg-slate-800/50 sticky top-0">
-                                                <th className="px-2 py-1.5 text-left font-medium text-slate-400">
-                                                    #
-                                                </th>
-                                                {parsedData.headers.map((header) => (
-                                                    <th
-                                                        key={header}
-                                                        className="px-2 py-1.5 text-left font-medium text-slate-400"
-                                                    >
-                                                        {columnMapping[header] || header}
-                                                    </th>
-                                                ))}
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-800/50">
-                                            {parsedData.rows.slice(0, 5).map((row, idx) => (
-                                                <tr key={idx} className="hover:bg-slate-800/20">
-                                                    <td className="px-2 py-1.5 text-slate-500">{idx + 1}</td>
-                                                    {parsedData.headers.map((header) => (
-                                                        <td
-                                                            key={header}
-                                                            className="px-2 py-1.5 text-slate-300 max-w-32 truncate"
-                                                        >
-                                                            {String(row[header] ?? '')}
-                                                        </td>
-                                                    ))}
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                {/* Footer */}
-                <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-800">
-                    <button
-                        onClick={handleClose}
-                        className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
-                    >
-                        Cancel
-                    </button>
-                    <button
+        <Modal
+            isOpen={isOpen}
+            onClose={handleClose}
+            title="Import CSV"
+            size="full"
+            bodyClassName="max-h-[75vh]"
+            footer={
+                <>
+                    <Button variant="ghost" onClick={handleClose}>Cancel</Button>
+                    <Button
+                        variant="success"
                         onClick={handleImport}
                         disabled={!parsedData || importing}
-                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 rounded-md text-sm text-white transition-colors"
+                        leftIcon={importing ? <span className="animate-spin">⏳</span> : <Check className="w-4 h-4" />}
                     >
-                        {importing ? (
-                            <>
-                                <span className="animate-spin">⏳</span>
-                                Importing...
-                            </>
-                        ) : (
-                            <>
-                                <Check className="w-4 h-4" />
-                                Import {parsedData?.rows.length || 0} rows
-                            </>
-                        )}
-                    </button>
-                </div>
+                        {importing ? 'Importing...' : `Import ${parsedData?.rows.length || 0} rows`}
+                    </Button>
+                </>
+            }
+        >
+            <div className="space-y-4">
+                {error && (
+                    <div className="mb-4 p-3 bg-status-danger/10 border border-status-danger/30 rounded-md flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-status-danger flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-status-danger">{error}</p>
+                    </div>
+                )}
+
+                {!parsedData ? (
+                    /* File Upload */
+                    <div
+                        onDrop={handleDrop}
+                        onDragOver={(e) => {
+                            e.preventDefault();
+                            setDragOver(true);
+                        }}
+                        onDragLeave={() => setDragOver(false)}
+                        className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
+                            dragOver
+                                ? 'border-status-success bg-status-success/10'
+                                : 'border-border-default hover:border-border-default'
+                        }`}
+                    >
+                        <Upload className="w-12 h-12 text-text-secondary mx-auto mb-4" />
+                        <p className="text-text-primary mb-2">
+                            Drag and drop a CSV file here, or{' '}
+                            <button
+                                onClick={() => fileInputRef.current?.click()}
+                                className="text-status-success hover:text-status-success"
+                            >
+                                browse
+                            </button>
+                        </p>
+                        <p className="text-xs text-text-secondary">
+                            First row will be used as column headers
+                        </p>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept=".csv"
+                            onChange={handleFileSelect}
+                            className="hidden"
+                        />
+                    </div>
+                ) : (
+                    /* Preview & Mapping */
+                    <div className="space-y-6">
+                        {/* Summary */}
+                        <div className="flex items-center gap-4 p-3 bg-dark-elevated/50 rounded-md">
+                            <FileText className="w-5 h-5 text-status-success" />
+                            <div>
+                                <p className="text-sm text-text-primary">
+                                    {parsedData.rows.length} rows, {parsedData.headers.length} columns
+                                </p>
+                                {parsedData.errors.length > 0 && (
+                                    <p className="text-xs text-status-warning">
+                                        {parsedData.errors.length} parsing warnings
+                                    </p>
+                                )}
+                            </div>
+                            <button
+                                onClick={() => setParsedData(null)}
+                                className="ml-auto text-xs text-text-secondary hover:text-text-primary"
+                            >
+                                Choose different file
+                            </button>
+                        </div>
+
+                        {/* Column Mapping */}
+                        <div>
+                            <h3 className="text-sm font-medium text-text-primary mb-3">Column Mapping</h3>
+                            <div className="border border-border-default rounded-md overflow-hidden">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="bg-dark-elevated/50">
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-text-secondary">
+                                                CSV Column
+                                            </th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-text-secondary">
+                                                Target Column
+                                            </th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-text-secondary">
+                                                Type
+                                            </th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-text-secondary">
+                                                Sample Values
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-border-default">
+                                        {parsedData.headers.map((header) => (
+                                            <tr key={header} className="hover:bg-dark-elevated/30">
+                                                <td className="px-3 py-2 text-text-primary">{header}</td>
+                                                <td className="px-3 py-2">
+                                                    <input
+                                                        type="text"
+                                                        value={columnMapping[header] || ''}
+                                                        onChange={(e) =>
+                                                            setColumnMapping({
+                                                                ...columnMapping,
+                                                                [header]: e.target.value,
+                                                            })
+                                                        }
+                                                        className="w-full bg-dark-elevated border border-border-default rounded px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-status-success"
+                                                    />
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    <select
+                                                        value={columnTypes[header] || 'text'}
+                                                        onChange={(e) =>
+                                                            setColumnTypes({
+                                                                ...columnTypes,
+                                                                [header]: e.target.value as DataColumn['type'],
+                                                            })
+                                                        }
+                                                        className="bg-dark-elevated border border-border-default rounded px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-status-success"
+                                                    >
+                                                        <option value="text">Text</option>
+                                                        <option value="number">Number</option>
+                                                        <option value="boolean">Boolean</option>
+                                                        <option value="date">Date</option>
+                                                    </select>
+                                                </td>
+                                                <td className="px-3 py-2 text-xs text-text-secondary max-w-xs truncate">
+                                                    {parsedData.rows
+                                                        .slice(0, 3)
+                                                        .map((r) => r[header])
+                                                        .filter(Boolean)
+                                                        .join(', ')}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Data Preview */}
+                        <div>
+                            <h3 className="text-sm font-medium text-text-primary mb-3">
+                                Data Preview (first 5 rows)
+                            </h3>
+                            <div className="border border-border-default rounded-md overflow-auto max-h-48">
+                                <table className="w-full text-xs">
+                                    <thead>
+                                        <tr className="bg-dark-elevated/50 sticky top-0">
+                                            <th className="px-2 py-1.5 text-left font-medium text-text-secondary">
+                                                #
+                                            </th>
+                                            {parsedData.headers.map((header) => (
+                                                <th
+                                                    key={header}
+                                                    className="px-2 py-1.5 text-left font-medium text-text-secondary"
+                                                >
+                                                    {columnMapping[header] || header}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-border-default/50">
+                                        {parsedData.rows.slice(0, 5).map((row, idx) => (
+                                            <tr key={idx} className="hover:bg-dark-elevated/20">
+                                                <td className="px-2 py-1.5 text-text-secondary">{idx + 1}</td>
+                                                {parsedData.headers.map((header) => (
+                                                    <td
+                                                        key={header}
+                                                        className="px-2 py-1.5 text-text-primary max-w-32 truncate"
+                                                    >
+                                                        {String(row[header] ?? '')}
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
-        </div>
+        </Modal>
     );
 }
 

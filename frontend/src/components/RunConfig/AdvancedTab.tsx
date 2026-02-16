@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Plus, Trash2, MapPin, MonitorSmartphone, Languages, Clock3 } from 'lucide-react';
 import type { RunConfiguration } from '@/store/runConfigStore';
 import { runConfigTheme, chipClass, cx } from './theme';
+import { IconButton } from '@/components/ui';
 
 interface AdvancedTabProps {
   config: RunConfiguration;
@@ -286,14 +287,13 @@ export function AdvancedTab({ config, onChange }: AdvancedTabProps) {
                   }
                   className={cx(runConfigTheme.input, 'flex-1 font-mono')}
                 />
-                <button
-                  type="button"
+                <IconButton
+                  icon={<Trash2 className="h-4 w-4" />}
+                  variant="outlined"
+                  tone="danger"
+                  tooltip="Remove variable"
                   onClick={() => handleRemoveEnvVar(key)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded border border-border-default text-text-secondary transition-colors hover:border-status-danger/40 hover:text-status-danger"
-                  title="Remove variable"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                />
               </div>
             ))}
           </div>
@@ -320,20 +320,13 @@ export function AdvancedTab({ config, onChange }: AdvancedTabProps) {
               }
             }}
           />
-          <button
-            type="button"
-            onClick={handleAddEnvVar}
+          <IconButton
+            icon={<Plus className="h-4 w-4" />}
+            variant="outlined"
+            tooltip="Add environment variable"
             disabled={!newEnvKey.trim()}
-            className={cx(
-              'inline-flex h-8 w-8 items-center justify-center rounded border transition-colors',
-              newEnvKey.trim()
-                ? 'border-border-default text-text-secondary hover:border-border-emphasis hover:text-text-primary'
-                : 'cursor-not-allowed border-border-default/40 text-text-muted/50'
-            )}
-            title="Add environment variable"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
+            onClick={handleAddEnvVar}
+          />
         </div>
       </section>
     </div>

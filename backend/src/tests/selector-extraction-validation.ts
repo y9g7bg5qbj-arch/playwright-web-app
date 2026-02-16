@@ -13,7 +13,6 @@
 // TODO: Replace with ClaudeAgentService
 // import { ClaudeAgentService } from '../services/claude-agent/ClaudeAgentService';
 import { generateVeroCodeSimple, RecordingSession } from '../services/selector/VeroGenerator';
-import { injectSelectorExtractor } from '../services/selector/selectorExtractor';
 
 // Test cases for validation
 const TEST_CASES = [

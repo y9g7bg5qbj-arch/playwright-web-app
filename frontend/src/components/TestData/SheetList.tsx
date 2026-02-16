@@ -63,7 +63,7 @@ export function SheetList({
                                     onContextMenu={(e) => handleContextMenu(e, sheet)}
                                     className={`group flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 transition-all duration-fast ${
                                         isSelected
-                                            ? 'border-brand-primary/45 bg-brand-primary/15 shadow-[0_0_0_1px_rgba(53,116,240,0.18)_inset]'
+                                            ? 'border-brand-primary/45 bg-brand-primary/15 ring-1 ring-inset ring-brand-primary/20'
                                             : 'border-transparent hover:border-border-default hover:bg-dark-elevated/65'
                                     }`}
                                 >
