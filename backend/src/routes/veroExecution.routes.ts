@@ -254,7 +254,8 @@ executionRouter.post('/run-docker', authenticateToken, async (req: AuthRequest, 
             return res.status(400).json({ success: false, error: 'Invalid executionId format' });
         }
         const executionId = rawExecutionId;
-        const shardCount = config?.dockerShards || 1;
+        const rawShards = typeof config?.dockerShards === 'number' ? config.dockerShards : 1;
+        const shardCount = Math.min(Math.max(Math.floor(rawShards), 1), 20);
 
         // Get Vero content - either from request or read from file
         let veroContent = content;

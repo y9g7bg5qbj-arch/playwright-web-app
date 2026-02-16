@@ -5,12 +5,26 @@
  */
 
 import { Router, Response, Request } from 'express';
+import express from 'express';
 import crypto from 'crypto';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { auditService } from '../services/audit.service';
 import { logger } from '../utils/logger';
 
+// Extend Request to carry the raw body captured during JSON parsing
+interface WebhookRequest extends Request {
+    rawBody?: string;
+}
+
 const router = Router();
+
+// Capture raw body for HMAC verification before JSON parsing alters it.
+// This middleware replaces the global express.json() for webhook routes.
+router.use(express.json({
+    verify: (req: WebhookRequest, _res, buf) => {
+        req.rawBody = buf.toString('utf-8');
+    },
+}));
 
 // ============================================
 // GITHUB WEBHOOKS
@@ -55,11 +69,11 @@ function verifyGitHubSignature(payload: string, signature: string | undefined): 
  */
 router.post(
   '/webhooks/workflow_run',
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: WebhookRequest, res: Response) => {
     const signature = req.headers['x-hub-signature-256'] as string | undefined;
     const event = req.headers['x-github-event'] as string;
     const deliveryId = req.headers['x-github-delivery'] as string;
-    const payload = JSON.stringify(req.body);
+    const payload = req.rawBody || JSON.stringify(req.body);
 
     // Verify signature
     if (!verifyGitHubSignature(payload, signature)) {
@@ -108,11 +122,11 @@ router.post(
  */
 router.post(
   '/webhooks/check_run',
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: WebhookRequest, res: Response) => {
     const signature = req.headers['x-hub-signature-256'] as string | undefined;
     const event = req.headers['x-github-event'] as string;
     const deliveryId = req.headers['x-github-delivery'] as string;
-    const payload = JSON.stringify(req.body);
+    const payload = req.rawBody || JSON.stringify(req.body);
 
     // Verify signature
     if (!verifyGitHubSignature(payload, signature)) {
@@ -149,11 +163,11 @@ router.post(
  */
 router.post(
   '/webhooks',
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: WebhookRequest, res: Response) => {
     const signature = req.headers['x-hub-signature-256'] as string | undefined;
     const event = req.headers['x-github-event'] as string;
     const deliveryId = req.headers['x-github-delivery'] as string;
-    const payload = JSON.stringify(req.body);
+    const payload = req.rawBody || JSON.stringify(req.body);
 
     // Verify signature
     if (!verifyGitHubSignature(payload, signature)) {

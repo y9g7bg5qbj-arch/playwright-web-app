@@ -160,7 +160,6 @@ async function runAllureGenerate(resultsDir: string, outputDir: string): Promise
 
   await new Promise<void>((resolve, reject) => {
     const childProcess = spawn(command, args, {
-      shell: true,
       cwd: globalThis.process.cwd(),
     });
 

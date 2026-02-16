@@ -35,6 +35,11 @@ async function findVeroFiles(dir: string): Promise<string[]> {
     return files;
 }
 
+/** Escape special regex characters to prevent ReDoS when interpolating user input */
+function escapeRegex(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /** Simple Levenshtein distance for typo suggestions */
 function levenshteinDistance(a: string, b: string): number {
     const m = a.length;
@@ -397,18 +402,20 @@ validationRouter.post('/definition', authenticateToken, async (req: AuthRequest,
             try {
                 const content = await readFile(veroFile, 'utf-8');
                 const lines = content.split('\n');
+                const relativeFilePath = veroFile.startsWith(projectPath + '/') ? veroFile.slice(projectPath.length + 1) : veroFile;
 
                 // Look for page definition
                 if (/^[A-Z][a-zA-Z0-9]*$/.test(word)) {
+                    const escaped = escapeRegex(word);
                     for (let i = 0; i < lines.length; i++) {
                         const ln = lines[i];
-                        const pageMatch = ln.match(new RegExp(`^\\s*page\\s+(${word})\\s*\\{`, 'i'));
+                        const pageMatch = ln.match(new RegExp(`^\\s*page\\s+(${escaped})\\s*\\{`, 'i'));
                         if (pageMatch) {
                             const col = ln.indexOf(pageMatch[1]) + 1;
                             return res.json({
                                 success: true,
                                 location: {
-                                    filePath: veroFile,
+                                    filePath: relativeFilePath,
                                     line: i + 1,
                                     column: col,
                                     endLine: i + 1,
@@ -422,24 +429,26 @@ validationRouter.post('/definition', authenticateToken, async (req: AuthRequest,
                 // Look for field/action definition (word contains dot: Page.member)
                 if (word.includes('.')) {
                     const [pageName, memberName] = word.split('.');
+                    const escapedPage = escapeRegex(pageName);
+                    const escapedMember = escapeRegex(memberName);
                     let inPage = false;
 
                     for (let i = 0; i < lines.length; i++) {
                         const ln = lines[i];
 
-                        if (ln.match(new RegExp(`^\\s*page\\s+${pageName}\\s*\\{`, 'i'))) {
+                        if (ln.match(new RegExp(`^\\s*page\\s+${escapedPage}\\s*\\{`, 'i'))) {
                             inPage = true;
                         }
 
                         if (inPage) {
                             // Field definition
-                            const fieldMatch = ln.match(new RegExp(`^\\s*field\\s+(${memberName})\\s*=`, 'i'));
+                            const fieldMatch = ln.match(new RegExp(`^\\s*field\\s+(${escapedMember})\\s*=`, 'i'));
                             if (fieldMatch) {
                                 const col = ln.indexOf(fieldMatch[1]) + 1;
                                 return res.json({
                                     success: true,
                                     location: {
-                                        filePath: veroFile,
+                                        filePath: relativeFilePath,
                                         line: i + 1,
                                         column: col,
                                         endLine: i + 1,
@@ -449,13 +458,13 @@ validationRouter.post('/definition', authenticateToken, async (req: AuthRequest,
                             }
 
                             // Action definition
-                            const actionMatch = ln.match(new RegExp(`^\\s*(${memberName})(?:\\s+with)?\\s*\\{`, 'i'));
+                            const actionMatch = ln.match(new RegExp(`^\\s*(${escapedMember})(?:\\s+with)?\\s*\\{`, 'i'));
                             if (actionMatch && !['field', 'if', 'for'].includes(actionMatch[1].toLowerCase())) {
                                 const col = ln.indexOf(actionMatch[1]) + 1;
                                 return res.json({
                                     success: true,
                                     location: {
-                                        filePath: veroFile,
+                                        filePath: relativeFilePath,
                                         line: i + 1,
                                         column: col,
                                         endLine: i + 1,
@@ -517,11 +526,15 @@ validationRouter.post('/references', authenticateToken, async (req: AuthRequest,
             context: string;
         }> = [];
 
+        // Escape word for safe regex interpolation
+        const escaped = escapeRegex(word);
+
         // Search for references across all files
         for (const veroFile of files) {
             try {
                 const content = await readFile(veroFile, 'utf-8');
                 const lines = content.split('\n');
+                const relativeFilePath = veroFile.startsWith(projectPath + '/') ? veroFile.slice(projectPath.length + 1) : veroFile;
 
                 for (let i = 0; i < lines.length; i++) {
                     const ln = lines[i];
@@ -531,10 +544,10 @@ validationRouter.post('/references', authenticateToken, async (req: AuthRequest,
                     if (/^[A-Z][a-zA-Z0-9]*$/.test(word)) {
                         // Definition
                         if (includeDeclaration) {
-                            const defMatch = ln.match(new RegExp(`^\\s*page\\s+(${word})\\s*\\{`, 'i'));
+                            const defMatch = ln.match(new RegExp(`^\\s*page\\s+(${escaped})\\s*\\{`, 'i'));
                             if (defMatch) {
                                 references.push({
-                                    filePath: veroFile,
+                                    filePath: relativeFilePath,
                                     line: lineNum,
                                     column: ln.indexOf(defMatch[1]) + 1,
                                     endLine: lineNum,
@@ -546,10 +559,10 @@ validationRouter.post('/references', authenticateToken, async (req: AuthRequest,
                         }
 
                         // USE statement
-                        const useMatch = ln.match(new RegExp(`\\buse\\s+(${word})\\b`, 'i'));
+                        const useMatch = ln.match(new RegExp(`\\buse\\s+(${escaped})\\b`, 'i'));
                         if (useMatch) {
                             references.push({
-                                filePath: veroFile,
+                                filePath: relativeFilePath,
                                 line: lineNum,
                                 column: ln.indexOf(useMatch[1]) + 1,
                                 endLine: lineNum,
@@ -560,11 +573,11 @@ validationRouter.post('/references', authenticateToken, async (req: AuthRequest,
                         }
 
                         // Page.member references
-                        const memberRegex = new RegExp(`\\b(${word})\\.(\\w+)\\b`, 'gi');
+                        const memberRegex = new RegExp(`\\b(${escaped})\\.(\\w+)\\b`, 'gi');
                         let memberMatch;
                         while ((memberMatch = memberRegex.exec(ln)) !== null) {
                             references.push({
-                                filePath: veroFile,
+                                filePath: relativeFilePath,
                                 line: lineNum,
                                 column: memberMatch.index + 1,
                                 endLine: lineNum,
