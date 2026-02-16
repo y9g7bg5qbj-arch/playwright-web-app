@@ -164,9 +164,12 @@ export function mergeExecutionEnvironment(
     }
 
     // Layer 2: parameter values (override)
+    // Skip null/undefined entirely so they don't shadow base values with empty strings.
+    // Booleans are preserved as 'true'/'false' (env vars are always strings).
     if (parameterValues) {
         for (const [k, v] of Object.entries(parameterValues)) {
-            merged[k] = String(v ?? '');
+            if (v === null || v === undefined) continue;
+            merged[k] = String(v);
         }
     }
 
@@ -497,6 +500,7 @@ export async function executeVeroRun(input: VeroRunInput): Promise<VeroRunResult
     });
 
     // ── 8. Execute ───────────────────────────────────────────────────────────
+    try {
     const result = await executeSingleRun({
         executionId,
         playwrightArgs,
@@ -537,8 +541,9 @@ export async function executeVeroRun(input: VeroRunInput): Promise<VeroRunResult
 
     // ── 10. Update execution record ──────────────────────────────────────────
 
+    const dbStatus: 'passed' | 'failed' | 'cancelled' = result.status === 'timeout' ? 'failed' : result.status;
     await executionRepository.update(executionId, {
-        status: result.status as any,
+        status: dbStatus,
         exitCode: result.exitCode,
         finishedAt: new Date(),
     });
@@ -561,15 +566,6 @@ export async function executeVeroRun(input: VeroRunInput): Promise<VeroRunResult
         });
     }
 
-    // ── 11. Cleanup temp specs ──────────────────────────────────────────────
-    for (const tempSpecPath of tempSpecPaths) {
-        try {
-            await unlink(tempSpecPath);
-        } catch {
-            // Ignore cleanup errors
-        }
-    }
-
     logger.info('[Vero Run] Playwright finished', {
         runId: executionId,
         tempSpecPaths,
@@ -581,6 +577,16 @@ export async function executeVeroRun(input: VeroRunInput): Promise<VeroRunResult
     });
 
     return result;
+    } finally {
+        // ── 11. Cleanup temp specs (always, even on error) ──────────────────
+        for (const tempSpecPath of tempSpecPaths) {
+            try {
+                await unlink(tempSpecPath);
+            } catch {
+                // Ignore cleanup errors
+            }
+        }
+    }
 }
 
 // ─── Single Run ─────────────────────────────────────────────────────────────

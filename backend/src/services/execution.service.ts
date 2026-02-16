@@ -280,6 +280,13 @@ export class ExecutionService {
         failedCount = matrixChildrenData.reduce((sum, c) => sum + c.failedCount, 0);
         skippedCount = matrixChildrenData.reduce((sum, c) => sum + c.skippedCount, 0);
         stepCount = passedCount + failedCount + skippedCount;
+        // When children haven't reported yet, fall back to parent's own steps
+        if (stepCount === 0 && steps.length > 0) {
+          passedCount = steps.filter((s) => s.status === 'passed').length;
+          failedCount = steps.filter((s) => s.status === 'failed').length;
+          skippedCount = steps.filter((s) => s.status === 'skipped').length;
+          stepCount = steps.length;
+        }
       } else {
         passedCount = steps.filter((s) => s.status === 'passed').length;
         failedCount = steps.filter((s) => s.status === 'failed').length;
@@ -344,18 +351,13 @@ export class ExecutionService {
       };
     });
 
-    // Compute runNumber using total count from DB (not paginated array length)
-    const totalExecutionCount = await executionRepository.countAll();
-    return enrichedExecutions.map((exec) => {
-      // Find this execution's position in the full (unfiltered) sorted array
-      // Note: This runNumber calculation is approximate if we only fetch 200 recent executions
-      // but it's consistent within the view window.
-      const positionInFull = executions.findIndex(e => e.id === exec.id);
-      return {
-        ...exec,
-        runNumber: totalExecutionCount - positionInFull,
-      };
-    });
+    // Compute runNumber relative to the filtered result set.
+    // When applicationId scoping is active, number within the scoped view
+    // so run numbers remain contiguous rather than showing gaps.
+    return enrichedExecutions.map((exec, index) => ({
+      ...exec,
+      runNumber: userExecutions.length - index,
+    }));
   }
 
   async delete(userId: string, executionId: string): Promise<void> {

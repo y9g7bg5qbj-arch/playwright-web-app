@@ -168,6 +168,7 @@ executionRouter.post('/run', authenticateToken, async (req: AuthRequest, res: Re
 
 // Debug mode execution - transpiles with debug markers, returns executionId for WebSocket
 executionRouter.post('/debug', authenticateToken, async (req: AuthRequest, res: Response) => {
+    let executionId: string | undefined;
     try {
         const { filePath, content, breakpoints = [], projectId, applicationId } = req.body;
         const userId = (req as AuthRequest).userId!;
@@ -208,7 +209,7 @@ executionRouter.post('/debug', authenticateToken, async (req: AuthRequest, res: 
                 breakpoints,
             }),
         });
-        const executionId = execution.id;
+        executionId = execution.id;
 
         // Extract USE statements and load referenced pages/pageActions
         const useMatches = veroContent.match(/USE\s+(\w+)/gi) || [];
@@ -231,6 +232,13 @@ executionRouter.post('/debug', authenticateToken, async (req: AuthRequest, res: 
             message: 'Debug session prepared. Connect via WebSocket to start execution.',
         });
     } catch (error) {
+        // Mark the execution as failed if one was already created, to avoid
+        // orphaned 'pending' records that never transition to a terminal state.
+        if (typeof executionId === 'string') {
+            try {
+                await executionRepository.update(executionId, { status: 'failed', finishedAt: new Date() });
+            } catch { /* best-effort cleanup */ }
+        }
         logger.error('Failed to prepare debug session:', error);
         res.status(500).json({ success: false, error: `Failed to prepare debug: ${error}` });
     }

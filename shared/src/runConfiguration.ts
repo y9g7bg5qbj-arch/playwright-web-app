@@ -43,6 +43,7 @@ export function normalizeExecutionTarget(
   if (normalized === 'local') return 'local';
   if (normalized === 'github-actions' || normalized === 'github' || normalized === 'gha') return 'github-actions';
   if (normalized === 'docker') return 'docker';
+  // 'remote' was a legacy target type that is no longer supported — remap to 'local'.
   if (normalized === 'remote') return 'local';
   return fallback;
 }
