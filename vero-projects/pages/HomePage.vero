@@ -1,9 +1,0 @@
-# HomePage
-
-PAGE HomePage ("/") {
-    FIELD myidOrUsernametextbox = textbox "myID or Username"
-    FIELD nextbutton = button "Next"
-    FIELD passwordtextbox = textbox "Password"
-    FIELD verifybutton = button "Verify"
-    FIELD launchAppApexUatlink = link "launch app APEX UAT"
-}

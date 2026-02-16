@@ -49,6 +49,37 @@ traces/
 screenshots/
 executions/
 
+# Build artifacts & local storage
+backend/storage/
+.pnpm-store/
+allure-results/
+allure-report/
+
+# Vero runtime & debug artifacts
+vero-projects/
+backend/vero-projects/
+backend/.vero-ci/
+backend/.vero-run-debug.spec.*
+
+# Local dev scaffolding
+backend/e2e/
+backend/scripts/
+backend/playwright.scheduler-ui.config.ts
+ecosystem.config.cjs
+
+# Claude / AI context files (developer-local)
+**/*CLAUDE.md
+.claude/skills/
+
+# Deep audit & design docs (non-product)
+docs/VERO_IDE_*
+docs/VERO_VISUAL_VALIDATION.md
+
+# Frontend local-only
+frontend/src/components/mockups/
+frontend/check-*.mjs
+frontend/ui-system.md
+
 # Temporary
 tmp/
 temp/
