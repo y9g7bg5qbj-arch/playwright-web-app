@@ -1,6 +1,6 @@
 import { join, relative } from 'path';
 import { scanForScenarios } from '../routes/veroScenarioIndex.utils';
-import { VERO_PROJECT_PATH } from '../routes/veroProjectPath.utils';
+import { VERO_PROJECT_PATH, confineToBase } from '../routes/veroProjectPath.utils';
 
 export type VeroSelectionScope = 'active-file' | 'current-sandbox';
 
@@ -18,7 +18,8 @@ export interface PlanVeroSelectionInput {
 }
 
 function resolveAbsolutePath(filePath: string): string {
-  return filePath.startsWith('/') ? filePath : join(VERO_PROJECT_PATH, filePath);
+  // Validate that the resolved path stays within the project root (prevents path traversal).
+  return confineToBase(VERO_PROJECT_PATH, filePath);
 }
 
 function toRunFilePath(absolutePath: string): string {

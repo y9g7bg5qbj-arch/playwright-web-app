@@ -15,6 +15,11 @@ import {
 import { NotFoundError, ForbiddenError } from '../utils/errors';
 import type { Execution, ExecutionLog } from '@playwright-web-app/shared';
 
+function safeJsonParse<T>(json: string | null | undefined, fallback: T): T {
+  if (!json) return fallback;
+  try { return JSON.parse(json); } catch { return fallback; }
+}
+
 interface RecentExecutionScenario {
   id: string;
   name: string;
@@ -321,7 +326,7 @@ export class ExecutionService {
         duration: exec.startedAt && exec.finishedAt
           ? new Date(exec.finishedAt).getTime() - new Date(exec.startedAt).getTime()
           : undefined,
-        configSnapshot: exec.configSnapshot ? JSON.parse(exec.configSnapshot) : undefined,
+        configSnapshot: safeJsonParse(exec.configSnapshot, undefined),
         // Map steps to scenarios for frontend display
         scenarios: steps.map((step) => {
           const scenarioName = step.description || `Test ${step.stepNumber}`;
@@ -335,7 +340,7 @@ export class ExecutionService {
             error: step.error || null,
             traceUrl: `/api/executions/${exec.id}/trace`,
             screenshot: step.screenshot || `/api/executions/local/screenshot/${encodeURIComponent(scenarioSlug)}`,
-            steps: step.stepsJson ? JSON.parse(step.stepsJson) : [],
+            steps: safeJsonParse(step.stepsJson, []),
           };
         }),
         logs: logs.slice(0, 50).map((log) => ({

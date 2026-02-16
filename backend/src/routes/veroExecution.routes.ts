@@ -4,7 +4,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
-import { VERO_PROJECT_PATH } from './veroProjectPath.utils';
+import { VERO_PROJECT_PATH, confineToBase } from './veroProjectPath.utils';
 import { shouldWriteLegacyDockerSpec } from './veroRunExecution.utils';
 import { applicationRepository, executionRepository, projectRepository } from '../db/repositories/mongo';
 import { getOrCreateVeroTestFlow } from '../services/testFlow.utils';
@@ -71,7 +71,7 @@ executionRouter.post('/run', authenticateToken, async (req: AuthRequest, res: Re
         // Get or create a test flow for this Vero file to track executions
         const flowName = filePath ? filePath.split('/').pop()?.replace('.vero', '') || 'Vero Test' : 'Vero Test';
         const veroContent = content || (filePath
-            ? await readFile(filePath.startsWith('/') ? filePath : join(VERO_PROJECT_PATH, filePath), 'utf-8')
+            ? await readFile(confineToBase(VERO_PROJECT_PATH, filePath), 'utf-8')
             : null);
         if (!veroContent) {
             return res.status(400).json({ success: false, error: 'No content provided' });
@@ -177,8 +177,7 @@ executionRouter.post('/debug', authenticateToken, async (req: AuthRequest, res: 
         // Get Vero content - either from request or read from file
         let veroContent = content;
         if (!veroContent && filePath) {
-            const fullPath = join(VERO_PROJECT_PATH, filePath);
-            veroContent = await readFile(fullPath, 'utf-8');
+            veroContent = await readFile(confineToBase(VERO_PROJECT_PATH, filePath), 'utf-8');
         }
 
         if (!veroContent) {
@@ -247,14 +246,19 @@ executionRouter.post('/debug', authenticateToken, async (req: AuthRequest, res: 
 // Run Vero file in Docker with VNC for live viewing
 executionRouter.post('/run-docker', authenticateToken, async (req: AuthRequest, res: Response) => {
     try {
-        const { filePath, content, config, executionId } = req.body;
+        const { filePath, content, config, executionId: rawExecutionId } = req.body;
+        // Validate executionId format to prevent injection in filenames and shell args
+        const UUID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+        if (typeof rawExecutionId !== 'string' || !UUID_RE.test(rawExecutionId)) {
+            return res.status(400).json({ success: false, error: 'Invalid executionId format' });
+        }
+        const executionId = rawExecutionId;
         const shardCount = config?.dockerShards || 1;
 
         // Get Vero content - either from request or read from file
         let veroContent = content;
         if (!veroContent && filePath) {
-            const fullPath = join(VERO_PROJECT_PATH, filePath);
-            veroContent = await readFile(fullPath, 'utf-8');
+            veroContent = await readFile(confineToBase(VERO_PROJECT_PATH, filePath), 'utf-8');
         }
 
         if (!veroContent) {
@@ -289,11 +293,10 @@ executionRouter.post('/run-docker', authenticateToken, async (req: AuthRequest, 
 
         // Use spawn to run docker compose
         const dockerProcess = spawn(
-            '/Applications/Docker.app/Contents/Resources/bin/docker',
+            'docker',
             ['compose', '-f', dockerComposePath, 'up', ...services.split(' '), '-d', '--build'],
             {
                 cwd: join(process.cwd(), '..'),
-                shell: true,
                 stdio: 'pipe',
             }
         );
@@ -352,11 +355,10 @@ executionRouter.post('/stop-docker', authenticateToken, async (_req: AuthRequest
         const dockerComposePath = join(process.cwd(), '..', 'docker', 'worker-vnc', 'docker-compose.yml');
 
         const dockerProcess = spawn(
-            '/Applications/Docker.app/Contents/Resources/bin/docker',
+            'docker',
             ['compose', '-f', dockerComposePath, 'down'],
             {
                 cwd: join(process.cwd(), '..'),
-                shell: true,
                 stdio: 'pipe',
             }
         );

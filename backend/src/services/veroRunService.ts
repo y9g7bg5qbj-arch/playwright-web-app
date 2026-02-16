@@ -649,7 +649,13 @@ async function executeSingleRun(params: SingleRunParams): Promise<VeroRunResult>
         };
 
         const timeout = setTimeout(() => {
-            testProcess.kill();
+            // Graceful SIGTERM first, escalate to SIGKILL after 5s
+            testProcess.kill('SIGTERM');
+            const killTimer = setTimeout(() => {
+                try { testProcess.kill('SIGKILL'); } catch { /* already dead */ }
+            }, 5_000);
+            // Clear kill timer if the process exits on its own
+            testProcess.once('close', () => clearTimeout(killTimer));
             settle({
                 status: 'timeout',
                 output: stdout,
