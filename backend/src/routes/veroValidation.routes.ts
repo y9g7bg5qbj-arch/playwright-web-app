@@ -4,6 +4,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { projectRepository } from '../db/repositories/mongo';
+import { VERO_PROJECT_PATH, confineToBase } from './veroProjectPath.utils';
 import { mongoTestDataService } from '../services/mongodb-test-data.service';
 import { type VeroValidationError, getParserErrorCode, getParserErrorTitle, getParserErrorFix, getValidationErrorCode, getValidationErrorTitle, getValidationErrorFix } from './veroValidationMapping.utils';
 import { collectDataRefsFromFeatures } from './veroDataReferenceExtraction.utils';
@@ -97,10 +98,8 @@ validationRouter.post('/validate', authenticateToken, async (req: AuthRequest, r
             let combinedAst: any = { type: 'Program', pages: [], pageActions: [], features: [], fixtures: [] };
 
             if (effectiveVeroPath) {
-                // Use the path directly if it's absolute, otherwise resolve relative to vero-projects
-                const projectPath = effectiveVeroPath.startsWith('/')
-                    ? effectiveVeroPath
-                    : join(process.cwd(), 'vero-projects', effectiveVeroPath);
+                // Validate path stays within vero-projects root
+                const projectPath = confineToBase(VERO_PROJECT_PATH, effectiveVeroPath);
 
                 // Load all .vero files from Pages/, PageActions/ folders for context
                 // Only check capitalized versions to avoid duplicates on case-insensitive filesystems
