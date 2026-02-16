@@ -5,4 +5,3 @@
 
 export * from './types';
 export * from './cronParser';
-export { SchedulerService, schedulerService } from './SchedulerService';

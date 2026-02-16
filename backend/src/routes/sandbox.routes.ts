@@ -3,9 +3,11 @@ import { body, param, query } from 'express-validator';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { validate } from '../middleware/validate';
+import { asyncHandler } from '../middleware/asyncHandler';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { sandboxService } from '../services/sandbox.service';
 import { projectRepository, applicationRepository, sandboxRepository } from '../db/repositories/mongo';
+import { logger } from '../utils/logger';
 
 const VERO_PROJECTS_BASE = process.env.VERO_PROJECTS_PATH || path.join(process.cwd(), 'vero-projects');
 
@@ -23,14 +25,10 @@ router.get(
   validate([
     param('projectId').isUUID(),
   ]),
-  async (req: AuthRequest, res, next) => {
-    try {
-      const sandboxes = await sandboxService.listByProject(req.params.projectId);
-      res.json({ success: true, data: { sandboxes } });
-    } catch (error) {
-      next(error);
-    }
-  }
+  asyncHandler(async (req: AuthRequest, res) => {
+    const sandboxes = await sandboxService.listByProject(req.params.projectId);
+    res.json({ success: true, data: { sandboxes } });
+  })
 );
 
 /**
@@ -45,25 +43,21 @@ router.post(
     body('description').optional().isString().trim().isLength({ max: 500 }),
     body('sourceBranch').optional().isIn(['dev', 'master']),
   ]),
-  async (req: AuthRequest, res, next) => {
-    try {
-      const sandbox = await sandboxService.create(req.userId!, req.params.projectId, {
-        name: req.body.name,
-        description: req.body.description,
-        sourceBranch: req.body.sourceBranch,
-      });
+  asyncHandler(async (req: AuthRequest, res) => {
+    const sandbox = await sandboxService.create(req.userId!, req.params.projectId, {
+      name: req.body.name,
+      description: req.body.description,
+      sourceBranch: req.body.sourceBranch,
+    });
 
-      // Emit WebSocket event
-      const io = req.app.get('io');
-      if (io) {
-        io.to(`project:${req.params.projectId}`).emit('sandbox:created', { sandbox });
-      }
-
-      res.status(201).json({ success: true, data: { sandbox } });
-    } catch (error) {
-      next(error);
+    // Emit WebSocket event
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`project:${req.params.projectId}`).emit('sandbox:created', { sandbox });
     }
-  }
+
+    res.status(201).json({ success: true, data: { sandbox } });
+  })
 );
 
 /**
@@ -72,15 +66,11 @@ router.post(
  */
 router.get(
   '/sandboxes',
-  async (req: AuthRequest, res, next) => {
-    try {
-      const projectId = req.query.projectId as string | undefined;
-      const sandboxes = await sandboxService.listByUser(req.userId!, projectId);
-      res.json({ sandboxes });
-    } catch (error) {
-      next(error);
-    }
-  }
+  asyncHandler(async (req: AuthRequest, res) => {
+    const projectId = req.query.projectId as string | undefined;
+    const sandboxes = await sandboxService.listByUser(req.userId!, projectId);
+    res.json({ sandboxes });
+  })
 );
 
 /**
@@ -92,24 +82,20 @@ router.get(
   validate([
     param('id').isUUID(),
   ]),
-  async (req: AuthRequest, res, next) => {
-    try {
-      // Check access permission
-      const canAccess = await sandboxService.canAccess(req.params.id, req.userId!);
-      if (!canAccess) {
-        return res.status(403).json({ error: 'Access denied' });
-      }
-
-      const sandbox = await sandboxService.getById(req.params.id);
-      if (!sandbox) {
-        return res.status(404).json({ error: 'Sandbox not found' });
-      }
-
-      res.json({ sandbox });
-    } catch (error) {
-      next(error);
+  asyncHandler(async (req: AuthRequest, res) => {
+    // Check access permission
+    const canAccess = await sandboxService.canAccess(req.params.id, req.userId!);
+    if (!canAccess) {
+      return res.status(403).json({ error: 'Access denied' });
     }
-  }
+
+    const sandbox = await sandboxService.getById(req.params.id);
+    if (!sandbox) {
+      return res.status(404).json({ error: 'Sandbox not found' });
+    }
+
+    res.json({ sandbox });
+  })
 );
 
 /**
@@ -121,29 +107,25 @@ router.delete(
   validate([
     param('id').isUUID(),
   ]),
-  async (req: AuthRequest, res, next) => {
-    try {
-      const sandbox = await sandboxService.getById(req.params.id);
-      if (!sandbox) {
-        return res.status(404).json({ error: 'Sandbox not found' });
-      }
-
-      const forceDelete = req.query.force === 'true';
-      await sandboxService.delete(req.params.id, req.userId!, forceDelete);
-
-      // Emit WebSocket event
-      const io = req.app.get('io');
-      if (io) {
-        io.to(`project:${sandbox.projectId}`).emit('sandbox:deleted', {
-          sandboxId: req.params.id,
-        });
-      }
-
-      res.status(204).send();
-    } catch (error) {
-      next(error);
+  asyncHandler(async (req: AuthRequest, res) => {
+    const sandbox = await sandboxService.getById(req.params.id);
+    if (!sandbox) {
+      return res.status(404).json({ error: 'Sandbox not found' });
     }
-  }
+
+    const forceDelete = req.query.force === 'true';
+    await sandboxService.delete(req.params.id, req.userId!, forceDelete);
+
+    // Emit WebSocket event
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`project:${sandbox.projectId}`).emit('sandbox:deleted', {
+        sandboxId: req.params.id,
+      });
+    }
+
+    res.status(204).send();
+  })
 );
 
 /**
@@ -155,21 +137,17 @@ router.post(
   validate([
     param('id').isUUID(),
   ]),
-  async (req: AuthRequest, res, next) => {
-    try {
-      const sandbox = await sandboxService.archive(req.params.id, req.userId!);
+  asyncHandler(async (req: AuthRequest, res) => {
+    const sandbox = await sandboxService.archive(req.params.id, req.userId!);
 
-      // Emit WebSocket event
-      const io = req.app.get('io');
-      if (io) {
-        io.to(`project:${sandbox.projectId}`).emit('sandbox:archived', { sandbox });
-      }
-
-      res.json({ sandbox });
-    } catch (error) {
-      next(error);
+    // Emit WebSocket event
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`project:${sandbox.projectId}`).emit('sandbox:archived', { sandbox });
     }
-  }
+
+    res.json({ sandbox });
+  })
 );
 
 /**
@@ -181,38 +159,34 @@ router.post(
   validate([
     param('id').isUUID(),
   ]),
-  async (req: AuthRequest, res, next) => {
-    try {
-      const result = await sandboxService.sync(req.params.id, req.userId!);
+  asyncHandler(async (req: AuthRequest, res) => {
+    const result = await sandboxService.sync(req.params.id, req.userId!);
 
-      if (!result.success && result.conflicts) {
-        return res.status(409).json({
-          success: false,
-          conflicts: result.conflicts,
-          message: 'Merge conflicts detected. Please resolve them manually.',
-        });
-      }
-
-      const sandbox = await sandboxService.getById(req.params.id);
-
-      // Emit WebSocket event
-      const io = req.app.get('io');
-      if (io && sandbox) {
-        io.to(`project:${sandbox.projectId}`).emit('sandbox:synced', {
-          sandboxId: req.params.id,
-          success: result.success,
-          conflicts: result.conflicts,
-        });
-      }
-
-      res.json({
-        success: true,
-        sandbox,
+    if (!result.success && result.conflicts) {
+      return res.status(409).json({
+        success: false,
+        conflicts: result.conflicts,
+        message: 'Merge conflicts detected. Please resolve them manually.',
       });
-    } catch (error) {
-      next(error);
     }
-  }
+
+    const sandbox = await sandboxService.getById(req.params.id);
+
+    // Emit WebSocket event
+    const io = req.app.get('io');
+    if (io && sandbox) {
+      io.to(`project:${sandbox.projectId}`).emit('sandbox:synced', {
+        sandboxId: req.params.id,
+        success: result.success,
+        conflicts: result.conflicts,
+      });
+    }
+
+    res.json({
+      success: true,
+      sandbox,
+    });
+  })
 );
 
 /**
@@ -224,30 +198,26 @@ router.post(
   validate([
     param('id').isUUID(),
   ]),
-  async (req: AuthRequest, res, next) => {
-    try {
-      const result = await sandboxService.syncWithDetails(req.params.id, req.userId!);
+  asyncHandler(async (req: AuthRequest, res) => {
+    const result = await sandboxService.syncWithDetails(req.params.id, req.userId!);
 
-      // Emit WebSocket event
-      const io = req.app.get('io');
-      if (io) {
-        const sandbox = await sandboxService.getById(req.params.id);
-        if (sandbox) {
-          io.to(`project:${sandbox.projectId}`).emit('sandbox:sync-started', {
-            sandboxId: req.params.id,
-            hasConflicts: result.hasConflicts,
-          });
-        }
+    // Emit WebSocket event
+    const io = req.app.get('io');
+    if (io) {
+      const sandbox = await sandboxService.getById(req.params.id);
+      if (sandbox) {
+        io.to(`project:${sandbox.projectId}`).emit('sandbox:sync-started', {
+          sandboxId: req.params.id,
+          hasConflicts: result.hasConflicts,
+        });
       }
-
-      res.json({
-        success: true,
-        data: result,
-      });
-    } catch (error) {
-      next(error);
     }
-  }
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  })
 );
 
 /**
@@ -261,34 +231,30 @@ router.post(
     body('resolutions').isObject().notEmpty(),
     body('autoMergeClean').optional().isBoolean(),
   ]),
-  async (req: AuthRequest, res, next) => {
-    try {
-      const { resolutions, autoMergeClean = true } = req.body;
+  asyncHandler(async (req: AuthRequest, res) => {
+    const { resolutions, autoMergeClean = true } = req.body;
 
-      const result = await sandboxService.resolveConflicts(
-        req.params.id,
-        req.userId!,
-        resolutions,
-        autoMergeClean
-      );
+    const result = await sandboxService.resolveConflicts(
+      req.params.id,
+      req.userId!,
+      resolutions,
+      autoMergeClean
+    );
 
-      // Emit WebSocket event
-      const io = req.app.get('io');
-      if (io) {
-        io.to(`project:${result.sandbox.projectId}`).emit('sandbox:conflicts-resolved', {
-          sandboxId: req.params.id,
-          updatedFiles: result.updatedFiles,
-        });
-      }
-
-      res.json({
-        success: true,
-        data: result,
+    // Emit WebSocket event
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`project:${result.sandbox.projectId}`).emit('sandbox:conflicts-resolved', {
+        sandboxId: req.params.id,
+        updatedFiles: result.updatedFiles,
       });
-    } catch (error) {
-      next(error);
     }
-  }
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  })
 );
 
 /**
@@ -307,131 +273,127 @@ router.get(
     query('target').isString().notEmpty(),
     query('file').isString().notEmpty(),
   ]),
-  async (req: AuthRequest, res, next) => {
-    try {
-      const { projectId } = req.params;
-      const { source, target, file } = req.query as { source: string; target: string; file: string };
+  asyncHandler(async (req: AuthRequest, res) => {
+    const { projectId } = req.params;
+    const { source, target, file } = req.query as { source: string; target: string; file: string };
 
-      // Get project info
-      const project = await projectRepository.findById(projectId);
+    // Get project info
+    const project = await projectRepository.findById(projectId);
 
-      if (!project) {
-        return res.status(404).json({ success: false, error: 'Project not found' });
-      }
-
-      const projectPath = project.veroPath ||
-        path.join(VERO_PROJECTS_BASE, project.applicationId, project.id);
-
-      // Helper to resolve environment to folder path
-      const resolveEnvFolder = async (env: string): Promise<string> => {
-        if (env === 'dev' || env === 'master') {
-          return env;
-        }
-        if (env.startsWith('sandbox:')) {
-          const sandboxId = env.replace('sandbox:', '');
-          const sandbox = await sandboxRepository.findById(sandboxId);
-          if (!sandbox) {
-            throw new Error(`Sandbox ${sandboxId} not found`);
-          }
-          return sandbox.folderPath; // e.g., 'sandboxes/my-sandbox'
-        }
-        throw new Error(`Invalid environment: ${env}`);
-      };
-
-      const [sourceFolder, targetFolder] = await Promise.all([
-        resolveEnvFolder(source),
-        resolveEnvFolder(target),
-      ]);
-
-      // Extract relative file path from full path if needed
-      // The file parameter might be:
-      //   - A relative path: "Features/example.vero"
-      //   - A full path: "/Users/.../projectPath/sandboxes/login-/Features/example.vero"
-      let relativeFilePath = file;
-
-      // If file starts with projectPath, strip it
-      if (file.startsWith(projectPath)) {
-        relativeFilePath = file.substring(projectPath.length);
-        // Remove leading slash
-        if (relativeFilePath.startsWith('/')) {
-          relativeFilePath = relativeFilePath.substring(1);
-        }
-      }
-
-      // Strip environment folder prefix (dev/, master/, sandboxes/xxx/)
-      const envPrefixes = ['dev/', 'master/'];
-      for (const prefix of envPrefixes) {
-        if (relativeFilePath.startsWith(prefix)) {
-          relativeFilePath = relativeFilePath.substring(prefix.length);
-          break;
-        }
-      }
-      // Also handle sandboxes/xxx/ prefix
-      const sandboxMatch = relativeFilePath.match(/^sandboxes\/[^/]+\//);
-      if (sandboxMatch) {
-        relativeFilePath = relativeFilePath.substring(sandboxMatch[0].length);
-      }
-
-      // Build full file paths using the cleaned relative path
-      const sourceFilePath = path.join(projectPath, sourceFolder, relativeFilePath);
-      const targetFilePath = path.join(projectPath, targetFolder, relativeFilePath);
-
-      console.log('[Compare] Paths:', {
-        originalFile: file,
-        relativeFilePath,
-        projectPath,
-        sourceFolder,
-        targetFolder,
-        sourceFilePath,
-        targetFilePath,
-      });
-
-      // Read file contents
-      let sourceContent: string | null = null;
-      let targetContent: string | null = null;
-      let sourceExists = false;
-      let targetExists = false;
-
-      try {
-        sourceContent = await fs.readFile(sourceFilePath, 'utf-8');
-        sourceExists = true;
-      } catch {
-        sourceContent = null;
-      }
-
-      try {
-        targetContent = await fs.readFile(targetFilePath, 'utf-8');
-        targetExists = true;
-      } catch {
-        targetContent = null;
-      }
-
-      // Generate simple diff (line-by-line comparison)
-      const diff = generateLineDiff(sourceContent, targetContent, file);
-
-      res.json({
-        success: true,
-        data: {
-          source: {
-            branch: sourceFolder,
-            environment: source,
-            content: sourceContent,
-            exists: sourceExists,
-          },
-          target: {
-            branch: targetFolder,
-            environment: target,
-            content: targetContent,
-            exists: targetExists,
-          },
-          diff,
-          filePath: relativeFilePath,
-        },
-      });
-    } catch (error) {
-      next(error);
+    if (!project) {
+      return res.status(404).json({ success: false, error: 'Project not found' });
     }
-  }
+
+    const projectPath = project.veroPath ||
+      path.join(VERO_PROJECTS_BASE, project.applicationId, project.id);
+
+    // Helper to resolve environment to folder path
+    const resolveEnvFolder = async (env: string): Promise<string> => {
+      if (env === 'dev' || env === 'master') {
+        return env;
+      }
+      if (env.startsWith('sandbox:')) {
+        const sandboxId = env.replace('sandbox:', '');
+        const sandbox = await sandboxRepository.findById(sandboxId);
+        if (!sandbox) {
+          throw new Error(`Sandbox ${sandboxId} not found`);
+        }
+        return sandbox.folderPath; // e.g., 'sandboxes/my-sandbox'
+      }
+      throw new Error(`Invalid environment: ${env}`);
+    };
+
+    const [sourceFolder, targetFolder] = await Promise.all([
+      resolveEnvFolder(source),
+      resolveEnvFolder(target),
+    ]);
+
+    // Extract relative file path from full path if needed
+    // The file parameter might be:
+    //   - A relative path: "Features/example.vero"
+    //   - A full path: "/Users/.../projectPath/sandboxes/login-/Features/example.vero"
+    let relativeFilePath = file;
+
+    // If file starts with projectPath, strip it
+    if (file.startsWith(projectPath)) {
+      relativeFilePath = file.substring(projectPath.length);
+      // Remove leading slash
+      if (relativeFilePath.startsWith('/')) {
+        relativeFilePath = relativeFilePath.substring(1);
+      }
+    }
+
+    // Strip environment folder prefix (dev/, master/, sandboxes/xxx/)
+    const envPrefixes = ['dev/', 'master/'];
+    for (const prefix of envPrefixes) {
+      if (relativeFilePath.startsWith(prefix)) {
+        relativeFilePath = relativeFilePath.substring(prefix.length);
+        break;
+      }
+    }
+    // Also handle sandboxes/xxx/ prefix
+    const sandboxMatch = relativeFilePath.match(/^sandboxes\/[^/]+\//);
+    if (sandboxMatch) {
+      relativeFilePath = relativeFilePath.substring(sandboxMatch[0].length);
+    }
+
+    // Build full file paths using the cleaned relative path
+    const sourceFilePath = path.join(projectPath, sourceFolder, relativeFilePath);
+    const targetFilePath = path.join(projectPath, targetFolder, relativeFilePath);
+
+    logger.debug('[Compare] Paths:', {
+      originalFile: file,
+      relativeFilePath,
+      projectPath,
+      sourceFolder,
+      targetFolder,
+      sourceFilePath,
+      targetFilePath,
+    });
+
+    // Read file contents
+    let sourceContent: string | null = null;
+    let targetContent: string | null = null;
+    let sourceExists = false;
+    let targetExists = false;
+
+    try {
+      sourceContent = await fs.readFile(sourceFilePath, 'utf-8');
+      sourceExists = true;
+    } catch {
+      sourceContent = null;
+    }
+
+    try {
+      targetContent = await fs.readFile(targetFilePath, 'utf-8');
+      targetExists = true;
+    } catch {
+      targetContent = null;
+    }
+
+    // Generate simple diff (line-by-line comparison)
+    const diff = generateLineDiff(sourceContent, targetContent, file);
+
+    res.json({
+      success: true,
+      data: {
+        source: {
+          branch: sourceFolder,
+          environment: source,
+          content: sourceContent,
+          exists: sourceExists,
+        },
+        target: {
+          branch: targetFolder,
+          environment: target,
+          content: targetContent,
+          exists: targetExists,
+        },
+        diff,
+        filePath: relativeFilePath,
+      },
+    });
+  })
 );
 
 /**
@@ -553,62 +515,58 @@ router.get(
   validate([
     param('projectId').isString().notEmpty(),
   ]),
-  async (req: AuthRequest, res, next) => {
-    try {
-      const { projectId } = req.params;
+  asyncHandler(async (req: AuthRequest, res) => {
+    const { projectId } = req.params;
 
-      // Try to find in Project table first, then Application table
-      // This handles both nested project IDs and application IDs
-      let resolvedProjectId = projectId;
+    // Try to find in Project table first, then Application table
+    // This handles both nested project IDs and application IDs
+    let resolvedProjectId = projectId;
 
-      const project = await projectRepository.findById(projectId);
+    const project = await projectRepository.findById(projectId);
 
-      if (!project) {
-        // Check if ID is for an Application instead
-        const application = await applicationRepository.findById(projectId);
+    if (!project) {
+      // Check if ID is for an Application instead
+      const application = await applicationRepository.findById(projectId);
 
-        if (!application) {
-          return res.status(404).json({ error: 'Project or Application not found' });
-        }
-
-        // Use the first project under this application if available
-        const appProjects = await projectRepository.findByApplicationId(projectId);
-        if (appProjects.length > 0) {
-          resolvedProjectId = appProjects[0].id;
-        }
-      } else {
-        resolvedProjectId = project.id;
+      if (!application) {
+        return res.status(404).json({ error: 'Project or Application not found' });
       }
 
-      // Base environments: master (production) and dev (development)
-      const environments: any[] = [
-        { id: 'master', name: 'Production', type: 'folder', branch: 'master', icon: 'green' },
-        { id: 'dev', name: 'Development', type: 'folder', branch: 'dev', icon: 'blue' },
-      ];
-
-      // Get sandboxes for this project
-      const sandboxes = await sandboxRepository.findByProjectId(resolvedProjectId);
-      const activeSandboxes = sandboxes
-        .filter(s => s.status === 'active')
-        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-
-      // Add sandboxes to environments (owner info is stored in ownerId, would need user lookup for full name)
-      for (const sandbox of activeSandboxes) {
-        environments.push({
-          id: `sandbox:${sandbox.id}`,
-          name: sandbox.name,
-          type: 'sandbox',
-          branch: sandbox.folderPath,
-          icon: 'purple',
-          owner: sandbox.ownerId, // Using ownerId directly since we don't have owner relation
-        });
+      // Use the first project under this application if available
+      const appProjects = await projectRepository.findByApplicationId(projectId);
+      if (appProjects.length > 0) {
+        resolvedProjectId = appProjects[0].id;
       }
-
-      res.json({ success: true, data: { environments } });
-    } catch (error) {
-      next(error);
+    } else {
+      resolvedProjectId = project.id;
     }
-  }
+
+    // Base environments: master (production) and dev (development)
+    const environments: any[] = [
+      { id: 'master', name: 'Production', type: 'folder', branch: 'master', icon: 'green' },
+      { id: 'dev', name: 'Development', type: 'folder', branch: 'dev', icon: 'blue' },
+    ];
+
+    // Get sandboxes for this project
+    const sandboxes = await sandboxRepository.findByProjectId(resolvedProjectId);
+    const activeSandboxes = sandboxes
+      .filter(s => s.status === 'active')
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+    // Add sandboxes to environments (owner info is stored in ownerId, would need user lookup for full name)
+    for (const sandbox of activeSandboxes) {
+      environments.push({
+        id: `sandbox:${sandbox.id}`,
+        name: sandbox.name,
+        type: 'sandbox',
+        branch: sandbox.folderPath,
+        icon: 'purple',
+        owner: sandbox.ownerId, // Using ownerId directly since we don't have owner relation
+      });
+    }
+
+    res.json({ success: true, data: { environments } });
+  })
 );
 
 export default router;

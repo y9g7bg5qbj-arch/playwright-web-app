@@ -161,7 +161,7 @@ export class LogGenerator implements NodeGenerator {
  * → await page.screenshot({ path: 'homepage.png', fullPage: true });
  */
 export class ScreenshotGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { type, name, fullPage } = node.data;
         const opts: string[] = [];
 

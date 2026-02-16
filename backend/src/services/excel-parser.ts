@@ -13,6 +13,7 @@
 
 import * as XLSX from 'xlsx';
 import { testDataSheetRepository, testDataRowRepository } from '../db/repositories/mongo';
+import { testDataRowValidationService, type TestDataValidationErrorItem } from './test-data-row-validation.service';
 
 // ============================================
 // TYPES
@@ -22,6 +23,7 @@ export interface ImportResult {
     sheets: { name: string; rows: number }[];
     errors: string[];
     warnings: string[];
+    validationErrors: TestDataValidationErrorItem[];
 }
 
 export interface ExcelColumn {
@@ -68,7 +70,8 @@ export class ExcelParserService {
         const result: ImportResult = {
             sheets: [],
             errors: [],
-            warnings: []
+            warnings: [],
+            validationErrors: []
         };
 
         try {
@@ -94,6 +97,42 @@ export class ExcelParserService {
 
                     // Infer columns from first row
                     const columns = this.inferColumns(firstRow);
+
+                    const parsedRows = data
+                        .map((row) => {
+                            const testId = String(row.TestID || '').trim();
+                            const { TestID, enabled, Enabled, ...rowData } = row;
+                            return {
+                                scenarioId: testId,
+                                data: rowData,
+                                enabled: this.parseBoolean(enabled ?? Enabled ?? true),
+                            };
+                        })
+                        .filter((row) => row.scenarioId);
+
+                    const sheetValidationErrors: TestDataValidationErrorItem[] = [];
+                    for (const parsedRow of parsedRows) {
+                        const typedValidation = testDataRowValidationService.validateCreateData(
+                            parsedRow.scenarioId,
+                            parsedRow.data,
+                            columns as any[]
+                        );
+                        if (!typedValidation.valid) {
+                            sheetValidationErrors.push(
+                                ...typedValidation.validationErrors.map((error) => ({
+                                    ...error,
+                                    rowId: `${sheetName}:${error.rowId}`
+                                }))
+                            );
+                        }
+                    }
+                    if (sheetValidationErrors.length > 0) {
+                        result.validationErrors.push(...sheetValidationErrors);
+                        result.errors.push(
+                            `Sheet "${sheetName}" failed strict type validation (${sheetValidationErrors.length} issue(s)).`
+                        );
+                        continue;
+                    }
 
                     // Check for existing sheet
                     const existingSheet = await testDataSheetRepository.findByApplicationIdAndName(applicationId, sheetName);
@@ -125,8 +164,8 @@ export class ExcelParserService {
 
                     // Import rows
                     let importedRows = 0;
-                    for (const row of data) {
-                        const testId = String(row.TestID || '').trim();
+                    for (const parsedRow of parsedRows) {
+                        const testId = parsedRow.scenarioId;
 
                         if (!testId) {
                             if (skipEmptyRows) continue;
@@ -134,18 +173,12 @@ export class ExcelParserService {
                             continue;
                         }
 
-                        // Extract data without TestID and enabled columns
-                        const { TestID, enabled, Enabled, ...rowData } = row;
-
-                        // Determine if row is enabled
-                        const isEnabled = this.parseBoolean(enabled ?? Enabled ?? true);
-
                         try {
                             await testDataRowRepository.upsert(
                                 dataSheet!.id,
                                 testId,
-                                { data: rowData, enabled: isEnabled },
-                                { data: rowData, enabled: isEnabled }
+                                { data: parsedRow.data, enabled: parsedRow.enabled },
+                                { data: parsedRow.data, enabled: parsedRow.enabled }
                             );
                             importedRows++;
                         } catch (rowError) {
@@ -182,12 +215,13 @@ export class ExcelParserService {
     async importExcelBuffer(
         buffer: Buffer,
         applicationId: string,
-        options?: Parameters<ExcelParserService['importExcel']>[2]
+        _options?: Parameters<ExcelParserService['importExcel']>[2]
     ): Promise<ImportResult> {
         const result: ImportResult = {
             sheets: [],
             errors: [],
-            warnings: []
+            warnings: [],
+            validationErrors: []
         };
 
         try {
@@ -211,6 +245,42 @@ export class ExcelParserService {
 
                     const columns = this.inferColumns(firstRow);
 
+                    const parsedRows = data
+                        .map((row) => {
+                            const testId = String(row.TestID || '').trim();
+                            const { TestID, enabled, Enabled, ...rowData } = row;
+                            return {
+                                scenarioId: testId,
+                                data: rowData,
+                                enabled: this.parseBoolean(enabled ?? Enabled ?? true),
+                            };
+                        })
+                        .filter((row) => row.scenarioId);
+
+                    const sheetValidationErrors: TestDataValidationErrorItem[] = [];
+                    for (const parsedRow of parsedRows) {
+                        const typedValidation = testDataRowValidationService.validateCreateData(
+                            parsedRow.scenarioId,
+                            parsedRow.data,
+                            columns as any[]
+                        );
+                        if (!typedValidation.valid) {
+                            sheetValidationErrors.push(
+                                ...typedValidation.validationErrors.map((error) => ({
+                                    ...error,
+                                    rowId: `${sheetName}:${error.rowId}`
+                                }))
+                            );
+                        }
+                    }
+                    if (sheetValidationErrors.length > 0) {
+                        result.validationErrors.push(...sheetValidationErrors);
+                        result.errors.push(
+                            `Sheet "${sheetName}" failed strict type validation (${sheetValidationErrors.length} issue(s)).`
+                        );
+                        continue;
+                    }
+
                     // Find or create sheet
                     let dataSheet = await testDataSheetRepository.findByApplicationIdAndName(applicationId, sheetName);
                     if (dataSheet) {
@@ -228,18 +298,13 @@ export class ExcelParserService {
                     await testDataRowRepository.deleteBySheetId(dataSheet!.id);
 
                     let importedRows = 0;
-                    for (const row of data) {
-                        const testId = String(row.TestID || '').trim();
-                        if (!testId) continue;
-
-                        const { TestID, enabled, Enabled, ...rowData } = row;
-                        const isEnabled = this.parseBoolean(enabled ?? Enabled ?? true);
+                    for (const row of parsedRows) {
 
                         await testDataRowRepository.create({
                             sheetId: dataSheet!.id,
-                            scenarioId: testId,
-                            data: rowData,
-                            enabled: isEnabled
+                            scenarioId: row.scenarioId,
+                            data: row.data,
+                            enabled: row.enabled
                         });
                         importedRows++;
                     }

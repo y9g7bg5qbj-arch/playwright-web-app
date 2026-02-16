@@ -12,7 +12,7 @@ export class FixturesGenerator {
     /**
      * Generate fixtures without POM (custom fixtures only)
      */
-    generate(context: GeneratorContext): string {
+    generate(_context: GeneratorContext): string {
         return `import { test as base, Page } from '@playwright/test';
 
 // Define custom fixture types

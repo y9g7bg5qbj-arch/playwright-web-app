@@ -6,6 +6,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -34,7 +35,7 @@ router.post('/start', (req: Request, res: Response) => {
         lastUpdate: Date.now()
     });
 
-    console.log(`[Preview] Started session ${sessionId} for scenario "${scenarioName}"`);
+    logger.info(`[Preview] Started session ${sessionId} for scenario "${scenarioName}"`);
     res.json({ success: true });
 });
 
@@ -52,7 +53,7 @@ router.post('/action', (req: Request, res: Response) => {
     session.actions.push(action);
     session.lastUpdate = Date.now();
 
-    console.log(`[Preview] Added action to ${sessionId}: ${action}`);
+    logger.debug(`[Preview] Added action to ${sessionId}: ${action}`);
     res.json({ success: true, actionCount: session.actions.length });
 });
 
@@ -79,7 +80,7 @@ router.post('/content', (req: Request, res: Response) => {
 router.post('/stop', (req: Request, res: Response) => {
     const { sessionId } = req.body;
     previewSessions.delete(sessionId);
-    console.log(`[Preview] Stopped session ${sessionId}`);
+    logger.info(`[Preview] Stopped session ${sessionId}`);
     res.json({ success: true });
 });
 

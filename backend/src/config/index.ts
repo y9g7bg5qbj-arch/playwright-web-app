@@ -16,7 +16,7 @@ export const config = {
     secret: (() => {
       const secret = process.env.JWT_SECRET;
       if (!secret) {
-        console.warn('⚠️  JWT_SECRET not set - using insecure default (development only)');
+        console.warn('JWT_SECRET not set - using insecure default (development only)');
         return 'dev-only-insecure-key-do-not-use-in-production';
       }
       return secret;

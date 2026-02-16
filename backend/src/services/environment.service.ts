@@ -7,11 +7,7 @@
  * Supports {{variable}} syntax for runtime resolution.
  */
 
-import {
-  userEnvironmentRepository,
-  environmentVariableRepository,
-  globalVariableRepository
-} from '../db/repositories/mongo';
+import { userEnvironmentRepository, environmentVariableRepository, globalVariableRepository } from '../db/repositories/mongo';
 
 // ============================================
 // TYPES

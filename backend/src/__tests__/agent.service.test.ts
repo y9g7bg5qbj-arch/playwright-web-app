@@ -276,6 +276,11 @@ describe('AgentService', () => {
 });
 
 describe('GenerationRequest validation', () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+    new AgentService().clearCache();
+  });
+
   it('should handle missing optional fields', async () => {
     const agentService = new AgentService();
 
@@ -299,7 +304,7 @@ describe('GenerationRequest validation', () => {
     expect(result.success).toBe(true);
 
     // Verify default values were used in API call
-    const callArgs = mockFetch.mock.calls[0];
+    const callArgs = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
     const body = JSON.parse(callArgs[1].body);
     expect(body.feature_name).toBe('GeneratedFeature');
     expect(body.scenario_name).toBe('Generated Scenario');
@@ -329,7 +334,7 @@ describe('GenerationRequest validation', () => {
 
     await agentService.generateVeroCode(request);
 
-    const callArgs = mockFetch.mock.calls[0];
+    const callArgs = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
     const body = JSON.parse(callArgs[1].body);
     expect(body.feature_name).toBe('CustomFeature');
     expect(body.scenario_name).toBe('Custom Scenario');

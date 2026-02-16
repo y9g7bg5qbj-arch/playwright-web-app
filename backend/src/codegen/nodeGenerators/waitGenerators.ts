@@ -13,7 +13,7 @@ import { interpolateVariables } from '../variableInterpolation';
  * → await page.waitForTimeout(2000);
  */
 export class WaitTimeGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const duration = node.data.duration || 1000;
         return [`await page.waitForTimeout(${duration});`];
     }
@@ -25,7 +25,7 @@ export class WaitTimeGenerator implements NodeGenerator {
  * → await page.locator('.loaded').waitFor({ state: 'visible' });
  */
 export class WaitForElementGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const locator = buildLocatorCode(node.data);
         const { state, timeout } = node.data;
 
@@ -76,7 +76,7 @@ export class WaitForUrlGenerator implements NodeGenerator {
  * → await page.waitForLoadState('networkidle');
  */
 export class WaitForLoadStateGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { state, timeout } = node.data;
 
         const opts: string[] = [];
@@ -93,7 +93,7 @@ export class WaitForLoadStateGenerator implements NodeGenerator {
  * Output: await page.waitForResponse(resp => resp.url().includes('/api/users'), { timeout: 30000 });
  */
 export class WaitForResponseGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { urlPattern, timeout } = node.data;
 
         const opts: string[] = [];
@@ -112,7 +112,7 @@ export class WaitForResponseGenerator implements NodeGenerator {
  * → await page.waitForFunction(() => document.readyState === 'complete', { polling: 'raf' });
  */
 export class WaitForFunctionGenerator implements NodeGenerator {
-    generate(node: FlowNode, ctx: GeneratorContext): string[] {
+    generate(node: FlowNode, _ctx: GeneratorContext): string[] {
         const { expression, polling, timeout } = node.data;
 
         const opts: string[] = [];

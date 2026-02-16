@@ -5,12 +5,7 @@
  * Only stores selectors that were successfully used.
  */
 
-import {
-    AfterHook,
-    type ExecutionContext,
-    type ExecuteResult,
-    type HookResult,
-} from '../interfaces';
+import { AfterHook, type ExecutionContext, type ExecuteResult, type HookResult } from '../interfaces';
 import { PageObjectRegistry } from '../../pageObjectRegistry';
 
 // Cache of registry instances per project

@@ -4,21 +4,12 @@
  */
 
 import { spawn, ChildProcess } from 'child_process';
-import { createServer, Server } from 'http';
+import { Server } from 'http';
 import express, { Express, Request, Response } from 'express';
 import path from 'path';
-import fs from 'fs/promises';
 import { createReadStream, existsSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-import {
-    ArtifactRef,
-    TraceData,
-    TraceAction,
-    TraceScreenshot,
-    TraceNetworkRequest,
-    TraceConsoleMessage,
-    TraceError,
-} from '../execution/types';
+import { ArtifactRef, TraceData, TraceAction, TraceScreenshot, TraceNetworkRequest, TraceConsoleMessage, TraceError } from '../execution/types';
 import { logger } from '../../utils/logger';
 
 const STORAGE_PATH = path.resolve(process.env.STORAGE_PATH || './storage');
@@ -62,7 +53,7 @@ export class TraceServer {
      */
     private setupRoutes(): void {
         // CORS headers for trace.playwright.dev
-        this.app.use((req, res, next) => {
+        this.app.use((_req, res, next) => {
             res.setHeader('Access-Control-Allow-Origin', '*');
             res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
             res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Origin, Accept');
@@ -71,7 +62,7 @@ export class TraceServer {
         });
 
         // Preflight requests
-        this.app.options('*', (req, res) => {
+        this.app.options('*', (_req, res) => {
             res.status(204).end();
         });
 
@@ -158,7 +149,7 @@ export class TraceServer {
         });
 
         // Health check
-        this.app.get('/health', (req, res) => {
+        this.app.get('/health', (_req, res) => {
             res.json({
                 status: 'ok',
                 sessions: this.sessions.size,
@@ -198,7 +189,7 @@ export class TraceServer {
      */
     async stop(): Promise<void> {
         // Close all viewer processes
-        for (const [id, process] of this.viewerProcesses) {
+        for (const [_id, process] of this.viewerProcesses) {
             process.kill('SIGTERM');
         }
         this.viewerProcesses.clear();

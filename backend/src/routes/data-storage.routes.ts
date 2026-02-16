@@ -9,6 +9,7 @@ import { Router, Request, Response } from 'express';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { testConnection, clearAdapterCache, SUPPORTED_PROVIDERS } from '../services/data-adapters';
 import { applicationRepository, dataStorageConfigRepository } from '../db/repositories/mongo';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -23,7 +24,7 @@ router.get('/providers', async (_req: Request, res: Response) => {
   try {
     res.json({ providers: SUPPORTED_PROVIDERS });
   } catch (error: any) {
-    console.error('Error fetching providers:', error);
+    logger.error('Error fetching providers:', error);
     res.status(500).json({ error: 'Failed to fetch providers' });
   }
 });
@@ -71,7 +72,7 @@ router.get('/:applicationId', async (req: Request, res: Response) => {
 
     res.json(maskedConfig);
   } catch (error: any) {
-    console.error('Error fetching data storage config:', error);
+    logger.error('Error fetching data storage config:', error);
     res.status(500).json({ error: 'Failed to fetch data storage configuration' });
   }
 });
@@ -151,7 +152,7 @@ router.put('/:applicationId', async (req: Request, res: Response) => {
 
     res.json(maskedConfig);
   } catch (error: any) {
-    console.error('Error updating data storage config:', error);
+    logger.error('Error updating data storage config:', error);
     res.status(500).json({ error: 'Failed to update data storage configuration' });
   }
 });
@@ -234,7 +235,7 @@ router.post('/:applicationId/test', async (req: Request, res: Response) => {
       provider: testConfig.provider,
     });
   } catch (error: any) {
-    console.error('Error testing connection:', error);
+    logger.error('Error testing connection:', error);
     res.status(500).json({ error: 'Failed to test connection' });
   }
 });
@@ -270,7 +271,7 @@ router.delete('/:applicationId', async (req: Request, res: Response) => {
       message: 'Data storage configuration reset to default (MongoDB)',
     });
   } catch (error: any) {
-    console.error('Error resetting data storage config:', error);
+    logger.error('Error resetting data storage config:', error);
     res.status(500).json({ error: 'Failed to reset data storage configuration' });
   }
 });

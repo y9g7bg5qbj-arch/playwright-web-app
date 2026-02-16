@@ -209,14 +209,14 @@ export abstract class BaseSkill implements Skill {
 
   abstract detect(context: ExecutionContext): Promise<SkillDetection>;
 
-  async prepare(context: ExecutionContext): Promise<PrepareResult> {
+  async prepare(_context: ExecutionContext): Promise<PrepareResult> {
     // Default: no preparation needed
     return { success: true };
   }
 
   abstract execute(context: ExecutionContext): Promise<ExecuteResult>;
 
-  async verify(context: ExecutionContext): Promise<VerifyResult> {
+  async verify(_context: ExecutionContext): Promise<VerifyResult> {
     // Default: assume success without verification
     return { verified: true, confidence: 0.5 };
   }

@@ -7,6 +7,7 @@
 
 import { getDb, COLLECTIONS } from '../db/mongodb';
 import { Collection, ObjectId } from 'mongodb';
+import { logger } from '../utils/logger';
 
 // Settings document interface
 export interface MongoSettings {
@@ -87,7 +88,7 @@ export async function initializeSettings(): Promise<void> {
     }
   }
 
-  console.log('[Settings] Initialized default settings');
+  logger.info('[Settings] Initialized default settings');
 }
 
 /**

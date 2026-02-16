@@ -7,6 +7,7 @@
 import { mkdir, writeFile, readdir, unlink, stat } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { logger } from '../utils/logger';
 
 // Base directory for screenshots
 const SCREENSHOTS_DIR = process.env.SCREENSHOTS_DIR ||
@@ -158,7 +159,7 @@ class ScreenshotService {
                 await unlink(join(dir, filename));
                 deleted++;
             } catch (e) {
-                console.warn(`Failed to delete screenshot: ${filename}`, e);
+                logger.warn(`Failed to delete screenshot: ${filename}`, e);
             }
         }
 

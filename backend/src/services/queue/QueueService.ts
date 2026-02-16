@@ -7,19 +7,7 @@
 import { EventEmitter } from 'events';
 import net from 'net';
 import { logger } from '../../utils/logger';
-import { auditService } from '../audit.service';
-import { notificationService, NotificationConfig, ScheduleRunInfo } from '../notification.service';
-import type {
-  QueueJob,
-  QueueStats,
-  ScheduleRunJobData,
-  ExecutionJobData,
-  GitHubWorkflowJobData,
-  QueueName,
-  JobStatus,
-  JobPriority,
-  QueueWorkerOptions,
-} from './types';
+import type { QueueJob, QueueStats, QueueName, JobStatus, JobPriority, QueueWorkerOptions } from './types';
 import { QUEUE_NAMES } from './types';
 
 // BullMQ imports - will be dynamically loaded
@@ -138,6 +126,22 @@ class QueueService extends EventEmitter {
     } else {
       // In-memory fallback
       this.inMemoryQueues.set(name, []);
+      // Periodically purge completed/failed jobs older than 1 hour
+      const purgeInterval = setInterval(() => {
+        const q = this.inMemoryQueues.get(name);
+        if (!q) return;
+        const cutoff = Date.now() - 3_600_000;
+        const before = q.length;
+        const kept = q.filter(j => {
+          if (j.status !== 'completed' && j.status !== 'failed') return true;
+          return j.finishedAt ? j.finishedAt.getTime() > cutoff : true;
+        });
+        if (kept.length < before) {
+          this.inMemoryQueues.set(name, kept);
+          logger.debug(`Purged ${before - kept.length} finished jobs from in-memory queue ${name}`);
+        }
+      }, 300_000); // Every 5 minutes
+      purgeInterval.unref(); // Don't prevent process exit
       logger.debug(`In-memory queue created: ${name}`);
     }
   }
@@ -174,6 +178,7 @@ class QueueService extends EventEmitter {
           connection: this.redisConnection!,
           concurrency,
           limiter: options.limiter,
+          lockDuration: 60000,
         }
       );
 
@@ -529,7 +534,7 @@ class QueueService extends EventEmitter {
       logger.debug(`Worker ${name} closed`);
     }
 
-    for (const [name, queueEvents] of this.queueEvents) {
+    for (const [_name, queueEvents] of this.queueEvents) {
       await queueEvents.close();
     }
 
@@ -539,7 +544,7 @@ class QueueService extends EventEmitter {
     }
 
     // Clear in-memory workers
-    for (const [name, interval] of this.inMemoryWorkers) {
+    for (const [_name, interval] of this.inMemoryWorkers) {
       clearInterval(interval);
     }
 

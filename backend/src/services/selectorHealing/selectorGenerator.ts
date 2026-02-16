@@ -4,13 +4,7 @@
  * Generates resilient selectors with fallbacks for recorded elements.
  */
 
-import {
-    SelectorCandidate,
-    ResilientSelector,
-    CapturedElement,
-    ElementFingerprint,
-    SELECTOR_STABILITY
-} from './types';
+import { SelectorCandidate, ResilientSelector, CapturedElement, ElementFingerprint, SELECTOR_STABILITY } from './types';
 
 /**
  * Generate resilient selector with fallbacks for an element

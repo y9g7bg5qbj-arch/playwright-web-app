@@ -5,12 +5,7 @@
  */
 
 import crypto from 'crypto';
-import {
-  githubIntegrationRepository,
-  githubRepositoryConfigRepository,
-  githubWorkflowRunRepository,
-  githubWorkflowJobRepository
-} from '../db/repositories/mongo';
+import { githubIntegrationRepository, githubRepositoryConfigRepository, githubWorkflowRunRepository, githubWorkflowJobRepository } from '../db/repositories/mongo';
 
 // Encryption key from environment (should be 32 bytes for AES-256)
 const ENCRYPTION_KEY = process.env.GITHUB_TOKEN_ENCRYPTION_KEY;

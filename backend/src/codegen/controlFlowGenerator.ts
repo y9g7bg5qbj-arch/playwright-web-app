@@ -3,12 +3,7 @@
  * Generates TypeScript/Playwright code from flow graphs (server-side)
  */
 
-import {
-    FlowNode,
-    FlowEdge,
-    FlowData,
-    isControlFlowNode,
-} from '@playwright-web-app/shared';
+import { FlowNode, FlowEdge, FlowData } from '@playwright-web-app/shared';
 
 /**
  * Helper to generate locator code from selector and strategy

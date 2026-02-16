@@ -4,10 +4,7 @@
  * Persists recording sessions to database to survive server restarts.
  * Provides recovery, session management, and step tracking.
  */
-import {
-    recordingSessionRepository,
-    recordingStepRepository
-} from '../db/repositories/mongo';
+import { recordingSessionRepository, recordingStepRepository } from '../db/repositories/mongo';
 import { MongoRecordingSession, MongoRecordingStep } from '../db/mongodb';
 import { generateVeroScenario, generateVeroFeature, generateVeroPage, toPascalCase } from './veroSyntaxReference';
 import { logger } from '../utils/logger';
@@ -383,12 +380,20 @@ class RecordingPersistenceService {
         // Ensure Pages folder exists
         const pagesDir = join(sandboxPath, 'Pages');
         const featuresDir = join(sandboxPath, 'Features');
+        const visualBaselinesDir = join(sandboxPath, 'Resources', 'Visual', 'Baselines');
+        const docsDir = join(sandboxPath, 'Resources', 'Docs');
 
         if (!existsSync(pagesDir)) {
             await mkdir(pagesDir, { recursive: true });
         }
         if (!existsSync(featuresDir)) {
             await mkdir(featuresDir, { recursive: true });
+        }
+        if (!existsSync(visualBaselinesDir)) {
+            await mkdir(visualBaselinesDir, { recursive: true });
+        }
+        if (!existsSync(docsDir)) {
+            await mkdir(docsDir, { recursive: true });
         }
 
         // Generate and write Page files
@@ -440,7 +445,7 @@ class RecordingPersistenceService {
             const featureFilePath = join(featuresDir, featureFileName);
             await writeFile(featureFilePath, featureCode, 'utf-8');
             featureCreated = featureFilePath;
-            console.log(`[RecordingPersistence] Created Feature file: ${featureFilePath}`);
+            logger.info(`[RecordingPersistence] Created Feature file: ${featureFilePath}`);
         }
 
         return { pagesCreated, featureCreated };

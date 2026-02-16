@@ -8,11 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs/promises';
 import { ArtifactRef } from '../execution/types';
-import {
-    StorageBackend,
-    LocalStorageBackend,
-    createStorageBackend,
-} from './StorageBackend';
+import { StorageBackend, LocalStorageBackend, createStorageBackend } from './StorageBackend';
 import { logger } from '../../utils/logger';
 
 /**

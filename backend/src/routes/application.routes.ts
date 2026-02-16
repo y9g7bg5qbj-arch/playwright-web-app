@@ -6,7 +6,7 @@
  */
 
 import { Router, Response } from 'express';
-import { applicationRepository, projectRepository, workflowRepository } from '../db/repositories/mongo';
+import { applicationRepository, projectRepository, workflowRepository, userEnvironmentRepository, environmentVariableRepository } from '../db/repositories/mongo';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { logger } from '../utils/logger';
 
@@ -17,6 +17,68 @@ router.use(authenticateToken);
 
 function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'Unknown error';
+}
+
+function mapEnvironmentVariable(variable: {
+    id: string;
+    key: string;
+    value: string;
+    sensitive: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+}) {
+    return {
+        id: variable.id,
+        key: variable.key,
+        value: variable.value,
+        isSecret: variable.sensitive,
+        createdAt: variable.createdAt,
+        updatedAt: variable.updatedAt
+    };
+}
+
+function mapEnvironment(
+    applicationId: string,
+    environment: {
+        id: string;
+        name: string;
+        isActive: boolean;
+        createdAt: Date;
+        updatedAt: Date;
+    },
+    variables: Array<{
+        id: string;
+        key: string;
+        value: string;
+        sensitive: boolean;
+        createdAt: Date;
+        updatedAt: Date;
+    }>
+) {
+    return {
+        id: environment.id,
+        applicationId,
+        name: environment.name,
+        isActive: environment.isActive,
+        variables: variables.map(mapEnvironmentVariable),
+        createdAt: environment.createdAt,
+        updatedAt: environment.updatedAt
+    };
+}
+
+async function ensureDefaultWorkflow(applicationId: string, userId: string) {
+    const existing = await workflowRepository.findByApplicationId(applicationId);
+    if (existing.length > 0) {
+        return existing;
+    }
+
+    const created = await workflowRepository.create({
+        applicationId,
+        userId,
+        name: 'Default Workflow',
+        description: 'Auto-created default workflow',
+    });
+    return [created];
 }
 
 // ============================================
@@ -38,10 +100,11 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         const applicationsWithDetails = await Promise.all(
             applications.map(async (app) => {
                 const projects = await projectRepository.findByApplicationId(app.id);
-                const workflows = await workflowRepository.findByApplicationId(app.id);
+                const workflows = await ensureDefaultWorkflow(app.id, app.userId);
 
                 return {
                     id: app.id,
+                    userId: app.userId,
                     name: app.name,
                     description: app.description,
                     baseUrl: app.baseUrl,
@@ -55,6 +118,15 @@ router.get('/', async (req: AuthRequest, res: Response) => {
                         name: p.name,
                         description: p.description,
                         veroPath: p.veroPath
+                    })),
+                    workflows: workflows.map(w => ({
+                        id: w.id,
+                        applicationId: w.applicationId,
+                        userId: w.userId,
+                        name: w.name,
+                        description: w.description,
+                        createdAt: w.createdAt,
+                        updatedAt: w.updatedAt,
                     })),
                     createdAt: app.createdAt,
                     updatedAt: app.updatedAt
@@ -105,14 +177,31 @@ router.post('/', async (req: AuthRequest, res: Response) => {
             baseUrl: baseUrl?.trim() || undefined
         });
 
+        const defaultWorkflow = await workflowRepository.create({
+            applicationId: application.id,
+            userId,
+            name: 'Default Workflow',
+            description: 'Auto-created default workflow',
+        });
+
         res.status(201).json({
             success: true,
             data: {
                 id: application.id,
+                userId: application.userId,
                 name: application.name,
                 description: application.description,
                 baseUrl: application.baseUrl,
                 projects: [],
+                workflows: [{
+                    id: defaultWorkflow.id,
+                    applicationId: defaultWorkflow.applicationId,
+                    userId: defaultWorkflow.userId,
+                    name: defaultWorkflow.name,
+                    description: defaultWorkflow.description,
+                    createdAt: defaultWorkflow.createdAt,
+                    updatedAt: defaultWorkflow.updatedAt,
+                }],
                 createdAt: application.createdAt
             }
         });
@@ -150,12 +239,13 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
         // Get projects and workflows
         const projects = await projectRepository.findByApplicationId(id);
-        const workflows = await workflowRepository.findByApplicationId(id);
+        const workflows = await ensureDefaultWorkflow(id, application.userId);
 
         res.json({
             success: true,
             data: {
                 id: application.id,
+                userId: application.userId,
                 name: application.name,
                 description: application.description,
                 baseUrl: application.baseUrl,
@@ -169,8 +259,12 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
                 })),
                 workflows: workflows.map(w => ({
                     id: w.id,
+                    applicationId: w.applicationId,
+                    userId: w.userId,
                     name: w.name,
-                    description: w.description
+                    description: w.description,
+                    createdAt: w.createdAt,
+                    updatedAt: w.updatedAt,
                 })),
                 createdAt: application.createdAt,
                 updatedAt: application.updatedAt
@@ -489,6 +583,452 @@ router.delete('/:appId/projects/:projectId', async (req: AuthRequest, res: Respo
         });
     } catch (error) {
         logger.error('Error deleting project:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
+    }
+});
+
+// ============================================
+// ENVIRONMENTS CRUD (nested under applications)
+// ============================================
+
+/**
+ * GET /api/applications/:appId/environments
+ * List all environments for the authenticated user (application scoped in API contract)
+ */
+router.get('/:appId/environments', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId } = req.params;
+
+        const application = await applicationRepository.findById(appId);
+        if (!application || application.userId !== userId) {
+            return res.status(404).json({
+                success: false,
+                error: 'Application not found'
+            });
+        }
+
+        const environments = await userEnvironmentRepository.findByUserId(userId);
+        const data = await Promise.all(
+            environments.map(async (env) => {
+                const variables = await environmentVariableRepository.findByEnvironmentId(env.id);
+                return mapEnvironment(appId, env, variables);
+            })
+        );
+
+        res.json({
+            success: true,
+            data
+        });
+    } catch (error) {
+        logger.error('Error listing environments:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
+    }
+});
+
+/**
+ * GET /api/applications/:appId/environments/active
+ * Get active environment with unmasked values
+ */
+router.get('/:appId/environments/active', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId } = req.params;
+
+        const application = await applicationRepository.findById(appId);
+        if (!application || application.userId !== userId) {
+            return res.status(404).json({
+                success: false,
+                error: 'Application not found'
+            });
+        }
+
+        const activeEnvironment = await userEnvironmentRepository.findActiveByUserId(userId);
+        if (!activeEnvironment) {
+            return res.json({
+                success: true,
+                data: null
+            });
+        }
+
+        const variables = await environmentVariableRepository.findByEnvironmentId(activeEnvironment.id);
+        const variablesMap = variables.reduce<Record<string, string>>((acc, variable) => {
+            acc[variable.key] = variable.value;
+            return acc;
+        }, {});
+
+        res.json({
+            success: true,
+            data: {
+                ...mapEnvironment(appId, activeEnvironment, variables),
+                variablesMap
+            }
+        });
+    } catch (error) {
+        logger.error('Error getting active environment:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
+    }
+});
+
+/**
+ * POST /api/applications/:appId/environments
+ * Create a new environment
+ */
+router.post('/:appId/environments', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId } = req.params;
+        const { name, variables } = req.body as {
+            name?: string;
+            variables?: Array<{ key: string; value?: string; isSecret?: boolean }>;
+        };
+
+        const application = await applicationRepository.findById(appId);
+        if (!application || application.userId !== userId) {
+            return res.status(404).json({
+                success: false,
+                error: 'Application not found'
+            });
+        }
+
+        if (!name || !name.trim()) {
+            return res.status(400).json({
+                success: false,
+                error: 'Environment name is required'
+            });
+        }
+
+        const existingActive = await userEnvironmentRepository.findActiveByUserId(userId);
+        const shouldActivate = !existingActive;
+        if (shouldActivate) {
+            await userEnvironmentRepository.deactivateAll(userId);
+        }
+
+        const environment = await userEnvironmentRepository.create({
+            userId,
+            name: name.trim(),
+            isActive: shouldActivate
+        });
+
+        const inputVariables = Array.isArray(variables) ? variables : [];
+        for (const variable of inputVariables) {
+            if (!variable.key || !variable.key.trim()) {
+                continue;
+            }
+            await environmentVariableRepository.upsert(environment.id, variable.key.trim(), {
+                value: variable.value ?? '',
+                type: 'string',
+                sensitive: Boolean(variable.isSecret)
+            });
+        }
+
+        const storedVariables = await environmentVariableRepository.findByEnvironmentId(environment.id);
+
+        res.status(201).json({
+            success: true,
+            data: mapEnvironment(appId, environment, storedVariables)
+        });
+    } catch (error) {
+        logger.error('Error creating environment:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
+    }
+});
+
+/**
+ * PUT /api/applications/:appId/environments/:envId
+ * Update environment metadata
+ */
+router.put('/:appId/environments/:envId', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId, envId } = req.params;
+        const { name } = req.body as { name?: string };
+
+        const application = await applicationRepository.findById(appId);
+        if (!application || application.userId !== userId) {
+            return res.status(404).json({
+                success: false,
+                error: 'Application not found'
+            });
+        }
+
+        const existingEnvironment = await userEnvironmentRepository.findById(envId);
+        if (!existingEnvironment || existingEnvironment.userId !== userId) {
+            return res.status(404).json({
+                success: false,
+                error: 'Environment not found'
+            });
+        }
+
+        const updatedEnvironment = await userEnvironmentRepository.update(envId, {
+            name: name?.trim() || existingEnvironment.name
+        });
+
+        if (!updatedEnvironment) {
+            return res.status(404).json({
+                success: false,
+                error: 'Environment not found'
+            });
+        }
+
+        const variables = await environmentVariableRepository.findByEnvironmentId(envId);
+
+        res.json({
+            success: true,
+            data: mapEnvironment(appId, updatedEnvironment, variables)
+        });
+    } catch (error) {
+        logger.error('Error updating environment:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
+    }
+});
+
+/**
+ * DELETE /api/applications/:appId/environments/:envId
+ * Delete an environment
+ */
+router.delete('/:appId/environments/:envId', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId, envId } = req.params;
+
+        const application = await applicationRepository.findById(appId);
+        if (!application || application.userId !== userId) {
+            return res.status(404).json({
+                success: false,
+                error: 'Application not found'
+            });
+        }
+
+        const environment = await userEnvironmentRepository.findById(envId);
+        if (!environment || environment.userId !== userId) {
+            return res.status(404).json({
+                success: false,
+                error: 'Environment not found'
+            });
+        }
+
+        await environmentVariableRepository.deleteByEnvironmentId(envId);
+        await userEnvironmentRepository.delete(envId);
+
+        if (environment.isActive) {
+            const remaining = await userEnvironmentRepository.findByUserId(userId);
+            if (remaining.length > 0) {
+                await userEnvironmentRepository.update(remaining[0].id, { isActive: true });
+            }
+        }
+
+        res.json({
+            success: true,
+            data: null
+        });
+    } catch (error) {
+        logger.error('Error deleting environment:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
+    }
+});
+
+/**
+ * POST /api/applications/:appId/environments/:envId/activate
+ * Activate an environment
+ */
+router.post('/:appId/environments/:envId/activate', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId, envId } = req.params;
+
+        const application = await applicationRepository.findById(appId);
+        if (!application || application.userId !== userId) {
+            return res.status(404).json({
+                success: false,
+                error: 'Application not found'
+            });
+        }
+
+        const environment = await userEnvironmentRepository.findById(envId);
+        if (!environment || environment.userId !== userId) {
+            return res.status(404).json({
+                success: false,
+                error: 'Environment not found'
+            });
+        }
+
+        await userEnvironmentRepository.deactivateAll(userId);
+        const activated = await userEnvironmentRepository.update(envId, { isActive: true });
+        if (!activated) {
+            return res.status(404).json({
+                success: false,
+                error: 'Environment not found'
+            });
+        }
+
+        const variables = await environmentVariableRepository.findByEnvironmentId(envId);
+
+        res.json({
+            success: true,
+            data: mapEnvironment(appId, activated, variables)
+        });
+    } catch (error) {
+        logger.error('Error activating environment:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
+    }
+});
+
+/**
+ * POST /api/applications/:appId/environments/:envId/variables
+ * Add a variable
+ */
+router.post('/:appId/environments/:envId/variables', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId, envId } = req.params;
+        const { key, value, isSecret } = req.body as {
+            key?: string;
+            value?: string;
+            isSecret?: boolean;
+        };
+
+        const application = await applicationRepository.findById(appId);
+        if (!application || application.userId !== userId) {
+            return res.status(404).json({
+                success: false,
+                error: 'Application not found'
+            });
+        }
+
+        const environment = await userEnvironmentRepository.findById(envId);
+        if (!environment || environment.userId !== userId) {
+            return res.status(404).json({
+                success: false,
+                error: 'Environment not found'
+            });
+        }
+
+        if (!key || !key.trim()) {
+            return res.status(400).json({
+                success: false,
+                error: 'Variable key is required'
+            });
+        }
+
+        const stored = await environmentVariableRepository.upsert(envId, key.trim(), {
+            value: value ?? '',
+            type: 'string',
+            sensitive: Boolean(isSecret)
+        });
+
+        res.status(201).json({
+            success: true,
+            data: mapEnvironmentVariable(stored)
+        });
+    } catch (error) {
+        logger.error('Error adding environment variable:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
+    }
+});
+
+/**
+ * PUT /api/applications/:appId/environments/:envId/variables/:varId
+ * Update a variable
+ */
+router.put('/:appId/environments/:envId/variables/:varId', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId, envId, varId } = req.params;
+        const { key, value, isSecret } = req.body as {
+            key?: string;
+            value?: string;
+            isSecret?: boolean;
+        };
+
+        const application = await applicationRepository.findById(appId);
+        if (!application || application.userId !== userId) {
+            return res.status(404).json({
+                success: false,
+                error: 'Application not found'
+            });
+        }
+
+        const environment = await userEnvironmentRepository.findById(envId);
+        if (!environment || environment.userId !== userId) {
+            return res.status(404).json({
+                success: false,
+                error: 'Environment not found'
+            });
+        }
+
+        const variables = await environmentVariableRepository.findByEnvironmentId(envId);
+        const existingVariable = variables.find((variable) => variable.id === varId);
+        if (!existingVariable) {
+            return res.status(404).json({
+                success: false,
+                error: 'Variable not found'
+            });
+        }
+
+        const nextKey = key?.trim() || existingVariable.key;
+        if (nextKey !== existingVariable.key) {
+            await environmentVariableRepository.delete(envId, existingVariable.key);
+        }
+
+        const stored = await environmentVariableRepository.upsert(envId, nextKey, {
+            value: value ?? existingVariable.value,
+            type: existingVariable.type || 'string',
+            sensitive: typeof isSecret === 'boolean' ? isSecret : existingVariable.sensitive
+        });
+
+        res.json({
+            success: true,
+            data: mapEnvironmentVariable(stored)
+        });
+    } catch (error) {
+        logger.error('Error updating environment variable:', error);
+        res.status(500).json({ success: false, error: getErrorMessage(error) });
+    }
+});
+
+/**
+ * DELETE /api/applications/:appId/environments/:envId/variables/:varId
+ * Delete a variable
+ */
+router.delete('/:appId/environments/:envId/variables/:varId', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        const { appId, envId, varId } = req.params;
+
+        const application = await applicationRepository.findById(appId);
+        if (!application || application.userId !== userId) {
+            return res.status(404).json({
+                success: false,
+                error: 'Application not found'
+            });
+        }
+
+        const environment = await userEnvironmentRepository.findById(envId);
+        if (!environment || environment.userId !== userId) {
+            return res.status(404).json({
+                success: false,
+                error: 'Environment not found'
+            });
+        }
+
+        const variables = await environmentVariableRepository.findByEnvironmentId(envId);
+        const existingVariable = variables.find((variable) => variable.id === varId);
+        if (!existingVariable) {
+            return res.status(404).json({
+                success: false,
+                error: 'Variable not found'
+            });
+        }
+
+        await environmentVariableRepository.delete(envId, existingVariable.key);
+
+        res.json({
+            success: true,
+            data: null
+        });
+    } catch (error) {
+        logger.error('Error deleting environment variable:', error);
         res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
 });

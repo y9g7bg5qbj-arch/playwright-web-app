@@ -6,6 +6,7 @@
 import { Router, Response } from 'express';
 import { body, param, query } from 'express-validator';
 import { validate } from '../middleware/validate';
+import { asyncHandler } from '../middleware/asyncHandler';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { queueService, QUEUE_NAMES, QueueName, JobStatus } from '../services/queue';
 import { auditService } from '../services/audit.service';
@@ -21,21 +22,17 @@ const router = Router();
  * GET /api/queue/stats
  * Get statistics for all queues
  */
-router.get('/stats', authenticateToken, async (req: AuthRequest, res: Response, next) => {
-  try {
-    const stats = await queueService.getAllQueueStats();
+router.get('/stats', authenticateToken, asyncHandler(async (_req: AuthRequest, res: Response) => {
+  const stats = await queueService.getAllQueueStats();
 
-    res.json({
-      success: true,
-      data: {
-        queues: stats,
-        redisConnected: queueService.isRedisConnected(),
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+  res.json({
+    success: true,
+    data: {
+      queues: stats,
+      redisConnected: queueService.isRedisConnected(),
+    },
+  });
+}));
 
 /**
  * GET /api/queue/:queueName/stats
@@ -49,19 +46,15 @@ router.get(
       .isIn(Object.values(QUEUE_NAMES))
       .withMessage('Invalid queue name'),
   ]),
-  async (req: AuthRequest, res: Response, next) => {
-    try {
-      const { queueName } = req.params;
-      const stats = await queueService.getQueueStats(queueName as QueueName);
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { queueName } = req.params;
+    const stats = await queueService.getQueueStats(queueName as QueueName);
 
-      res.json({
-        success: true,
-        data: stats,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    res.json({
+      success: true,
+      data: stats,
+    });
+  })
 );
 
 // ============================================
@@ -80,25 +73,21 @@ router.post(
       .isIn(Object.values(QUEUE_NAMES))
       .withMessage('Invalid queue name'),
   ]),
-  async (req: AuthRequest, res: Response, next) => {
-    try {
-      const { queueName } = req.params;
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { queueName } = req.params;
 
-      await queueService.pauseQueue(queueName as QueueName);
+    await queueService.pauseQueue(queueName as QueueName);
 
-      // Audit log
-      await auditService.logQueueAction('paused', queueName, req.userId!);
+    // Audit log
+    await auditService.logQueueAction('paused', queueName, req.userId!);
 
-      logger.info(`Queue ${queueName} paused by user ${req.userId}`);
+    logger.info(`Queue ${queueName} paused by user ${req.userId}`);
 
-      res.json({
-        success: true,
-        message: `Queue ${queueName} paused`,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    res.json({
+      success: true,
+      message: `Queue ${queueName} paused`,
+    });
+  })
 );
 
 /**
@@ -113,25 +102,21 @@ router.post(
       .isIn(Object.values(QUEUE_NAMES))
       .withMessage('Invalid queue name'),
   ]),
-  async (req: AuthRequest, res: Response, next) => {
-    try {
-      const { queueName } = req.params;
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { queueName } = req.params;
 
-      await queueService.resumeQueue(queueName as QueueName);
+    await queueService.resumeQueue(queueName as QueueName);
 
-      // Audit log
-      await auditService.logQueueAction('resumed', queueName, req.userId!);
+    // Audit log
+    await auditService.logQueueAction('resumed', queueName, req.userId!);
 
-      logger.info(`Queue ${queueName} resumed by user ${req.userId}`);
+    logger.info(`Queue ${queueName} resumed by user ${req.userId}`);
 
-      res.json({
-        success: true,
-        message: `Queue ${queueName} resumed`,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    res.json({
+      success: true,
+      message: `Queue ${queueName} resumed`,
+    });
+  })
 );
 
 /**
@@ -154,31 +139,27 @@ router.post(
       .isIn(['completed', 'failed'])
       .withMessage('Status must be completed or failed'),
   ]),
-  async (req: AuthRequest, res: Response, next) => {
-    try {
-      const { queueName } = req.params;
-      const { grace = 3600000, status = 'completed' } = req.body;
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { queueName } = req.params;
+    const { grace = 3600000, status = 'completed' } = req.body;
 
-      const count = await queueService.cleanQueue(
-        queueName as QueueName,
-        grace,
-        status
-      );
+    const count = await queueService.cleanQueue(
+      queueName as QueueName,
+      grace,
+      status
+    );
 
-      // Audit log
-      await auditService.logQueueAction('updated', queueName, req.userId!, {
-        cleanedJobs: { from: count, to: 0 },
-      });
+    // Audit log
+    await auditService.logQueueAction('updated', queueName, req.userId!, {
+      cleanedJobs: { from: count, to: 0 },
+    });
 
-      res.json({
-        success: true,
-        message: `Cleaned ${count} ${status} jobs from ${queueName}`,
-        data: { cleanedCount: count },
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    res.json({
+      success: true,
+      message: `Cleaned ${count} ${status} jobs from ${queueName}`,
+      data: { cleanedCount: count },
+    });
+  })
 );
 
 // ============================================
@@ -209,44 +190,40 @@ router.get(
       .isInt({ min: 1 })
       .withMessage('End must be a positive number'),
   ]),
-  async (req: AuthRequest, res: Response, next) => {
-    try {
-      const { queueName } = req.params;
-      const { status = 'waiting', start = '0', end = '20' } = req.query;
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { queueName } = req.params;
+    const { status = 'waiting', start = '0', end = '20' } = req.query;
 
-      const jobs = await queueService.getJobs(
-        queueName as QueueName,
-        status as JobStatus,
-        parseInt(start as string, 10),
-        parseInt(end as string, 10)
-      );
+    const jobs = await queueService.getJobs(
+      queueName as QueueName,
+      status as JobStatus,
+      parseInt(start as string, 10),
+      parseInt(end as string, 10)
+    );
 
-      res.json({
-        success: true,
-        data: jobs.map(job => ({
-          id: job.id,
-          name: job.name,
-          priority: job.priority,
-          status: job.status,
-          attempts: job.attempts,
-          maxAttempts: job.maxAttempts,
-          progress: job.progress,
-          createdAt: job.createdAt,
-          processedAt: job.processedAt,
-          finishedAt: job.finishedAt,
-          failedReason: job.failedReason,
-          // Don't send full job data for security/size reasons
-          dataPreview: {
-            scheduleId: (job.data as any)?.scheduleId,
-            runId: (job.data as any)?.runId,
-            triggerType: (job.data as any)?.triggerType,
-          },
-        })),
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    res.json({
+      success: true,
+      data: jobs.map(job => ({
+        id: job.id,
+        name: job.name,
+        priority: job.priority,
+        status: job.status,
+        attempts: job.attempts,
+        maxAttempts: job.maxAttempts,
+        progress: job.progress,
+        createdAt: job.createdAt,
+        processedAt: job.processedAt,
+        finishedAt: job.finishedAt,
+        failedReason: job.failedReason,
+        // Don't send full job data for security/size reasons
+        dataPreview: {
+          scheduleId: (job.data as any)?.scheduleId,
+          runId: (job.data as any)?.runId,
+          triggerType: (job.data as any)?.triggerType,
+        },
+      })),
+    });
+  })
 );
 
 /**
@@ -262,31 +239,27 @@ router.delete(
       .withMessage('Invalid queue name'),
     param('jobId').isString().notEmpty().withMessage('Job ID is required'),
   ]),
-  async (req: AuthRequest, res: Response, next) => {
-    try {
-      const { queueName, jobId } = req.params;
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { queueName, jobId } = req.params;
 
-      const removed = await queueService.removeJob(queueName as QueueName, jobId);
+    const removed = await queueService.removeJob(queueName as QueueName, jobId);
 
-      if (!removed) {
-        res.status(404).json({
-          success: false,
-          error: 'Job not found',
-        });
-        return;
-      }
-
-      // Audit log
-      await auditService.logQueueAction('deleted', `${queueName}:${jobId}`, req.userId!);
-
-      res.json({
-        success: true,
-        message: 'Job removed',
+    if (!removed) {
+      res.status(404).json({
+        success: false,
+        error: 'Job not found',
       });
-    } catch (error) {
-      next(error);
+      return;
     }
-  }
+
+    // Audit log
+    await auditService.logQueueAction('deleted', `${queueName}:${jobId}`, req.userId!);
+
+    res.json({
+      success: true,
+      message: 'Job removed',
+    });
+  })
 );
 
 /**
@@ -302,33 +275,29 @@ router.post(
       .withMessage('Invalid queue name'),
     param('jobId').isString().notEmpty().withMessage('Job ID is required'),
   ]),
-  async (req: AuthRequest, res: Response, next) => {
-    try {
-      const { queueName, jobId } = req.params;
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { queueName, jobId } = req.params;
 
-      const retried = await queueService.retryJob(queueName as QueueName, jobId);
+    const retried = await queueService.retryJob(queueName as QueueName, jobId);
 
-      if (!retried) {
-        res.status(400).json({
-          success: false,
-          error: 'Job not found or cannot be retried',
-        });
-        return;
-      }
-
-      // Audit log
-      await auditService.logQueueAction('triggered', `${queueName}:${jobId}`, req.userId!, {
-        action: { from: 'failed', to: 'retry' },
+    if (!retried) {
+      res.status(400).json({
+        success: false,
+        error: 'Job not found or cannot be retried',
       });
-
-      res.json({
-        success: true,
-        message: 'Job retry queued',
-      });
-    } catch (error) {
-      next(error);
+      return;
     }
-  }
+
+    // Audit log
+    await auditService.logQueueAction('triggered', `${queueName}:${jobId}`, req.userId!, {
+      action: { from: 'failed', to: 'retry' },
+    });
+
+    res.json({
+      success: true,
+      message: 'Job retry queued',
+    });
+  })
 );
 
 // ============================================
@@ -339,23 +308,19 @@ router.post(
  * GET /api/queue/info
  * Get information about available queues
  */
-router.get('/info', authenticateToken, async (req: AuthRequest, res: Response, next) => {
-  try {
-    res.json({
-      success: true,
-      data: {
-        queues: Object.entries(QUEUE_NAMES).map(([key, name]) => ({
-          key,
-          name,
-          description: getQueueDescription(name),
-        })),
-        redisConnected: queueService.isRedisConnected(),
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+router.get('/info', authenticateToken, asyncHandler(async (_req: AuthRequest, res: Response) => {
+  res.json({
+    success: true,
+    data: {
+      queues: Object.entries(QUEUE_NAMES).map(([key, name]) => ({
+        key,
+        name,
+        description: getQueueDescription(name),
+      })),
+      redisConnected: queueService.isRedisConnected(),
+    },
+  });
+}));
 
 /**
  * Get description for a queue

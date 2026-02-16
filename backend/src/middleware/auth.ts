@@ -9,13 +9,13 @@ export interface AuthRequest extends Request {
 
 export const authenticateToken = (
   req: AuthRequest,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ) => {
   try {
     // TODO: SECURITY - This bypass should only be used for local development
     // Set BYPASS_AUTH=true in .env to enable the bypass (development only)
-    if (process.env.NODE_ENV === 'development' && process.env.BYPASS_AUTH === 'true') {
+    if (config.nodeEnv === 'development' && process.env.BYPASS_AUTH === 'true') {
       req.userId = '4a6ceb7d-9883-44e9-bfd3-6a1cd2557ffc';
       next();
       return;
@@ -44,7 +44,7 @@ export const authenticateToken = (
 
 export const optionalAuth = (
   req: AuthRequest,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ) => {
   try {

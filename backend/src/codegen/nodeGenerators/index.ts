@@ -6,124 +6,31 @@
 import type { FlowNode, GeneratorContext, NodeGenerator } from '@playwright-web-app/shared';
 
 // Navigation generators
-import {
-    NavigateGenerator,
-    GoBackGenerator,
-    GoForwardGenerator,
-    ReloadGenerator,
-    NewPageGenerator,
-    ClosePageGenerator,
-    SwitchTabGenerator,
-    WaitForNewTabGenerator,
-    SwitchFrameGenerator,
-    SwitchMainFrameGenerator,
-} from './navigationGenerators';
+import { NavigateGenerator, GoBackGenerator, GoForwardGenerator, ReloadGenerator, NewPageGenerator, ClosePageGenerator, SwitchTabGenerator, WaitForNewTabGenerator, SwitchFrameGenerator, SwitchMainFrameGenerator } from './navigationGenerators';
 
 // Action generators
-import {
-    ClickGenerator,
-    DoubleClickGenerator,
-    RightClickGenerator,
-    HoverGenerator,
-    DragAndDropGenerator,
-    ScrollGenerator,
-    MouseMoveGenerator,
-    MouseDownGenerator,
-    MouseUpGenerator,
-} from './actionGenerators';
+import { ClickGenerator, DoubleClickGenerator, RightClickGenerator, HoverGenerator, DragAndDropGenerator, ScrollGenerator, MouseMoveGenerator, MouseDownGenerator, MouseUpGenerator } from './actionGenerators';
 
 // Input generators
-import {
-    FillGenerator,
-    TypeGenerator,
-    ClearGenerator,
-    PressKeyGenerator,
-    SelectOptionGenerator,
-    CheckGenerator,
-    UncheckGenerator,
-    SetCheckedGenerator,
-    UploadFileGenerator,
-    FocusGenerator,
-    BlurGenerator,
-} from './inputGenerators';
+import { FillGenerator, TypeGenerator, ClearGenerator, PressKeyGenerator, SelectOptionGenerator, CheckGenerator, UncheckGenerator, SetCheckedGenerator, UploadFileGenerator, FocusGenerator, BlurGenerator } from './inputGenerators';
 
 // Assertion generators
-import {
-    AssertVisibleGenerator,
-    AssertHiddenGenerator,
-    AssertTextGenerator,
-    AssertValueGenerator,
-    AssertAttributeGenerator,
-    AssertEnabledGenerator,
-    AssertCheckedGenerator,
-    AssertCountGenerator,
-    AssertUrlGenerator,
-    AssertTitleGenerator,
-} from './assertionGenerators';
+import { AssertVisibleGenerator, AssertHiddenGenerator, AssertTextGenerator, AssertValueGenerator, AssertAttributeGenerator, AssertEnabledGenerator, AssertCheckedGenerator, AssertCountGenerator, AssertUrlGenerator, AssertTitleGenerator } from './assertionGenerators';
 
 // Wait generators
-import {
-    WaitTimeGenerator,
-    WaitForElementGenerator,
-    WaitForUrlGenerator,
-    WaitForLoadStateGenerator,
-    WaitForResponseGenerator,
-    WaitForFunctionGenerator,
-} from './waitGenerators';
+import { WaitTimeGenerator, WaitForElementGenerator, WaitForUrlGenerator, WaitForLoadStateGenerator, WaitForResponseGenerator, WaitForFunctionGenerator } from './waitGenerators';
 
 // Control flow generators
-import {
-    IfGenerator,
-    ElseGenerator,
-    ForLoopGenerator,
-    ForEachGenerator,
-    WhileLoopGenerator,
-    TryCatchGenerator,
-    CatchGenerator,
-    FinallyGenerator,
-    BreakGenerator,
-    ContinueGenerator,
-    PassGenerator,
-    FailGenerator,
-    GroupGenerator,
-    StartGenerator,
-    EndGenerator,
-    CommentGenerator,
-} from './controlFlowGenerators';
+import { IfGenerator, ElseGenerator, ForLoopGenerator, ForEachGenerator, WhileLoopGenerator, TryCatchGenerator, CatchGenerator, FinallyGenerator, BreakGenerator, ContinueGenerator, PassGenerator, FailGenerator, GroupGenerator, StartGenerator, EndGenerator, CommentGenerator } from './controlFlowGenerators';
 
 // Data generators
-import {
-    SetVariableGenerator,
-    GetTextGenerator,
-    GetAttributeGenerator,
-    GetValueGenerator,
-    GetUrlGenerator,
-    GetTitleGenerator,
-    GetElementCountGenerator,
-    LogGenerator,
-    ScreenshotGenerator,
-    EvaluateExpressionGenerator,
-    DataSourceGenerator,
-} from './dataGenerators';
+import { SetVariableGenerator, GetTextGenerator, GetAttributeGenerator, GetValueGenerator, GetUrlGenerator, GetTitleGenerator, GetElementCountGenerator, LogGenerator, ScreenshotGenerator, EvaluateExpressionGenerator, DataSourceGenerator } from './dataGenerators';
 
 // Network generators
-import {
-    HttpRequestGenerator,
-    InterceptRequestGenerator,
-} from './networkGenerators';
+import { HttpRequestGenerator, InterceptRequestGenerator } from './networkGenerators';
 
 // Advanced generators
-import {
-    RunJavaScriptGenerator,
-    HandleDialogGenerator,
-    HandleDownloadGenerator,
-    EmulateDeviceGenerator,
-    SetViewportGenerator,
-    SubFlowGenerator,
-    LaunchBrowserGenerator,
-    NewContextGenerator,
-    CloseBrowserGenerator,
-} from './advancedGenerators';
+import { RunJavaScriptGenerator, HandleDialogGenerator, HandleDownloadGenerator, EmulateDeviceGenerator, SetViewportGenerator, SubFlowGenerator, LaunchBrowserGenerator, NewContextGenerator, CloseBrowserGenerator } from './advancedGenerators';
 
 /**
  * Registry of all node generators

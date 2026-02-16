@@ -5,17 +5,7 @@
  */
 
 import * as path from 'path';
-import {
-  pullRequestRepository,
-  pullRequestReviewRepository,
-  pullRequestCommentRepository,
-  pullRequestFileRepository,
-  projectSettingsRepository,
-  sandboxRepository,
-  userRepository,
-  projectRepository,
-  applicationRepository
-} from '../db/repositories/mongo';
+import { pullRequestRepository, pullRequestReviewRepository, pullRequestCommentRepository, pullRequestFileRepository, projectSettingsRepository, sandboxRepository, userRepository, projectRepository, applicationRepository } from '../db/repositories/mongo';
 import { gitService, GitDiffResult, GitFileDiff } from './git.service';
 import { logger } from '../utils/logger';
 

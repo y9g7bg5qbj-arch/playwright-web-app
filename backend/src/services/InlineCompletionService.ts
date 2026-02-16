@@ -7,6 +7,7 @@
 
 import { VERO_SYNTAX_COMPACT } from './veroSyntaxReference';
 import { aiSettingsRepository } from '../db/repositories/mongo';
+import { logger } from '../utils/logger';
 
 // ============================================
 // Types
@@ -128,7 +129,7 @@ export class InlineCompletionService {
         completions: [{ insertText: cleanedCompletion }],
       };
     } catch (error) {
-      console.error('[InlineCompletion] Error getting completion:', error);
+      logger.error('[InlineCompletion] Error getting completion:', error);
       return { completions: [] };
     }
   }
@@ -231,7 +232,7 @@ export class InlineCompletionService {
     });
 
     if (!response.ok) {
-      console.error('[InlineCompletion] Gemini error:', response.status);
+      logger.error('[InlineCompletion] Gemini error:', response.status);
       return null;
     }
 
@@ -265,7 +266,7 @@ export class InlineCompletionService {
     });
 
     if (!response.ok) {
-      console.error('[InlineCompletion] OpenAI error:', response.status);
+      logger.error('[InlineCompletion] OpenAI error:', response.status);
       return null;
     }
 
@@ -298,7 +299,7 @@ export class InlineCompletionService {
     });
 
     if (!response.ok) {
-      console.error('[InlineCompletion] Anthropic error:', response.status);
+      logger.error('[InlineCompletion] Anthropic error:', response.status);
       return null;
     }
 

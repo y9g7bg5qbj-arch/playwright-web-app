@@ -3,16 +3,7 @@
  * Provides analysis capabilities for Playwright traces
  */
 
-import {
-    TraceData,
-    TraceAction,
-    FailureInfo,
-    SlowAction,
-    NetworkStats,
-    TraceDiff,
-    TraceNetworkRequest,
-} from '../execution/types';
-import { logger } from '../../utils/logger';
+import { TraceData, TraceAction, FailureInfo, SlowAction, NetworkStats, TraceDiff, TraceNetworkRequest } from '../execution/types';
 
 /**
  * Trace Analyzer
@@ -63,7 +54,6 @@ export class TraceAnalyzer {
 
         // Calculate action durations and percentiles
         const durations = trace.actions.map(a => a.duration).sort((a, b) => a - b);
-        const p95 = durations[Math.floor(durations.length * 0.95)] || threshold;
 
         for (const action of trace.actions) {
             if (action.duration >= threshold) {
@@ -333,7 +323,7 @@ export class TraceAnalyzer {
     /**
      * Generate a suggestion for fixing an error
      */
-    private generateSuggestion(error: string, actionType: string, selector?: string): string {
+    private generateSuggestion(error: string, _actionType: string, selector?: string): string {
         const lowerError = error.toLowerCase();
         const suggestions: string[] = [];
 

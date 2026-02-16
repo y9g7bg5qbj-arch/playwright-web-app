@@ -1,17 +1,12 @@
 import { Router } from 'express';
 import { spawn } from 'child_process';
-import { readFile, unlink, writeFile, mkdir } from 'fs/promises';
+import { readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { watch, existsSync } from 'fs';
+import { watch } from 'fs';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
-import {
-  generateVeroAction,
-  generateVeroAssertion,
-  generateVeroScenario,
-  generateVeroFeature,
-  generateVeroPage
-} from '../services/veroSyntaxReference';
+import { asyncHandler } from '../middleware/asyncHandler';
+import { generateVeroAction, generateVeroAssertion, generateVeroScenario, generateVeroFeature, generateVeroPage } from '../services/veroSyntaxReference';
 
 const router = Router();
 
@@ -27,8 +22,7 @@ function getTempFilePath(testFlowId: string): string {
 }
 
 // Start recording with Playwright Codegen
-router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => {
-  try {
+router.post('/start', authenticateToken, asyncHandler(async (req: AuthRequest, res) => {
     const { url, testFlowId } = req.body;
 
     if (!url || !testFlowId) {
@@ -56,7 +50,6 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
       shell: true,
     });
 
-    let currentCode = '';
     let fileWatcher: any = null;
 
     // Watch the output file for changes (file might not exist yet)
@@ -66,7 +59,6 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
           if (eventType === 'change' || eventType === 'rename') {
             try {
               const code = await readFile(outputFile, 'utf-8');
-              currentCode = code;
               const recording = activeRecordings.get(testFlowId);
               if (recording) {
                 recording.currentCode = code;
@@ -117,7 +109,7 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
       // Don't delete from activeRecordings yet - let polling handle it
     });
 
-    codegenProcess.on('error', (error) => {
+    codegenProcess.on('error', (_error) => {
       if (fileWatcher) {
         fileWatcher.close();
       }
@@ -144,25 +136,17 @@ router.post('/start', authenticateToken, async (req: AuthRequest, res, next) => 
         testFlowId,
       },
     });
-  } catch (error) {
-    next(error);
-  }
-});
+}));
 
 // Get recorded code
-router.get('/code/:testFlowId', authenticateToken, async (req: AuthRequest, res, next) => {
-  try {
+router.get('/code/:testFlowId', authenticateToken, asyncHandler(async (req: AuthRequest, res) => {
     const { testFlowId } = req.params;
 
     const recording = activeRecordings.get(testFlowId);
     if (!recording) {
       return res.json({
         success: true,
-        data: {
-          code: '',
-          isRecording: false,
-          isComplete: false
-        }
+        data: { code: '', isRecording: false, isComplete: false }
       });
     }
 
@@ -172,35 +156,24 @@ router.get('/code/:testFlowId', authenticateToken, async (req: AuthRequest, res,
 
     res.json({
       success: true,
-      data: {
-        code,
-        isRecording,
-        isComplete
-      }
+      data: { code, isRecording, isComplete }
     });
-  } catch (error) {
-    next(error);
-  }
-});
+}));
 
 // Stop recording
-router.post('/stop/:testFlowId', authenticateToken, async (req: AuthRequest, res, next) => {
-  try {
+router.post('/stop/:testFlowId', authenticateToken, asyncHandler(async (req: AuthRequest, res) => {
     const { testFlowId } = req.params;
 
     const recording = activeRecordings.get(testFlowId);
     if (recording) {
       recording.process.kill('SIGTERM');
 
-      // Stop file watcher
       if (recording.fileWatcher) {
         recording.fileWatcher.close();
       }
 
-      // Wait a moment for the file to be written
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Read the final code from file
       let code = '';
       try {
         code = await readFile(recording.outputFile, 'utf-8');
@@ -210,28 +183,17 @@ router.post('/stop/:testFlowId', authenticateToken, async (req: AuthRequest, res
 
       activeRecordings.delete(testFlowId);
 
-      // Clean up temp file
       try {
         await unlink(recording.outputFile);
-      } catch (error) {
+      } catch {
         // Ignore if file doesn't exist
       }
 
-      return res.json({
-        success: true,
-        data: { code }
-      });
+      return res.json({ success: true, data: { code } });
     }
 
-    res.json({
-      success: false,
-      data: null,
-      error: 'No active recording found'
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+    res.json({ success: false, data: null, error: 'No active recording found' });
+}));
 
 // ===== Chrome Extension Integration Endpoints =====
 
@@ -239,22 +201,18 @@ router.post('/stop/:testFlowId', authenticateToken, async (req: AuthRequest, res
  * Import recording from Chrome extension
  * POST /recorder/import
  */
-router.post('/import', authenticateToken, async (req: AuthRequest, res, next) => {
-  try {
+router.post('/import', authenticateToken, asyncHandler(async (req: AuthRequest, res) => {
     const { actions, pageObjects, metadata, veroCode, testFlowId } = req.body;
 
     if (!actions || !Array.isArray(actions)) {
       return res.status(400).json({
-        success: false,
-        data: null,
-        error: 'Actions array is required'
+        success: false, data: null, error: 'Actions array is required'
       });
     }
 
     const recordingId = testFlowId || `import-${Date.now()}`;
     const userId = req.userId || 'unknown';
 
-    // Store the imported recording
     const recording = {
       id: recordingId,
       userId,
@@ -272,94 +230,58 @@ router.post('/import', authenticateToken, async (req: AuthRequest, res, next) =>
 
     importedRecordings.set(recordingId, recording);
 
-    // [Recorder] Imported recording ${recordingId} with ${actions.length} actions`);
-
     res.json({
       success: true,
-      data: {
-        recordingId,
-        actionCount: actions.length,
-        veroCode: recording.veroCode
-      }
+      data: { recordingId, actionCount: actions.length, veroCode: recording.veroCode }
     });
-  } catch (error) {
-    next(error);
-  }
-});
+}));
 
 /**
  * Get imported recording
  * GET /recorder/import/:recordingId
  */
-router.get('/import/:recordingId', authenticateToken, async (req: AuthRequest, res, next) => {
-  try {
+router.get('/import/:recordingId', authenticateToken, asyncHandler(async (req: AuthRequest, res) => {
     const { recordingId } = req.params;
 
     const recording = importedRecordings.get(recordingId);
     if (!recording) {
-      return res.status(404).json({
-        success: false,
-        data: null,
-        error: 'Recording not found'
-      });
+      return res.status(404).json({ success: false, data: null, error: 'Recording not found' });
     }
 
-    res.json({
-      success: true,
-      data: recording
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+    res.json({ success: true, data: recording });
+}));
 
 /**
  * Import page object from Chrome extension
  * POST /recorder/page-object
  */
-router.post('/page-object', authenticateToken, async (req: AuthRequest, res, next) => {
-  try {
+router.post('/page-object', authenticateToken, asyncHandler(async (req: AuthRequest, res) => {
     const { name, url, elements, actions: pageActions } = req.body;
 
     if (!name || !elements) {
       return res.status(400).json({
-        success: false,
-        data: null,
-        error: 'Name and elements are required'
+        success: false, data: null, error: 'Name and elements are required'
       });
     }
 
-    // Generate page object code
     const pageObjectCode = generatePageObjectCode(name, url, elements, pageActions);
-
-    // [Recorder] Generated page object: ${name} with ${Object.keys(elements).length} elements`);
 
     res.json({
       success: true,
-      data: {
-        name,
-        code: pageObjectCode,
-        elementCount: Object.keys(elements).length
-      }
+      data: { name, code: pageObjectCode, elementCount: Object.keys(elements).length }
     });
-  } catch (error) {
-    next(error);
-  }
-});
+}));
 
 /**
  * Convert actions to Vero DSL code
  * POST /recorder/convert
  */
-router.post('/convert', authenticateToken, async (req: AuthRequest, res, next) => {
-  try {
+router.post('/convert', authenticateToken, asyncHandler(async (req: AuthRequest, res) => {
     const { actions, options } = req.body;
 
     if (!actions || !Array.isArray(actions)) {
       return res.status(400).json({
-        success: false,
-        data: null,
-        error: 'Actions array is required'
+        success: false, data: null, error: 'Actions array is required'
       });
     }
 
@@ -367,22 +289,15 @@ router.post('/convert', authenticateToken, async (req: AuthRequest, res, next) =
 
     res.json({
       success: true,
-      data: {
-        code: veroCode,
-        actionCount: actions.length
-      }
+      data: { code: veroCode, actionCount: actions.length }
     });
-  } catch (error) {
-    next(error);
-  }
-});
+}));
 
 /**
  * List all imported recordings
  * GET /recorder/imports
  */
-router.get('/imports', authenticateToken, async (req: AuthRequest, res, next) => {
-  try {
+router.get('/imports', authenticateToken, asyncHandler(async (req: AuthRequest, res) => {
     const userId = req.userId;
     const recordings = Array.from(importedRecordings.values())
       .filter(r => r.userId === userId || !userId)
@@ -393,41 +308,24 @@ router.get('/imports', authenticateToken, async (req: AuthRequest, res, next) =>
         metadata: r.metadata
       }));
 
-    res.json({
-      success: true,
-      data: recordings
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+    res.json({ success: true, data: recordings });
+}));
 
 /**
  * Delete imported recording
  * DELETE /recorder/import/:recordingId
  */
-router.delete('/import/:recordingId', authenticateToken, async (req: AuthRequest, res, next) => {
-  try {
+router.delete('/import/:recordingId', authenticateToken, asyncHandler(async (req: AuthRequest, res) => {
     const { recordingId } = req.params;
 
     if (!importedRecordings.has(recordingId)) {
-      return res.status(404).json({
-        success: false,
-        data: null,
-        error: 'Recording not found'
-      });
+      return res.status(404).json({ success: false, data: null, error: 'Recording not found' });
     }
 
     importedRecordings.delete(recordingId);
 
-    res.json({
-      success: true,
-      data: { deleted: recordingId }
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+    res.json({ success: true, data: { deleted: recordingId } });
+}));
 
 // ===== Helper Functions =====
 

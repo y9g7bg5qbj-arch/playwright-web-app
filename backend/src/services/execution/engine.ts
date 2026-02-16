@@ -4,33 +4,12 @@
  * Handles test execution, browser management, artifact collection, and result management
  */
 
-import {
-    chromium,
-    firefox,
-    webkit,
-    Browser,
-    BrowserContext,
-    Page,
-    devices,
-    BrowserType as PlaywrightBrowserType,
-} from 'playwright';
+import { chromium, firefox, webkit, Browser, BrowserContext, Page, devices, BrowserType as PlaywrightBrowserType } from 'playwright';
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs/promises';
-import {
-    BrowserType,
-    ExecutionOptions,
-    BrowserOptions,
-    TestResult,
-    TestRun,
-    RunSummary,
-    ExecutionStatus,
-    ArtifactRef,
-    DEFAULT_EXECUTION_OPTIONS,
-    TestStatus,
-    TestStepResult,
-} from './types';
+import { BrowserType, ExecutionOptions, BrowserOptions, TestResult, RunSummary, ExecutionStatus, ArtifactRef, TestStatus, TestStepResult } from './types';
 import { ArtifactManager } from '../artifacts/ArtifactManager';
 import { logger } from '../../utils/logger';
 import { transpileVero } from '../veroTranspiler';
@@ -114,12 +93,12 @@ export class ExecutionEngine extends EventEmitter {
         }
 
         // Close all contexts
-        for (const [contextId, contextInfo] of this.contexts) {
+        for (const [contextId, _contextInfo] of this.contexts) {
             await this.releaseBrowserContext(contextId);
         }
 
         // Close all browsers
-        for (const [browserType, browser] of this.browsers) {
+        for (const [_browserType, browser] of this.browsers) {
             await browser.close();
         }
 
@@ -755,7 +734,7 @@ export class ExecutionEngine extends EventEmitter {
         try {
             // Inject a highlight overlay for the expected element area
             // This creates a visual indicator where the element was expected
-            await page.evaluate(({ selector, errorMessage }) => {
+            await page.evaluate(({ selector }) => {
                 // Create overlay container
                 const overlay = document.createElement('div');
                 overlay.id = 'vero-failure-overlay';
@@ -945,7 +924,7 @@ export class ExecutionEngine extends EventEmitter {
      */
     async captureScreenshot(testId: string, name: string): Promise<string> {
         // Find the context for this test (if running)
-        for (const [contextId, contextInfo] of this.contexts) {
+        for (const [_contextId, contextInfo] of this.contexts) {
             if (contextInfo.context.pages().length > 0) {
                 const page = contextInfo.page;
                 const buffer = await page.screenshot();

@@ -5,6 +5,11 @@
  * and code generation. This ensures all AI-generated Vero code
  * follows the correct grammar strictly.
  */
+import { VERO_TAB_SYNTAX } from 'vero-lang';
+
+const TAB_SWITCH_NEW_TAB_WITH_URL_EXAMPLE = VERO_TAB_SYNTAX.switchToNewTabWithUrl.replace('{url}', 'url');
+const TAB_SWITCH_TO_TAB_EXAMPLE = VERO_TAB_SYNTAX.switchToTab.replace('{index}', '1');
+const TAB_OPEN_IN_NEW_TAB_EXAMPLE = VERO_TAB_SYNTAX.openInNewTab.replace('{url}', 'url');
 
 export const VERO_SYNTAX_REFERENCE = `
 ## Vero DSL Syntax Reference (STRICT)
@@ -66,6 +71,11 @@ FEATURE FeatureName {
 | WAIT | \`WAIT 2 SECONDS\` | Wait for time |
 | WAIT | \`WAIT FOR PageName.field\` | Wait for element |
 | CLEAR | \`CLEAR PageName.field\` | Clear input field |
+| TAKE SCREENSHOT | \`TAKE SCREENSHOT AS "checkpoint"\` | Capture run artifact screenshot |
+| SWITCH TO NEW TAB | \`${TAB_SWITCH_NEW_TAB_WITH_URL_EXAMPLE}\` | Switch to/wait for a new popup tab |
+| SWITCH TO TAB | \`${TAB_SWITCH_TO_TAB_EXAMPLE}\` | Switch to existing tab by index (1-based) |
+| OPEN IN NEW TAB | \`${TAB_OPEN_IN_NEW_TAB_EXAMPLE}\` | Open URL in a new browser tab |
+| CLOSE TAB | \`${VERO_TAB_SYNTAX.closeTab}\` | Close current tab |
 | LOG | \`LOG "message"\` | Log message |
 | PERFORM | \`PERFORM PageName.action WITH arg1, arg2\` | Call page action |
 
@@ -79,6 +89,8 @@ FEATURE FeatureName {
 | Contains | \`VERIFY PageName.field CONTAINS "text"\` |
 | Has Value | \`VERIFY PageName.field HAS VALUE "exact"\` |
 | URL | \`VERIFY URL CONTAINS "/path"\` |
+| Visual (page) | \`VERIFY SCREENSHOT AS "home" WITH BALANCED\` |
+| Visual (target) | \`VERIFY PageName.field MATCHES SCREENSHOT AS "header" WITH STRICT\` |
 
 ### CRITICAL RULES
 1. SCENARIO names are PascalCase identifiers: \`SCENARIO UserCanLogin\` NOT \`SCENARIO "User can login"\`
@@ -87,6 +99,7 @@ FEATURE FeatureName {
 4. All keywords are case-insensitive but prefer UPPERCASE
 5. Comments start with #
 6. Strings use double quotes "like this"
+7. Use \`VERIFY ... SCREENSHOT\` for visual baseline assertions; use \`TAKE SCREENSHOT\` only for artifact capture
 `;
 
 /**
@@ -94,14 +107,15 @@ FEATURE FeatureName {
  */
 export const VERO_SYNTAX_COMPACT = `
 Vero DSL Keywords:
-- Actions: CLICK, FILL, OPEN, CHECK, UNCHECK, SELECT, HOVER, PRESS, SCROLL, WAIT, CLEAR, LOG, PERFORM
-- Assertions: VERIFY ... IS VISIBLE/HIDDEN/ENABLED/DISABLED, VERIFY ... CONTAINS/HAS VALUE
+- Actions: CLICK, FILL, OPEN, CHECK, UNCHECK, SELECT, HOVER, PRESS, SCROLL, WAIT, CLEAR, TAKE SCREENSHOT, SWITCH TO NEW TAB, SWITCH TO TAB, OPEN IN NEW TAB, CLOSE TAB, LOG, PERFORM
+- Assertions: VERIFY ... IS VISIBLE/HIDDEN/ENABLED/DISABLED, VERIFY ... CONTAINS/HAS VALUE, VERIFY SCREENSHOT, VERIFY ... MATCHES SCREENSHOT
 - Structure: PAGE, FEATURE, SCENARIO (identifier, not string), FIELD, USE, WITH
 - Selectors: button, textbox, link, testid, label, placeholder, css, text
 
 SCENARIO names are PascalCase identifiers (SCENARIO UserCanLogin), NOT quoted strings.
 Use PERFORM PageName.action to call page actions.
 Variables are plain identifiers (no $ prefix).
+Use VERIFY ... SCREENSHOT for baseline comparisons and TAKE SCREENSHOT for one-off artifacts.
 `;
 
 /**
@@ -205,19 +219,43 @@ export function fixVeroSyntax(code: string): string {
 export type VeroActionType =
   | 'open' | 'navigate' | 'goto'
   | 'click'
+  | 'doubleclick'
+  | 'rightclick'
   | 'fill'
   | 'check'
   | 'uncheck'
   | 'select'
   | 'hover'
+  | 'upload'
+  | 'refresh'
   | 'press' | 'keypress'
   | 'scroll'
   | 'wait'
   | 'clear'
+  | 'switchTab' | 'switchtab' | 'switchNewTab' | 'switchnewtab'
+  | 'switchToTab' | 'switchtotab'
+  | 'openInNewTab' | 'openinnewtab'
+  | 'closeTab' | 'closetab'
   | 'log'
   | 'verify' | 'assert' | 'expect';
 
-export type VeroAssertionType = 'visible' | 'hidden' | 'enabled' | 'disabled' | 'contains' | 'hasValue';
+export type VeroAssertionType =
+  | 'visible'
+  | 'hidden'
+  | 'enabled'
+  | 'disabled'
+  | 'contains'
+  | 'hasValue'
+  | 'hasText'
+  | 'containsText'
+  | 'checked'
+  | 'empty'
+  | 'focused'
+  | 'hasCount'
+  | 'hasAttribute'
+  | 'hasClass'
+  | 'url'
+  | 'title';
 
 /**
  * Generate Vero action code - SINGLE SOURCE OF TRUTH
@@ -233,6 +271,7 @@ export function generateVeroAction(
 
   // Escape quotes in value
   const escapedValue = value?.replace(/"/g, '\\"') || '';
+  const escapedTarget = target?.replace(/"/g, '\\"') || '';
 
   switch (normalizedAction) {
     // Navigation
@@ -244,6 +283,10 @@ export function generateVeroAction(
     // Click
     case 'click':
       return `CLICK ${target}`;
+    case 'doubleclick':
+      return `DOUBLE CLICK ${target}`;
+    case 'rightclick':
+      return `RIGHT CLICK ${target}`;
 
     // Fill/Input
     case 'fill':
@@ -262,6 +305,14 @@ export function generateVeroAction(
     // Hover
     case 'hover':
       return `HOVER ${target}`;
+
+    // Upload
+    case 'upload':
+      return `UPLOAD "${escapedValue}" TO ${target}`;
+
+    // Refresh
+    case 'refresh':
+      return 'REFRESH';
 
     // Keyboard
     case 'press':
@@ -282,6 +333,26 @@ export function generateVeroAction(
     // Clear
     case 'clear':
       return `CLEAR ${target}`;
+
+    // Switch to new tab (popup or new tab without specific URL)
+    case 'switchtab':
+    case 'switchnewtab':
+      if (value) {
+        return VERO_TAB_SYNTAX.switchToNewTabWithUrl.replace('{url}', escapedValue);
+      }
+      return VERO_TAB_SYNTAX.switchToNewTab;
+
+    // Switch to existing tab by index (1-based)
+    case 'switchtotab':
+      return VERO_TAB_SYNTAX.switchToTab.replace('{index}', value || target || '1');
+
+    // Open URL in new tab
+    case 'openinnewtab':
+      return VERO_TAB_SYNTAX.openInNewTab.replace('{url}', escapedValue || escapedTarget);
+
+    // Close current tab
+    case 'closetab':
+      return VERO_TAB_SYNTAX.closeTab;
 
     // Log
     case 'log':
@@ -319,10 +390,47 @@ export function generateVeroAssertion(
       return `VERIFY ${target} IS DISABLED`;
     case 'contains':
       return `VERIFY ${target} CONTAINS "${value || ''}"`;
+    case 'hastext':
+    case 'has text':
+      return `VERIFY ${target} HAS TEXT "${value || ''}"`;
+    case 'containstext':
+    case 'contains text':
+      return `VERIFY ${target} CONTAINS TEXT "${value || ''}"`;
     case 'hasvalue':
     case 'has value':
     case 'value':
       return `VERIFY ${target} HAS VALUE "${value || ''}"`;
+    case 'checked':
+      return `VERIFY ${target} IS CHECKED`;
+    case 'empty':
+      return `VERIFY ${target} IS EMPTY`;
+    case 'focused':
+      return `VERIFY ${target} IS FOCUSED`;
+    case 'hascount':
+    case 'has count':
+      return `VERIFY ${target} HAS COUNT ${value || '0'}`;
+    case 'hasattribute':
+    case 'has attribute': {
+      const [attribute, ...rest] = (value || '').split('=');
+      const attributeValue = rest.join('=');
+      if (attribute && attributeValue) {
+        return `VERIFY ${target} HAS ATTRIBUTE "${attribute}" EQUAL "${attributeValue}"`;
+      }
+      return `VERIFY ${target} HAS ATTRIBUTE "${value || ''}"`;
+    }
+    case 'hasclass':
+    case 'has class':
+      return `VERIFY ${target} HAS CLASS "${value || ''}"`;
+    case 'url':
+      return `VERIFY URL EQUAL "${value || ''}"`;
+    case 'title':
+      return `VERIFY TITLE EQUAL "${value || ''}"`;
+    case 'screenshot':
+    case 'visual':
+      return `VERIFY SCREENSHOT AS "${value || 'baseline'}" WITH BALANCED`;
+    case 'matches screenshot':
+    case 'matchesscreenshot':
+      return `VERIFY ${target} MATCHES SCREENSHOT AS "${value || 'baseline'}" WITH BALANCED`;
     default:
       return `VERIFY ${target} IS VISIBLE`;
   }
@@ -386,7 +494,13 @@ export function generateVeroPage(
 
   const urlPart = ` ("${pattern}")`;
   const fieldsStr = fields
-    .map(f => `    FIELD ${f.name} = ${f.selectorType} "${f.selector}"`)
+    .map(f => {
+      // Some callers pass the full selector in `selector` with empty selectorType.
+      if (!f.selectorType || !f.selectorType.trim()) {
+        return `    FIELD ${f.name} = ${f.selector}`;
+      }
+      return `    FIELD ${f.name} = ${f.selectorType} "${f.selector}"`;
+    })
     .join('\n');
 
   return `PAGE ${pageName}${urlPart} {

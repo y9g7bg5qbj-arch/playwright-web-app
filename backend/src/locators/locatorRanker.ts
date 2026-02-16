@@ -2,10 +2,7 @@
 // Ranks locators by reliability for smart suggestions
 // Used when recording to suggest the best locator strategies
 
-import {
-    LocatorStrategy,
-    RankedLocator,
-} from '@playwright-web-app/shared';
+import { RankedLocator } from '@playwright-web-app/shared';
 
 /**
  * Locator priority rankings (lower = better)

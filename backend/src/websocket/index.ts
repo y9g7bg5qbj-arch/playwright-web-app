@@ -6,7 +6,7 @@ import { logger } from '../utils/logger';
 import { executionStepRepository } from '../db/repositories/mongo';
 import { ExecutionService } from '../services/execution.service';
 import { PlaywrightService, DebugEvent } from '../services/playwright.service';
-import { setupAIRecorderHandlers, setupAIRecorderEventForwarding } from './aiRecorder.handler';
+import { recordingSessionStore } from '../services/recordingSessionStore';
 import type { ClientToServerEvents, ServerToClientEvents } from '@playwright-web-app/shared';
 
 interface AuthSocket extends Socket {
@@ -32,9 +32,6 @@ export class WebSocketServer {
     this.setupMiddleware();
     this.setupHandlers();
 
-    // Set up AI Recorder event forwarding from service to WebSocket
-    setupAIRecorderEventForwarding(this.io);
-
     logger.info('WebSocket server initialized with built-in Playwright support (no agent required)');
   }
 
@@ -44,8 +41,12 @@ export class WebSocketServer {
         const token = socket.handshake.auth.token;
 
         // Development mode: allow unauthenticated connections
+        // Use the same userId as the HTTP BYPASS_AUTH middleware so that
+        // session ownership checks (e.g. codegen:subscribe) pass correctly.
         if (!token && config.nodeEnv === 'development') {
-          socket.userId = 'dev-user';
+          socket.userId = process.env.BYPASS_AUTH === 'true'
+            ? '4a6ceb7d-9883-44e9-bfd3-6a1cd2557ffc'
+            : 'dev-user';
           logger.info('WebSocket: Dev mode - allowing unauthenticated connection');
           return next();
         }
@@ -65,6 +66,13 @@ export class WebSocketServer {
           return next(new Error('Invalid token'));
         }
       } catch (error) {
+        // In dev mode with BYPASS_AUTH, fall back to the bypass userId
+        // even when the token is invalid (e.g. expired or wrong secret)
+        if (config.nodeEnv === 'development' && process.env.BYPASS_AUTH === 'true') {
+          socket.userId = '4a6ceb7d-9883-44e9-bfd3-6a1cd2557ffc';
+          logger.info('WebSocket: Dev mode - allowing connection despite auth error (BYPASS_AUTH)');
+          return next();
+        }
         logger.error('WebSocket auth error:', error);
         next(new Error('Authentication error'));
       }
@@ -84,9 +92,6 @@ export class WebSocketServer {
   }
 
   private handleClientConnection(socket: AuthSocket) {
-    // Set up AI Recorder handlers for this socket
-    setupAIRecorderHandlers(socket, this.io);
-
     // Handle recording start - runs Playwright codegen directly
     socket.on('recording:start', async (data) => {
       logger.info('Recording start requested:', data);
@@ -138,6 +143,12 @@ export class WebSocketServer {
 
     // Subscribe to a codegen recording session (join room for updates)
     socket.on('codegen:subscribe', (data: { sessionId: string }) => {
+      // Verify session ownership before allowing subscription
+      if (!recordingSessionStore.isOwner(data.sessionId, socket.userId || '')) {
+        logger.warn(`[WebSocket] Client ${socket.id} denied subscription to session ${data.sessionId} (not owner)`);
+        socket.emit('codegen:error', { sessionId: data.sessionId, error: 'Not authorized for this session' });
+        return;
+      }
       const roomName = `codegen:${data.sessionId}`;
       socket.join(roomName);
       logger.info(`[WebSocket] Client ${socket.id} subscribed to codegen session ${data.sessionId}`);
@@ -151,7 +162,6 @@ export class WebSocketServer {
     });
 
     socket.on('recording:codegen:start', async (data: { url: string; sessionId: string; scenarioName: string }) => {
-      console.log('[WebSocket] *** recording:codegen:start received ***', data);
       logger.info('Codegen recording start requested:', data);
 
       try {
@@ -228,7 +238,6 @@ export class WebSocketServer {
     // ======== EMBEDDED RECORDING (Vero IDE - Legacy) ========
     // Handle embedded recording start with CDP screencast or iframe proxy
     socket.on('recording:embedded:start', async (data: { url: string; sessionId: string; scenarioName: string; useProxy?: boolean }) => {
-      console.log('[WebSocket] *** recording:embedded:start received ***', data);
       logger.info('Embedded recording start requested:', data);
 
       try {
@@ -632,6 +641,7 @@ export class WebSocketServer {
       testFlowId: string;
       code: string;
       breakpoints: number[];
+      projectId?: string;
     }) => {
       logger.info('Debug execution start requested:', { executionId: data.executionId, breakpoints: data.breakpoints });
 
@@ -639,6 +649,7 @@ export class WebSocketServer {
       await this.executionService.updateStatus(data.executionId, 'running', undefined, data.testFlowId);
 
       // Execute with debug mode
+      const authToken = socket.handshake.auth?.token as string | undefined;
       this.playwrightService.executeTestWithDebug(
         data.code,
         data.executionId,
@@ -714,7 +725,8 @@ export class WebSocketServer {
             exitCode,
             duration,
           });
-        }
+        },
+        { projectId: data.projectId, authToken }
       );
     });
 

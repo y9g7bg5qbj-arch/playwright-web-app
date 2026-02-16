@@ -1,3 +1,4 @@
+import path from 'path';
 import express from 'express';
 import cors from 'cors';
 import { config } from './config';
@@ -6,8 +7,6 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
 // Routes
 import { authRoutes } from './routes/auth.routes';
-import { workflowRoutes } from './routes/workflow.routes';
-import { testFlowRoutes } from './routes/testFlow.routes';
 import { executionRoutes } from './routes/execution.routes';
 import agentRoutes from './routes/agent.routes';
 import recorderRoutes from './routes/recorder.routes';
@@ -18,41 +17,49 @@ import veroRoutes from './routes/vero.routes';
 import dataRoutes from './routes/data.routes';
 import scheduleRoutes from './routes/schedule.routes';
 import shardingRoutes from './routes/sharding.routes';
-import testDataRoutes from './routes/test-data.routes';
-import parallelRoutes from './routes/parallel.routes';
-import { executionEngineRoutes } from './routes/executionEngine.routes';
+import testDataRoutes from './routes/test-data';
 import proxyRoutes from './routes/proxy.routes';
 import previewRoutes from './routes/preview.routes';
 import applicationRoutes from './routes/application.routes';
 import { runConfigurationRoutes } from './routes/runConfiguration.routes';
 import { githubRoutes } from './routes/github.routes';
 import aiSettingsRoutes from './routes/ai-settings.routes';
-import aiRecorderRoutes from './routes/ai-recorder.routes';
 import sandboxRoutes from './routes/sandbox.routes';
 import pullRequestRoutes from './routes/pullRequest.routes';
 import dataStorageRoutes from './routes/data-storage.routes';
-import testDataMongoRoutes from './routes/test-data-mongo.routes';
+import testDataTablesRoutes from './routes/test-data/tables.routes';
+import testDataVersionsRoutes from './routes/test-data/versions.routes';
 import settingsRoutes from './routes/settings.routes';
-import { connectMongoDB } from './db/mongodb';
+import runParametersRoutes from './routes/runParameters.routes';
 
 export function createApp() {
   const app = express();
 
   // Middleware - Allow CORS from frontend and trace.playwright.dev
+  const localhostOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
+  const privateNetworkOriginPattern = /^https?:\/\/(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})(:\d+)?$/i;
   const allowedOrigins = [
     config.cors.origin,
     'https://trace.playwright.dev',
     'http://localhost:5173',
+    'http://127.0.0.1:5173',
     'http://localhost:5174',
+    'http://127.0.0.1:5174',
     'http://localhost:5175',
+    'http://127.0.0.1:5175',
     'http://localhost:5176',
+    'http://127.0.0.1:5176',
   ];
 
   app.use(cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps or curl)
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
+      const isExplicitlyAllowed = allowedOrigins.includes(origin);
+      const isLocalhostOrigin = localhostOriginPattern.test(origin);
+      const isPrivateNetworkOrigin = config.nodeEnv !== 'production' && privateNetworkOriginPattern.test(origin);
+
+      if (isExplicitlyAllowed || isLocalhostOrigin || isPrivateNetworkOrigin) {
         return callback(null, true);
       }
       callback(new Error('Not allowed by CORS'));
@@ -66,7 +73,7 @@ export function createApp() {
   app.use(express.urlencoded({ extended: true }));
 
   // Request logging
-  app.use((req, res, next) => {
+  app.use((req, _res, next) => {
     logger.info(`${req.method} ${req.path}`, {
       query: req.query,
       ip: req.ip,
@@ -74,19 +81,33 @@ export function createApp() {
     next();
   });
 
-  // Health check
-  app.get('/health', (req, res) => {
-    res.json({
-      success: true,
-      data: {
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-      },
-    });
+  // Health check — verifies MongoDB connectivity
+  app.get('/health', async (_req, res) => {
+    try {
+      const { getDb } = await import('./db/mongodb');
+      const db = getDb();
+      await db.command({ ping: 1 });
+      res.json({
+        success: true,
+        data: {
+          status: 'healthy',
+          database: 'connected',
+          timestamp: new Date().toISOString(),
+        },
+      });
+    } catch {
+      res.status(503).json({
+        success: false,
+        data: {
+          status: 'unhealthy',
+          database: 'disconnected',
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
   });
 
   // Static file serving for Allure reports
-  const path = require('path');
   const allureReportsPath = path.resolve(config.storage.path, 'allure-reports');
   app.use('/allure-reports', express.static(allureReportsPath, {
     setHeaders: (res) => {
@@ -98,8 +119,6 @@ export function createApp() {
 
   // API Routes
   app.use('/api/auth', authRoutes);
-  app.use('/api/workflows', workflowRoutes);
-  app.use('/api/test-flows', testFlowRoutes);
   app.use('/api/executions', executionRoutes);
   app.use('/api/agents', agentRoutes);
   app.use('/api/recorder', recorderRoutes);
@@ -111,10 +130,9 @@ export function createApp() {
   app.use('/api/data-tables', dataRoutes);
   app.use('/api/schedules', scheduleRoutes);
   app.use('/api/sharding', shardingRoutes);
+  app.use('/api/test-data/tables', testDataTablesRoutes); // Runtime table endpoints (vero-lang)
+  app.use('/api/test-data', testDataVersionsRoutes); // Runtime versions + bulk endpoints
   app.use('/api/test-data', testDataRoutes);
-  app.use('/api/execution/parallel', parallelRoutes);
-  app.use('/api/workers', parallelRoutes);
-  app.use('/api/execution/engine', executionEngineRoutes);
   app.use('/api/proxy', proxyRoutes);
   app.use('/api/preview', previewRoutes);
   app.use('/api/applications', applicationRoutes);
@@ -123,12 +141,11 @@ export function createApp() {
   app.use('/api', runConfigurationRoutes);
   app.use('/api/github', githubRoutes);
   app.use('/api/ai-settings', aiSettingsRoutes);
-  app.use('/api/ai-recorder', aiRecorderRoutes);
   app.use('/api/data-storage', dataStorageRoutes); // Data storage configuration
-  app.use('/api/test-data-mongo', testDataMongoRoutes); // MongoDB test data routes
   app.use('/api/settings', settingsRoutes); // Application settings including DB config
   app.use('/api', sandboxRoutes); // Sandbox collaboration routes
   app.use('/api', pullRequestRoutes); // Pull request routes
+  app.use('/api/applications', runParametersRoutes); // Run parameter definitions & sets
 
   // Error handlers (must be last)
   app.use(notFoundHandler);

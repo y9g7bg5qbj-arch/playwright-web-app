@@ -5,6 +5,7 @@
  */
 
 import { MongoClient, Db, Collection, Document } from 'mongodb';
+import { logger } from '../utils/logger';
 
 // MongoDB Atlas connection string - REQUIRED from environment
 const MONGODB_URI: string = (() => {
@@ -26,13 +27,17 @@ export async function connectMongoDB(): Promise<Db> {
   if (db) return db;
 
   try {
-    client = new MongoClient(MONGODB_URI);
+    client = new MongoClient(MONGODB_URI, {
+      connectTimeoutMS: 10_000,
+      serverSelectionTimeoutMS: 10_000,
+      socketTimeoutMS: 30_000,
+    });
     await client.connect();
     db = client.db(DATABASE_NAME);
-    console.log('✅ Connected to MongoDB Atlas');
+    logger.info('Connected to MongoDB Atlas');
     return db;
   } catch (error) {
-    console.error('❌ MongoDB connection error:', error);
+    logger.error('MongoDB connection error:', error);
     throw error;
   }
 }
@@ -62,7 +67,7 @@ export async function closeMongoDB(): Promise<void> {
     await client.close();
     client = null;
     db = null;
-    console.log('MongoDB connection closed');
+    logger.info('MongoDB connection closed');
   }
 }
 
@@ -115,9 +120,6 @@ export const COLLECTIONS = {
 
   // AI Features
   AI_SETTINGS: 'ai_settings',
-  AI_RECORDER_SESSIONS: 'ai_recorder_sessions',
-  AI_RECORDER_TEST_CASES: 'ai_recorder_test_cases',
-  AI_RECORDER_STEPS: 'ai_recorder_steps',
   COPILOT_SESSIONS: 'copilot_sessions',
   COPILOT_EXPLORATIONS: 'copilot_explorations',
   COPILOT_STAGED_CHANGES: 'copilot_staged_changes',
@@ -132,6 +134,10 @@ export const COLLECTIONS = {
   GITHUB_INTEGRATIONS: 'github_integrations',
   GITHUB_WORKFLOW_RUNS: 'github_workflow_runs',
 
+  // Run Parameters
+  RUN_PARAMETER_DEFINITIONS: 'run_parameter_definitions',
+  RUN_PARAMETER_SETS: 'run_parameter_sets',
+
   // System
   SETTINGS: 'settings',
   AUDIT_LOGS: 'audit_logs',
@@ -143,6 +149,7 @@ export interface MongoTestDataSheet {
   _id?: string;
   id: string;
   applicationId: string;
+  projectId?: string;
   name: string;
   pageObject?: string;
   description?: string;
@@ -150,7 +157,30 @@ export interface MongoTestDataSheet {
     name: string;
     type: string;
     required: boolean;
+    validation?: {
+      min?: number;
+      max?: number;
+      minLength?: number;
+      maxLength?: number;
+      pattern?: string;
+      enum?: string[];
+    };
+    min?: number;
+    max?: number;
+    minLength?: number;
+    maxLength?: number;
+    pattern?: string;
+    enum?: string[];
+    formula?: string;
+    referenceConfig?: {
+      targetSheet: string;
+      targetColumn: string;
+      displayColumn: string;
+      allowMultiple: boolean;
+      separator?: string;
+    };
   }>;
+  version: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -266,6 +296,8 @@ export interface MongoExecution {
   _id?: string;
   id: string;
   testFlowId: string;
+  applicationId?: string;
+  projectId?: string;
   status: 'pending' | 'running' | 'passed' | 'failed' | 'cancelled';
   exitCode?: number;
   target: string;
@@ -273,9 +305,22 @@ export interface MongoExecution {
   runConfigurationId?: string;
   configSnapshot?: string;
   triggeredBy: string;
+  triggeredByUser?: string;
+  scheduleId?: string;
+  scheduleName?: string;
   startedAt?: Date;
   finishedAt?: Date;
   createdAt: Date;
+  isMatrixParent?: boolean;
+  matrixChildren?: string[];
+  matrixParentId?: string;
+  matrixLabel?: string;
+  matrixConfig?: {
+    combinations: { label: string; values: Record<string, string> }[];
+    concurrency: number;
+    failFast: boolean;
+    totalChildren: number;
+  };
 }
 
 // ExecutionLog model
@@ -347,7 +392,10 @@ export interface MongoSchedule {
   _id?: string;
   id: string;
   userId: string;
+  projectId?: string;
   workflowId?: string;
+  scopeFolder?: string;
+  scopeSandboxId?: string;
   name: string;
   description?: string;
   cronExpression: string;
@@ -361,6 +409,8 @@ export interface MongoSchedule {
   parameters?: string;
   defaultExecutionConfig?: string;
   executionTarget: string;
+  runConfigurationId?: string;    // Phase 3: link to run configuration
+  migrationVersion?: number;      // Legacy schedule backfill marker
   githubRepoFullName?: string;
   githubBranch?: string;
   githubWorkflowFile?: string;
@@ -374,6 +424,10 @@ export interface MongoRunConfiguration {
   _id?: string;
   id: string;
   workflowId: string;
+  projectId?: string;
+  // Project-scope migration metadata (legacy workflow-scoped records only)
+  projectScopeSourceConfigId?: string;
+  projectScopeMigratedAt?: Date;
   name: string;
   description?: string;
   isDefault: boolean;
@@ -399,6 +453,21 @@ export interface MongoRunConfiguration {
   screenshot: string;
   video: string;
   advancedConfig?: string;
+  // Phase 2 additions: visual, selection, parameters, runtime
+  tagExpression?: string;
+  namePatterns?: string;          // JSON array
+  selectionScope?: string;
+  envVars?: string;               // JSON object
+  parameterSetId?: string;
+  parameterOverrides?: string;    // JSON object
+  githubRepository?: string;
+  githubWorkflowPath?: string;
+  visualPreset?: string;
+  visualThreshold?: number;
+  visualMaxDiffPixels?: number;
+  visualMaxDiffPixelRatio?: number;
+  visualUpdateSnapshots?: boolean;
+  runtimeConfig?: string;         // JSON — frontend-specific runtime fields
   createdAt: Date;
   updatedAt: Date;
 }
@@ -478,70 +547,6 @@ export interface MongoPullRequest {
   mergedAt?: Date;
   mergedById?: string;
   closedAt?: Date;
-}
-
-// AI Recorder Session model
-export interface MongoAIRecorderSession {
-  _id?: string;
-  id: string;
-  userId: string;
-  applicationId?: string;
-  status: 'pending' | 'processing' | 'human_review' | 'complete' | 'failed' | 'cancelled';
-  environment: string;
-  baseUrl?: string;
-  headless: boolean;
-  totalTests: number;
-  completedTests: number;
-  failedTests: number;
-  createdAt: Date;
-  updatedAt: Date;
-  startedAt?: Date;
-  completedAt?: Date;
-}
-
-// AI Recorder Test Case model
-export interface MongoAIRecorderTestCase {
-  _id?: string;
-  id: string;
-  sessionId: string;
-  name: string;
-  description?: string;
-  status: 'pending' | 'in_progress' | 'stuck' | 'manual_recording' | 'partially_complete' | 'human_review' | 'approved' | 'complete' | 'failed';
-  order: number;
-  veroCode?: string;
-  targetUrl?: string;
-  retryCount: number;
-  stuckAtStep?: number;
-  errorMessage?: string;
-  createdAt: Date;
-  updatedAt: Date;
-  startedAt?: Date;
-  completedAt?: Date;
-}
-
-// AI Recorder Step model
-export interface MongoAIRecorderStep {
-  _id?: string;
-  id: string;
-  testCaseId: string;
-  stepNumber: number;
-  description: string;
-  stepType: 'navigate' | 'fill' | 'click' | 'assert' | 'loop' | 'wait';
-  veroCode?: string;
-  selector?: string;
-  selectorType?: 'testid' | 'role' | 'label' | 'text' | 'css' | 'xpath';
-  value?: string;
-  status: 'pending' | 'running' | 'retrying' | 'success' | 'stuck' | 'resolved' | 'captured' | 'manual' | 'skipped';
-  retryCount: number;
-  maxRetries: number;
-  confidence: number;
-  screenshotPath?: string;
-  errorMessage?: string;
-  suggestions?: string;
-  createdAt: Date;
-  updatedAt: Date;
-  startedAt?: Date;
-  completedAt?: Date;
 }
 
 // ScheduledTest model

@@ -11,7 +11,9 @@ global.fetch = mockFetch as unknown as typeof fetch;
 // Mock authentication middleware
 vi.mock('../middleware/auth', () => ({
   authenticateToken: (req: any, res: any, next: any) => {
-    req.user = { id: 'test-user-123', email: 'test@example.com' };
+    const userId = 'test-user-123';
+    req.userId = userId;
+    req.user = { id: userId, email: 'test@example.com' };
     next();
   },
   AuthRequest: {} as any,

@@ -7,13 +7,8 @@
 
 import type { Page, Browser, BrowserContext } from 'playwright';
 import { chromium } from 'playwright';
-import type {
-  NaturalLanguageStep,
-  ExecutionContext,
-  ExecutionConfig,
-  ExecuteResult,
-} from './interfaces';
-import { SkillRegistry, type SkillExecutionResult } from './SkillRegistry';
+import type { NaturalLanguageStep, ExecutionContext, ExecutionConfig } from './interfaces';
+import { SkillRegistry } from './SkillRegistry';
 import type { PlaywrightClient } from './interfaces/PlaywrightClient';
 import { DirectPlaywrightClient } from './clients/DirectPlaywrightClient';
 import { generateVeroAction } from '../veroSyntaxReference';

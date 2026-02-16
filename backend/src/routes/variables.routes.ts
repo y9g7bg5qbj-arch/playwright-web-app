@@ -7,6 +7,7 @@
 
 import { Router, Request, Response } from 'express';
 import { VariableScope } from '@playwright-web-app/shared';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -151,7 +152,7 @@ router.get('/', async (req: Request, res: Response) => {
             },
         });
     } catch (error) {
-        console.error('Error fetching variables:', error);
+        logger.error('Error fetching variables:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error',
@@ -306,7 +307,7 @@ router.post('/parse-flow', async (req: Request, res: Response) => {
             variables: flowVariables,
         });
     } catch (error) {
-        console.error('Error parsing flow:', error);
+        logger.error('Error parsing flow:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error',

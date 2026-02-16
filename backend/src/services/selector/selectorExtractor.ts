@@ -278,7 +278,7 @@ export async function injectSelectorExtractor(page: any): Promise<void> {
  * Extract selectors from an element handle
  */
 export async function extractSelectorsFromElement(
-  page: any,
+  _page: any,
   elementHandle: any
 ): Promise<ExtractedSelectors | null> {
   try {

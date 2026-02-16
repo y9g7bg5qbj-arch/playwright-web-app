@@ -4,12 +4,7 @@
  * Abstract base class for all sharding strategies.
  */
 
-import {
-  TestFile,
-  TestAllocation,
-  ShardingStrategy,
-  ShardingStrategyType,
-} from '../types';
+import { TestFile, TestAllocation, ShardingStrategy, ShardingStrategyType } from '../types';
 
 export abstract class BaseStrategy implements ShardingStrategy {
   abstract name: string;

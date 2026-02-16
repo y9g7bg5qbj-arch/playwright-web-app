@@ -61,8 +61,6 @@ const adapterCache = new Map<string, any>();
  * Test database connection
  */
 export async function testConnection(config: DataStorageConfig): Promise<ConnectionTestResult> {
-  const startTime = Date.now();
-
   try {
     switch (config.provider) {
       case 'mongodb':

@@ -6,19 +6,34 @@
 
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import { existsSync } from 'fs';
+import type { Dirent } from 'fs';
 import { AppError } from '../utils/errors';
 import { findDiffHunks, type ConflictFile } from '../utils/diff';
 import { logger } from '../utils/logger';
-import {
-  sandboxRepository,
-  pullRequestRepository,
-  userRepository,
-  projectRepository,
-  applicationRepository
-} from '../db/repositories/mongo';
+import { sandboxRepository, pullRequestRepository, userRepository, projectRepository, applicationRepository } from '../db/repositories/mongo';
 
-const VERO_PROJECTS_BASE = process.env.VERO_PROJECTS_PATH || path.join(process.cwd(), 'vero-projects');
+const VERO_PROJECTS_BASE = process.env.VERO_PROJECTS_PATH
+  || (existsSync(path.join(process.cwd(), 'vero-projects'))
+    ? path.join(process.cwd(), 'vero-projects')
+    : path.join(process.cwd(), '..', 'vero-projects'));
+const DEFAULT_SANDBOX_BASELINE_ROOT = existsSync(path.join(process.cwd(), 'backend'))
+  ? path.join(process.cwd(), 'backend', 'storage', 'sandbox-baselines')
+  : path.join(process.cwd(), 'storage', 'sandbox-baselines');
+const SANDBOX_BASELINE_ROOT = process.env.SANDBOX_BASELINE_PATH || DEFAULT_SANDBOX_BASELINE_ROOT;
 const MAX_SANDBOXES_PER_USER = 5;
+const LEGACY_CONTENT_FOLDERS = new Set(['pages', 'features', 'pageactions', 'resources']);
+const ENV_ROOT_FOLDERS = new Set(['dev', 'master', 'sandboxes']);
+const EXCLUDED_SANDBOX_DIR_NAMES = new Set(['data', '.sync-base']);
+
+interface CopyDirectoryOptions {
+  includeRootDirNames?: Set<string>;
+  excludeDirNames?: Set<string>;
+}
+
+export function resolveSandboxBaselinePath(sandboxId: string): string {
+  return path.join(SANDBOX_BASELINE_ROOT, sandboxId);
+}
 
 export interface CreateSandboxInput {
   name: string;
@@ -46,16 +61,31 @@ export interface SandboxWithDetails {
 /**
  * Recursively copy directory contents
  */
-async function copyDirectory(src: string, dest: string): Promise<void> {
+async function copyDirectory(
+  src: string,
+  dest: string,
+  options: CopyDirectoryOptions = {},
+  depth: number = 0
+): Promise<void> {
   await fs.mkdir(dest, { recursive: true });
   const entries = await fs.readdir(src, { withFileTypes: true });
 
   for (const entry of entries) {
+    if (entry.isDirectory()) {
+      const entryLower = entry.name.toLowerCase();
+      if (options.excludeDirNames?.has(entryLower)) {
+        continue;
+      }
+      if (depth === 0 && options.includeRootDirNames && !options.includeRootDirNames.has(entryLower)) {
+        continue;
+      }
+    }
+
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
 
     if (entry.isDirectory()) {
-      await copyDirectory(srcPath, destPath);
+      await copyDirectory(srcPath, destPath, options, depth + 1);
     } else {
       await fs.copyFile(srcPath, destPath);
     }
@@ -70,6 +100,119 @@ async function deleteDirectory(dirPath: string): Promise<void> {
     await fs.rm(dirPath, { recursive: true, force: true });
   } catch (error) {
     logger.warn(`Could not delete directory ${dirPath}:`, error);
+  }
+}
+
+async function ensureResourceFolders(environmentRoot: string): Promise<void> {
+  const resourcesDir = path.join(environmentRoot, 'Resources');
+  await fs.mkdir(path.join(resourcesDir, 'Visual', 'Baselines'), { recursive: true });
+  await fs.mkdir(path.join(resourcesDir, 'Docs'), { recursive: true });
+}
+
+async function writeSandboxBaselineSnapshot(
+  sandboxId: string,
+  sourcePath: string,
+  options: CopyDirectoryOptions
+): Promise<void> {
+  const baselinePath = resolveSandboxBaselinePath(sandboxId);
+  await deleteDirectory(baselinePath);
+  await copyDirectory(sourcePath, baselinePath, options);
+  await ensureResourceFolders(baselinePath);
+}
+
+async function writeBaselineFromSource(
+  sandboxId: string,
+  sourcePath: string,
+  useLegacyRoot: boolean
+): Promise<void> {
+  const copyOptions: CopyDirectoryOptions = useLegacyRoot
+    ? {
+      includeRootDirNames: LEGACY_CONTENT_FOLDERS,
+      excludeDirNames: EXCLUDED_SANDBOX_DIR_NAMES,
+    }
+    : { excludeDirNames: EXCLUDED_SANDBOX_DIR_NAMES };
+
+  await writeSandboxBaselineSnapshot(sandboxId, sourcePath, copyOptions);
+}
+
+async function scaffoldEnvironmentFolders(environmentRoot: string): Promise<void> {
+  await fs.mkdir(path.join(environmentRoot, 'Pages'), { recursive: true });
+  await fs.mkdir(path.join(environmentRoot, 'Features'), { recursive: true });
+  await fs.mkdir(path.join(environmentRoot, 'PageActions'), { recursive: true });
+  await ensureResourceFolders(environmentRoot);
+}
+
+function hasEnvironmentContent(entries: Dirent[]): boolean {
+  return entries.some((entry) => entry.isDirectory() && LEGACY_CONTENT_FOLDERS.has(entry.name.toLowerCase()));
+}
+
+async function resolveSandboxSource(
+  projectPath: string,
+  sourceBranch: string,
+  options: { bootstrapIfMissing?: boolean } = {}
+): Promise<{ sourcePath: string; useLegacyRoot: boolean }> {
+  const sourceBranchPath = path.join(projectPath, sourceBranch);
+
+  let sourceBranchEntries: Dirent[] | null = null;
+  try {
+    sourceBranchEntries = await fs.readdir(sourceBranchPath, { withFileTypes: true });
+  } catch (error: any) {
+    if (error?.code !== 'ENOENT') {
+      throw error;
+    }
+  }
+
+  if (sourceBranchEntries && hasEnvironmentContent(sourceBranchEntries)) {
+    return { sourcePath: sourceBranchPath, useLegacyRoot: false };
+  }
+
+  const projectRootEntries = await fs.readdir(projectPath, { withFileTypes: true });
+  if (hasEnvironmentContent(projectRootEntries)) {
+    return { sourcePath: projectPath, useLegacyRoot: true };
+  }
+
+  if (options.bootstrapIfMissing) {
+    // Bootstrap empty projects so first sandbox creation works without manual filesystem setup.
+    await scaffoldEnvironmentFolders(sourceBranchPath);
+    return { sourcePath: sourceBranchPath, useLegacyRoot: false };
+  }
+
+  if (sourceBranchEntries) {
+    throw new AppError(
+      400,
+      `Source environment '${sourceBranch}' exists but has no test content folders (Pages/Features/PageActions/Resources).`
+    );
+  }
+
+  throw new AppError(
+    400,
+    `Source environment '${sourceBranch}' not found. Initialize ${sourceBranch}/ or add test content folders at the project root.`
+  );
+}
+
+async function copyLegacyEnvironment(projectPath: string, targetPath: string): Promise<void> {
+  await fs.mkdir(targetPath, { recursive: true });
+  const entries = await fs.readdir(projectPath, { withFileTypes: true });
+
+  let copiedCount = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const lowerName = entry.name.toLowerCase();
+    if (ENV_ROOT_FOLDERS.has(lowerName) || !LEGACY_CONTENT_FOLDERS.has(lowerName)) {
+      continue;
+    }
+
+    await copyDirectory(path.join(projectPath, entry.name), path.join(targetPath, entry.name), {
+      excludeDirNames: EXCLUDED_SANDBOX_DIR_NAMES,
+    });
+    copiedCount += 1;
+  }
+
+  if (copiedCount === 0) {
+    throw new AppError(400, 'No test content folders were found to seed this sandbox.');
   }
 }
 
@@ -131,12 +274,6 @@ export class SandboxService {
       throw new Error('Project not found');
     }
 
-    // Get application for path resolution
-    const application = await applicationRepository.findById(project.applicationId);
-    if (!application) {
-      throw new Error('Application not found');
-    }
-
     // Check sandbox limit per user (max 5)
     const userSandboxCount = await sandboxRepository.countByOwnerAndProject(userId, projectId, 'active');
 
@@ -149,12 +286,20 @@ export class SandboxService {
     const folderPath = `sandboxes/${nameSlug}`;
 
     // Determine the project's vero path
-    const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
+    let projectPath = project.veroPath;
+    if (!projectPath) {
+      const application = await applicationRepository.findById(project.applicationId);
+      if (!application) {
+        throw new AppError(404, 'Application not found');
+      }
+      projectPath = path.join(VERO_PROJECTS_BASE, application.id, project.id);
+    }
+    await fs.mkdir(projectPath, { recursive: true });
 
     // Full paths
     const sandboxFullPath = path.join(projectPath, folderPath);
     const sourceBranch = input.sourceBranch || 'dev';
-    const sourceFullPath = path.join(projectPath, sourceBranch);
+    const sourceResolution = await resolveSandboxSource(projectPath, sourceBranch, { bootstrapIfMissing: true });
 
     // Check if sandbox folder already exists
     try {
@@ -167,19 +312,15 @@ export class SandboxService {
       // ENOENT means folder doesn't exist, which is what we want
     }
 
-    // Check if source environment exists
-    try {
-      await fs.access(sourceFullPath);
-    } catch {
-      throw new Error(`Source environment '${sourceBranch}' not found. Please ensure the project has been properly initialized.`);
-    }
-
     // Copy source environment to sandbox folder
-    await copyDirectory(sourceFullPath, sandboxFullPath);
-
-    // Also copy to .sync-base/ folder for three-way merge support
-    const syncBasePath = path.join(sandboxFullPath, '.sync-base');
-    await copyDirectory(sourceFullPath, syncBasePath);
+    if (sourceResolution.useLegacyRoot) {
+      await copyLegacyEnvironment(sourceResolution.sourcePath, sandboxFullPath);
+    } else {
+      await copyDirectory(sourceResolution.sourcePath, sandboxFullPath, {
+        excludeDirNames: EXCLUDED_SANDBOX_DIR_NAMES,
+      });
+    }
+    await ensureResourceFolders(sandboxFullPath);
 
     // Create sandbox record in database
     const sandbox = await sandboxRepository.create({
@@ -191,6 +332,14 @@ export class SandboxService {
       folderPath,
       status: 'active',
     });
+
+    try {
+      await writeBaselineFromSource(sandbox.id, sourceResolution.sourcePath, sourceResolution.useLegacyRoot);
+    } catch (error) {
+      await sandboxRepository.delete(sandbox.id);
+      await deleteDirectory(sandboxFullPath);
+      throw error;
+    }
 
     return this.toSandboxWithDetails(sandbox);
   }
@@ -257,6 +406,7 @@ export class SandboxService {
     // Delete the sandbox folder
     const sandboxFullPath = path.join(projectPath, sandbox.folderPath);
     await deleteDirectory(sandboxFullPath);
+    await deleteDirectory(resolveSandboxBaselinePath(sandboxId));
 
     // Delete pull requests associated with sandbox
     await pullRequestRepository.deleteBySandboxId(sandboxId);
@@ -321,24 +471,26 @@ export class SandboxService {
     const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
 
     const sandboxFullPath = path.join(projectPath, sandbox.folderPath);
-    const sourceFullPath = path.join(projectPath, sandbox.sourceBranch);
+    const sourceResolution = await resolveSandboxSource(projectPath, sandbox.sourceBranch, { bootstrapIfMissing: false });
 
     // For now, we do a simple comparison to detect potential conflicts
     // In a real implementation, you'd want a more sophisticated merge strategy
     const conflicts: string[] = [];
 
     try {
-      // Get list of files in both directories (excluding .sync-base)
+      await this.removeExcludedSandboxDirectories(sandboxFullPath);
+
+      // Get list of files in both directories while excluding forbidden sandbox folders.
       const [sandboxFiles, sourceFiles] = await Promise.all([
-        this.listFilesRecursive(sandboxFullPath, ['.sync-base']),
-        this.listFilesRecursive(sourceFullPath, []),
+        this.listFilesRecursive(sandboxFullPath, EXCLUDED_SANDBOX_DIR_NAMES),
+        this.listSourceFiles(sourceResolution.sourcePath, sourceResolution.useLegacyRoot),
       ]);
 
       // Find files that exist in both and check for differences
       for (const file of sandboxFiles) {
         if (sourceFiles.includes(file)) {
           const sandboxContent = await fs.readFile(path.join(sandboxFullPath, file), 'utf-8');
-          const sourceContent = await fs.readFile(path.join(sourceFullPath, file), 'utf-8');
+          const sourceContent = await fs.readFile(path.join(sourceResolution.sourcePath, file), 'utf-8');
 
           if (sandboxContent !== sourceContent) {
             // File was modified in both sandbox and source - potential conflict
@@ -357,13 +509,16 @@ export class SandboxService {
 
       // No conflicts - copy new/updated files from source to sandbox
       for (const file of sourceFiles) {
-        const sourceFilePath = path.join(sourceFullPath, file);
+        const sourceFilePath = path.join(sourceResolution.sourcePath, file);
         const sandboxFilePath = path.join(sandboxFullPath, file);
 
         // Create directory if needed
         await fs.mkdir(path.dirname(sandboxFilePath), { recursive: true });
         await fs.copyFile(sourceFilePath, sandboxFilePath);
       }
+
+      await ensureResourceFolders(sandboxFullPath);
+      await writeBaselineFromSource(sandboxId, sourceResolution.sourcePath, sourceResolution.useLegacyRoot);
 
       // Update lastSyncAt
       await sandboxRepository.update(sandboxId, { lastSyncAt: new Date() });
@@ -447,7 +602,7 @@ export class SandboxService {
    */
   private async listFilesRecursive(
     dirPath: string,
-    excludeDirs: string[] = [],
+    excludeDirNames: Set<string> = new Set(),
     basePath: string = ''
   ): Promise<string[]> {
     const files: string[] = [];
@@ -457,7 +612,7 @@ export class SandboxService {
 
       for (const entry of entries) {
         // Skip excluded directories
-        if (entry.isDirectory() && excludeDirs.includes(entry.name)) {
+        if (entry.isDirectory() && excludeDirNames.has(entry.name.toLowerCase())) {
           continue;
         }
 
@@ -466,7 +621,7 @@ export class SandboxService {
         if (entry.isDirectory()) {
           const subFiles = await this.listFilesRecursive(
             path.join(dirPath, entry.name),
-            excludeDirs,
+            excludeDirNames,
             relativePath
           );
           files.push(...subFiles);
@@ -479,6 +634,67 @@ export class SandboxService {
     }
 
     return files;
+  }
+
+  /**
+   * List source files while supporting legacy project-root layouts.
+   */
+  private async listSourceFiles(sourcePath: string, useLegacyRoot: boolean): Promise<string[]> {
+    if (!useLegacyRoot) {
+      return this.listFilesRecursive(sourcePath, EXCLUDED_SANDBOX_DIR_NAMES);
+    }
+
+    let entries: Dirent[] = [];
+    try {
+      entries = await fs.readdir(sourcePath, { withFileTypes: true });
+    } catch (error) {
+      logger.warn(`[Sandbox] Failed to read legacy source path: ${sourcePath}`, error);
+      return [];
+    }
+
+    const files: string[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+
+      if (!LEGACY_CONTENT_FOLDERS.has(entry.name.toLowerCase())) {
+        continue;
+      }
+
+      const nested = await this.listFilesRecursive(
+        path.join(sourcePath, entry.name),
+        EXCLUDED_SANDBOX_DIR_NAMES,
+        entry.name
+      );
+      files.push(...nested);
+    }
+
+    return files;
+  }
+
+  /**
+   * Remove excluded root directories from sandbox folders.
+   */
+  private async removeExcludedSandboxDirectories(sandboxFullPath: string): Promise<void> {
+    let entries: Dirent[] = [];
+    try {
+      entries = await fs.readdir(sandboxFullPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+
+      if (!EXCLUDED_SANDBOX_DIR_NAMES.has(entry.name.toLowerCase())) {
+        continue;
+      }
+
+      await deleteDirectory(path.join(sandboxFullPath, entry.name));
+    }
   }
 
   /**
@@ -519,26 +735,25 @@ export class SandboxService {
     const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
 
     const sandboxFullPath = path.join(projectPath, sandbox.folderPath);
-    const sourceFullPath = path.join(projectPath, sandbox.sourceBranch);
-
-    // Path to base files (snapshot from when sandbox was created/last synced)
-    const syncBasePath = path.join(sandboxFullPath, '.sync-base');
+    const sourceResolution = await resolveSandboxSource(projectPath, sandbox.sourceBranch, { bootstrapIfMissing: false });
+    const baselinePath = resolveSandboxBaselinePath(sandboxId);
 
     try {
-      // Check if .sync-base exists (for backwards compatibility with old sandboxes)
+      await this.removeExcludedSandboxDirectories(sandboxFullPath);
+
+      // Check if baseline snapshot exists
       let hasBaseFolder = false;
       try {
-        await fs.access(syncBasePath);
+        await fs.access(baselinePath);
         hasBaseFolder = true;
       } catch {
-        // .sync-base doesn't exist - old sandbox, will create it after sync
-        logger.info(`[syncWithDetails] No .sync-base folder found for sandbox ${sandboxId}, will create after sync`);
+        logger.info(`[syncWithDetails] No baseline snapshot found for sandbox ${sandboxId}, treating changes conservatively`);
       }
 
-      // Get list of files in both directories (excluding .sync-base)
+      // Get list of files in both directories while excluding forbidden sandbox folders.
       const [sandboxFiles, sourceFiles] = await Promise.all([
-        this.listFilesRecursive(sandboxFullPath, ['.sync-base']),
-        this.listFilesRecursive(sourceFullPath, []),
+        this.listFilesRecursive(sandboxFullPath, EXCLUDED_SANDBOX_DIR_NAMES),
+        this.listSourceFiles(sourceResolution.sourcePath, sourceResolution.useLegacyRoot),
       ]);
 
       const conflicts: ConflictFile[] = [];
@@ -548,8 +763,8 @@ export class SandboxService {
       // Check files that exist in source (potential updates)
       for (const file of sourceFiles) {
         const sandboxFilePath = path.join(sandboxFullPath, file);
-        const sourceFilePath = path.join(sourceFullPath, file);
-        const baseFilePath = path.join(syncBasePath, file);
+        const sourceFilePath = path.join(sourceResolution.sourcePath, file);
+        const baseFilePath = path.join(baselinePath, file);
 
         const sourceContent = await fs.readFile(sourceFilePath, 'utf-8');
 
@@ -623,7 +838,7 @@ export class SandboxService {
 
       // No conflicts - apply clean merges and update sandbox
       for (const file of cleanMerges) {
-        const sourceFilePath = path.join(sourceFullPath, file);
+        const sourceFilePath = path.join(sourceResolution.sourcePath, file);
         const sandboxFilePath = path.join(sandboxFullPath, file);
 
         // Create directory if needed
@@ -631,11 +846,10 @@ export class SandboxService {
         await fs.copyFile(sourceFilePath, sandboxFilePath);
       }
 
-      // Update .sync-base with current source content (new baseline for next sync)
-      // This should happen after successful sync
-      logger.debug(`[syncWithDetails] Updating .sync-base folder for sandbox ${sandboxId}`);
-      await deleteDirectory(syncBasePath);
-      await copyDirectory(sourceFullPath, syncBasePath);
+      // Update baseline snapshot with current source content (new baseline for next sync).
+      logger.debug(`[syncWithDetails] Updating baseline snapshot for sandbox ${sandboxId}`);
+      await ensureResourceFolders(sandboxFullPath);
+      await writeBaselineFromSource(sandboxId, sourceResolution.sourcePath, sourceResolution.useLegacyRoot);
 
       // Update lastSyncAt
       const updated = await sandboxRepository.update(sandboxId, { lastSyncAt: new Date() });
@@ -650,7 +864,7 @@ export class SandboxService {
         sandbox: await this.toSandboxWithDetails(updated),
       };
     } catch (error) {
-      console.error('Sync with details failed:', error);
+      logger.error('Sync with details failed:', error);
       throw new AppError(500, 'Failed to sync sandbox with source environment');
     }
   }
@@ -692,11 +906,13 @@ export class SandboxService {
     const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
 
     const sandboxFullPath = path.join(projectPath, sandbox.folderPath);
-    const sourceFullPath = path.join(projectPath, sandbox.sourceBranch);
+    const sourceResolution = await resolveSandboxSource(projectPath, sandbox.sourceBranch, { bootstrapIfMissing: false });
 
     const updatedFiles: string[] = [];
 
     try {
+      await this.removeExcludedSandboxDirectories(sandboxFullPath);
+
       // Apply resolved content for each file
       for (const [filePath, content] of Object.entries(resolutions)) {
         const fullPath = path.join(sandboxFullPath, filePath);
@@ -714,8 +930,8 @@ export class SandboxService {
       // If autoMergeClean is true, also copy non-conflicting files from source
       if (autoMergeClean) {
         const [sandboxFiles, sourceFiles] = await Promise.all([
-          this.listFilesRecursive(sandboxFullPath, ['.sync-base']),
-          this.listFilesRecursive(sourceFullPath, []),
+          this.listFilesRecursive(sandboxFullPath, EXCLUDED_SANDBOX_DIR_NAMES),
+          this.listSourceFiles(sourceResolution.sourcePath, sourceResolution.useLegacyRoot),
         ]);
 
         for (const file of sourceFiles) {
@@ -723,7 +939,7 @@ export class SandboxService {
           if (resolutions[file]) continue;
 
           const sandboxFilePath = path.join(sandboxFullPath, file);
-          const sourceFilePath = path.join(sourceFullPath, file);
+          const sourceFilePath = path.join(sourceResolution.sourcePath, file);
 
           if (!sandboxFiles.includes(file)) {
             // New file in source - copy it
@@ -734,11 +950,10 @@ export class SandboxService {
         }
       }
 
-      // Update .sync-base with current source content (new baseline for next sync)
-      const syncBasePath = path.join(sandboxFullPath, '.sync-base');
-      logger.debug(`[resolveConflicts] Updating .sync-base folder for sandbox ${sandboxId}`);
-      await deleteDirectory(syncBasePath);
-      await copyDirectory(sourceFullPath, syncBasePath);
+      // Update baseline snapshot with current source content (new baseline for next sync).
+      logger.debug(`[resolveConflicts] Updating baseline snapshot for sandbox ${sandboxId}`);
+      await ensureResourceFolders(sandboxFullPath);
+      await writeBaselineFromSource(sandboxId, sourceResolution.sourcePath, sourceResolution.useLegacyRoot);
 
       // Update lastSyncAt
       const updated = await sandboxRepository.update(sandboxId, { lastSyncAt: new Date() });

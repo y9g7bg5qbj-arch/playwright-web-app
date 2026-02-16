@@ -4,7 +4,7 @@
  */
 
 import type { GeneratorContext, LocatorInfo, PageAction } from '@playwright-web-app/shared';
-import { buildLocatorCode, generateLocatorName } from './locatorBuilder';
+import { buildLocatorCode } from './locatorBuilder';
 
 /**
  * Generate Page Object Model classes
