@@ -140,12 +140,15 @@ recordingRouter.post('/recording/start', authenticateToken, async (req: AuthRequ
         const sessionId = `vero-${Date.now()}-${Math.random().toString(36).substring(7)}`;
         const outputFile = getVeroTempFilePath(sessionId);
 
-        // Spawn playwright codegen process with output file
-        const command = `npx playwright codegen "${url}" --target=playwright-test -o "${outputFile}"`;
-
-        const codegenProcess = spawn(command, [], {
+        // Spawn playwright codegen process with output file.
+        // Use argument array with shell: false to prevent command injection via url.
+        const codegenProcess = spawn('npx', [
+            'playwright', 'codegen', url,
+            '--target=playwright-test',
+            '-o', outputFile,
+        ], {
             stdio: 'inherit', // Show browser window
-            shell: true,
+            shell: false,
         });
 
         let fileWatcher: FSWatcher | undefined;

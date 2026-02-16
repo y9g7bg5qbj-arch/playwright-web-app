@@ -213,7 +213,8 @@ executionRouter.post('/debug', authenticateToken, async (req: AuthRequest, res: 
         // Extract USE statements and load referenced pages/pageActions
         const useMatches = veroContent.match(/USE\s+(\w+)/gi) || [];
         const pageNames = useMatches.map((m: string) => m.replace(/USE\s+/i, '').trim());
-        const projectRoot = filePath ? detectProjectRoot(filePath, VERO_PROJECT_PATH) : VERO_PROJECT_PATH;
+        const confinedFilePath = filePath ? confineToBase(VERO_PROJECT_PATH, filePath) : undefined;
+        const projectRoot = confinedFilePath ? detectProjectRoot(confinedFilePath, VERO_PROJECT_PATH) : VERO_PROJECT_PATH;
         const referencedContent = await loadReferencedPages(pageNames, projectRoot);
         const combinedContent = referencedContent + veroContent;
 
