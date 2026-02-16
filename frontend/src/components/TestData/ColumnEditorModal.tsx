@@ -9,7 +9,8 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import { X, Type, Hash, Calendar, ToggleLeft, Calculator, HelpCircle, Link2 } from 'lucide-react';
+import { Type, Hash, Calendar, ToggleLeft, Calculator, HelpCircle, Link2 } from 'lucide-react';
+import { Modal, Button, Tooltip } from '@/components/ui';
 import type { DataColumn } from './AGGridDataTable';
 
 // Sheet info for reference column configuration
@@ -51,7 +52,14 @@ export function ColumnEditorModal({
 }: ColumnEditorModalProps) {
     const [name, setName] = useState('');
     const [type, setType] = useState<DataColumn['type']>('text');
+    const [required, setRequired] = useState(false);
     const [formula, setFormula] = useState('');
+    const [minValue, setMinValue] = useState('');
+    const [maxValue, setMaxValue] = useState('');
+    const [minLength, setMinLength] = useState('');
+    const [maxLength, setMaxLength] = useState('');
+    const [pattern, setPattern] = useState('');
+    const [enumValuesRaw, setEnumValuesRaw] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [showFormulaHelp, setShowFormulaHelp] = useState(false);
 
@@ -77,7 +85,15 @@ export function ColumnEditorModal({
             if (existingColumn) {
                 setName(existingColumn.name);
                 setType(existingColumn.type);
+                setRequired(Boolean(existingColumn.required));
                 setFormula(existingColumn.formula || '');
+                const validation = existingColumn.validation || {};
+                setMinValue(String(validation.min ?? existingColumn.min ?? ''));
+                setMaxValue(String(validation.max ?? existingColumn.max ?? ''));
+                setMinLength(String(validation.minLength ?? existingColumn.minLength ?? ''));
+                setMaxLength(String(validation.maxLength ?? existingColumn.maxLength ?? ''));
+                setPattern(validation.pattern ?? existingColumn.pattern ?? '');
+                setEnumValuesRaw((validation.enum ?? existingColumn.enum ?? []).join(', '));
                 // Initialize reference config if editing a reference column
                 if (existingColumn.referenceConfig) {
                     setTargetSheet(existingColumn.referenceConfig.targetSheet);
@@ -99,7 +115,14 @@ export function ColumnEditorModal({
                 }
                 setName(`${baseName}${index}`);
                 setType('text');
+                setRequired(false);
                 setFormula('');
+                setMinValue('');
+                setMaxValue('');
+                setMinLength('');
+                setMaxLength('');
+                setPattern('');
+                setEnumValuesRaw('');
                 setTargetSheet('');
                 setTargetColumn('');
                 setDisplayColumn('');
@@ -156,10 +179,68 @@ export function ColumnEditorModal({
             }
         }
 
+        const toOptionalNumber = (value: string) => {
+            if (!value.trim()) return undefined;
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : NaN;
+        };
+
+        const parsedMin = toOptionalNumber(minValue);
+        const parsedMax = toOptionalNumber(maxValue);
+        const parsedMinLength = toOptionalNumber(minLength);
+        const parsedMaxLength = toOptionalNumber(maxLength);
+
+        if (Number.isNaN(parsedMin) || Number.isNaN(parsedMax) || Number.isNaN(parsedMinLength) || Number.isNaN(parsedMaxLength)) {
+            setError('Validation bounds must be valid numbers');
+            return;
+        }
+        if (parsedMin !== undefined && parsedMax !== undefined && parsedMin > parsedMax) {
+            setError('Min value cannot be greater than max value');
+            return;
+        }
+        if (parsedMinLength !== undefined && parsedMaxLength !== undefined && parsedMinLength > parsedMaxLength) {
+            setError('Min length cannot be greater than max length');
+            return;
+        }
+        if (pattern.trim()) {
+            try {
+                // Validate regex format
+                new RegExp(pattern.trim());
+            } catch {
+                setError('Pattern must be a valid regular expression');
+                return;
+            }
+        }
+
+        const enumValues = enumValuesRaw
+            .split(',')
+            .map((value) => value.trim())
+            .filter(Boolean);
+
         const column: DataColumn = {
             name: trimmedName,
             type,
+            required,
         };
+
+        const validation: NonNullable<DataColumn['validation']> = {
+            ...(parsedMin !== undefined && { min: parsedMin }),
+            ...(parsedMax !== undefined && { max: parsedMax }),
+            ...(parsedMinLength !== undefined && { minLength: parsedMinLength }),
+            ...(parsedMaxLength !== undefined && { maxLength: parsedMaxLength }),
+            ...(pattern.trim() && { pattern: pattern.trim() }),
+            ...(enumValues.length > 0 && { enum: enumValues }),
+        };
+
+        if (Object.keys(validation).length > 0) {
+            column.validation = validation;
+            column.min = validation.min;
+            column.max = validation.max;
+            column.minLength = validation.minLength;
+            column.maxLength = validation.maxLength;
+            column.pattern = validation.pattern;
+            column.enum = validation.enum;
+        }
 
         if (type === 'formula' && formula.trim()) {
             column.formula = formula.trim();
@@ -179,29 +260,26 @@ export function ColumnEditorModal({
         onClose();
     };
 
-    if (!isOpen) return null;
-
     return (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto">
-            <div className="bg-slate-900 rounded-lg shadow-xl w-full max-w-md my-auto max-h-[90vh] flex flex-col">
-                {/* Header */}
-                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-                    <h2 className="text-lg font-semibold text-slate-200">
-                        {mode === 'add' ? 'Add Column' : 'Edit Column'}
-                    </h2>
-                    <button
-                        onClick={onClose}
-                        className="p-1 hover:bg-slate-800 rounded-md transition-colors"
-                    >
-                        <X className="w-5 h-5 text-slate-400" />
-                    </button>
-                </div>
-
-                {/* Content */}
-                <div className="p-6 space-y-6 overflow-y-auto flex-1">
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            title={mode === 'add' ? 'Add Column' : 'Edit Column'}
+            size="md"
+            bodyClassName="max-h-[70vh]"
+            footer={
+                <>
+                    <Button variant="ghost" onClick={onClose}>Cancel</Button>
+                    <Button variant="success" onClick={handleSave}>
+                        {mode === 'add' ? 'Add Column' : 'Save Changes'}
+                    </Button>
+                </>
+            }
+        >
+            <div className="space-y-6">
                     {/* Column Name */}
                     <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">
+                        <label className="block text-sm font-medium text-text-primary mb-2">
                             Column Name
                         </label>
                         <input
@@ -213,17 +291,30 @@ export function ColumnEditorModal({
                             }}
                             onKeyDown={(e) => e.key === 'Enter' && handleSave()}
                             placeholder="e.g., email, username, price"
-                            className="w-full bg-slate-800 border border-slate-700 rounded-md px-3 py-2 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                            className="w-full bg-dark-elevated border border-border-default rounded-md px-3 py-2 text-text-primary placeholder-text-secondary focus:outline-none focus:border-status-success"
                             autoFocus
                         />
                         {error && (
-                            <p className="mt-1.5 text-xs text-red-400">{error}</p>
+                            <p className="mt-1.5 text-xs text-status-danger">{error}</p>
                         )}
+                    </div>
+
+                    <div className="flex items-center gap-3 rounded-md border border-border-default bg-dark-elevated/30 px-3 py-2">
+                        <input
+                            type="checkbox"
+                            id="columnRequired"
+                            checked={required}
+                            onChange={(event) => setRequired(event.target.checked)}
+                            className="h-4 w-4 rounded border-border-default bg-dark-elevated text-status-success focus:ring-status-success"
+                        />
+                        <label htmlFor="columnRequired" className="text-sm text-text-primary">
+                            Required field
+                        </label>
                     </div>
 
                     {/* Column Type */}
                     <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">
+                        <label className="block text-sm font-medium text-text-primary mb-2">
                             Data Type
                         </label>
                         <div className="grid grid-cols-2 gap-2">
@@ -235,22 +326,22 @@ export function ColumnEditorModal({
                                         key={option.value}
                                         onClick={() => setType(option.value)}
                                         className={`flex items-start gap-3 p-3 rounded-md border transition-colors text-left ${isSelected
-                                            ? 'border-emerald-500 bg-emerald-500/10'
-                                            : 'border-slate-700 hover:border-slate-600 hover:bg-slate-800/50'
+                                            ? 'border-status-success bg-status-success/10'
+                                            : 'border-border-default hover:border-border-default hover:bg-dark-elevated/50'
                                             }`}
                                     >
                                         <Icon
-                                            className={`w-4 h-4 mt-0.5 flex-shrink-0 ${isSelected ? 'text-emerald-400' : 'text-slate-500'
+                                            className={`w-4 h-4 mt-0.5 flex-shrink-0 ${isSelected ? 'text-status-success' : 'text-text-secondary'
                                                 }`}
                                         />
                                         <div>
                                             <p
-                                                className={`text-sm font-medium ${isSelected ? 'text-emerald-400' : 'text-slate-300'
+                                                className={`text-sm font-medium ${isSelected ? 'text-status-success' : 'text-text-primary'
                                                     }`}
                                             >
                                                 {option.label}
                                             </p>
-                                            <p className="text-xs text-slate-500 mt-0.5">
+                                            <p className="text-xs text-text-secondary mt-0.5">
                                                 {option.description}
                                             </p>
                                         </div>
@@ -264,27 +355,30 @@ export function ColumnEditorModal({
                     {type === 'formula' && (
                         <div>
                             <div className="flex items-center justify-between mb-2">
-                                <label className="block text-sm font-medium text-slate-300">
+                                <label className="block text-sm font-medium text-text-primary">
                                     Formula Expression
                                 </label>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowFormulaHelp(!showFormulaHelp)}
-                                    className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-300"
-                                >
-                                    <HelpCircle className="w-4 h-4" />
-                                </button>
+                                <Tooltip content={showFormulaHelp ? 'Hide formula help' : 'Show formula help'} showDelayMs={0} hideDelayMs={0}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowFormulaHelp(!showFormulaHelp)}
+                                        className="p-1 hover:bg-dark-elevated rounded text-text-secondary hover:text-text-primary"
+                                        aria-label={showFormulaHelp ? 'Hide formula help' : 'Show formula help'}
+                                    >
+                                        <HelpCircle className="w-4 h-4" />
+                                    </button>
+                                </Tooltip>
                             </div>
 
                             {showFormulaHelp && (
-                                <div className="mb-3 p-3 bg-slate-800/50 rounded-md border border-slate-700 text-xs text-slate-400">
-                                    <p className="font-medium text-slate-300 mb-2">Formula Syntax:</p>
+                                <div className="mb-3 p-3 bg-dark-elevated/50 rounded-md border border-border-default text-xs text-text-secondary">
+                                    <p className="font-medium text-text-primary mb-2">Formula Syntax:</p>
                                     <ul className="space-y-1">
-                                        <li>Use column names directly: <code className="text-amber-400">price * quantity</code></li>
-                                        <li>Basic math operators: <code className="text-amber-400">+</code>, <code className="text-amber-400">-</code>, <code className="text-amber-400">*</code>, <code className="text-amber-400">/</code></li>
-                                        <li>Parentheses for grouping: <code className="text-amber-400">(price + tax) * quantity</code></li>
+                                        <li>Use column names directly: <code className="text-status-warning">price * quantity</code></li>
+                                        <li>Basic math operators: <code className="text-status-warning">+</code>, <code className="text-status-warning">-</code>, <code className="text-status-warning">*</code>, <code className="text-status-warning">/</code></li>
+                                        <li>Parentheses for grouping: <code className="text-status-warning">(price + tax) * quantity</code></li>
                                     </ul>
-                                    <p className="mt-2 text-slate-500">
+                                    <p className="mt-2 text-text-secondary">
                                         Note: Formula columns are read-only and auto-computed.
                                     </p>
                                 </div>
@@ -298,9 +392,9 @@ export function ColumnEditorModal({
                                     setError(null);
                                 }}
                                 placeholder="e.g., price * quantity"
-                                className="w-full bg-slate-800 border border-slate-700 rounded-md px-3 py-2 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono text-sm"
+                                className="w-full bg-dark-elevated border border-border-default rounded-md px-3 py-2 text-text-primary placeholder-text-secondary focus:outline-none focus:border-status-success font-mono text-sm"
                             />
-                            <p className="mt-1.5 text-xs text-slate-500">
+                            <p className="mt-1.5 text-xs text-text-secondary">
                                 Reference other columns by name. Result is computed automatically.
                             </p>
                         </div>
@@ -309,8 +403,8 @@ export function ColumnEditorModal({
                     {/* Reference Configuration - Only shown when type is 'reference' */}
                     {type === 'reference' && (
                         <div className="space-y-4">
-                            <div className="p-3 bg-sky-500/10 border border-sky-500/30 rounded-md">
-                                <p className="text-xs text-sky-300">
+                            <div className="p-3 bg-status-info/10 border border-status-info/30 rounded-md">
+                                <p className="text-xs text-status-info">
                                     <Link2 className="w-3.5 h-3.5 inline mr-1.5" />
                                     Reference columns link to rows in another table. Values are stored as IDs but display friendly names.
                                 </p>
@@ -318,12 +412,12 @@ export function ColumnEditorModal({
 
                             {/* Target Sheet Selection */}
                             <div>
-                                <label className="block text-sm font-medium text-slate-300 mb-2">
+                                <label className="block text-sm font-medium text-text-primary mb-2">
                                     Target Table
                                 </label>
                                 {referenceableSheets.length === 0 ? (
-                                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-md">
-                                        <p className="text-xs text-amber-300">
+                                    <div className="p-3 bg-status-warning/10 border border-status-warning/30 rounded-md">
+                                        <p className="text-xs text-status-warning">
                                             No other tables available. Create another data table first to use references.
                                         </p>
                                     </div>
@@ -336,7 +430,7 @@ export function ColumnEditorModal({
                                             setDisplayColumn('');
                                             setError(null);
                                         }}
-                                        className="w-full bg-slate-800 border border-slate-700 rounded-md px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500"
+                                        className="w-full bg-dark-elevated border border-border-default rounded-md px-3 py-2 text-text-primary focus:outline-none focus:border-status-info"
                                     >
                                         <option value="">Select a table...</option>
                                         {referenceableSheets.map((sheet) => (
@@ -351,8 +445,8 @@ export function ColumnEditorModal({
                             {/* Target Column (ID) Selection */}
                             {targetSheet && targetSheetColumns.length > 0 && (
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                                        ID Column <span className="text-slate-500 font-normal">(stored in cell)</span>
+                                    <label className="block text-sm font-medium text-text-primary mb-2">
+                                        ID Column <span className="text-text-secondary font-normal">(stored in cell)</span>
                                     </label>
                                     <select
                                         value={targetColumn}
@@ -360,7 +454,7 @@ export function ColumnEditorModal({
                                             setTargetColumn(e.target.value);
                                             setError(null);
                                         }}
-                                        className="w-full bg-slate-800 border border-slate-700 rounded-md px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500"
+                                        className="w-full bg-dark-elevated border border-border-default rounded-md px-3 py-2 text-text-primary focus:outline-none focus:border-status-info"
                                     >
                                         <option value="">Select ID column...</option>
                                         {targetSheetColumns.map((col) => (
@@ -369,7 +463,7 @@ export function ColumnEditorModal({
                                             </option>
                                         ))}
                                     </select>
-                                    <p className="mt-1 text-xs text-slate-500">
+                                    <p className="mt-1 text-xs text-text-secondary">
                                         The unique identifier column (e.g., DriverID, VehicleID)
                                     </p>
                                 </div>
@@ -378,8 +472,8 @@ export function ColumnEditorModal({
                             {/* Display Column Selection */}
                             {targetSheet && targetSheetColumns.length > 0 && (
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                                        Display Column <span className="text-slate-500 font-normal">(shown in cell)</span>
+                                    <label className="block text-sm font-medium text-text-primary mb-2">
+                                        Display Column <span className="text-text-secondary font-normal">(shown in cell)</span>
                                     </label>
                                     <select
                                         value={displayColumn}
@@ -387,7 +481,7 @@ export function ColumnEditorModal({
                                             setDisplayColumn(e.target.value);
                                             setError(null);
                                         }}
-                                        className="w-full bg-slate-800 border border-slate-700 rounded-md px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500"
+                                        className="w-full bg-dark-elevated border border-border-default rounded-md px-3 py-2 text-text-primary focus:outline-none focus:border-status-info"
                                     >
                                         <option value="">Select display column...</option>
                                         {targetSheetColumns.map((col) => (
@@ -396,7 +490,7 @@ export function ColumnEditorModal({
                                             </option>
                                         ))}
                                     </select>
-                                    <p className="mt-1 text-xs text-slate-500">
+                                    <p className="mt-1 text-xs text-text-secondary">
                                         The column shown in the cell (e.g., Name, Make)
                                     </p>
                                 </div>
@@ -410,13 +504,13 @@ export function ColumnEditorModal({
                                         id="allowMultiple"
                                         checked={allowMultiple}
                                         onChange={(e) => setAllowMultiple(e.target.checked)}
-                                        className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-sky-500 focus:ring-sky-500"
+                                        className="w-4 h-4 rounded border-border-default bg-dark-elevated text-status-info focus:ring-status-info"
                                     />
                                     <label htmlFor="allowMultiple" className="flex flex-col">
-                                        <span className="text-sm font-medium text-slate-300">
+                                        <span className="text-sm font-medium text-text-primary">
                                             Allow multiple selections
                                         </span>
-                                        <span className="text-xs text-slate-500">
+                                        <span className="text-xs text-text-secondary">
                                             Enable to select multiple rows (e.g., $drivers with "D001, D002")
                                         </span>
                                     </label>
@@ -426,41 +520,41 @@ export function ColumnEditorModal({
                             {/* Target Table Preview */}
                             {targetSheet && targetSheetColumns.length > 0 && (
                                 <div className="pt-4">
-                                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                                    <label className="block text-sm font-medium text-text-primary mb-2">
                                         Target Table Columns Preview
                                     </label>
-                                    <div className="border border-slate-700 rounded-md overflow-hidden">
+                                    <div className="border border-border-default rounded-md overflow-hidden">
                                         <div className="max-h-48 overflow-auto">
                                             <table className="w-full min-w-max border-collapse text-sm">
-                                                <thead className="bg-slate-800 sticky top-0">
+                                                <thead className="bg-dark-elevated sticky top-0">
                                                     <tr>
                                                         {targetSheetColumns.map((col) => (
                                                             <th
                                                                 key={col.name}
-                                                                className={`px-3 py-2 text-left text-xs font-semibold whitespace-nowrap border-b border-slate-700 ${col.name === targetColumn
-                                                                        ? 'text-emerald-400 bg-emerald-500/10'
+                                                                className={`px-3 py-2 text-left text-xs font-semibold whitespace-nowrap border-b border-border-default ${col.name === targetColumn
+                                                                        ? 'text-status-success bg-status-success/10'
                                                                         : col.name === displayColumn
-                                                                            ? 'text-sky-400 bg-sky-500/10'
-                                                                            : 'text-slate-400'
+                                                                            ? 'text-status-info bg-status-info/10'
+                                                                            : 'text-text-secondary'
                                                                     }`}
                                                             >
                                                                 {col.name}
                                                                 {col.name === targetColumn && (
-                                                                    <span className="ml-1 text-[10px] text-emerald-500">(ID)</span>
+                                                                    <span className="ml-1 text-3xs text-status-success">(ID)</span>
                                                                 )}
                                                                 {col.name === displayColumn && (
-                                                                    <span className="ml-1 text-[10px] text-sky-500">(Display)</span>
+                                                                    <span className="ml-1 text-3xs text-status-info">(Display)</span>
                                                                 )}
                                                             </th>
                                                         ))}
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <tr className="text-slate-500 italic">
+                                                    <tr className="text-text-secondary italic">
                                                         {targetSheetColumns.map((col) => (
                                                             <td
                                                                 key={col.name}
-                                                                className="px-3 py-2 border-b border-slate-700/50 whitespace-nowrap"
+                                                                className="px-3 py-2 border-b border-border-default/50 whitespace-nowrap"
                                                             >
                                                                 {col.type}
                                                             </td>
@@ -469,35 +563,103 @@ export function ColumnEditorModal({
                                                 </tbody>
                                             </table>
                                         </div>
-                                        <div className="px-3 py-1.5 bg-slate-800/50 border-t border-slate-700 text-xs text-slate-500">
+                                        <div className="px-3 py-1.5 bg-dark-elevated/50 border-t border-border-default text-xs text-text-secondary">
                                             {targetSheetColumns.length} column{targetSheetColumns.length !== 1 ? 's' : ''} •
-                                            <span className="text-emerald-400 ml-1">Green = ID column</span> •
-                                            <span className="text-sky-400 ml-1">Blue = Display column</span>
+                                            <span className="text-status-success ml-1">Green = ID column</span> •
+                                            <span className="text-status-info ml-1">Blue = Display column</span>
                                         </div>
                                     </div>
                                 </div>
                             )}
                         </div>
                     )}
-                </div>
 
-                {/* Footer */}
-                <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-800">
-                    <button
-                        onClick={onClose}
-                        className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        onClick={handleSave}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-md text-sm text-white transition-colors"
-                    >
-                        {mode === 'add' ? 'Add Column' : 'Save Changes'}
-                    </button>
+                    {/* Validation Controls */}
+                    <div className="space-y-3 rounded-md border border-border-default bg-dark-elevated/25 p-3">
+                        <p className="text-sm font-medium text-text-primary">Validation Rules</p>
+                        {(type === 'number') && (
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="mb-1 block text-xs text-text-secondary">Min</label>
+                                    <input
+                                        type="number"
+                                        value={minValue}
+                                        onChange={(event) => setMinValue(event.target.value)}
+                                        placeholder="e.g., 0"
+                                        className="w-full rounded-md border border-border-default bg-dark-elevated px-2.5 py-2 text-sm text-text-primary focus:border-status-success focus:outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="mb-1 block text-xs text-text-secondary">Max</label>
+                                    <input
+                                        type="number"
+                                        value={maxValue}
+                                        onChange={(event) => setMaxValue(event.target.value)}
+                                        placeholder="e.g., 100"
+                                        className="w-full rounded-md border border-border-default bg-dark-elevated px-2.5 py-2 text-sm text-text-primary focus:border-status-success focus:outline-none"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {(type === 'text' || type === 'reference' || type === 'formula') && (
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="mb-1 block text-xs text-text-secondary">Min Length</label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        value={minLength}
+                                        onChange={(event) => setMinLength(event.target.value)}
+                                        placeholder="e.g., 1"
+                                        className="w-full rounded-md border border-border-default bg-dark-elevated px-2.5 py-2 text-sm text-text-primary focus:border-status-success focus:outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="mb-1 block text-xs text-text-secondary">Max Length</label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        value={maxLength}
+                                        onChange={(event) => setMaxLength(event.target.value)}
+                                        placeholder="e.g., 64"
+                                        className="w-full rounded-md border border-border-default bg-dark-elevated px-2.5 py-2 text-sm text-text-primary focus:border-status-success focus:outline-none"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {(type === 'text' || type === 'reference' || type === 'formula') && (
+                            <div>
+                                <label className="mb-1 block text-xs text-text-secondary">Pattern (Regex)</label>
+                                <input
+                                    type="text"
+                                    value={pattern}
+                                    onChange={(event) => setPattern(event.target.value)}
+                                    placeholder="e.g., ^[A-Z]{3}-\\d+$"
+                                    className="w-full rounded-md border border-border-default bg-dark-elevated px-2.5 py-2 font-mono text-sm text-text-primary focus:border-status-success focus:outline-none"
+                                />
+                            </div>
+                        )}
+
+                        {(type === 'text' || type === 'reference' || type === 'formula') && (
+                            <div>
+                                <label className="mb-1 block text-xs text-text-secondary">Allowed Values (comma-separated)</label>
+                                <input
+                                    type="text"
+                                    value={enumValuesRaw}
+                                    onChange={(event) => setEnumValuesRaw(event.target.value)}
+                                    placeholder="e.g., admin, manager, analyst"
+                                    className="w-full rounded-md border border-border-default bg-dark-elevated px-2.5 py-2 text-sm text-text-primary focus:border-status-success focus:outline-none"
+                                />
+                            </div>
+                        )}
+                        <p className="text-xs text-text-secondary">
+                            Validation is strictly enforced on new writes and edited values. Existing legacy-invalid values are highlighted until corrected.
+                        </p>
+                    </div>
                 </div>
-            </div>
-        </div>
+        </Modal>
     );
 }
 

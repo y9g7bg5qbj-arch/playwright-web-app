@@ -16,6 +16,7 @@ import {
   ToggleLeft,
   Hash,
 } from 'lucide-react';
+import { IconButton } from '@/components/ui';
 import type {
   ScheduleParameterDefinition,
   ScheduleParameterType,
@@ -102,7 +103,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
             value={param.label}
             onChange={(e) => updateParam('label', e.target.value)}
             placeholder="e.g., Browser"
-            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
           />
         </div>
         <div className="space-y-1">
@@ -112,7 +113,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
             value={param.name}
             onChange={(e) => updateParam('name', e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
             placeholder="e.g., browser"
-            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary font-mono focus:outline-none focus:ring-2 focus:ring-status-info"
           />
         </div>
       </div>
@@ -129,7 +130,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
               className={`
                 flex items-center gap-1.5 px-3 py-1.5 rounded text-sm border transition-colors
                 ${param.type === t.value
-                  ? 'bg-blue-600/20 border-blue-500 text-blue-400'
+                  ? 'bg-brand-primary/20 border-status-info text-status-info'
                   : 'bg-dark-card border-border-default text-text-muted hover:border-border-default'
                 }
               `}
@@ -150,7 +151,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
             onChange={(e) => setChoicesText(e.target.value)}
             rows={3}
             placeholder="Option 1&#10;Option 2&#10;Option 3"
-            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
           />
         </div>
       )}
@@ -163,7 +164,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
               type="number"
               value={param.min ?? ''}
               onChange={(e) => updateParam('min', e.target.value ? Number(e.target.value) : undefined)}
-              className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
             />
           </div>
           <div className="space-y-1">
@@ -172,7 +173,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
               type="number"
               value={param.max ?? ''}
               onChange={(e) => updateParam('max', e.target.value ? Number(e.target.value) : undefined)}
-              className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
             />
           </div>
           <div className="space-y-1">
@@ -181,7 +182,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
               type="number"
               value={param.step ?? ''}
               onChange={(e) => updateParam('step', e.target.value ? Number(e.target.value) : undefined)}
-              className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
             />
           </div>
         </div>
@@ -195,7 +196,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
             value={param.placeholder ?? ''}
             onChange={(e) => updateParam('placeholder', e.target.value || undefined)}
             placeholder="e.g., Enter URL..."
-            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
           />
         </div>
       )}
@@ -209,7 +210,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
               type="checkbox"
               checked={Boolean(param.defaultValue)}
               onChange={(e) => updateParam('defaultValue', e.target.checked)}
-              className="w-4 h-4 rounded border-border-default bg-dark-card text-blue-600"
+              className="w-4 h-4 rounded border-border-default bg-dark-card text-brand-primary"
             />
             <span className="text-sm text-text-secondary">Checked by default</span>
           </label>
@@ -217,7 +218,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
           <select
             value={String(param.defaultValue)}
             onChange={(e) => updateParam('defaultValue', e.target.value)}
-            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
           >
             {choicesText.split('\n').map(s => s.trim()).filter(Boolean).map(choice => (
               <option key={choice} value={choice}>{choice}</option>
@@ -231,7 +232,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
             min={param.min}
             max={param.max}
             step={param.step}
-            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
           />
         ) : (
           <input
@@ -239,7 +240,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
             value={String(param.defaultValue)}
             onChange={(e) => updateParam('defaultValue', e.target.value)}
             placeholder={param.placeholder}
-            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
           />
         )}
       </div>
@@ -252,7 +253,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
           value={param.description ?? ''}
           onChange={(e) => updateParam('description', e.target.value || undefined)}
           placeholder="Help text for this parameter"
-          className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 bg-dark-bg border border-border-default rounded text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
         />
       </div>
 
@@ -262,7 +263,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
           type="checkbox"
           checked={param.required ?? false}
           onChange={(e) => updateParam('required', e.target.checked || undefined)}
-          className="w-4 h-4 rounded border-border-default bg-dark-card text-blue-600"
+          className="w-4 h-4 rounded border-border-default bg-dark-card text-brand-primary"
         />
         <span className="text-sm text-text-secondary">Required</span>
       </label>
@@ -280,7 +281,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({
           type="button"
           onClick={handleSave}
           disabled={!param.name || !param.label}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded transition-colors disabled:opacity-50"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-primary hover:bg-brand-primary text-white text-sm rounded transition-colors disabled:opacity-50"
         >
           <Check className="w-4 h-4" />
           {isNew ? 'Add Parameter' : 'Save Changes'}
@@ -396,36 +397,33 @@ export const ParameterBuilder: React.FC<ParameterBuilderProps> = ({
                       <span className="text-xs">{param.type}</span>
                     </div>
 
-                    <button
-                      type="button"
+                    <IconButton
+                      icon={expandedIndex === index ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      size="sm"
+                      variant="ghost"
+                      tooltip={expandedIndex === index ? 'Collapse' : 'Expand'}
+                      disabled={disabled}
                       onClick={() => setExpandedIndex(expandedIndex === index ? null : index)}
-                      disabled={disabled}
-                      className="p-1 text-text-muted hover:text-text-primary hover:bg-dark-elevated rounded transition-colors"
-                    >
-                      {expandedIndex === index ? (
-                        <ChevronUp className="w-4 h-4" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4" />
-                      )}
-                    </button>
+                    />
 
-                    <button
-                      type="button"
+                    <IconButton
+                      icon={<Edit2 className="w-4 h-4" />}
+                      size="sm"
+                      variant="ghost"
+                      tooltip="Edit"
+                      disabled={disabled}
                       onClick={() => setEditingIndex(index)}
-                      disabled={disabled}
-                      className="p-1 text-text-muted hover:text-blue-400 hover:bg-dark-elevated rounded transition-colors"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
+                    />
 
-                    <button
-                      type="button"
-                      onClick={() => removeParameter(index)}
+                    <IconButton
+                      icon={<Trash2 className="w-4 h-4" />}
+                      size="sm"
+                      variant="ghost"
+                      tone="danger"
+                      tooltip="Remove"
                       disabled={disabled}
-                      className="p-1 text-text-muted hover:text-red-400 hover:bg-dark-elevated rounded transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                      onClick={() => removeParameter(index)}
+                    />
                   </div>
                 )}
 

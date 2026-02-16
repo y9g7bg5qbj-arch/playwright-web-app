@@ -71,7 +71,7 @@ export const CreatePullRequestModal: React.FC<CreatePullRequestModalProps> = ({
           </button>
           <button
             onClick={handleSubmit}
-            className="px-4 py-2 text-sm font-medium text-white bg-accent-blue hover:bg-blue-600 rounded-md transition-colors disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium text-white bg-accent-blue hover:bg-brand-primary rounded-md transition-colors disabled:opacity-50"
             disabled={isLoading || !title.trim()}
           >
             {isLoading ? 'Creating...' : 'Create Pull Request'}
@@ -83,13 +83,13 @@ export const CreatePullRequestModal: React.FC<CreatePullRequestModalProps> = ({
         {/* Branch info */}
         <div className="flex items-center gap-3 p-3 bg-dark-elevated border border-border-default rounded-lg">
           <div className="flex items-center gap-2">
-            <Box className="w-4 h-4 text-purple-400" />
-            <span className="text-sm font-medium text-purple-400">{sandbox.name}</span>
+            <Box className="w-4 h-4 text-accent-purple" />
+            <span className="text-sm font-medium text-accent-purple">{sandbox.name}</span>
           </div>
           <span className="text-text-muted">→</span>
           <div className="flex items-center gap-2">
-            <GitBranch className="w-4 h-4 text-blue-400" />
-            <span className="text-sm font-medium text-blue-400">{targetBranch}</span>
+            <GitBranch className="w-4 h-4 text-status-info" />
+            <span className="text-sm font-medium text-status-info">{targetBranch}</span>
           </div>
         </div>
 
@@ -141,14 +141,14 @@ export const CreatePullRequestModal: React.FC<CreatePullRequestModalProps> = ({
               className={`
                 flex-1 flex items-center gap-3 p-3 rounded-lg border transition-colors
                 ${targetBranch === 'dev'
-                  ? 'border-blue-500 bg-blue-500/10'
+                  ? 'border-status-info bg-status-info/10'
                   : 'border-border-default hover:border-border-emphasis bg-dark-elevated'
                 }
               `}
             >
-              <GitBranch className={`w-5 h-5 ${targetBranch === 'dev' ? 'text-blue-400' : 'text-text-muted'}`} />
+              <GitBranch className={`w-5 h-5 ${targetBranch === 'dev' ? 'text-status-info' : 'text-text-muted'}`} />
               <div className="text-left">
-                <div className={`font-medium ${targetBranch === 'dev' ? 'text-blue-400' : 'text-text-primary'}`}>
+                <div className={`font-medium ${targetBranch === 'dev' ? 'text-status-info' : 'text-text-primary'}`}>
                   Development
                 </div>
                 <div className="text-xs text-text-muted">Integration branch (recommended)</div>
@@ -161,14 +161,14 @@ export const CreatePullRequestModal: React.FC<CreatePullRequestModalProps> = ({
               className={`
                 flex-1 flex items-center gap-3 p-3 rounded-lg border transition-colors
                 ${targetBranch === 'master'
-                  ? 'border-green-500 bg-green-500/10'
+                  ? 'border-status-success bg-status-success/10'
                   : 'border-border-default hover:border-border-emphasis bg-dark-elevated'
                 }
               `}
             >
-              <GitBranch className={`w-5 h-5 ${targetBranch === 'master' ? 'text-green-400' : 'text-text-muted'}`} />
+              <GitBranch className={`w-5 h-5 ${targetBranch === 'master' ? 'text-status-success' : 'text-text-muted'}`} />
               <div className="text-left">
-                <div className={`font-medium ${targetBranch === 'master' ? 'text-green-400' : 'text-text-primary'}`}>
+                <div className={`font-medium ${targetBranch === 'master' ? 'text-status-success' : 'text-text-primary'}`}>
                   Production
                 </div>
                 <div className="text-xs text-text-muted">Stable release branch</div>
@@ -178,10 +178,10 @@ export const CreatePullRequestModal: React.FC<CreatePullRequestModalProps> = ({
         </div>
 
         {/* Info banner */}
-        <div className="flex items-start gap-3 p-3 bg-orange-500/10 border border-orange-500/20 rounded-lg">
-          <GitPullRequest className="w-5 h-5 text-orange-400 mt-0.5" />
+        <div className="flex items-start gap-3 p-3 bg-status-warning/10 border border-status-warning/20 rounded-lg">
+          <GitPullRequest className="w-5 h-5 text-status-warning mt-0.5" />
           <div className="text-sm">
-            <p className="text-orange-300 font-medium">What happens next?</p>
+            <p className="text-status-warning font-medium">What happens next?</p>
             <p className="text-text-muted mt-1">
               After creating this PR, team members can review your changes.
               Once approved, a senior member can merge the changes into {targetBranch}.

@@ -5,19 +5,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export interface GitHubTestResult {
-  name: string;
-  status: 'passed' | 'failed' | 'skipped';
-  duration: number;
-  error?: string;
-  retry?: number;
-  attachments?: {
-    name: string;
-    path: string;
-    contentType: string;
-  }[];
-}
-
 export interface GitHubExecutionStep {
   id: string;
   stepNumber: number;
@@ -75,9 +62,12 @@ export interface GitHubExecution {
   htmlUrl: string;
   logsUrl?: string;
 
-  // Repository info for polling recovery
+  // Repository info for dispatch/run reconciliation
   owner?: string;
   repo?: string;
+  applicationId?: string;
+  projectId?: string;
+  projectName?: string;
 
   // Jobs/Shards info
   jobs?: {
@@ -92,28 +82,17 @@ export interface GitHubExecution {
 
 interface GitHubExecutionStore {
   executions: GitHubExecution[];
-  activePolling: Set<string>;
 
   // Actions
   addExecution: (execution: GitHubExecution) => void;
   updateExecution: (id: string, updates: Partial<GitHubExecution>) => void;
   removeExecution: (id: string) => void;
-  getExecution: (id: string) => GitHubExecution | undefined;
-
-  // Polling management
-  startPolling: (id: string) => void;
-  stopPolling: (id: string) => void;
-  isPolling: (id: string) => boolean;
-
-  // Clear all
-  clearAll: () => void;
 }
 
 export const useGitHubExecutionStore = create<GitHubExecutionStore>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       executions: [],
-      activePolling: new Set(),
 
       addExecution: (execution) => {
         set((state) => {
@@ -165,32 +144,6 @@ export const useGitHubExecutionStore = create<GitHubExecutionStore>()(
           executions: state.executions.filter((exec) => exec.id !== id),
         }));
       },
-
-      getExecution: (id) => {
-        return get().executions.find((exec) => exec.id === id);
-      },
-
-      startPolling: (id) => {
-        set((state) => ({
-          activePolling: new Set([...state.activePolling, id]),
-        }));
-      },
-
-      stopPolling: (id) => {
-        set((state) => {
-          const newPolling = new Set(state.activePolling);
-          newPolling.delete(id);
-          return { activePolling: newPolling };
-        });
-      },
-
-      isPolling: (id) => {
-        return get().activePolling.has(id);
-      },
-
-      clearAll: () => {
-        set({ executions: [], activePolling: new Set() });
-      },
     }),
     {
       name: 'github-executions',
@@ -200,5 +153,3 @@ export const useGitHubExecutionStore = create<GitHubExecutionStore>()(
     }
   )
 );
-
-export default useGitHubExecutionStore;

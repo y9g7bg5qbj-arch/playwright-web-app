@@ -1,15 +1,17 @@
 import React, { useEffect, useCallback } from 'react';
 import { X } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { cn } from '@/lib/utils';
 
 export interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title?: string;
   description?: string;
-  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | 'full';
   children: React.ReactNode;
   footer?: React.ReactNode;
+  bodyClassName?: string;
   closeOnOverlayClick?: boolean;
   closeOnEscape?: boolean;
   showCloseButton?: boolean;
@@ -20,6 +22,8 @@ const sizeClasses = {
   md: 'max-w-md',
   lg: 'max-w-lg',
   xl: 'max-w-xl',
+  '2xl': 'max-w-2xl',
+  '3xl': 'max-w-3xl',
   full: 'max-w-4xl',
 };
 
@@ -31,6 +35,7 @@ export const Modal: React.FC<ModalProps> = ({
   size = 'md',
   children,
   footer,
+  bodyClassName,
   closeOnOverlayClick = true,
   closeOnEscape = true,
   showCloseButton = true,
@@ -106,7 +111,7 @@ export const Modal: React.FC<ModalProps> = ({
         )}
 
         {/* Body */}
-        <div className="px-4 py-3 max-h-[60vh] overflow-y-auto">{children}</div>
+        <div className={cn("px-4 py-3 max-h-[60vh] overflow-y-auto", bodyClassName)}>{children}</div>
 
         {/* Footer */}
         {footer && (

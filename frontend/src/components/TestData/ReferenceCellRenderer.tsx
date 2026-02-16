@@ -147,7 +147,7 @@ export function ReferenceCellRenderer({ value, referenceConfig }: ReferenceCellR
     // No value
     if (!value || ids.length === 0) {
         return (
-            <span className="text-[#6e7681] italic text-sm">
+            <span className="text-text-muted italic text-sm">
                 No reference
             </span>
         );
@@ -156,7 +156,7 @@ export function ReferenceCellRenderer({ value, referenceConfig }: ReferenceCellR
     // Loading state
     if (loading) {
         return (
-            <span className="flex items-center gap-1.5 text-[#8b949e] text-sm">
+            <span className="flex items-center gap-1.5 text-text-secondary text-sm">
                 <Loader2 className="w-3 h-3 animate-spin" />
                 Loading...
             </span>
@@ -166,7 +166,7 @@ export function ReferenceCellRenderer({ value, referenceConfig }: ReferenceCellR
     // Error state
     if (error) {
         return (
-            <span className="flex items-center gap-1.5 text-amber-400 text-sm">
+            <span className="flex items-center gap-1.5 text-status-warning text-sm">
                 <AlertCircle className="w-3 h-3" />
                 {ids.join(', ')}
             </span>
@@ -176,14 +176,14 @@ export function ReferenceCellRenderer({ value, referenceConfig }: ReferenceCellR
     // Chip component with hover-to-show info button
     const ReferenceChip = ({ item }: { item: ResolvedItem }) => (
         <span
-            className="group inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-sky-500/20 text-sky-300 rounded text-xs truncate max-w-28"
+            className="group inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-status-info/20 text-status-info rounded text-xs truncate max-w-28"
             title={item.displayValue}
         >
             <span className="truncate">{item.displayValue}</span>
             <button
                 onClick={(e) => handleInfoClick(e, item)}
                 onMouseDown={(e) => e.stopPropagation()} // Prevent AG Grid cell selection
-                className="ml-0.5 opacity-0 group-hover:opacity-100 p-0.5 hover:bg-sky-400/30 rounded transition-opacity"
+                className="ml-0.5 opacity-0 group-hover:opacity-100 p-0.5 hover:bg-status-info/30 rounded transition-opacity"
                 title={`View ${item.displayValue} details`}
             >
                 <Info className="w-2.5 h-2.5" />
@@ -196,16 +196,16 @@ export function ReferenceCellRenderer({ value, referenceConfig }: ReferenceCellR
         const item = resolvedItems[0];
         return (
             <>
-                <span className="flex items-center gap-1.5 text-[#c9d1d9] text-sm group">
-                    <Link2 className="w-3 h-3 text-sky-400 flex-shrink-0" />
+                <span className="flex items-center gap-1.5 text-text-primary text-sm group">
+                    <Link2 className="w-3 h-3 text-status-info flex-shrink-0" />
                     <span className="truncate">{item.displayValue}</span>
                     <button
                         onClick={(e) => handleInfoClick(e, item)}
                         onMouseDown={(e) => e.stopPropagation()}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-sky-400/30 rounded transition-opacity"
+                        className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-status-info/30 rounded transition-opacity"
                         title={`View ${item.displayValue} details`}
                     >
-                        <Info className="w-3 h-3 text-sky-400" />
+                        <Info className="w-3 h-3 text-status-info" />
                     </button>
                 </span>
 
@@ -226,13 +226,13 @@ export function ReferenceCellRenderer({ value, referenceConfig }: ReferenceCellR
     return (
         <>
             <div className="flex items-center gap-1 overflow-hidden">
-                <Link2 className="w-3 h-3 text-sky-400 flex-shrink-0" />
+                <Link2 className="w-3 h-3 text-status-info flex-shrink-0" />
                 <div className="flex items-center gap-1 overflow-hidden">
                     {resolvedItems.slice(0, 3).map((item, idx) => (
                         <ReferenceChip key={idx} item={item} />
                     ))}
                     {resolvedItems.length > 3 && (
-                        <span className="text-xs text-[#6e7681]">
+                        <span className="text-xs text-text-muted">
                             +{resolvedItems.length - 3} more
                         </span>
                     )}

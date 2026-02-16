@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import Editor, { Monaco } from '@monaco-editor/react';
 import * as monacoEditor from 'monaco-editor';
-import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Copy, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Copy } from 'lucide-react';
+import { IconButton, Button, Badge } from '@/components/ui';
 import { type ConflictFile, type DiffHunk } from '@/api/sandbox';
 import { type HunkResolution } from './MergeConflictModal';
 
@@ -152,64 +153,64 @@ export function MergeConflictEditor({
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Hunk Navigation Bar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-[#0d1117] border-b border-[#30363d]">
+      <div className="flex items-center justify-between px-4 py-2 bg-dark-canvas border-b border-border-default">
         <div className="flex items-center gap-2">
-          <button
-            onClick={goToPreviousHunk}
+          <IconButton
+            icon={<ChevronUp className="w-4 h-4" />}
+            size="sm"
+            variant="ghost"
+            tooltip="Previous conflict"
             disabled={currentHunkIndex === 0}
-            className="p-1.5 text-[#8b949e] hover:text-white hover:bg-[#21262d] rounded disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Previous conflict"
-          >
-            <ChevronUp className="w-4 h-4" />
-          </button>
-          <span className="text-sm text-[#c9d1d9]">
+            onClick={goToPreviousHunk}
+          />
+          <span className="text-sm text-text-primary">
             Conflict {currentHunkIndex + 1} of {conflict.hunks.length}
           </span>
-          <button
-            onClick={goToNextHunk}
+          <IconButton
+            icon={<ChevronDown className="w-4 h-4" />}
+            size="sm"
+            variant="ghost"
+            tooltip="Next conflict"
             disabled={currentHunkIndex === conflict.hunks.length - 1}
-            className="p-1.5 text-[#8b949e] hover:text-white hover:bg-[#21262d] rounded disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Next conflict"
-          >
-            <ChevronDown className="w-4 h-4" />
-          </button>
+            onClick={goToNextHunk}
+          />
         </div>
 
         {/* Resolution Actions */}
         <div className="flex items-center gap-2">
-          <button
+          <Button
+            size="sm"
+            variant="primary"
+            leftIcon={<ChevronLeft className="w-4 h-4" />}
+            disabled={!currentHunk}
             onClick={handleAcceptTheirs}
-            disabled={!currentHunk}
-            className="px-3 py-1.5 text-sm bg-[#1f6feb] hover:bg-[#388bfd] text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
           >
-            <ChevronLeft className="w-4 h-4" />
             Accept Theirs
-          </button>
-          <button
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            leftIcon={<Copy className="w-4 h-4" />}
+            disabled={!currentHunk}
             onClick={handleAcceptBoth}
-            disabled={!currentHunk}
-            className="px-3 py-1.5 text-sm bg-[#6e40c9] hover:bg-[#8957e5] text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
           >
-            <Copy className="w-4 h-4" />
             Both
-          </button>
-          <button
-            onClick={handleAcceptYours}
+          </Button>
+          <Button
+            size="sm"
+            variant="success"
+            rightIcon={<ChevronRight className="w-4 h-4" />}
             disabled={!currentHunk}
-            className="px-3 py-1.5 text-sm bg-[#238636] hover:bg-[#2ea043] text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+            onClick={handleAcceptYours}
           >
             Accept Yours
-            <ChevronRight className="w-4 h-4" />
-          </button>
+          </Button>
         </div>
 
         {/* Status */}
         <div className="flex items-center gap-2">
           {isHunkResolved && (
-            <span className="flex items-center gap-1 text-sm text-[#3fb950]">
-              <Check className="w-4 h-4" />
-              Resolved
-            </span>
+            <Badge variant="green" dot>Resolved</Badge>
           )}
         </div>
       </div>
@@ -217,9 +218,9 @@ export function MergeConflictEditor({
       {/* Three-Pane Editor */}
       <div className="flex-1 flex overflow-hidden">
         {/* Theirs (Left) */}
-        <div className="flex-1 flex flex-col border-r border-[#30363d] min-w-0">
-          <div className="px-3 py-2 bg-[#161b22] border-b border-[#30363d]">
-            <span className="text-xs font-semibold text-[#58a6ff] uppercase tracking-wide">
+        <div className="flex-1 flex flex-col border-r border-border-default min-w-0">
+          <div className="px-3 py-2 bg-dark-card border-b border-border-default">
+            <span className="text-xs font-semibold text-brand-secondary uppercase tracking-wide">
               Theirs (Source)
             </span>
           </div>
@@ -250,9 +251,9 @@ export function MergeConflictEditor({
         </div>
 
         {/* Result (Center - Editable) */}
-        <div className="flex-1 flex flex-col border-r border-[#30363d] min-w-0">
-          <div className="px-3 py-2 bg-[#161b22] border-b border-[#30363d]">
-            <span className="text-xs font-semibold text-[#f0883e] uppercase tracking-wide">
+        <div className="flex-1 flex flex-col border-r border-border-default min-w-0">
+          <div className="px-3 py-2 bg-dark-card border-b border-border-default">
+            <span className="text-xs font-semibold text-accent-orange uppercase tracking-wide">
               Result (Editable)
             </span>
           </div>
@@ -282,8 +283,8 @@ export function MergeConflictEditor({
 
         {/* Yours (Right) */}
         <div className="flex-1 flex flex-col min-w-0">
-          <div className="px-3 py-2 bg-[#161b22] border-b border-[#30363d]">
-            <span className="text-xs font-semibold text-[#3fb950] uppercase tracking-wide">
+          <div className="px-3 py-2 bg-dark-card border-b border-border-default">
+            <span className="text-xs font-semibold text-status-success uppercase tracking-wide">
               Yours (Sandbox)
             </span>
           </div>

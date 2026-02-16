@@ -1,6 +1,9 @@
 /**
  * VDQL Query Builder
  *
+ * @deprecated This component is retained for backward compatibility only.
+ * Use the Guided Query ribbon flow in canvas-v2 for runtime-safe snippets.
+ *
  * Visual query builder that generates Vero Data Query Language code.
  * Users can build filters, select columns, and configure sorting without
  * writing code directly.
@@ -293,12 +296,12 @@ export function VDQLQueryBuilder({
             {/* Header */}
             <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
-                    <Code size={18} className="text-purple-400" />
+                    <Code size={18} className="text-accent-purple" />
                     <h3 className="text-sm font-medium text-white">VDQL Query Builder</h3>
                 </div>
                 <button
                     onClick={handleCopy}
-                    className="flex items-center gap-1 px-3 py-1 text-xs bg-purple-600 hover:bg-purple-700 text-white rounded transition-colors"
+                    className="flex items-center gap-1 px-3 py-1 text-xs bg-accent-purple hover:bg-accent-purple text-white rounded transition-colors"
                 >
                     {copied ? <Check size={14} /> : <Copy size={14} />}
                     {copied ? 'Copied!' : 'Copy Code'}
@@ -315,7 +318,7 @@ export function VDQLQueryBuilder({
                             onClick={() => setResultType(type)}
                             className={`px-3 py-1.5 text-xs rounded transition-colors ${
                                 resultType === type
-                                    ? 'bg-purple-600 text-white'
+                                    ? 'bg-accent-purple text-white'
                                     : 'bg-dark-card text-text-secondary hover:bg-dark-elevated'
                             }`}
                         >
@@ -332,7 +335,7 @@ export function VDQLQueryBuilder({
                     type="text"
                     value={variableName}
                     onChange={e => setVariableName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                    className="w-full px-3 py-2 bg-dark-card border border-border-default rounded text-white text-sm focus:border-purple-500 focus:outline-none"
+                    className="w-full px-3 py-2 bg-dark-card border border-border-default rounded text-white text-sm focus:border-accent-purple focus:outline-none"
                     placeholder="variableName"
                 />
             </div>
@@ -348,7 +351,7 @@ export function VDQLQueryBuilder({
                                 onClick={() => setPosition(pos)}
                                 className={`px-3 py-1.5 text-xs rounded transition-colors ${
                                     position === pos
-                                        ? 'bg-teal-600 text-white'
+                                        ? 'bg-accent-teal text-white'
                                         : 'bg-dark-card text-text-secondary hover:bg-dark-elevated'
                                 }`}
                             >
@@ -366,7 +369,7 @@ export function VDQLQueryBuilder({
                     <select
                         value={selectedColumn}
                         onChange={e => setSelectedColumn(e.target.value)}
-                        className="w-full px-3 py-2 bg-dark-card border border-border-default rounded text-white text-sm focus:border-purple-500 focus:outline-none"
+                        className="w-full px-3 py-2 bg-dark-card border border-border-default rounded text-white text-sm focus:border-accent-purple focus:outline-none"
                     >
                         <option value="">All columns</option>
                         {columns.map(col => (
@@ -386,7 +389,7 @@ export function VDQLQueryBuilder({
                         <select
                             value={aggregation}
                             onChange={e => setAggregation(e.target.value)}
-                            className="w-full px-3 py-2 bg-dark-card border border-border-default rounded text-white text-sm focus:border-purple-500 focus:outline-none"
+                            className="w-full px-3 py-2 bg-dark-card border border-border-default rounded text-white text-sm focus:border-accent-purple focus:outline-none"
                         >
                             <option value="">Select function...</option>
                             {AGGREGATION_FUNCTIONS.map(fn => (
@@ -403,7 +406,7 @@ export function VDQLQueryBuilder({
                             <select
                                 value={aggregationColumn}
                                 onChange={e => setAggregationColumn(e.target.value)}
-                                className="w-full px-3 py-2 bg-dark-card border border-border-default rounded text-white text-sm focus:border-purple-500 focus:outline-none"
+                                className="w-full px-3 py-2 bg-dark-card border border-border-default rounded text-white text-sm focus:border-accent-purple focus:outline-none"
                             >
                                 <option value="">Select column...</option>
                                 {columns.filter(c => c.type === 'number' || aggregation === 'distinct').map(col => (
@@ -491,7 +494,7 @@ export function VDQLQueryBuilder({
                                 {/* Remove button */}
                                 <button
                                     onClick={() => removeFilter(filter.id)}
-                                    className="p-1 text-text-muted hover:text-red-400 transition-colors"
+                                    className="p-1 text-text-muted hover:text-status-danger transition-colors"
                                 >
                                     <Trash2 size={14} />
                                 </button>
@@ -580,7 +583,7 @@ export function VDQLQueryBuilder({
             <div className="mt-4">
                 <label className="block text-xs text-text-muted mb-2">Generated VDQL Code</label>
                 <pre className="bg-dark-canvas border border-border-default rounded p-3 text-sm font-mono overflow-x-auto">
-                    <code className="text-teal-400">{generatedQuery}</code>
+                    <code className="text-accent-teal">{generatedQuery}</code>
                 </pre>
             </div>
         </div>

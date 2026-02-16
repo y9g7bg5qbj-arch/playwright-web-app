@@ -146,6 +146,11 @@ export interface TestFlowUpdate {
 export type ExecutionStatus = 'pending' | 'running' | 'passed' | 'failed' | 'cancelled';
 export type ExecutionTarget = 'local' | 'remote';
 
+export interface MatrixCombination {
+  label: string;                        // "state=IL" or "state=IL, region=midwest"
+  values: Record<string, string>;       // { state: "IL" }
+}
+
 export interface Execution {
   id: string;
   testFlowId: string;
@@ -153,11 +158,22 @@ export interface Execution {
   exitCode?: number;
   target: ExecutionTarget;
   agentId?: string;
+  triggeredByUser?: string;
   startedAt?: Date;
   finishedAt?: Date;
   createdAt: Date;
   logs?: ExecutionLog[];
   steps?: ExecutionStep[];
+  isMatrixParent?: boolean;
+  matrixChildren?: string[];
+  matrixParentId?: string;
+  matrixLabel?: string;
+  matrixConfig?: {
+    combinations: MatrixCombination[];
+    concurrency: number;
+    failFast: boolean;
+    totalChildren: number;
+  };
 }
 
 export interface ExecutionCreate {
@@ -348,10 +364,13 @@ export type ScheduleRunStatus = 'pending' | 'running' | 'passed' | 'failed' | 'c
 // Test selector configuration for scheduled runs
 export interface TestSelector {
   tags?: string[];        // e.g., ['@smoke', '@critical']
+  tagMode?: 'any' | 'all'; // 'any' = OR logic (default), 'all' = AND logic
   folders?: string[];     // e.g., ['/tests/auth/**']
   patterns?: string[];    // e.g., ['*.login.*']
   testFlowIds?: string[]; // Specific flow IDs to run
 }
+
+export type ScheduleFolderScope = 'dev' | 'master' | 'sandboxes';
 
 // Notification configuration for scheduled runs
 export interface ScheduleNotificationConfig {
@@ -407,6 +426,8 @@ export interface ScheduleExecutionConfig {
   tracing?: 'always' | 'on-failure' | 'never';
   screenshot?: 'always' | 'on-failure' | 'never';
   video?: 'always' | 'on-failure' | 'never';
+  environmentId?: string;
+  parameterSetId?: string;
 }
 
 // Execution target for schedules (where tests run)
@@ -423,14 +444,16 @@ export interface ScheduleGitHubActionsConfig {
 // Request to trigger a run with parameters
 export interface ScheduleTriggerRequest {
   parameterValues?: ScheduleParameterValues;
-  executionConfig?: Partial<ScheduleExecutionConfig>;
 }
 
 // Schedule entity
 export interface Schedule {
   id: string;
   userId: string;
+  projectId?: string;
   workflowId?: string;
+  scopeFolder?: ScheduleFolderScope;
+  scopeSandboxId?: string;
   name: string;
   description?: string;
   cronExpression: string;
@@ -443,48 +466,47 @@ export interface Schedule {
   createdAt: Date;
   updatedAt: Date;
   runs?: ScheduleRun[];
-  // Parameter system
+  // Legacy schedule-embedded parameter schema (read-only compatibility)
   parameters?: ScheduleParameterDefinition[];
+  // Legacy schedule-embedded execution config (read-only compatibility)
   defaultExecutionConfig?: ScheduleExecutionConfig;
-  // Execution target
+  // Legacy schedule-embedded execution target (read-only compatibility)
   executionTarget: ScheduleExecutionTarget;
-  // GitHub Actions configuration (when executionTarget = "github-actions")
+  // Linked run configuration (source of truth for execution behavior)
+  runConfigurationId?: string;
+  // Legacy schedule-embedded GitHub config (read-only compatibility)
   githubConfig?: ScheduleGitHubActionsConfig;
+  // Legacy migration marker (set by backend backfill)
+  migrationVersion?: number;
 }
 
 export interface ScheduleCreate {
-  workflowId?: string;
+  projectId: string;
+  workflowId: string;
+  scopeFolder: ScheduleFolderScope;
+  scopeSandboxId?: string;
   name: string;
   description?: string;
   cronExpression: string;
   timezone?: string;
-  testSelector?: TestSelector;
   notificationConfig?: ScheduleNotificationConfig;
   isActive?: boolean;
-  // Parameter system
-  parameters?: ScheduleParameterDefinition[];
-  defaultExecutionConfig?: ScheduleExecutionConfig;
-  // Execution target
-  executionTarget?: ScheduleExecutionTarget;
-  // GitHub Actions configuration
-  githubConfig?: ScheduleGitHubActionsConfig;
+  // Required: scheduler is linked to a run configuration source of truth
+  runConfigurationId: string;
 }
 
 export interface ScheduleUpdate {
+  projectId: string;
+  scopeFolder: ScheduleFolderScope;
+  scopeSandboxId?: string;
   name?: string;
   description?: string;
   cronExpression?: string;
   timezone?: string;
-  testSelector?: TestSelector;
   notificationConfig?: ScheduleNotificationConfig;
   isActive?: boolean;
-  // Parameter system
-  parameters?: ScheduleParameterDefinition[];
-  defaultExecutionConfig?: ScheduleExecutionConfig;
-  // Execution target
-  executionTarget?: ScheduleExecutionTarget;
-  // GitHub Actions configuration
-  githubConfig?: ScheduleGitHubActionsConfig;
+  // Required on update payloads to keep scheduler linked to its source-of-truth run config
+  runConfigurationId: string;
 }
 
 // Schedule run entity
@@ -511,6 +533,7 @@ export interface ScheduleRun {
   // GitHub Actions tracking (when executed via GitHub Actions)
   githubRunId?: number;
   githubRunUrl?: string;
+  executionId?: string;
 }
 
 // Individual test result in a run

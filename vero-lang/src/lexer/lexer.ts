@@ -61,6 +61,10 @@ const KEYWORDS: Record<string, TokenType> = {
     'DRAG': TokenType.DRAG,
     'REFRESH': TokenType.REFRESH,
     'CLEAR': TokenType.CLEAR,
+    'SWITCH': TokenType.SWITCH,
+    'NEW': TokenType.NEW,
+    'TAB': TokenType.TAB,
+    'CLOSE': TokenType.CLOSE,
 
     // Assertions
     'URL': TokenType.URL,
@@ -74,6 +78,12 @@ const KEYWORDS: Record<string, TokenType> = {
     'ELEMENT': TokenType.ELEMENT,
     'OF': TokenType.OF,
     'CLASS': TokenType.CLASS,
+    'STRICT': TokenType.STRICT,
+    'BALANCED': TokenType.BALANCED,
+    'RELAXED': TokenType.RELAXED,
+    'THRESHOLD': TokenType.THRESHOLD,
+    'MAX_DIFF_PIXELS': TokenType.MAX_DIFF_PIXELS,
+    'MAX_DIFF_RATIO': TokenType.MAX_DIFF_RATIO,
     'MATCHES': TokenType.MATCHES,
 
     // Conditions
@@ -249,6 +259,8 @@ export class Lexer {
                 this.advance();
             } else if (char === '#') {
                 this.skipComment();
+            } else if (char === '/' && this.source[this.pos + 1] === '/') {
+                this.skipSlashComment();
             } else {
                 break;
             }
@@ -261,6 +273,25 @@ export class Lexer {
         let comment = '';
 
         this.advance();
+        while (!this.isAtEnd() && this.peek() !== '\n') {
+            comment += this.advance();
+        }
+
+        this.tokens.push({
+            type: TokenType.COMMENT,
+            value: comment.trim(),
+            line: startLine,
+            column: startColumn
+        });
+    }
+
+    private skipSlashComment(): void {
+        const startLine = this.line;
+        const startColumn = this.column;
+        let comment = '';
+
+        this.advance(); // skip first /
+        this.advance(); // skip second /
         while (!this.isAtEnd() && this.peek() !== '\n') {
             comment += this.advance();
         }

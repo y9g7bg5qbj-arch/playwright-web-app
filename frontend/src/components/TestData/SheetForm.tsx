@@ -68,7 +68,7 @@ export const SheetForm: React.FC<SheetFormProps> = ({
           required
         />
         <p className="mt-1 text-xs text-text-muted">
-          Reference in Vero: <code className="rounded bg-dark-elevated px-1.5 py-0.5 text-emerald-400">load $data from "{name || 'TableName'}"</code>
+          Reference in Vero: <code className="rounded bg-dark-elevated px-1.5 py-0.5 text-status-success">load $data from "{name || 'TableName'}"</code>
         </p>
       </div>
 
@@ -173,7 +173,7 @@ export const SheetForm: React.FC<SheetFormProps> = ({
         </button>
         <button
           type="submit"
-          className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-b from-brand-primary to-[#2c5fd9] px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-all hover:brightness-110"
+          className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-b from-brand-primary to-brand-primary px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-all hover:brightness-110"
         >
           <Save className="w-4 h-4" />
           {sheet ? 'Update' : 'Create'} Data Table

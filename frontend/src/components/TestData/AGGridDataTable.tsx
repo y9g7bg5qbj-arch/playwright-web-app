@@ -1,3 +1,4 @@
+// design-lint-ignore NO_HARDCODED_MODAL — inline confirmation/rename dialogs within AG Grid data table; not standalone modals
 /**
  * AG Grid Data Table Component
  *
@@ -9,7 +10,7 @@
  * - Column type support: text, number, boolean, date
  */
 
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { forwardRef, useState, useCallback, useMemo, useRef, useEffect, useImperativeHandle } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import {
     ColDef,
@@ -19,175 +20,32 @@ import {
     GetRowIdParams,
     ProcessDataFromClipboardParams,
     FilterChangedEvent,
-    CellClickedEvent,
-    themeQuartz,
     ModuleRegistry,
     AllCommunityModule,
 } from 'ag-grid-community';
 import { Plus, Trash2, Copy, Filter, Check, Code, MousePointer, BarChart3, Hash, Calculator, TrendingUp, TrendingDown, Sigma, Search, X, AlertCircle, CopyPlus, Wand2, Edit3, Pin, PinOff, Eye, EyeOff, ChevronDown, Columns3, Palette, ArrowUpDown, Layers, Zap, FileDown, FileUp, LayoutGrid, Undo2, Redo2, Type, LetterText } from 'lucide-react';
 // Note: Download/Upload icons replaced with FileDown/FileUp for clearer semantics
+import { IconButton, EmptyState } from '@/components/ui';
 import { DataGeneratorModal } from './DataGeneratorModal';
 import { BulkUpdateModal, type BulkUpdate } from './BulkUpdateModal';
-import { CellFormattingModal, type CellFormat } from './CellFormattingModal';
+import { CellFormattingModal } from './CellFormattingModal';
 import { MultiSortModal, type SortLevel } from './MultiSortModal';
 import { DistinctValuesModal } from './DistinctValuesModal';
-import { ConditionalFormattingModal, type ConditionalFormatRule } from './ConditionalFormattingModal';
+import { ConditionalFormattingModal } from './ConditionalFormattingModal';
 import { ReferenceCellEditor } from './ReferenceCellEditor';
 import { ReferenceCellRenderer } from './ReferenceCellRenderer';
+import type { CellQueryPayload } from './canvas-v2/queryGeneratorUtils';
+import { darkTheme, filterModelToVDQL } from './agGridFilterUtils';
+import { validateValueAgainstColumn, type CellValidationResult } from './agGridValidation';
+import { BooleanCellRenderer } from './BooleanCellRenderer';
+import { DateCellEditor } from './DateCellEditor';
+import { useCellSelection } from './useCellSelection';
+import { useCellFormatting } from './useCellFormatting';
+
+export type { CellQueryPayload };
 
 // Register AG Grid Community modules (required for v35+)
 ModuleRegistry.registerModules([AllCommunityModule]);
-
-// Create a dark variant of the Quartz theme aligned with IDE tokens
-const darkTheme = themeQuartz.withParams({
-    backgroundColor: '#10131a',
-    headerBackgroundColor: '#151a24',
-    oddRowBackgroundColor: '#0f1219',
-    rowHoverColor: '#1a2030',
-    borderColor: 'rgba(255,255,255,0.08)',
-    headerTextColor: '#95a3b5',
-    foregroundColor: '#dce4ef',
-    selectedRowBackgroundColor: 'rgba(53,116,240,0.22)',
-    accentColor: '#3574f0',
-});
-
-// ============================================
-// VDQL GENERATION FROM AG GRID FILTERS
-// ============================================
-
-/**
- * Quote a column name if it contains spaces or special characters.
- * VDQL identifiers with non-alphanumeric chars need backtick quoting.
- */
-function quoteColumnName(name: string): string {
-    if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
-        return name;
-    }
-    return `\`${name}\``;
-}
-
-/**
- * Convert AG Grid filter model to VDQL query string
- */
-function filterModelToVDQL(
-    filterModel: Record<string, any>,
-    tableName: string,
-    columns: DataColumn[]
-): string {
-    const conditions: string[] = [];
-
-    for (const [columnName, filter] of Object.entries(filterModel)) {
-        const column = columns.find(c => c.name === columnName);
-        const isText = !column || column.type === 'text' || column.type === 'date';
-        const quotedName = quoteColumnName(columnName);
-
-        if (filter.filterType === 'text') {
-            const condition = convertTextFilter(quotedName, filter, isText);
-            if (condition) conditions.push(condition);
-        } else if (filter.filterType === 'number') {
-            const condition = convertNumberFilter(quotedName, filter);
-            if (condition) conditions.push(condition);
-        } else if (filter.operator) {
-            // Combined filter (AND/OR)
-            const subConditions: string[] = [];
-            if (filter.condition1) {
-                const cond = filter.filterType === 'text'
-                    ? convertTextFilter(quotedName, filter.condition1, isText)
-                    : convertNumberFilter(quotedName, filter.condition1);
-                if (cond) subConditions.push(cond);
-            }
-            if (filter.condition2) {
-                const cond = filter.filterType === 'text'
-                    ? convertTextFilter(quotedName, filter.condition2, isText)
-                    : convertNumberFilter(quotedName, filter.condition2);
-                if (cond) subConditions.push(cond);
-            }
-            if (subConditions.length === 2) {
-                const op = filter.operator.toLowerCase();
-                conditions.push(`(${subConditions.join(` ${op} `)})`);
-            } else if (subConditions.length === 1) {
-                conditions.push(subConditions[0]);
-            }
-        }
-    }
-
-    // Convert table name to PascalCase
-    const pascalTableName = tableName
-        .replace(/[^a-zA-Z0-9]/g, ' ')
-        .split(' ')
-        .filter(Boolean)
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-        .join('');
-
-    if (conditions.length === 0) {
-        return `data result = TestData.${pascalTableName}`;
-    }
-
-    return `data result = TestData.${pascalTableName} where ${conditions.join(' and ')}`;
-}
-
-function convertTextFilter(columnName: string, filter: any, isText: boolean): string | null {
-    const value = filter.filter;
-    if (value === undefined || value === null || value === '') return null;
-
-    const quotedValue = isText ? `"${value}"` : value;
-
-    switch (filter.type) {
-        case 'equals':
-            return `${columnName} == ${quotedValue}`;
-        case 'notEqual':
-            return `${columnName} != ${quotedValue}`;
-        case 'contains':
-            return `${columnName} contains ${quotedValue}`;
-        case 'notContains':
-            return `not (${columnName} contains ${quotedValue})`;
-        case 'startsWith':
-            return `${columnName} starts with ${quotedValue}`;
-        case 'endsWith':
-            return `${columnName} ends with ${quotedValue}`;
-        case 'blank':
-            return `${columnName} is empty`;
-        case 'notBlank':
-            return `${columnName} is not empty`;
-        default:
-            return `${columnName} == ${quotedValue}`;
-    }
-}
-
-function convertNumberFilter(columnName: string, filter: any): string | null {
-    const value = filter.filter;
-    if (value === undefined || value === null) {
-        if (filter.type === 'blank') return `${columnName} is empty`;
-        if (filter.type === 'notBlank') return `${columnName} is not empty`;
-        return null;
-    }
-
-    switch (filter.type) {
-        case 'equals':
-            return `${columnName} == ${value}`;
-        case 'notEqual':
-            return `${columnName} != ${value}`;
-        case 'greaterThan':
-            return `${columnName} > ${value}`;
-        case 'greaterThanOrEqual':
-            return `${columnName} >= ${value}`;
-        case 'lessThan':
-            return `${columnName} < ${value}`;
-        case 'lessThanOrEqual':
-            return `${columnName} <= ${value}`;
-        case 'inRange':
-            if (filter.filterTo !== undefined) {
-                return `${columnName} >= ${value} and ${columnName} <= ${filter.filterTo}`;
-            }
-            return `${columnName} >= ${value}`;
-        case 'blank':
-            return `${columnName} is empty`;
-        case 'notBlank':
-            return `${columnName} is not empty`;
-        default:
-            return `${columnName} == ${value}`;
-    }
-}
 
 // ============================================
 // TYPES
@@ -208,6 +66,21 @@ export interface DataColumn {
     width?: number;
     formula?: string; // For computed columns
     referenceConfig?: ReferenceConfig; // For reference columns
+    validation?: {
+        min?: number;
+        max?: number;
+        minLength?: number;
+        maxLength?: number;
+        pattern?: string;
+        enum?: string[];
+    };
+    // Backward-compatible validation fields
+    min?: number;
+    max?: number;
+    minLength?: number;
+    maxLength?: number;
+    pattern?: string;
+    enum?: string[];
 }
 
 export interface DataRow {
@@ -219,6 +92,7 @@ export interface DataRow {
 export interface AGGridDataTableProps {
     columns: DataColumn[];
     rows: DataRow[];
+    tableId?: string;
     tableName: string;
     onCellChange: (rowId: string, columnName: string, value: any) => void;
     onRowAdd: () => Promise<void>;
@@ -245,125 +119,58 @@ export interface AGGridDataTableProps {
     // Saved views: state capture callbacks
     onSortStateChanged?: (sortState: unknown[]) => void;
     onFilterStateChanged?: (filterState: Record<string, unknown>) => void;
-    onColumnStateChanged?: (columnState: unknown[]) => void;
+    onColumnStateChanged?: (columnState: unknown) => void;
     // Saved views: externally-controlled state for view restoration
     externalSortState?: SortLevel[];
     externalFilterState?: Record<string, unknown>;
+    externalColumnState?: unknown;
+    // Canvas mode: embedded hides legacy AG Grid chrome (toolbar/footer)
+    chromeMode?: 'full' | 'embedded';
+    onSelectionCountChange?: (count: number) => void;
+    onCellQueryGenerated?: (payload: CellQueryPayload | null) => void;
 }
 
-// ============================================
-// SUMMARY BAR CALCULATIONS
-// ============================================
-
-interface ColumnSummary {
-    columnName: string;
-    columnType: DataColumn['type'];
-    count: number;
-    nonEmpty: number;
-    empty: number;
-    distinct: number;
-    // Numeric only
-    sum?: number;
-    avg?: number;
-    min?: number | string;
-    max?: number | string;
+export interface AGGridDataTableHandle {
+    applyFilterModel: (model: Record<string, unknown>) => void;
+    clearFilterModel: () => void;
+    setQuickSearch: (value: string) => void;
+    applyExternalRowScope: (rowIds: string[] | null) => void;
+    clearExternalRowScope: () => void;
+    getFilterModel: () => Record<string, unknown>;
+    getFilteredRowIds: () => string[];
+    getSelectedRowIds: () => string[];
+    getSelectedRowCount: () => number;
+    openFindReplace: () => void;
+    openBulkUpdate: () => void;
+    openMultiSort: () => void;
+    openConditionalFormatting: () => void;
+    openColumnVisibility: () => void;
+    openShortcutHelp: () => void;
+    undo: () => void;
+    redo: () => void;
+    deleteSelectedRows: () => void;
+    duplicateSelectedRows: () => void;
+    freezeSelectedRows: () => void;
+    unfreezeAllRows: () => void;
+    unfreezeAllColumns: () => void;
+    applyQuickFilterPreset: (preset: 'empty' | 'duplicates' | 'clear') => void;
+    openFillColumn: (columnName?: string) => void;
+    openDataGenerator: (columnName?: string) => void;
+    getValidationIssueCount: () => number;
+    getValidationHotspots: () => Array<{ column: string; count: number }>;
 }
 
-/**
- * Calculate summary statistics for a column
- */
-function calculateColumnSummary(
-    columnName: string,
-    columnType: DataColumn['type'],
-    rows: { data: Record<string, any> }[]
-): ColumnSummary {
-    const values = rows.map(r => r.data[columnName]);
-    const count = values.length;
-    const nonEmptyValues = values.filter(v => v !== null && v !== undefined && v !== '');
-    const nonEmpty = nonEmptyValues.length;
-    const empty = count - nonEmpty;
-    const distinct = new Set(nonEmptyValues.map(v => String(v))).size;
-
-    const summary: ColumnSummary = {
-        columnName,
-        columnType,
-        count,
-        nonEmpty,
-        empty,
-        distinct,
-    };
-
-    // Calculate numeric stats for number columns
-    if (columnType === 'number') {
-        const numericValues = nonEmptyValues
-            .map(v => parseFloat(v))
-            .filter(v => !isNaN(v));
-
-        if (numericValues.length > 0) {
-            summary.sum = numericValues.reduce((a, b) => a + b, 0);
-            summary.avg = summary.sum / numericValues.length;
-            summary.min = Math.min(...numericValues);
-            summary.max = Math.max(...numericValues);
-        }
-    }
-
-    // Calculate min/max for text/date columns (alphabetical)
-    if ((columnType === 'text' || columnType === 'date') && nonEmptyValues.length > 0) {
-        const sortedValues = [...nonEmptyValues].sort();
-        summary.min = String(sortedValues[0]);
-        summary.max = String(sortedValues[sortedValues.length - 1]);
-    }
-
-    return summary;
+interface CanvasColumnViewState {
+    agColumnState: unknown[];
+    hiddenColumns: string[];
+    frozenColumns: string[];
+    frozenRowIds: string[];
 }
 
-// Custom cell renderer for boolean type
-const BooleanCellRenderer = (props: any) => {
-    const value = props.value;
-    return (
-        <div className="flex items-center justify-center h-full">
-            <input
-                type="checkbox"
-                checked={Boolean(value)}
-                onChange={(e) => {
-                    props.node.setDataValue(props.column.getColId(), e.target.checked);
-                }}
-                className="w-4 h-4 rounded border-[#30363d] bg-[#21262d] text-emerald-500 focus:ring-emerald-500 cursor-pointer"
-            />
-        </div>
-    );
-};
-
-// Custom cell editor for date type
-const DateCellEditor = (props: any) => {
-    const inputRef = useRef<HTMLInputElement>(null);
-    const [value, setValue] = useState(props.value || '');
-
-    const onKeyDown = (event: React.KeyboardEvent) => {
-        if (event.key === 'Enter') {
-            props.stopEditing();
-        }
-        if (event.key === 'Escape') {
-            props.stopEditing(true);
-        }
-    };
-
-    return (
-        <input
-            ref={inputRef}
-            type="date"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={onKeyDown}
-            className="w-full h-full bg-[#21262d] border-0 text-[#e6edf3] px-2"
-            autoFocus
-        />
-    );
-};
-
-export function AGGridDataTable({
+export const AGGridDataTable = forwardRef<AGGridDataTableHandle, AGGridDataTableProps>(function AGGridDataTable({
     columns,
     rows,
+    tableId,
     tableName,
     onCellChange,
     onRowAdd,
@@ -389,29 +196,23 @@ export function AGGridDataTable({
     onColumnStateChanged,
     externalSortState,
     externalFilterState,
-}: AGGridDataTableProps) {
+    externalColumnState,
+    chromeMode = 'full',
+    onSelectionCountChange,
+    onCellQueryGenerated,
+}: AGGridDataTableProps, ref) {
     // Suppress unused variable warnings - these will be used in column context menus
     void _onColumnRemove;
     void _onColumnRename;
     void _onColumnTypeChange;
+    const isEmbedded = chromeMode === 'embedded';
     const gridRef = useRef<AgGridReact>(null);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
+    const [cellValidationError, setCellValidationError] = useState<string | null>(null);
+    const [lastValidationErrorAt, setLastValidationErrorAt] = useState<number>(0);
     const [vdqlQuery, setVdqlQuery] = useState<string>('');
     const [hasActiveFilters, setHasActiveFilters] = useState(false);
-    const [copied, setCopied] = useState(false);
-
-    // Cell selection state for VDQL generation
-    interface SelectedCell {
-        rowIndex: number;
-        column: string;
-        value: any;
-        columnType: string;
-    }
-    const [selectedCells, setSelectedCells] = useState<SelectedCell[]>([]);
-    const [cellSelectionQuery, setCellSelectionQuery] = useState<string>('');
-
-    // Summary bar state - tracks selected column for aggregation
-    const [columnSummary, setColumnSummary] = useState<ColumnSummary | null>(null);
+    const isRevertingInvalidChangeRef = useRef(false);
 
     // Quick filter state
     const [quickSearch, setQuickSearch] = useState<string>('');
@@ -424,6 +225,7 @@ export function AGGridDataTable({
     // Bulk update modal state
     const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
     const [filteredRowIds, setFilteredRowIds] = useState<string[]>([]);
+    const [externalRowScopeIds, setExternalRowScopeIds] = useState<Set<string> | null>(null);
 
     // Column visibility and freeze state
     const [frozenColumns, setFrozenColumns] = useState<string[]>([]);
@@ -445,7 +247,12 @@ export function AGGridDataTable({
     // Fill column modal state
     const [showFillColumnModal, setShowFillColumnModal] = useState(false);
     const [fillColumnName, setFillColumnName] = useState<string | null>(null);
+    const [fillType, setFillType] = useState<'value' | 'sequence' | 'pattern'>('value');
     const [fillValue, setFillValue] = useState('');
+    const [fillStartValue, setFillStartValue] = useState('1');
+    const [fillStepValue, setFillStepValue] = useState('1');
+    const [fillPattern, setFillPattern] = useState('{n}');
+    const [fillError, setFillError] = useState<string | null>(null);
 
     // Find & Replace modal state
     const [showFindReplaceModal, setShowFindReplaceModal] = useState(false);
@@ -468,11 +275,6 @@ export function AGGridDataTable({
     const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
     const MAX_HISTORY = 50;
 
-    // Cell formatting state - key is "rowId:columnName"
-    const [cellFormats, setCellFormats] = useState<Record<string, CellFormat>>({});
-    const [showFormattingModal, setShowFormattingModal] = useState(false);
-    const [formattingTarget, setFormattingTarget] = useState<{ rowId: string; column: string; value: string } | null>(null);
-
     // Multi-column sorting state
     const [sortLevels, setSortLevels] = useState<SortLevel[]>([]);
     const [showSortModal, setShowSortModal] = useState(false);
@@ -480,13 +282,83 @@ export function AGGridDataTable({
     // Distinct values modal state
     const [showDistinctModal, setShowDistinctModal] = useState(false);
 
-    // Conditional formatting state
-    const [conditionalRules, setConditionalRules] = useState<ConditionalFormatRule[]>([]);
-    const [showConditionalModal, setShowConditionalModal] = useState(false);
+    const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+
+    const fillPreviewValues = useMemo(() => {
+        const start = Number(fillStartValue);
+        const step = Number(fillStepValue);
+        if (!Number.isFinite(start) || !Number.isFinite(step)) {
+            return [];
+        }
+
+        return [0, 1, 2].map((index) => {
+            if (fillType === 'value') {
+                return fillValue;
+            }
+            if (fillType === 'sequence') {
+                return String(start + (index * step));
+            }
+            return (fillPattern || '{n}').replace(/\{n\}/g, String(start + (index * step)));
+        });
+    }, [fillPattern, fillStartValue, fillStepValue, fillType, fillValue]);
+
+    const buildColumnViewState = useCallback((): CanvasColumnViewState => ({
+        agColumnState: (gridRef.current?.api.getColumnState() as unknown[]) || [],
+        hiddenColumns: [...hiddenColumns],
+        frozenColumns: [...frozenColumns],
+        frozenRowIds: [...frozenRowIds],
+    }), [frozenColumns, frozenRowIds, hiddenColumns]);
+
+    const emitColumnViewState = useCallback(() => {
+        onColumnStateChanged?.(buildColumnViewState());
+    }, [buildColumnViewState, onColumnStateChanged]);
+
+    const visibleRows = useMemo(() => {
+        if (!externalRowScopeIds) {
+            return rows;
+        }
+        return rows.filter((row) => externalRowScopeIds.has(row.id));
+    }, [externalRowScopeIds, rows]);
+
+    // Cell selection hook
+    const {
+        selectedCells,
+        cellSelectionQuery,
+        columnSummary,
+        onCellClicked,
+        handleClearCellSelection,
+        handleCopyCellQuery,
+        setCopied,
+        copied,
+    } = useCellSelection({
+        columns,
+        visibleRows,
+        tableName,
+        tableId,
+        onCellQueryGenerated,
+    });
+
+    // Cell formatting hook
+    const {
+        cellFormats,
+        showFormattingModal,
+        setShowFormattingModal,
+        formattingTarget,
+        setFormattingTarget,
+        handleOpenFormattingModal,
+        handleApplyCellFormat,
+        handleClearCellFormat,
+        conditionalRules,
+        setConditionalRules,
+        showConditionalModal,
+        setShowConditionalModal,
+    } = useCellFormatting({
+        visibleRows,
+    });
 
     // Convert rows to AG Grid format - separate frozen and regular rows
     const { rowData, pinnedTopRowData } = useMemo(() => {
-        const allData = rows.map((row) => {
+        const allData = visibleRows.map((row) => {
             if (!row.data) {
                 console.warn('[AGGrid] Row has null/undefined data:', row.id);
             }
@@ -512,12 +384,33 @@ export function AGGridDataTable({
         const frozen = allData.filter(row => frozenRowIds.includes(row._id));
         const regular = allData.filter(row => !frozenRowIds.includes(row._id));
 
-        console.log('[AGGrid] rowData:', regular);
-        console.log('[AGGrid] pinnedTopRowData:', frozen);
-        console.log('[AGGrid] columns:', columns);
-
         return { rowData: regular, pinnedTopRowData: frozen };
-    }, [rows, columns, frozenRowIds]);
+    }, [visibleRows, columns, frozenRowIds]);
+
+    const legacyInvalidCellMap = useMemo(() => {
+        const result = new Map<string, CellValidationResult>();
+        for (const row of visibleRows) {
+            for (const column of columns) {
+                const value = row.data?.[column.name];
+                const validation = validateValueAgainstColumn(column, value);
+                if (!validation.valid) {
+                    result.set(`${row.id}:${column.name}`, validation);
+                }
+            }
+        }
+        return result;
+    }, [columns, visibleRows]);
+
+    const validationHotspots = useMemo(() => {
+        const counts = new Map<string, number>();
+        for (const key of legacyInvalidCellMap.keys()) {
+            const [, columnName] = key.split(':');
+            counts.set(columnName, (counts.get(columnName) || 0) + 1);
+        }
+        return [...counts.entries()]
+            .map(([column, count]) => ({ column, count }))
+            .sort((a, b) => b.count - a.count);
+    }, [legacyInvalidCellMap]);
 
     // Generate column definitions
     const columnDefs = useMemo((): ColDef[] => {
@@ -532,7 +425,7 @@ export function AGGridDataTable({
                 filter: false,
                 resizable: false,
                 pinned: 'left',
-                cellClass: 'text-[#8b949e] text-xs',
+                cellClass: 'text-text-secondary text-xs',
                 valueGetter: (params) => (params.node?.rowIndex ?? 0) + 1,
             },
         ];
@@ -652,6 +545,13 @@ export function AGGridDataTable({
                             }
                         }
 
+                        // Legacy invalid values remain visible but flagged until corrected.
+                        const legacyIssue = legacyInvalidCellMap.get(formatKey);
+                        if (legacyIssue) {
+                            style.boxShadow = 'inset 0 0 0 1px rgba(250, 173, 20, 0.85)';
+                            style.backgroundImage = 'linear-gradient(to top, rgba(250, 173, 20, 0.08), rgba(250, 173, 20, 0.08))';
+                        }
+
                         return Object.keys(style).length > 0 ? style : null;
                     },
                 };
@@ -695,7 +595,6 @@ export function AGGridDataTable({
                                 // Pass direct save callback since AG Grid popup tracking 
                                 // doesn't work with fixed-position modals
                                 onSave: (rowId: string, newValue: string) => {
-                                    console.log('[AGGrid] ReferenceCellEditor onSave:', rowId, col.name, newValue);
                                     onCellChange(rowId, col.name, newValue);
                                 },
                             };
@@ -722,19 +621,21 @@ export function AGGridDataTable({
             resizable: false,
             pinned: 'right',
             cellRenderer: (params: any) => (
-                <button
+                <IconButton
+                    icon={<Trash2 className="w-3.5 h-3.5" />}
+                    size="sm"
+                    variant="ghost"
+                    tone="danger"
+                    tooltip="Delete row"
                     onClick={() => onRowDelete(params.data._id)}
-                    className="opacity-0 group-hover:opacity-100 hover:opacity-100 p-1 hover:bg-red-500/20 rounded transition-opacity"
-                    title="Delete row"
-                >
-                    <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                </button>
+                    className="opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity"
+                />
             ),
             cellClass: 'flex items-center justify-center group',
         });
 
         return defs;
-    }, [columns, onRowDelete, frozenColumns, hiddenColumns, cellFormats, conditionalRules]);
+    }, [columns, onRowDelete, frozenColumns, hiddenColumns, cellFormats, conditionalRules, legacyInvalidCellMap]);
 
     // Default column settings
     const defaultColDef = useMemo((): ColDef => ({
@@ -749,12 +650,29 @@ export function AGGridDataTable({
 
     // Handle cell value changes with history tracking
     const onCellValueChanged = useCallback((event: CellValueChangedEvent) => {
+        if (isRevertingInvalidChangeRef.current) {
+            isRevertingInvalidChangeRef.current = false;
+            return;
+        }
+
         const rowId = event.data._id;
         const field = event.colDef.field;
         const newValue = event.newValue;
         const oldValue = event.oldValue;
 
         if (field && field !== '_id' && field !== '_order' && field !== '_actions') {
+            const column = columns.find((c) => c.name === field);
+            if (column) {
+                const validation = validateValueAgainstColumn(column, newValue);
+                if (!validation.valid) {
+                    isRevertingInvalidChangeRef.current = true;
+                    event.node.setDataValue(field, oldValue);
+                    setCellValidationError(`${field}: ${validation.reason || `Expected ${validation.expectedType}`}`);
+                    setLastValidationErrorAt(Date.now());
+                    return;
+                }
+            }
+
             // Add to undo stack
             setUndoStack(prev => {
                 const entry: HistoryEntry = {
@@ -776,7 +694,7 @@ export function AGGridDataTable({
 
             onCellChange(rowId, field, newValue);
         }
-    }, [onCellChange, MAX_HISTORY]);
+    }, [onCellChange, MAX_HISTORY, columns]);
 
     // Undo last change
     const handleUndo = useCallback(() => {
@@ -824,6 +742,12 @@ export function AGGridDataTable({
             } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
                 e.preventDefault();
                 handleRedo();
+            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
+                e.preventDefault();
+                setShowFindReplaceModal(true);
+            } else if (e.shiftKey && e.key === '?') {
+                e.preventDefault();
+                setShowShortcutHelp(true);
             }
         };
 
@@ -831,12 +755,21 @@ export function AGGridDataTable({
         return () => document.removeEventListener('keydown', handleKeyDown);
     }, [handleUndo, handleRedo]);
 
+    useEffect(() => {
+        if (!cellValidationError || !lastValidationErrorAt) {
+            return;
+        }
+        const timeout = window.setTimeout(() => setCellValidationError(null), 4200);
+        return () => window.clearTimeout(timeout);
+    }, [cellValidationError, lastValidationErrorAt]);
+
     // Handle selection changes
     const onSelectionChanged = useCallback((event: SelectionChangedEvent) => {
         const selectedNodes = event.api.getSelectedNodes();
         const ids = selectedNodes.map((node) => node.data._id);
         setSelectedRowIds(ids);
-    }, []);
+        onSelectionCountChange?.(ids.length);
+    }, [onSelectionCountChange]);
 
     // Handle paste from clipboard
     const processDataFromClipboard = useCallback((params: ProcessDataFromClipboardParams): string[][] | null => {
@@ -874,9 +807,8 @@ export function AGGridDataTable({
         params.api.sizeColumnsToFit();
 
         // Emit initial column state
-        const colState = params.api.getColumnState();
-        onColumnStateChanged?.(colState);
-    }, [onColumnStateChanged]);
+        emitColumnViewState();
+    }, [emitColumnViewState]);
 
     // Handle sort changed (from column header clicks) - emit for saved views
     const onSortChanged = useCallback(() => {
@@ -897,9 +829,8 @@ export function AGGridDataTable({
     // Handle column moved/resized/visibility changed - emit for saved views
     const onColumnStateUpdated = useCallback(() => {
         if (!gridRef.current?.api) return;
-        const colState = gridRef.current.api.getColumnState();
-        onColumnStateChanged?.(colState);
-    }, [onColumnStateChanged]);
+        emitColumnViewState();
+    }, [emitColumnViewState]);
 
     // Apply external sort state when it changes (e.g., from loading a saved view)
     useEffect(() => {
@@ -925,6 +856,67 @@ export function AGGridDataTable({
         if (!externalFilterState || !gridRef.current?.api) return;
         gridRef.current.api.setFilterModel(externalFilterState);
     }, [externalFilterState]);
+
+    useEffect(() => {
+        const visibleRowIds = new Set(visibleRows.map((row) => row.id));
+        setSelectedRowIds((prev) => {
+            const next = prev.filter((id) => visibleRowIds.has(id));
+            return next.length === prev.length ? prev : next;
+        });
+
+        if (!gridRef.current?.api) {
+            setFilteredRowIds([...visibleRowIds]);
+            return;
+        }
+
+        const ids: string[] = [];
+        gridRef.current.api.forEachNodeAfterFilter((node) => {
+            const rowId = node.data?._id;
+            if (typeof rowId === 'string') {
+                ids.push(rowId);
+            }
+        });
+        setFilteredRowIds(ids);
+    }, [pinnedTopRowData, rowData, visibleRows]);
+
+    // Restore saved column/freeze visibility state from saved views.
+    useEffect(() => {
+        if (!externalColumnState) {
+            return;
+        }
+
+        // Legacy format support: columnState was stored directly as an array.
+        if (Array.isArray(externalColumnState)) {
+            if (gridRef.current?.api) {
+                gridRef.current.api.applyColumnState({
+                    state: externalColumnState as any[],
+                    applyOrder: true,
+                });
+            }
+            return;
+        }
+
+        if (typeof externalColumnState !== 'object') {
+            return;
+        }
+
+        const viewState = externalColumnState as Partial<CanvasColumnViewState>;
+        if (Array.isArray(viewState.hiddenColumns)) {
+            setHiddenColumns(viewState.hiddenColumns);
+        }
+        if (Array.isArray(viewState.frozenColumns)) {
+            setFrozenColumns(viewState.frozenColumns);
+        }
+        if (Array.isArray(viewState.frozenRowIds)) {
+            setFrozenRowIds(viewState.frozenRowIds);
+        }
+        if (Array.isArray(viewState.agColumnState) && gridRef.current?.api) {
+            gridRef.current.api.applyColumnState({
+                state: viewState.agColumnState as any[],
+                applyOrder: true,
+            });
+        }
+    }, [externalColumnState]);
 
     // Handle filter changes - generate VDQL and track filtered rows
     const onFilterChanged = useCallback((event: FilterChangedEvent) => {
@@ -971,164 +963,6 @@ export function AGGridDataTable({
             setVdqlQuery('');
         }
     }, []);
-
-    // Generate VDQL from selected cells
-    const generateCellSelectionVDQL = useCallback((cells: SelectedCell[]) => {
-        if (cells.length === 0) {
-            setCellSelectionQuery('');
-            return;
-        }
-
-        const pascalTableName = tableName
-            .replace(/[^a-zA-Z0-9]/g, ' ')
-            .split(' ')
-            .filter(Boolean)
-            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-            .join('');
-
-        // Group cells by what type of query makes sense
-        const uniqueColumns = [...new Set(cells.map(c => c.column))];
-        const uniqueRows = [...new Set(cells.map(c => c.rowIndex))];
-
-        // If all cells are from same column - generate column filter
-        if (uniqueColumns.length === 1 && cells.length > 1) {
-            const col = uniqueColumns[0];
-            const colType = cells[0].columnType;
-            const values = cells.map(c => {
-                if (colType === 'text' || colType === 'date') {
-                    return `"${c.value}"`;
-                }
-                return c.value;
-            });
-            const query = `data result = TestData.${pascalTableName} where ${col} in (${values.join(', ')})`;
-            setCellSelectionQuery(query);
-            return;
-        }
-
-        // If single cell - generate exact match query
-        if (cells.length === 1) {
-            const cell = cells[0];
-            const formattedValue = (cell.columnType === 'text' || cell.columnType === 'date')
-                ? `"${cell.value}"`
-                : cell.value;
-
-            // Also provide cell access syntax
-            const queries = [
-                `# Filter by value:`,
-                `data result = TestData.${pascalTableName} where ${cell.column} == ${formattedValue}`,
-                ``,
-                `# Direct cell access:`,
-                `text value = TestData.${pascalTableName}[${cell.rowIndex}].${cell.column}`,
-            ];
-            setCellSelectionQuery(queries.join('\n'));
-            return;
-        }
-
-        // Multiple cells from different columns - generate AND conditions
-        const conditions = cells.map(cell => {
-            const formattedValue = (cell.columnType === 'text' || cell.columnType === 'date')
-                ? `"${cell.value}"`
-                : cell.value;
-            return `${cell.column} == ${formattedValue}`;
-        });
-
-        // If same row, use AND; if different rows, show multiple queries
-        if (uniqueRows.length === 1) {
-            const query = `data result = TestData.${pascalTableName} where ${conditions.join(' and ')}`;
-            setCellSelectionQuery(query);
-        } else {
-            // Multiple rows selected - use OR for each row's conditions
-            const rowQueries = uniqueRows.map(rowIdx => {
-                const rowCells = cells.filter(c => c.rowIndex === rowIdx);
-                const rowConditions = rowCells.map(cell => {
-                    const formattedValue = (cell.columnType === 'text' || cell.columnType === 'date')
-                        ? `"${cell.value}"`
-                        : cell.value;
-                    return `${cell.column} == ${formattedValue}`;
-                });
-                return `(${rowConditions.join(' and ')})`;
-            });
-            const query = `data result = TestData.${pascalTableName} where ${rowQueries.join(' or ')}`;
-            setCellSelectionQuery(query);
-        }
-    }, [tableName]);
-
-    // Calculate summary when cells in a column are selected
-    const updateColumnSummary = useCallback((cells: SelectedCell[]) => {
-        if (cells.length === 0) {
-            setColumnSummary(null);
-            return;
-        }
-
-        // Get the most recently selected column for summary
-        const lastCell = cells[cells.length - 1];
-        const colName = lastCell.column;
-        const column = columns.find(c => c.name === colName);
-
-        if (column) {
-            const summary = calculateColumnSummary(colName, column.type, rows);
-            setColumnSummary(summary);
-        }
-    }, [columns, rows]);
-
-    // Handle cell click - Ctrl+click for multi-select
-    const onCellClicked = useCallback((event: CellClickedEvent) => {
-        const field = event.colDef.field;
-
-        // Ignore clicks on system columns
-        if (!field || field.startsWith('_')) return;
-
-        const column = columns.find(c => c.name === field);
-        const cellData: SelectedCell = {
-            rowIndex: event.rowIndex ?? 0,
-            column: field,
-            value: event.value,
-            columnType: column?.type || 'text',
-        };
-
-        if (event.event && (event.event as MouseEvent).ctrlKey) {
-            // Ctrl+click: add to selection
-            setSelectedCells(prev => {
-                // Check if already selected (toggle off)
-                const existingIndex = prev.findIndex(
-                    c => c.rowIndex === cellData.rowIndex && c.column === cellData.column
-                );
-                if (existingIndex >= 0) {
-                    const newCells = prev.filter((_, i) => i !== existingIndex);
-                    generateCellSelectionVDQL(newCells);
-                    updateColumnSummary(newCells);
-                    return newCells;
-                }
-                const newCells = [...prev, cellData];
-                generateCellSelectionVDQL(newCells);
-                updateColumnSummary(newCells);
-                return newCells;
-            });
-        } else {
-            // Regular click: single selection
-            setSelectedCells([cellData]);
-            generateCellSelectionVDQL([cellData]);
-            updateColumnSummary([cellData]);
-        }
-    }, [columns, generateCellSelectionVDQL, updateColumnSummary]);
-
-    // Clear cell selection
-    const handleClearCellSelection = useCallback(() => {
-        setSelectedCells([]);
-        setCellSelectionQuery('');
-        setColumnSummary(null);
-    }, []);
-
-    // Copy cell selection query
-    const handleCopyCellQuery = useCallback(async () => {
-        try {
-            await navigator.clipboard.writeText(cellSelectionQuery);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        } catch (err) {
-            console.error('Failed to copy:', err);
-        }
-    }, [cellSelectionQuery]);
 
     // Delete selected rows
     const handleDeleteSelected = useCallback(async () => {
@@ -1275,19 +1109,48 @@ export function AGGridDataTable({
     // Handle fill column with value
     const handleOpenFillColumn = useCallback((columnName: string) => {
         setFillColumnName(columnName);
+        setFillType('value');
         setFillValue('');
+        setFillStartValue('1');
+        setFillStepValue('1');
+        setFillPattern('{n}');
+        setFillError(null);
         setShowFillColumnModal(true);
         setShowDataDropdown(false);
     }, []);
 
     const handleFillColumn = useCallback(async () => {
         if (!onFillSeries || !fillColumnName) return;
-        const allRowIds = rows.map(r => r.id);
-        await onFillSeries(allRowIds, fillColumnName, 'value', { value: fillValue });
+
+        const parsedStart = Number(fillStartValue);
+        const parsedStep = Number(fillStepValue);
+        if ((fillType === 'sequence' || fillType === 'pattern') && (!Number.isFinite(parsedStart) || !Number.isFinite(parsedStep))) {
+            setFillError('Start and step must be valid numbers.');
+            return;
+        }
+        if (fillType === 'pattern' && !fillPattern.trim()) {
+            setFillError('Pattern is required. Use {n} as the sequence placeholder.');
+            return;
+        }
+
+        const allRowIds = visibleRows.map(r => r.id);
+        const options =
+            fillType === 'value'
+                ? { value: fillValue }
+                : fillType === 'sequence'
+                    ? { startValue: parsedStart, step: parsedStep }
+                    : { pattern: fillPattern, startValue: parsedStart, step: parsedStep };
+
+        await onFillSeries(allRowIds, fillColumnName, fillType, options);
         setShowFillColumnModal(false);
         setFillColumnName(null);
+        setFillType('value');
         setFillValue('');
-    }, [onFillSeries, fillColumnName, fillValue, rows]);
+        setFillStartValue('1');
+        setFillStepValue('1');
+        setFillPattern('{n}');
+        setFillError(null);
+    }, [onFillSeries, fillColumnName, fillType, fillValue, fillStartValue, fillStepValue, fillPattern, visibleRows]);
 
     // Find & Replace handlers
     const handleFind = useCallback(() => {
@@ -1299,7 +1162,7 @@ export function AGGridDataTable({
         const results: { rowId: string; column: string; value: string }[] = [];
         const searchText = matchCase ? findText : findText.toLowerCase();
 
-        for (const row of rows) {
+        for (const row of visibleRows) {
             const columnsToSearch = findInColumn === '__all__'
                 ? columns.map(c => c.name)
                 : [findInColumn];
@@ -1322,7 +1185,7 @@ export function AGGridDataTable({
         }
 
         setFindResults(results);
-    }, [findText, findInColumn, matchCase, matchWholeCell, rows, columns]);
+    }, [findText, findInColumn, matchCase, matchWholeCell, visibleRows, columns]);
 
     const handleReplaceAll = useCallback(async () => {
         if (!findText || findResults.length === 0) return;
@@ -1331,7 +1194,7 @@ export function AGGridDataTable({
         const updatesByRow = new Map<string, Record<string, string>>();
 
         for (const result of findResults) {
-            const row = rows.find(r => r.id === result.rowId);
+            const row = visibleRows.find(r => r.id === result.rowId);
             if (!row) continue;
 
             const currentValue = String(row.data[result.column] ?? '');
@@ -1367,7 +1230,7 @@ export function AGGridDataTable({
         setFindText('');
         setReplaceText('');
         setShowFindReplaceModal(false);
-    }, [findText, replaceText, findResults, matchCase, matchWholeCell, rows, onCellChange]);
+    }, [findText, replaceText, findResults, matchCase, matchWholeCell, visibleRows, onCellChange]);
 
     // Freeze/Unfreeze column handlers
     const handleFreezeColumn = useCallback((columnName: string) => {
@@ -1495,55 +1358,16 @@ export function AGGridDataTable({
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [handleClickOutside]);
 
-    // Cell formatting handlers
-    const handleOpenFormattingModal = useCallback(() => {
-        if (selectedCells.length > 0) {
-            const firstCell = selectedCells[0];
-            const row = rows.find((_, idx) => idx === firstCell.rowIndex);
-            if (row) {
-                setFormattingTarget({
-                    rowId: row.id,
-                    column: firstCell.column,
-                    value: String(firstCell.value ?? ''),
-                });
-                setShowFormattingModal(true);
-            }
+    useEffect(() => {
+        onSelectionCountChange?.(selectedRowIds.length);
+    }, [onSelectionCountChange, selectedRowIds.length]);
+
+    useEffect(() => {
+        if (!gridRef.current?.api) {
+            return;
         }
-    }, [selectedCells, rows]);
-
-    const handleApplyCellFormat = useCallback((format: CellFormat) => {
-        if (!formattingTarget) return;
-
-        // Apply format to all selected cells
-        const newFormats = { ...cellFormats };
-        selectedCells.forEach(cell => {
-            const row = rows.find((_, idx) => idx === cell.rowIndex);
-            if (row) {
-                const key = `${row.id}:${cell.column}`;
-                newFormats[key] = format;
-            }
-        });
-        setCellFormats(newFormats);
-        setShowFormattingModal(false);
-        setFormattingTarget(null);
-    }, [formattingTarget, selectedCells, rows, cellFormats]);
-
-    const handleClearCellFormat = useCallback(() => {
-        if (!formattingTarget) return;
-
-        // Clear format from all selected cells
-        const newFormats = { ...cellFormats };
-        selectedCells.forEach(cell => {
-            const row = rows.find((_, idx) => idx === cell.rowIndex);
-            if (row) {
-                const key = `${row.id}:${cell.column}`;
-                delete newFormats[key];
-            }
-        });
-        setCellFormats(newFormats);
-        setShowFormattingModal(false);
-        setFormattingTarget(null);
-    }, [formattingTarget, selectedCells, rows, cellFormats]);
+        emitColumnViewState();
+    }, [emitColumnViewState]);
 
     // Multi-sort handler
     const handleApplyMultiSort = useCallback((newSortLevels: SortLevel[]) => {
@@ -1596,13 +1420,103 @@ export function AGGridDataTable({
         }
     }, [columnSummary]);
 
-    // Debug: Log what we're rendering
-    console.log('[AGGrid] Rendering with:', {
-        rowCount: rowData.length,
-        columnCount: columns.length,
-        columnDefs: columnDefs.map(c => c.field),
-        sampleRow: rowData[0]
-    });
+    useImperativeHandle(ref, () => ({
+        applyFilterModel: (model: Record<string, unknown>) => {
+            gridRef.current?.api.setFilterModel(model);
+        },
+        clearFilterModel: () => {
+            gridRef.current?.api.setFilterModel(null);
+            setHasActiveFilters(false);
+            setVdqlQuery('');
+            setFilteredRowIds(visibleRows.map((row) => row.id));
+        },
+        setQuickSearch: (value: string) => {
+            setQuickSearch(value);
+            gridRef.current?.api.setGridOption('quickFilterText', value);
+        },
+        applyExternalRowScope: (rowIds: string[] | null) => {
+            if (!rowIds) {
+                setExternalRowScopeIds(null);
+                return;
+            }
+            setExternalRowScopeIds(new Set(rowIds));
+        },
+        clearExternalRowScope: () => {
+            setExternalRowScopeIds(null);
+        },
+        getFilterModel: () => (gridRef.current?.api.getFilterModel() as Record<string, unknown>) || {},
+        getFilteredRowIds: () => [...filteredRowIds],
+        getSelectedRowIds: () => [...selectedRowIds],
+        getSelectedRowCount: () => selectedRowIds.length,
+        openFindReplace: () => setShowFindReplaceModal(true),
+        openBulkUpdate: () => {
+            if (onBulkUpdate) {
+                setShowBulkUpdateModal(true);
+            }
+        },
+        openMultiSort: () => setShowSortModal(true),
+        openConditionalFormatting: () => setShowConditionalModal(true),
+        openColumnVisibility: () => setShowColumnDropdown(true),
+        openShortcutHelp: () => setShowShortcutHelp(true),
+        undo: () => handleUndo(),
+        redo: () => handleRedo(),
+        deleteSelectedRows: () => {
+            void handleDeleteSelected();
+        },
+        duplicateSelectedRows: () => {
+            void handleDuplicateSelected();
+        },
+        freezeSelectedRows: () => handleFreezeSelectedRows(),
+        unfreezeAllRows: () => handleUnfreezeAllRows(),
+        unfreezeAllColumns: () => handleUnfreezeAll(),
+        applyQuickFilterPreset: (preset: 'empty' | 'duplicates' | 'clear') => {
+            if (preset === 'empty') {
+                handleShowEmpty();
+                return;
+            }
+            if (preset === 'duplicates') {
+                handleShowDuplicates();
+                return;
+            }
+            handleClearQuickFilters();
+        },
+        openFillColumn: (columnName?: string) => {
+            const targetColumn = columnName || columnSummary?.columnName || columns[0]?.name;
+            if (!targetColumn) return;
+            setFillColumnName(targetColumn);
+            setFillValue('');
+            setShowFillColumnModal(true);
+        },
+        openDataGenerator: (columnName?: string) => {
+            if (!onGenerateColumnData) return;
+            const targetColumn = columnName || columnSummary?.columnName || columns.find(c => c.type === 'text')?.name;
+            if (!targetColumn) return;
+            setGeneratorColumn(targetColumn);
+            setShowGeneratorModal(true);
+        },
+        getValidationIssueCount: () => legacyInvalidCellMap.size,
+        getValidationHotspots: () => validationHotspots,
+    }), [
+        columnSummary?.columnName,
+        columns,
+        filteredRowIds,
+        visibleRows,
+        handleDeleteSelected,
+        handleDuplicateSelected,
+        handleFreezeSelectedRows,
+        handleRedo,
+        handleUndo,
+        handleClearQuickFilters,
+        handleShowDuplicates,
+        handleShowEmpty,
+        handleUnfreezeAll,
+        handleUnfreezeAllRows,
+        legacyInvalidCellMap,
+        onBulkUpdate,
+        onGenerateColumnData,
+        selectedRowIds,
+        validationHotspots,
+    ]);
 
     if (loading) {
         return (
@@ -1620,24 +1534,27 @@ export function AGGridDataTable({
                     <div className="flex items-center gap-2">
                         <button
                             onClick={onColumnAdd}
-                            className="flex items-center gap-1.5 rounded-md bg-gradient-to-b from-brand-primary to-[#2c5fd9] px-3 py-1.5 text-xs text-white transition-all hover:brightness-110"
+                            className="flex items-center gap-1.5 rounded-md bg-gradient-to-b from-brand-primary to-brand-primary px-3 py-1.5 text-xs text-white transition-all hover:brightness-110"
                         >
                             <Plus className="w-3.5 h-3.5" />
                             Add Column
                         </button>
                     </div>
                 </div>
-                <div className="flex flex-1 flex-col items-center justify-center text-text-secondary">
-                    <p className="mb-2 text-lg">No columns defined</p>
-                    <p className="mb-4 text-sm text-text-muted">Add columns to start entering test data</p>
-                    <button
-                        onClick={onColumnAdd}
-                        className="flex items-center gap-1.5 rounded-md bg-gradient-to-b from-brand-primary to-[#2c5fd9] px-4 py-2 text-sm text-white transition-all hover:brightness-110"
-                    >
-                        <Plus className="w-4 h-4" />
-                        Add First Column
-                    </button>
-                </div>
+                <EmptyState
+                    className="flex-1"
+                    title="No columns defined"
+                    message="Add columns to start entering test data"
+                    action={
+                        <button
+                            onClick={onColumnAdd}
+                            className="flex items-center gap-1.5 rounded-md bg-gradient-to-b from-brand-primary to-brand-primary px-4 py-2 text-sm text-white transition-all hover:brightness-110"
+                        >
+                            <Plus className="w-4 h-4" />
+                            Add First Column
+                        </button>
+                    }
+                />
             </div>
         );
     }
@@ -1648,13 +1565,20 @@ export function AGGridDataTable({
 
     return (
         <div className="flex h-full flex-col bg-dark-card">
+            {cellValidationError && (
+                <div className="border-b border-status-danger/35 bg-status-danger/12 px-3 py-2 text-xs text-status-danger">
+                    <span className="font-semibold">Blocked invalid edit:</span> {cellValidationError}
+                </div>
+            )}
+            {!isEmbedded && (
+                <>
             {/* Toolbar - Simplified with Dropdown Groups */}
             <div className="flex items-center justify-between border-b border-border-default bg-dark-bg/70 px-4 py-2 backdrop-blur-sm">
                 <div className="flex items-center gap-2">
                     {/* Primary Actions - Always Visible */}
                     <button
                         onClick={onRowAdd}
-                        className="flex items-center gap-1.5 rounded-md bg-gradient-to-b from-brand-primary to-[#2c5fd9] px-3 py-1.5 text-xs text-white transition-all hover:brightness-110"
+                        className="flex items-center gap-1.5 rounded-md bg-gradient-to-b from-brand-primary to-brand-primary px-3 py-1.5 text-xs text-white transition-all hover:brightness-110"
                     >
                         <Plus className="w-3.5 h-3.5" />
                         Add Row
@@ -1671,30 +1595,22 @@ export function AGGridDataTable({
 
                     {/* Undo/Redo Buttons */}
                     <div className="flex items-center gap-0.5">
-                        <button
+                        <IconButton
+                            icon={<Undo2 className="w-3.5 h-3.5" />}
+                            variant="outlined"
+                            tooltip={`Undo (Ctrl+Z)${undoStack.length > 0 ? ` - ${undoStack.length} change${undoStack.length > 1 ? 's' : ''}` : ''}`}
                             onClick={handleUndo}
                             disabled={undoStack.length === 0}
-                            title={`Undo (Ctrl+Z)${undoStack.length > 0 ? ` - ${undoStack.length} change${undoStack.length > 1 ? 's' : ''}` : ''}`}
-                            className={`p-1.5 rounded-md text-xs transition-colors ${
-                                undoStack.length > 0
-                                    ? 'border border-border-default bg-dark-elevated/75 text-text-primary hover:border-border-emphasis hover:bg-dark-elevated'
-                                    : 'border border-border-default/40 bg-dark-bg/40 text-text-muted/60 cursor-not-allowed'
-                            }`}
-                        >
-                            <Undo2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
+                            className={undoStack.length > 0 ? 'bg-dark-elevated/75' : 'border-border-default/40 bg-dark-bg/40'}
+                        />
+                        <IconButton
+                            icon={<Redo2 className="w-3.5 h-3.5" />}
+                            variant="outlined"
+                            tooltip={`Redo (Ctrl+Y)${redoStack.length > 0 ? ` - ${redoStack.length} change${redoStack.length > 1 ? 's' : ''}` : ''}`}
                             onClick={handleRedo}
                             disabled={redoStack.length === 0}
-                            title={`Redo (Ctrl+Y)${redoStack.length > 0 ? ` - ${redoStack.length} change${redoStack.length > 1 ? 's' : ''}` : ''}`}
-                            className={`p-1.5 rounded-md text-xs transition-colors ${
-                                redoStack.length > 0
-                                    ? 'border border-border-default bg-dark-elevated/75 text-text-primary hover:border-border-emphasis hover:bg-dark-elevated'
-                                    : 'border border-border-default/40 bg-dark-bg/40 text-text-muted/60 cursor-not-allowed'
-                            }`}
-                        >
-                            <Redo2 className="w-3.5 h-3.5" />
-                        </button>
+                            className={redoStack.length > 0 ? 'bg-dark-elevated/75' : 'border-border-default/40 bg-dark-bg/40'}
+                        />
                     </div>
 
                     <div className="mx-1 h-4 w-px bg-border-default" />
@@ -1719,14 +1635,14 @@ export function AGGridDataTable({
                                     onClick={() => { onImportCSV(); setShowDataDropdown(false); }}
                                     className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
                                 >
-                                    <FileUp className="w-3.5 h-3.5 text-sky-400" />
+                                    <FileUp className="w-3.5 h-3.5 text-status-info" />
                                     Import CSV
                                 </button>
                                 <button
                                     onClick={() => { onExportCSV(); setShowDataDropdown(false); }}
                                     className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
                                 >
-                                    <FileDown className="w-3.5 h-3.5 text-emerald-400" />
+                                    <FileDown className="w-3.5 h-3.5 text-status-success" />
                                     Export CSV
                                 </button>
                                 <div className="my-1 h-px bg-border-default" />
@@ -1734,16 +1650,16 @@ export function AGGridDataTable({
                                     onClick={() => { setShowFindReplaceModal(true); setShowDataDropdown(false); }}
                                     className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
                                 >
-                                    <Search className="w-3.5 h-3.5 text-blue-400" />
+                                    <Search className="w-3.5 h-3.5 text-status-info" />
                                     Find & Replace
-                                    <span className="ml-auto text-[10px] text-text-muted">Ctrl+H</span>
+                                    <span className="ml-auto text-3xs text-text-muted">Ctrl+H</span>
                                 </button>
                                 {onGenerateColumnData && columnSummary && (
                                     <>
                                         <div className="my-1 h-px bg-border-default" />
                                         <button
                                             onClick={() => { handleOpenGenerator(columnSummary.columnName); setShowDataDropdown(false); }}
-                                            className="flex items-center gap-2 w-full px-3 py-2 text-xs text-purple-400 hover:bg-purple-600/20 transition-colors"
+                                            className="flex items-center gap-2 w-full px-3 py-2 text-xs text-accent-purple hover:bg-accent-purple/20 transition-colors"
                                         >
                                             <Wand2 className="w-3.5 h-3.5" />
                                             Generate "{columnSummary.columnName}"
@@ -1754,7 +1670,7 @@ export function AGGridDataTable({
                                 {onFillSeries && columnSummary && (
                                     <button
                                         onClick={() => handleOpenFillColumn(columnSummary.columnName)}
-                                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-amber-400 hover:bg-amber-600/20 transition-colors"
+                                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-status-warning hover:bg-status-warning/20 transition-colors"
                                     >
                                         <Edit3 className="w-3.5 h-3.5" />
                                         Fill "{columnSummary.columnName}" with Value
@@ -1764,19 +1680,19 @@ export function AGGridDataTable({
                                 {onFillSeries && columns.length > 0 && !columnSummary && (
                                     <>
                                         <div className="my-1 h-px bg-border-default" />
-                                        <div className="px-3 py-1 text-[10px] uppercase text-text-muted">Fill Column</div>
+                                        <div className="px-3 py-1 text-3xs uppercase text-text-muted">Fill Column</div>
                                         {columns.slice(0, 5).map(col => (
                                             <button
                                                 key={col.name}
                                                 onClick={() => handleOpenFillColumn(col.name)}
                                                 className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
                                             >
-                                                <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                                                <Edit3 className="w-3.5 h-3.5 text-status-warning" />
                                                 {col.name}
                                             </button>
                                         ))}
                                         {columns.length > 5 && (
-                                            <div className="px-3 py-1 text-[10px] text-text-muted">
+                                            <div className="px-3 py-1 text-3xs text-text-muted">
                                                 Click a column header for more...
                                             </div>
                                         )}
@@ -1786,40 +1702,40 @@ export function AGGridDataTable({
                                 {columnSummary && columns.find(c => c.name === columnSummary.columnName)?.type === 'text' && (
                                     <>
                                         <div className="my-1 h-px bg-border-default" />
-                                        <div className="px-3 py-1 text-[10px] uppercase text-text-muted">Transform "{columnSummary.columnName}"</div>
+                                        <div className="px-3 py-1 text-3xs uppercase text-text-muted">Transform "{columnSummary.columnName}"</div>
                                         <button
                                             onClick={() => handleQuickTransform(columnSummary.columnName, 'trim')}
                                             className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
                                         >
-                                            <Type className="w-3.5 h-3.5 text-sky-400" />
+                                            <Type className="w-3.5 h-3.5 text-status-info" />
                                             Trim Whitespace
                                         </button>
                                         <button
                                             onClick={() => handleQuickTransform(columnSummary.columnName, 'uppercase')}
                                             className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
                                         >
-                                            <LetterText className="w-3.5 h-3.5 text-emerald-400" />
+                                            <LetterText className="w-3.5 h-3.5 text-status-success" />
                                             UPPERCASE
                                         </button>
                                         <button
                                             onClick={() => handleQuickTransform(columnSummary.columnName, 'lowercase')}
                                             className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
                                         >
-                                            <LetterText className="w-3.5 h-3.5 text-amber-400" />
+                                            <LetterText className="w-3.5 h-3.5 text-status-warning" />
                                             lowercase
                                         </button>
                                         <button
                                             onClick={() => handleQuickTransform(columnSummary.columnName, 'capitalize')}
                                             className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
                                         >
-                                            <Type className="w-3.5 h-3.5 text-purple-400" />
+                                            <Type className="w-3.5 h-3.5 text-accent-purple" />
                                             Capitalize Each Word
                                         </button>
                                         <button
                                             onClick={() => handleQuickTransform(columnSummary.columnName, 'sequence')}
                                             className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
                                         >
-                                            <Hash className="w-3.5 h-3.5 text-orange-400" />
+                                            <Hash className="w-3.5 h-3.5 text-accent-orange" />
                                             Generate Sequence (1, 2, 3...)
                                         </button>
                                     </>
@@ -1838,14 +1754,14 @@ export function AGGridDataTable({
                             }}
                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors ${
                                 activeViewCount > 0
-                                    ? 'bg-sky-600/20 text-sky-400 hover:bg-sky-600/30'
+                                    ? 'bg-status-info/20 text-status-info hover:bg-status-info/30'
                                     : 'border border-border-default bg-dark-elevated/75 text-text-primary hover:border-border-emphasis hover:bg-dark-elevated'
                             }`}
                         >
                             <LayoutGrid className="w-3.5 h-3.5" />
                             View
                             {activeViewCount > 0 && (
-                                <span className="ml-1 px-1.5 py-0.5 bg-sky-600 text-white text-xs rounded-full">
+                                <span className="ml-1 px-1.5 py-0.5 bg-status-info text-white text-xs rounded-full">
                                     {activeViewCount}
                                 </span>
                             )}
@@ -1859,11 +1775,11 @@ export function AGGridDataTable({
                                     className="flex w-full items-center justify-between px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
                                 >
                                     <div className="flex items-center gap-2">
-                                        <Columns3 className="w-3.5 h-3.5 text-amber-400" />
+                                        <Columns3 className="w-3.5 h-3.5 text-status-warning" />
                                         Column Visibility
                                     </div>
                                     {hiddenColumns.length > 0 && (
-                                        <span className="px-1.5 py-0.5 bg-amber-600 text-white text-xs rounded-full">
+                                        <span className="px-1.5 py-0.5 bg-status-warning text-white text-xs rounded-full">
                                             {hiddenColumns.length} hidden
                                         </span>
                                     )}
@@ -1873,11 +1789,11 @@ export function AGGridDataTable({
                                     className="flex w-full items-center justify-between px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
                                 >
                                     <div className="flex items-center gap-2">
-                                        <ArrowUpDown className="w-3.5 h-3.5 text-purple-400" />
+                                        <ArrowUpDown className="w-3.5 h-3.5 text-accent-purple" />
                                         Multi-Column Sort
                                     </div>
                                     {sortLevels.length > 0 && (
-                                        <span className="px-1.5 py-0.5 bg-purple-600 text-white text-xs rounded-full">
+                                        <span className="px-1.5 py-0.5 bg-accent-purple text-white text-xs rounded-full">
                                             {sortLevels.length}
                                         </span>
                                     )}
@@ -1887,31 +1803,31 @@ export function AGGridDataTable({
                                     className="flex w-full items-center justify-between px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
                                 >
                                     <div className="flex items-center gap-2">
-                                        <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                                        <Zap className="w-3.5 h-3.5 text-status-success" />
                                         Conditional Formatting
                                     </div>
                                     {conditionalRules.length > 0 && (
-                                        <span className="px-1.5 py-0.5 bg-emerald-600 text-white text-xs rounded-full">
+                                        <span className="px-1.5 py-0.5 bg-status-success text-white text-xs rounded-full">
                                             {conditionalRules.length}
                                         </span>
                                     )}
                                 </button>
                                 {/* Row Freezing Section */}
                                 <div className="my-1 h-px bg-border-default" />
-                                <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-text-muted">Row Pinning</div>
+                                <div className="px-3 py-1 text-3xs uppercase tracking-wider text-text-muted">Row Pinning</div>
                                 {selectedRowIds.length > 0 && (
                                     <button
                                         onClick={() => { handleFreezeSelectedRows(); setShowViewDropdown(false); }}
                                         className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-dark-elevated hover:text-text-primary"
                                     >
-                                        <Pin className="w-3.5 h-3.5 text-orange-400" />
+                                        <Pin className="w-3.5 h-3.5 text-accent-orange" />
                                         Freeze Selected Rows ({selectedRowIds.length})
                                     </button>
                                 )}
                                 {frozenRowIds.length > 0 && (
                                     <button
                                         onClick={() => { handleUnfreezeAllRows(); setShowViewDropdown(false); }}
-                                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-orange-400 hover:bg-orange-600/20 transition-colors"
+                                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-accent-orange hover:bg-accent-orange/20 transition-colors"
                                     >
                                         <PinOff className="w-3.5 h-3.5" />
                                         Unfreeze All Rows ({frozenRowIds.length})
@@ -1928,7 +1844,7 @@ export function AGGridDataTable({
                                         <div className="my-1 h-px bg-border-default" />
                                         <button
                                             onClick={() => { handleUnfreezeAll(); setShowViewDropdown(false); }}
-                                            className="flex items-center gap-2 w-full px-3 py-2 text-xs text-sky-400 hover:bg-sky-600/20 transition-colors"
+                                            className="flex items-center gap-2 w-full px-3 py-2 text-xs text-status-info hover:bg-status-info/20 transition-colors"
                                         >
                                             <PinOff className="w-3.5 h-3.5" />
                                             Unfreeze All Columns ({frozenColumns.length})
@@ -1949,14 +1865,14 @@ export function AGGridDataTable({
                             }}
                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors ${
                                 activeFilterCount > 0
-                                    ? 'bg-amber-600/20 text-amber-400 hover:bg-amber-600/30'
+                                    ? 'bg-status-warning/20 text-status-warning hover:bg-status-warning/30'
                                     : 'border border-border-default bg-dark-elevated/75 text-text-primary hover:border-border-emphasis hover:bg-dark-elevated'
                             }`}
                         >
                             <Filter className="w-3.5 h-3.5" />
                             Filter
                             {activeFilterCount > 0 && (
-                                <span className="ml-1 px-1.5 py-0.5 bg-amber-600 text-white text-xs rounded-full">
+                                <span className="ml-1 px-1.5 py-0.5 bg-status-warning text-white text-xs rounded-full">
                                     {activeFilterCount}
                                 </span>
                             )}
@@ -1968,7 +1884,7 @@ export function AGGridDataTable({
                                     onClick={() => { handleShowEmpty(); setShowFilterDropdown(false); }}
                                     className={`flex items-center gap-2 w-full px-3 py-2 text-xs transition-colors ${
                                         activeQuickFilter === 'empty'
-                                            ? 'bg-amber-600/20 text-amber-400'
+                                            ? 'bg-status-warning/20 text-status-warning'
                                             : 'text-text-secondary hover:bg-dark-elevated hover:text-text-primary'
                                     }`}
                                 >
@@ -1980,7 +1896,7 @@ export function AGGridDataTable({
                                     onClick={() => { handleShowDuplicates(); setShowFilterDropdown(false); }}
                                     className={`flex items-center gap-2 w-full px-3 py-2 text-xs transition-colors ${
                                         activeQuickFilter === 'duplicates'
-                                            ? 'bg-purple-600/20 text-purple-400'
+                                            ? 'bg-accent-purple/20 text-accent-purple'
                                             : 'text-text-secondary hover:bg-dark-elevated hover:text-text-primary'
                                     }`}
                                 >
@@ -1993,7 +1909,7 @@ export function AGGridDataTable({
                                         <div className="my-1 h-px bg-border-default" />
                                         <button
                                             onClick={() => { handleClearQuickFilters(); setShowFilterDropdown(false); }}
-                                            className="flex items-center gap-2 w-full px-3 py-2 text-xs text-red-400 hover:bg-red-600/20 transition-colors"
+                                            className="flex items-center gap-2 w-full px-3 py-2 text-xs text-status-danger hover:bg-status-danger/20 transition-colors"
                                         >
                                             <X className="w-3.5 h-3.5" />
                                             Clear All Filters
@@ -2017,12 +1933,14 @@ export function AGGridDataTable({
                             className="w-36 rounded-md border border-border-default bg-dark-elevated/80 py-1.5 pl-7 pr-7 text-xs text-text-primary transition-all placeholder:text-text-muted focus:w-48 focus:border-border-active focus:outline-none"
                         />
                         {quickSearch && (
-                            <button
+                            <IconButton
+                                icon={<X className="w-3 h-3" />}
+                                size="sm"
+                                variant="ghost"
+                                tooltip="Clear search"
                                 onClick={handleClearQuickSearch}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
-                            >
-                                <X className="w-3 h-3" />
-                            </button>
+                                className="absolute right-2 top-1/2 -translate-y-1/2"
+                            />
                         )}
                     </div>
                 </div>
@@ -2033,7 +1951,7 @@ export function AGGridDataTable({
                     {onBulkUpdate && hasActiveFilters && filteredRowIds.length > 0 && (
                         <button
                             onClick={() => setShowBulkUpdateModal(true)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 rounded-md text-xs text-white transition-colors"
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-status-warning hover:bg-status-warning rounded-md text-xs text-white transition-colors"
                             title={`Update ${filteredRowIds.length} filtered rows`}
                         >
                             <Edit3 className="w-3.5 h-3.5" />
@@ -2048,37 +1966,37 @@ export function AGGridDataTable({
                                 {selectedRowIds.length} selected
                             </span>
                             {onBulkUpdate && (
-                                <button
+                                <IconButton
+                                    icon={<Edit3 className="w-3.5 h-3.5" />}
+                                    tone="info"
+                                    tooltip="Update selected"
                                     onClick={() => setShowBulkUpdateModal(true)}
-                                    className="p-1.5 bg-blue-600 hover:bg-blue-500 rounded text-white transition-colors"
-                                    title="Update selected"
-                                >
-                                    <Edit3 className="w-3.5 h-3.5" />
-                                </button>
+                                    className="bg-status-info hover:bg-status-info text-white"
+                                />
                             )}
-                            <button
+                            <IconButton
+                                icon={<Copy className="w-3.5 h-3.5" />}
+                                variant="outlined"
+                                tooltip="Copy selected"
                                 onClick={handleCopySelected}
-                                className="rounded border border-border-default bg-dark-elevated/80 p-1.5 text-text-secondary transition-colors hover:border-border-emphasis hover:text-text-primary"
-                                title="Copy selected"
-                            >
-                                <Copy className="w-3.5 h-3.5" />
-                            </button>
+                                className="bg-dark-elevated/80"
+                            />
                             {onRowsDuplicate && (
-                                <button
+                                <IconButton
+                                    icon={<CopyPlus className="w-3.5 h-3.5" />}
+                                    tone="info"
+                                    tooltip="Duplicate selected"
                                     onClick={handleDuplicateSelected}
-                                    className="p-1.5 bg-sky-600/20 hover:bg-sky-600/40 rounded text-sky-400 transition-colors"
-                                    title="Duplicate selected"
-                                >
-                                    <CopyPlus className="w-3.5 h-3.5" />
-                                </button>
+                                    className="bg-status-info/20 hover:bg-status-info/40"
+                                />
                             )}
-                            <button
+                            <IconButton
+                                icon={<Trash2 className="w-3.5 h-3.5" />}
+                                tone="danger"
+                                tooltip="Delete selected"
                                 onClick={handleDeleteSelected}
-                                className="p-1.5 bg-red-600/20 hover:bg-red-600/40 rounded text-red-400 transition-colors"
-                                title="Delete selected"
-                            >
-                                <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                                className="bg-status-danger/20 hover:bg-status-danger/40"
+                            />
                         </div>
                     )}
 
@@ -2088,6 +2006,8 @@ export function AGGridDataTable({
                     </span>
                 </div>
             </div>
+                </>
+            )}
 
             {/* Column Visibility Floating Panel (opened from View dropdown) */}
             {showColumnDropdown && (
@@ -2099,7 +2019,7 @@ export function AGGridDataTable({
                                 <div className="flex gap-1">
                                     <button
                                         onClick={handleShowAllColumns}
-                                        className="px-2 py-0.5 text-xs text-sky-400 hover:bg-sky-500/20 rounded transition-colors"
+                                        className="px-2 py-0.5 text-xs text-status-info hover:bg-status-info/20 rounded transition-colors"
                                     >
                                         Show All
                                     </button>
@@ -2109,12 +2029,13 @@ export function AGGridDataTable({
                                     >
                                         Hide All
                                     </button>
-                                    <button
+                                    <IconButton
+                                        icon={<X className="w-3.5 h-3.5" />}
+                                        size="sm"
+                                        variant="ghost"
+                                        tooltip="Close"
                                         onClick={() => setShowColumnDropdown(false)}
-                                        className="p-0.5 text-text-muted hover:text-text-primary rounded transition-colors"
-                                    >
-                                        <X className="w-3.5 h-3.5" />
-                                    </button>
+                                    />
                                 </div>
                             </div>
                         </div>
@@ -2125,51 +2046,52 @@ export function AGGridDataTable({
                                 return (
                                     <div
                                         key={col.name}
-                                        className="flex items-center justify-between px-3 py-2 hover:bg-[#21262d] transition-colors group"
+                                        className="flex items-center justify-between px-3 py-2 hover:bg-dark-elevated transition-colors group"
                                     >
                                         <button
                                             onClick={() => handleToggleColumnVisibility(col.name)}
                                             className="flex items-center gap-2 flex-1"
                                         >
                                             {isHidden ? (
-                                                <EyeOff className="w-3.5 h-3.5 text-[#6e7681]" />
+                                                <EyeOff className="w-3.5 h-3.5 text-text-muted" />
                                             ) : (
-                                                <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                                                <Eye className="w-3.5 h-3.5 text-status-success" />
                                             )}
-                                            <span className={`text-xs ${isHidden ? 'text-[#6e7681] line-through' : 'text-[#c9d1d9]'}`}>
+                                            <span className={`text-xs ${isHidden ? 'text-text-muted line-through' : 'text-text-primary'}`}>
                                                 {col.name}
                                             </span>
                                             {col.type === 'reference' && (
-                                                <span className="text-xs text-sky-400">🔗</span>
+                                                <span className="text-xs text-status-info">🔗</span>
                                             )}
                                             {isFrozen && (
-                                                <Pin className="w-3 h-3 text-sky-400" />
+                                                <Pin className="w-3 h-3 text-status-info" />
                                             )}
                                         </button>
                                         <div className="flex items-center gap-1">
                                             {onColumnEdit && (
-                                                <button
+                                                <IconButton
+                                                    icon={<Edit3 className="w-3 h-3" />}
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    tone="warning"
+                                                    tooltip="Edit column"
                                                     onClick={() => {
                                                         onColumnEdit(col.name);
                                                         setShowColumnDropdown(false);
                                                     }}
-                                                    className="p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-500/20 text-amber-400"
-                                                    title="Edit column"
-                                                >
-                                                    <Edit3 className="w-3 h-3" />
-                                                </button>
+                                                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                                />
                                             )}
-                                            <button
+                                            <IconButton
+                                                icon={isFrozen ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />}
+                                                size="sm"
+                                                variant="ghost"
+                                                tone={isFrozen ? 'info' : 'default'}
+                                                tooltip={isFrozen ? 'Unfreeze' : 'Freeze'}
                                                 onClick={() => handleFreezeColumn(col.name)}
-                                                className={`p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity ${isFrozen
-                                                    ? 'bg-sky-500/20 text-sky-400'
-                                                    : 'hover:bg-[#30363d] text-[#8b949e]'
-                                                }`}
-                                                title={isFrozen ? 'Unfreeze' : 'Freeze'}
                                                 disabled={isHidden}
-                                            >
-                                                {isFrozen ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />}
-                                            </button>
+                                                className={`opacity-0 group-hover:opacity-100 transition-opacity ${isFrozen ? 'bg-status-info/20' : ''}`}
+                                            />
                                         </div>
                                     </div>
                                 );
@@ -2202,7 +2124,7 @@ export function AGGridDataTable({
                     onColumnResized={onColumnStateUpdated}
                     onCellClicked={onCellClicked}
                     processDataFromClipboard={processDataFromClipboard}
-                    overlayNoRowsTemplate={'<div class="flex flex-col items-center justify-center py-12 text-[#8b949e]"><p class="text-base mb-1">No rows yet</p><p class="text-sm">Click &quot;Add Row&quot; to start entering test data</p></div>'}
+                    overlayNoRowsTemplate={'<div class="flex flex-col items-center justify-center py-12 text-text-secondary"><p class="text-base mb-1">No rows yet</p><p class="text-sm">Click &quot;Add Row&quot; to start entering test data</p></div>'}
                     rowSelection={{
                         mode: 'multiRow',
                         checkboxes: true,
@@ -2226,23 +2148,23 @@ export function AGGridDataTable({
             </div>
 
             {/* Cell Selection VDQL Bar - Shows when cells are selected */}
-            {selectedCells.length > 0 && cellSelectionQuery && (
-                <div className="px-4 py-3 border-t border-purple-800/50 bg-gradient-to-r from-purple-950/50 to-[#0d1117]/50">
+            {!isEmbedded && selectedCells.length > 0 && cellSelectionQuery && (
+                <div className="px-4 py-3 border-t border-accent-purple/50 bg-gradient-to-r from-accent-purple/10 to-dark-canvas/50">
                     <div className="flex flex-col gap-2">
                         <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 text-purple-400">
+                            <div className="flex items-center gap-2 text-accent-purple">
                                 <MousePointer className="w-4 h-4" />
                                 <span className="text-xs font-medium">
                                     Cell Selection ({selectedCells.length} cell{selectedCells.length > 1 ? 's' : ''})
                                 </span>
-                                <span className="text-xs text-purple-500">
+                                <span className="text-xs text-accent-purple">
                                     Ctrl+click to select multiple
                                 </span>
                             </div>
                             <div className="flex items-center gap-2">
                                 <button
-                                    onClick={handleOpenFormattingModal}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-500 rounded text-xs font-medium text-white transition-colors"
+                                    onClick={() => handleOpenFormattingModal(selectedCells)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-status-info hover:bg-status-info rounded text-xs font-medium text-white transition-colors"
                                 >
                                     <Palette className="w-3.5 h-3.5" />
                                     Format
@@ -2250,8 +2172,8 @@ export function AGGridDataTable({
                                 <button
                                     onClick={handleCopyCellQuery}
                                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${copied
-                                        ? 'bg-emerald-600 text-white'
-                                        : 'bg-purple-600 hover:bg-purple-500 text-white'
+                                        ? 'bg-status-success text-white'
+                                        : 'bg-accent-purple hover:bg-accent-purple text-white'
                                         }`}
                                 >
                                     {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
@@ -2259,13 +2181,13 @@ export function AGGridDataTable({
                                 </button>
                                 <button
                                     onClick={handleClearCellSelection}
-                                    className="px-3 py-1.5 bg-[#30363d] hover:bg-[#3d444d] rounded text-xs text-[#c9d1d9] transition-colors"
+                                    className="px-3 py-1.5 bg-border-default hover:bg-dark-elevated rounded text-xs text-text-primary transition-colors"
                                 >
                                     Clear Selection
                                 </button>
                             </div>
                         </div>
-                        <pre className="bg-[#161b22] border border-[#30363d] px-3 py-2 rounded text-sm font-mono text-purple-300 whitespace-pre-wrap break-all overflow-x-auto max-h-32 overflow-y-auto">
+                        <pre className="bg-dark-card border border-border-default px-3 py-2 rounded text-sm font-mono text-accent-purple whitespace-pre-wrap break-all overflow-x-auto max-h-32 overflow-y-auto">
                             {cellSelectionQuery}
                         </pre>
                     </div>
@@ -2273,10 +2195,10 @@ export function AGGridDataTable({
             )}
 
             {/* Summary Bar - Shows aggregations for selected column */}
-            {columnSummary && (
-                <div className="px-4 py-2 border-t border-amber-800/50 bg-gradient-to-r from-amber-950/30 to-[#0d1117]/50">
+            {!isEmbedded && columnSummary && (
+                <div className="px-4 py-2 border-t border-status-warning/50 bg-gradient-to-r from-status-warning/10 to-dark-canvas/50">
                     <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2 text-amber-400">
+                        <div className="flex items-center gap-2 text-status-warning">
                             <BarChart3 className="w-4 h-4" />
                             <span className="text-xs font-medium">
                                 "{columnSummary.columnName}" Summary
@@ -2284,71 +2206,71 @@ export function AGGridDataTable({
                         </div>
                         <div className="flex items-center gap-3 flex-wrap">
                             {/* Count */}
-                            <div className="flex items-center gap-1.5 px-2 py-1 bg-[#21262d]/80 rounded text-xs">
-                                <Hash className="w-3 h-3 text-[#8b949e]" />
-                                <span className="text-[#8b949e]">Count:</span>
-                                <span className="text-amber-300 font-medium">{columnSummary.count}</span>
+                            <div className="flex items-center gap-1.5 px-2 py-1 bg-dark-elevated/80 rounded text-xs">
+                                <Hash className="w-3 h-3 text-text-secondary" />
+                                <span className="text-text-secondary">Count:</span>
+                                <span className="text-status-warning font-medium">{columnSummary.count}</span>
                             </div>
                             {/* Non-Empty */}
-                            <div className="flex items-center gap-1.5 px-2 py-1 bg-[#21262d]/80 rounded text-xs">
-                                <span className="text-[#8b949e]">Filled:</span>
-                                <span className="text-emerald-400 font-medium">{columnSummary.nonEmpty}</span>
+                            <div className="flex items-center gap-1.5 px-2 py-1 bg-dark-elevated/80 rounded text-xs">
+                                <span className="text-text-secondary">Filled:</span>
+                                <span className="text-status-success font-medium">{columnSummary.nonEmpty}</span>
                                 {columnSummary.empty > 0 && (
-                                    <span className="text-[#8b949e]">({columnSummary.empty} empty)</span>
+                                    <span className="text-text-secondary">({columnSummary.empty} empty)</span>
                                 )}
                             </div>
                             {/* Distinct - clickable to show modal */}
                             <button
                                 onClick={() => setShowDistinctModal(true)}
-                                className="flex items-center gap-1.5 px-2 py-1 bg-[#21262d]/80 hover:bg-purple-600/20 rounded text-xs transition-colors group"
+                                className="flex items-center gap-1.5 px-2 py-1 bg-dark-elevated/80 hover:bg-accent-purple/20 rounded text-xs transition-colors group"
                             >
-                                <Layers className="w-3 h-3 text-[#8b949e] group-hover:text-purple-400" />
-                                <span className="text-[#8b949e] group-hover:text-purple-300">Distinct:</span>
-                                <span className="text-blue-400 font-medium group-hover:text-purple-400">{columnSummary.distinct}</span>
+                                <Layers className="w-3 h-3 text-text-secondary group-hover:text-accent-purple" />
+                                <span className="text-text-secondary group-hover:text-accent-purple">Distinct:</span>
+                                <span className="text-status-info font-medium group-hover:text-accent-purple">{columnSummary.distinct}</span>
                             </button>
                             {/* Numeric stats (only for number columns) */}
                             {columnSummary.columnType === 'number' && columnSummary.sum !== undefined && (
                                 <>
-                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-[#21262d]/80 rounded text-xs">
-                                        <Sigma className="w-3 h-3 text-[#8b949e]" />
-                                        <span className="text-[#8b949e]">Sum:</span>
-                                        <span className="text-purple-400 font-medium">
+                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-dark-elevated/80 rounded text-xs">
+                                        <Sigma className="w-3 h-3 text-text-secondary" />
+                                        <span className="text-text-secondary">Sum:</span>
+                                        <span className="text-accent-purple font-medium">
                                             {columnSummary.sum.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                                         </span>
                                     </div>
-                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-[#21262d]/80 rounded text-xs">
-                                        <Calculator className="w-3 h-3 text-[#8b949e]" />
-                                        <span className="text-[#8b949e]">Avg:</span>
-                                        <span className="text-cyan-400 font-medium">
+                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-dark-elevated/80 rounded text-xs">
+                                        <Calculator className="w-3 h-3 text-text-secondary" />
+                                        <span className="text-text-secondary">Avg:</span>
+                                        <span className="text-accent-teal font-medium">
                                             {columnSummary.avg?.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                                         </span>
                                     </div>
-                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-[#21262d]/80 rounded text-xs">
-                                        <TrendingDown className="w-3 h-3 text-[#8b949e]" />
-                                        <span className="text-[#8b949e]">Min:</span>
-                                        <span className="text-red-400 font-medium">{columnSummary.min}</span>
+                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-dark-elevated/80 rounded text-xs">
+                                        <TrendingDown className="w-3 h-3 text-text-secondary" />
+                                        <span className="text-text-secondary">Min:</span>
+                                        <span className="text-status-danger font-medium">{columnSummary.min}</span>
                                     </div>
-                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-[#21262d]/80 rounded text-xs">
-                                        <TrendingUp className="w-3 h-3 text-[#8b949e]" />
-                                        <span className="text-[#8b949e]">Max:</span>
-                                        <span className="text-green-400 font-medium">{columnSummary.max}</span>
+                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-dark-elevated/80 rounded text-xs">
+                                        <TrendingUp className="w-3 h-3 text-text-secondary" />
+                                        <span className="text-text-secondary">Max:</span>
+                                        <span className="text-status-success font-medium">{columnSummary.max}</span>
                                     </div>
                                 </>
                             )}
                             {/* Min/Max for text columns */}
                             {(columnSummary.columnType === 'text' || columnSummary.columnType === 'date') && columnSummary.min !== undefined && (
                                 <>
-                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-[#21262d]/80 rounded text-xs">
-                                        <TrendingDown className="w-3 h-3 text-[#8b949e]" />
-                                        <span className="text-[#8b949e]">First:</span>
-                                        <span className="text-[#c9d1d9] font-medium truncate max-w-24" title={String(columnSummary.min)}>
+                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-dark-elevated/80 rounded text-xs">
+                                        <TrendingDown className="w-3 h-3 text-text-secondary" />
+                                        <span className="text-text-secondary">First:</span>
+                                        <span className="text-text-primary font-medium truncate max-w-24" title={String(columnSummary.min)}>
                                             {String(columnSummary.min).slice(0, 12)}{String(columnSummary.min).length > 12 ? '...' : ''}
                                         </span>
                                     </div>
-                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-[#21262d]/80 rounded text-xs">
-                                        <TrendingUp className="w-3 h-3 text-[#8b949e]" />
-                                        <span className="text-[#8b949e]">Last:</span>
-                                        <span className="text-[#c9d1d9] font-medium truncate max-w-24" title={String(columnSummary.max)}>
+                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-dark-elevated/80 rounded text-xs">
+                                        <TrendingUp className="w-3 h-3 text-text-secondary" />
+                                        <span className="text-text-secondary">Last:</span>
+                                        <span className="text-text-primary font-medium truncate max-w-24" title={String(columnSummary.max)}>
                                             {String(columnSummary.max).slice(0, 12)}{String(columnSummary.max).length > 12 ? '...' : ''}
                                         </span>
                                     </div>
@@ -2360,11 +2282,11 @@ export function AGGridDataTable({
             )}
 
             {/* VDQL Query Bar - Shows when filtering */}
-            {hasActiveFilters && (
-                <div className="px-4 py-3 border-t border-teal-800/50 bg-gradient-to-r from-teal-950/50 to-[#0d1117]/50">
+            {!isEmbedded && hasActiveFilters && (
+                <div className="px-4 py-3 border-t border-accent-teal/50 bg-gradient-to-r from-accent-teal/10 to-dark-canvas/50">
                     <div className="flex flex-col gap-2">
                         <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5 text-teal-400">
+                            <div className="flex items-center gap-1.5 text-accent-teal">
                                 <Filter className="w-4 h-4" />
                                 <span className="text-xs font-medium">Generated VDQL Query</span>
                             </div>
@@ -2372,8 +2294,8 @@ export function AGGridDataTable({
                                 <button
                                     onClick={handleCopyVDQL}
                                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${copied
-                                        ? 'bg-emerald-600 text-white'
-                                        : 'bg-teal-600 hover:bg-teal-500 text-white'
+                                        ? 'bg-status-success text-white'
+                                        : 'bg-accent-teal hover:bg-accent-teal text-white'
                                         }`}
                                 >
                                     {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
@@ -2381,13 +2303,13 @@ export function AGGridDataTable({
                                 </button>
                                 <button
                                     onClick={handleClearFilters}
-                                    className="px-3 py-1.5 bg-[#30363d] hover:bg-[#3d444d] rounded text-xs text-[#c9d1d9] transition-colors"
+                                    className="px-3 py-1.5 bg-border-default hover:bg-dark-elevated rounded text-xs text-text-primary transition-colors"
                                 >
                                     Clear Filters
                                 </button>
                             </div>
                         </div>
-                        <pre className="bg-[#161b22] border border-[#30363d] px-3 py-2 rounded text-sm font-mono text-teal-300 whitespace-pre-wrap break-all overflow-x-auto max-h-24 overflow-y-auto">
+                        <pre className="bg-dark-card border border-border-default px-3 py-2 rounded text-sm font-mono text-accent-teal whitespace-pre-wrap break-all overflow-x-auto max-h-24 overflow-y-auto">
                             {vdqlQuery}
                         </pre>
                     </div>
@@ -2395,26 +2317,67 @@ export function AGGridDataTable({
             )}
 
             {/* Footer */}
-            <div className="px-4 py-2 border-t border-[#30363d] bg-[#0d1117]/50">
-                <p className="text-xs text-[#6e7681]">
+            {!isEmbedded && (
+            <div className="px-4 py-2 border-t border-border-default bg-dark-canvas/50">
+                <p className="text-xs text-text-muted">
                     {hasActiveFilters ? (
-                        <span className="text-teal-500">
+                        <span className="text-accent-teal">
                             <Code className="w-3 h-3 inline mr-1" />
                             Filter the table columns to generate VDQL queries automatically
                         </span>
                     ) : columnSummary ? (
-                        <span className="text-purple-400">
+                        <span className="text-accent-purple">
                             <Wand2 className="w-3 h-3 inline mr-1" />
                             Click a cell to see column summary. Click "Generate" to fill column with test data.
                         </span>
                     ) : (
                         <>
-                            Reference in Vero: <code className="bg-[#21262d] px-1.5 py-0.5 rounded text-emerald-400">load $data from "{tableName}"</code>
+                            Reference in Vero: <code className="bg-dark-elevated px-1.5 py-0.5 rounded text-status-success">load $data from "{tableName}"</code>
                             <span className="ml-4">Tip: Click cells to see stats, use filters for VDQL</span>
                         </>
                     )}
                 </p>
             </div>
+            )}
+
+            {showShortcutHelp && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+                    <div className="w-full max-w-lg rounded-lg border border-border-default bg-dark-card shadow-xl">
+                        <div className="flex items-center justify-between border-b border-border-default px-4 py-3">
+                            <h3 className="text-sm font-semibold text-text-primary">Spreadsheet Shortcuts</h3>
+                            <IconButton
+                                icon={<X className="h-4 w-4" />}
+                                size="sm"
+                                variant="ghost"
+                                tooltip="Close"
+                                onClick={() => setShowShortcutHelp(false)}
+                            />
+                        </div>
+                        <div className="space-y-2 px-4 py-3 text-xs text-text-secondary">
+                            <div className="flex items-center justify-between rounded bg-dark-elevated/55 px-2.5 py-1.5">
+                                <span>Undo</span>
+                                <code className="text-status-info">Ctrl/Cmd + Z</code>
+                            </div>
+                            <div className="flex items-center justify-between rounded bg-dark-elevated/55 px-2.5 py-1.5">
+                                <span>Redo</span>
+                                <code className="text-status-info">Ctrl/Cmd + Shift + Z</code>
+                            </div>
+                            <div className="flex items-center justify-between rounded bg-dark-elevated/55 px-2.5 py-1.5">
+                                <span>Find & Replace</span>
+                                <code className="text-status-info">Ctrl/Cmd + H</code>
+                            </div>
+                            <div className="flex items-center justify-between rounded bg-dark-elevated/55 px-2.5 py-1.5">
+                                <span>Multi-select cells</span>
+                                <code className="text-status-info">Ctrl/Cmd + Click</code>
+                            </div>
+                            <div className="flex items-center justify-between rounded bg-dark-elevated/55 px-2.5 py-1.5">
+                                <span>Open this help</span>
+                                <code className="text-status-info">Shift + ?</code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Data Generator Modal */}
             {showGeneratorModal && generatorColumn && (
@@ -2454,8 +2417,8 @@ export function AGGridDataTable({
                     currentFormat={cellFormats[`${formattingTarget.rowId}:${formattingTarget.column}`]}
                     cellValue={formattingTarget.value}
                     cellColumn={formattingTarget.column}
-                    onApply={handleApplyCellFormat}
-                    onClear={handleClearCellFormat}
+                    onApply={(format) => handleApplyCellFormat(format, selectedCells)}
+                    onClear={() => handleClearCellFormat(selectedCells)}
                 />
             )}
 
@@ -2476,7 +2439,7 @@ export function AGGridDataTable({
                     isOpen={showDistinctModal}
                     onClose={() => setShowDistinctModal(false)}
                     columnName={columnSummary.columnName}
-                    values={rows.map(r => r.data[columnSummary.columnName])}
+                    values={visibleRows.map(r => r.data[columnSummary.columnName])}
                     onFilterByValue={handleFilterByDistinctValue}
                 />
             )}
@@ -2495,50 +2458,161 @@ export function AGGridDataTable({
             {/* Fill Column Modal */}
             {showFillColumnModal && fillColumnName && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-                    <div className="bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl w-80">
-                        <div className="flex items-center justify-between px-4 py-3 border-b border-[#30363d]">
+                    <div className="bg-dark-card border border-border-default rounded-lg shadow-xl w-[420px]">
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-border-default">
                             <h3 className="text-sm font-medium text-white">Fill Column</h3>
-                            <button
+                            <IconButton
+                                icon={<X className="w-4 h-4" />}
+                                size="sm"
+                                variant="ghost"
+                                tooltip="Close"
                                 onClick={() => setShowFillColumnModal(false)}
-                                className="p-1 hover:bg-[#30363d] rounded text-[#8b949e]"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
+                            />
                         </div>
                         <div className="p-4 space-y-4">
                             <div>
-                                <label className="block text-xs text-[#8b949e] mb-1">
-                                    Column: <span className="text-amber-400">{fillColumnName}</span>
+                                <label className="block text-xs text-text-secondary mb-1">
+                                    Column: <span className="text-status-warning">{fillColumnName}</span>
                                 </label>
-                                <p className="text-xs text-[#6e7681]">
-                                    Fill all {rows.length} rows with this value
+                                <p className="text-xs text-text-muted">
+                                    Fill all {rows.length} rows using value, sequence, or pattern.
                                 </p>
                             </div>
+
                             <div>
-                                <label className="block text-xs text-[#8b949e] mb-1">Value</label>
-                                <input
-                                    type="text"
-                                    value={fillValue}
-                                    onChange={(e) => setFillValue(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleFillColumn()}
-                                    placeholder="Enter value (e.g., 0, N/A, default)"
-                                    className="w-full px-3 py-2 bg-[#0d1117] border border-[#30363d] rounded-md text-sm text-white placeholder-[#6e7681] focus:outline-none focus:border-amber-500"
-                                    autoFocus
-                                />
+                                <label className="block text-xs text-text-secondary mb-2">Fill Mode</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <button
+                                        onClick={() => {
+                                            setFillType('value');
+                                            setFillError(null);
+                                        }}
+                                        className={`rounded-md border px-2 py-1.5 text-xs transition-colors ${
+                                            fillType === 'value'
+                                                ? 'border-status-info/60 bg-status-info/20 text-text-primary'
+                                                : 'border-border-default bg-dark-elevated text-text-secondary hover:text-text-primary'
+                                        }`}
+                                    >
+                                        Value
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setFillType('sequence');
+                                            setFillError(null);
+                                        }}
+                                        className={`rounded-md border px-2 py-1.5 text-xs transition-colors ${
+                                            fillType === 'sequence'
+                                                ? 'border-status-info/60 bg-status-info/20 text-text-primary'
+                                                : 'border-border-default bg-dark-elevated text-text-secondary hover:text-text-primary'
+                                        }`}
+                                    >
+                                        Sequence
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setFillType('pattern');
+                                            setFillError(null);
+                                        }}
+                                        className={`rounded-md border px-2 py-1.5 text-xs transition-colors ${
+                                            fillType === 'pattern'
+                                                ? 'border-status-info/60 bg-status-info/20 text-text-primary'
+                                                : 'border-border-default bg-dark-elevated text-text-secondary hover:text-text-primary'
+                                        }`}
+                                    >
+                                        Pattern
+                                    </button>
+                                </div>
                             </div>
+
+                            {fillType === 'value' && (
+                                <div>
+                                    <label className="block text-xs text-text-secondary mb-1">Value</label>
+                                    <input
+                                        type="text"
+                                        value={fillValue}
+                                        onChange={(e) => {
+                                            setFillValue(e.target.value);
+                                            setFillError(null);
+                                        }}
+                                        onKeyDown={(e) => e.key === 'Enter' && handleFillColumn()}
+                                        placeholder="Enter value (e.g., 0, N/A, default)"
+                                        className="w-full px-3 py-2 bg-dark-canvas border border-border-default rounded-md text-sm text-white placeholder-text-muted focus:outline-none focus:border-status-info"
+                                        autoFocus
+                                    />
+                                </div>
+                            )}
+
+                            {(fillType === 'sequence' || fillType === 'pattern') && (
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-xs text-text-secondary mb-1">Start</label>
+                                        <input
+                                            type="number"
+                                            value={fillStartValue}
+                                            onChange={(e) => {
+                                                setFillStartValue(e.target.value);
+                                                setFillError(null);
+                                            }}
+                                            className="w-full px-3 py-2 bg-dark-canvas border border-border-default rounded-md text-sm text-white placeholder-text-muted focus:outline-none focus:border-status-info"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-text-secondary mb-1">Step</label>
+                                        <input
+                                            type="number"
+                                            value={fillStepValue}
+                                            onChange={(e) => {
+                                                setFillStepValue(e.target.value);
+                                                setFillError(null);
+                                            }}
+                                            className="w-full px-3 py-2 bg-dark-canvas border border-border-default rounded-md text-sm text-white placeholder-text-muted focus:outline-none focus:border-status-info"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            {fillType === 'pattern' && (
+                                <div>
+                                    <label className="block text-xs text-text-secondary mb-1">
+                                        Pattern
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={fillPattern}
+                                        onChange={(e) => {
+                                            setFillPattern(e.target.value);
+                                            setFillError(null);
+                                        }}
+                                        placeholder="e.g., User-{n}"
+                                        className="w-full px-3 py-2 bg-dark-canvas border border-border-default rounded-md text-sm text-white placeholder-text-muted focus:outline-none focus:border-status-info"
+                                    />
+                                    <p className="mt-1 text-xxs text-text-muted">Use <code>{'{n}'}</code> as the running value placeholder.</p>
+                                </div>
+                            )}
+
+                            <div className="rounded-md border border-border-default bg-dark-elevated/40 px-3 py-2">
+                                <p className="text-xxs text-text-secondary mb-1">Preview</p>
+                                <p className="text-xs text-text-primary font-mono">
+                                    {fillPreviewValues.length > 0 ? fillPreviewValues.join(', ') : 'Invalid numeric settings'}
+                                </p>
+                            </div>
+
+                            {fillError && (
+                                <p className="text-xs text-status-danger">{fillError}</p>
+                            )}
                         </div>
-                        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[#30363d]">
+                        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border-default">
                             <button
                                 onClick={() => setShowFillColumnModal(false)}
-                                className="px-3 py-1.5 text-xs text-[#8b949e] hover:text-white transition-colors"
+                                className="px-3 py-1.5 text-xs text-text-secondary hover:text-white transition-colors"
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={handleFillColumn}
-                                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 rounded-md text-xs text-white transition-colors"
+                                className="px-3 py-1.5 bg-status-info hover:bg-status-info/80 rounded-md text-xs text-white transition-colors"
                             >
-                                Fill All Rows
+                                Apply Fill
                             </button>
                         </div>
                     </div>
@@ -2548,43 +2622,44 @@ export function AGGridDataTable({
             {/* Find & Replace Modal */}
             {showFindReplaceModal && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-                    <div className="bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl w-[420px]">
-                        <div className="flex items-center justify-between px-4 py-3 border-b border-[#30363d]">
+                    <div className="bg-dark-card border border-border-default rounded-lg shadow-xl w-[420px]">
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-border-default">
                             <h3 className="text-sm font-medium text-white flex items-center gap-2">
-                                <Search className="w-4 h-4 text-blue-400" />
+                                <Search className="w-4 h-4 text-status-info" />
                                 Find & Replace
                             </h3>
-                            <button
+                            <IconButton
+                                icon={<X className="w-4 h-4" />}
+                                size="sm"
+                                variant="ghost"
+                                tooltip="Close"
                                 onClick={() => setShowFindReplaceModal(false)}
-                                className="p-1 hover:bg-[#30363d] rounded text-[#8b949e]"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
+                            />
                         </div>
                         <div className="p-4 space-y-4">
                             {/* Find Input */}
                             <div>
-                                <label className="block text-xs text-[#8b949e] mb-1">Find</label>
+                                <label className="block text-xs text-text-secondary mb-1">Find</label>
                                 <input
                                     type="text"
                                     value={findText}
                                     onChange={(e) => setFindText(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && handleFind()}
                                     placeholder="Text to find..."
-                                    className="w-full px-3 py-2 bg-[#0d1117] border border-[#30363d] rounded-md text-sm text-white placeholder-[#6e7681] focus:outline-none focus:border-blue-500"
+                                    className="w-full px-3 py-2 bg-dark-canvas border border-border-default rounded-md text-sm text-white placeholder-text-muted focus:outline-none focus:border-status-info"
                                     autoFocus
                                 />
                             </div>
 
                             {/* Replace Input */}
                             <div>
-                                <label className="block text-xs text-[#8b949e] mb-1">Replace with</label>
+                                <label className="block text-xs text-text-secondary mb-1">Replace with</label>
                                 <input
                                     type="text"
                                     value={replaceText}
                                     onChange={(e) => setReplaceText(e.target.value)}
                                     placeholder="Replacement text..."
-                                    className="w-full px-3 py-2 bg-[#0d1117] border border-[#30363d] rounded-md text-sm text-white placeholder-[#6e7681] focus:outline-none focus:border-blue-500"
+                                    className="w-full px-3 py-2 bg-dark-canvas border border-border-default rounded-md text-sm text-white placeholder-text-muted focus:outline-none focus:border-status-info"
                                 />
                             </div>
 
@@ -2592,11 +2667,11 @@ export function AGGridDataTable({
                             <div className="flex items-center gap-4">
                                 {/* Column Selection */}
                                 <div className="flex-1">
-                                    <label className="block text-xs text-[#8b949e] mb-1">In column</label>
+                                    <label className="block text-xs text-text-secondary mb-1">In column</label>
                                     <select
                                         value={findInColumn}
                                         onChange={(e) => setFindInColumn(e.target.value)}
-                                        className="w-full px-3 py-1.5 bg-[#0d1117] border border-[#30363d] rounded-md text-xs text-white focus:outline-none focus:border-blue-500"
+                                        className="w-full px-3 py-1.5 bg-dark-canvas border border-border-default rounded-md text-xs text-white focus:outline-none focus:border-status-info"
                                     >
                                         <option value="__all__">All columns</option>
                                         {columns.map(col => (
@@ -2607,21 +2682,21 @@ export function AGGridDataTable({
 
                                 {/* Checkboxes */}
                                 <div className="flex flex-col gap-1 pt-4">
-                                    <label className="flex items-center gap-2 text-xs text-[#c9d1d9] cursor-pointer">
+                                    <label className="flex items-center gap-2 text-xs text-text-primary cursor-pointer">
                                         <input
                                             type="checkbox"
                                             checked={matchCase}
                                             onChange={(e) => setMatchCase(e.target.checked)}
-                                            className="w-3.5 h-3.5 rounded border-[#30363d] bg-[#0d1117] text-blue-500"
+                                            className="w-3.5 h-3.5 rounded border-border-default bg-dark-canvas text-status-info"
                                         />
                                         Match case
                                     </label>
-                                    <label className="flex items-center gap-2 text-xs text-[#c9d1d9] cursor-pointer">
+                                    <label className="flex items-center gap-2 text-xs text-text-primary cursor-pointer">
                                         <input
                                             type="checkbox"
                                             checked={matchWholeCell}
                                             onChange={(e) => setMatchWholeCell(e.target.checked)}
-                                            className="w-3.5 h-3.5 rounded border-[#30363d] bg-[#0d1117] text-blue-500"
+                                            className="w-3.5 h-3.5 rounded border-border-default bg-dark-canvas text-status-info"
                                         />
                                         Whole cell
                                     </label>
@@ -2630,22 +2705,22 @@ export function AGGridDataTable({
 
                             {/* Results */}
                             {findText && (
-                                <div className="p-3 bg-[#0d1117] rounded-md border border-[#30363d]">
+                                <div className="p-3 bg-dark-canvas rounded-md border border-border-default">
                                     {findResults.length === 0 ? (
-                                        <p className="text-xs text-[#6e7681]">No matches found</p>
+                                        <p className="text-xs text-text-muted">No matches found</p>
                                     ) : (
                                         <div>
-                                            <p className="text-xs text-emerald-400 mb-2">
+                                            <p className="text-xs text-status-success mb-2">
                                                 Found {findResults.length} match{findResults.length !== 1 ? 'es' : ''}
                                             </p>
                                             <div className="max-h-32 overflow-y-auto space-y-1">
                                                 {findResults.slice(0, 10).map((r, i) => (
-                                                    <div key={i} className="text-xs text-[#8b949e] truncate">
-                                                        <span className="text-[#6e7681]">{r.column}:</span> {r.value}
+                                                    <div key={i} className="text-xs text-text-secondary truncate">
+                                                        <span className="text-text-muted">{r.column}:</span> {r.value}
                                                     </div>
                                                 ))}
                                                 {findResults.length > 10 && (
-                                                    <div className="text-xs text-[#6e7681]">
+                                                    <div className="text-xs text-text-muted">
                                                         ...and {findResults.length - 10} more
                                                     </div>
                                                 )}
@@ -2655,17 +2730,17 @@ export function AGGridDataTable({
                                 </div>
                             )}
                         </div>
-                        <div className="flex items-center justify-between px-4 py-3 border-t border-[#30363d]">
+                        <div className="flex items-center justify-between px-4 py-3 border-t border-border-default">
                             <button
                                 onClick={handleFind}
-                                className="px-3 py-1.5 bg-[#30363d] hover:bg-[#3d444d] rounded-md text-xs text-white transition-colors"
+                                className="px-3 py-1.5 bg-border-default hover:bg-dark-elevated rounded-md text-xs text-white transition-colors"
                             >
                                 Find All
                             </button>
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={() => setShowFindReplaceModal(false)}
-                                    className="px-3 py-1.5 text-xs text-[#8b949e] hover:text-white transition-colors"
+                                    className="px-3 py-1.5 text-xs text-text-secondary hover:text-white transition-colors"
                                 >
                                     Cancel
                                 </button>
@@ -2674,8 +2749,8 @@ export function AGGridDataTable({
                                     disabled={findResults.length === 0}
                                     className={`px-3 py-1.5 rounded-md text-xs text-white transition-colors ${
                                         findResults.length === 0
-                                            ? 'bg-[#30363d] text-[#6e7681] cursor-not-allowed'
-                                            : 'bg-blue-600 hover:bg-blue-500'
+                                            ? 'bg-border-default text-text-muted cursor-not-allowed'
+                                            : 'bg-status-info hover:bg-status-info'
                                     }`}
                                 >
                                     Replace All ({findResults.length})
@@ -2687,6 +2762,6 @@ export function AGGridDataTable({
             )}
         </div>
     );
-}
+});
 
 export default AGGridDataTable;

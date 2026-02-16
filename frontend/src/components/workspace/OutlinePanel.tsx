@@ -123,9 +123,9 @@ export function OutlinePanel({
 
   // Icon/color lookup by outline item type
   const ITEM_ICONS: Record<OutlineItem['type'], { icon: string; color: string }> = {
-    feature: { icon: 'deployed_code', color: 'text-[#a371f7]' },
-    scenario: { icon: 'play_circle', color: 'text-[#58a6ff]' },
-    page: { icon: 'web', color: 'text-[#e57f49]' },
+    feature: { icon: 'deployed_code', color: 'text-accent-purple' },
+    scenario: { icon: 'play_circle', color: 'text-brand-secondary' },
+    page: { icon: 'web', color: 'text-status-warning' },
   };
 
   const renderItem = (item: OutlineItem, depth: number = 0) => {
@@ -175,19 +175,19 @@ export function OutlinePanel({
               {item.tags.slice(0, 2).map((tag, idx) => (
                 <span
                   key={idx}
-                  className="text-[9px] px-1 py-px bg-dark-elevated text-text-muted rounded"
+                  className="text-4xs px-1 py-px bg-dark-elevated text-text-muted rounded"
                 >
                   @{tag}
                 </span>
               ))}
               {item.tags.length > 2 && (
-                <span className="text-[9px] text-text-muted">+{item.tags.length - 2}</span>
+                <span className="text-4xs text-text-muted">+{item.tags.length - 2}</span>
               )}
             </div>
           )}
 
           {/* Line number on hover */}
-          <span className="text-[9px] text-text-muted tabular-nums opacity-0 group-hover:opacity-100 transition-opacity duration-fast">
+          <span className="text-4xs text-text-muted tabular-nums opacity-0 group-hover:opacity-100 transition-opacity duration-fast">
             :{item.line}
           </span>
         </button>
@@ -214,7 +214,7 @@ export function OutlinePanel({
         onClick={() => setIsExpanded(!isExpanded)}
         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-white/[0.03] transition-colors duration-fast shrink-0"
       >
-        <span className="text-[9px] font-semibold uppercase tracking-wider text-text-muted">
+        <span className="text-4xs font-semibold uppercase tracking-wider text-text-muted">
           Outline
         </span>
         <span className={`material-symbols-outlined text-xs text-text-muted transition-transform duration-fast ${
@@ -230,7 +230,7 @@ export function OutlinePanel({
           {outlineItems.length > 0 ? (
             outlineItems.map(item => renderItem(item))
           ) : (
-            <div className="px-3 py-2 text-[10px] text-text-muted text-center">
+            <div className="px-3 py-2 text-3xs text-text-muted text-center">
               No features or scenarios found
             </div>
           )}

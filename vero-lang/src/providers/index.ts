@@ -23,3 +23,6 @@ export type {
     SymbolLocation,
     SymbolReference,
 } from './symbolRegistry.js';
+
+export { formatDocument, formatSelection } from './formattingProvider.js';
+export type { TextEdit as FormattingTextEdit, FormattingOptions } from './formattingProvider.js';

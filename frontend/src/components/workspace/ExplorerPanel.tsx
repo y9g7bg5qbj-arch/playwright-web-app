@@ -7,12 +7,14 @@ import {
   FileCode,
   FileJson,
   FileText,
+  FileImage,
   File,
   MoreHorizontal,
   Plus,
   Trash2,
   RefreshCw,
 } from 'lucide-react';
+import { IconButton, PanelHeader, EmptyState } from '@/components/ui';
 
 export interface FileNode {
   name: string;
@@ -33,6 +35,8 @@ export interface NestedProject {
 export interface ExplorerPanelProps {
   applicationName?: string;
   projects?: NestedProject[];
+  error?: string | null;
+  isLoading?: boolean;
   selectedProjectId?: string | null;
   projectFiles?: Record<string, FileNode[]>;
   selectedFile: string | null;
@@ -50,11 +54,14 @@ export interface ExplorerPanelProps {
   onFileContextMenu?: (file: FileNode, projectId: string | undefined, x: number, y: number) => void;
   onCreateSandbox?: (projectId: string) => void;
   onSyncSandbox?: (sandboxName: string, projectId: string) => void;
+  onRetry?: () => void;
 }
 
 export function ExplorerPanel({
   applicationName = 'VERO-PROJECT',
   projects = [],
+  error = null,
+  isLoading = false,
   selectedProjectId,
   projectFiles = {},
   selectedFile,
@@ -72,6 +79,7 @@ export function ExplorerPanel({
   onFileContextMenu,
   onCreateSandbox,
   onSyncSandbox,
+  onRetry,
 }: ExplorerPanelProps) {
   const [internalExpandedFolders, setInternalExpandedFolders] = useState<Set<string>>(
     new Set(['proj:default', 'data', 'features'])
@@ -105,37 +113,57 @@ export function ExplorerPanel({
   const FILE_VISUALS: Record<string, FileVisual> = {
     vero: {
       Icon: FileCode,
-      iconClassName: 'text-cyan-300',
+      iconClassName: 'text-accent-teal',
     },
     json: {
       Icon: FileJson,
-      iconClassName: 'text-amber-300',
+      iconClassName: 'text-status-warning',
     },
     md: {
       Icon: FileText,
-      iconClassName: 'text-emerald-300',
+      iconClassName: 'text-status-success',
     },
     ts: {
       Icon: FileCode,
-      iconClassName: 'text-sky-300',
+      iconClassName: 'text-status-info',
     },
     tsx: {
       Icon: FileCode,
-      iconClassName: 'text-blue-300',
+      iconClassName: 'text-status-info',
     },
     js: {
       Icon: FileCode,
-      iconClassName: 'text-yellow-300',
+      iconClassName: 'text-status-warning',
     },
     jsx: {
       Icon: FileCode,
-      iconClassName: 'text-yellow-300',
+      iconClassName: 'text-status-warning',
+    },
+    png: {
+      Icon: FileImage,
+      iconClassName: 'text-status-info',
+    },
+    jpg: {
+      Icon: FileImage,
+      iconClassName: 'text-status-info',
+    },
+    jpeg: {
+      Icon: FileImage,
+      iconClassName: 'text-status-info',
+    },
+    webp: {
+      Icon: FileImage,
+      iconClassName: 'text-status-info',
+    },
+    gif: {
+      Icon: FileImage,
+      iconClassName: 'text-status-info',
     },
   };
 
   const DEFAULT_FILE_VISUAL: FileVisual = {
     Icon: File,
-    iconClassName: 'text-slate-300',
+    iconClassName: 'text-text-secondary',
   };
 
   function getFileVisual(name: string): FileVisual {
@@ -150,37 +178,37 @@ export function ExplorerPanel({
 
   const FOLDER_VISUALS: Record<string, FolderVisual> = {
     master: {
-      iconClassName: 'text-emerald-300',
-      rowClassName: 'bg-emerald-500/[0.08] hover:bg-emerald-500/[0.14]',
+      iconClassName: 'text-status-success',
+      rowClassName: 'bg-status-success/[0.08] hover:bg-status-success/[0.14]',
     },
     dev: {
-      iconClassName: 'text-sky-300',
-      rowClassName: 'bg-sky-500/[0.08] hover:bg-sky-500/[0.14]',
+      iconClassName: 'text-status-info',
+      rowClassName: 'bg-status-info/[0.08] hover:bg-status-info/[0.14]',
     },
     sandboxes: {
-      iconClassName: 'text-violet-300',
-      rowClassName: 'bg-violet-500/[0.08] hover:bg-violet-500/[0.14]',
+      iconClassName: 'text-accent-purple',
+      rowClassName: 'bg-accent-purple/[0.08] hover:bg-accent-purple/[0.14]',
     },
     sandbox: {
-      iconClassName: 'text-violet-300',
-      rowClassName: 'bg-violet-500/[0.05] hover:bg-violet-500/[0.1]',
+      iconClassName: 'text-accent-purple',
+      rowClassName: 'bg-accent-purple/[0.05] hover:bg-accent-purple/[0.1]',
     },
     features: {
-      iconClassName: 'text-amber-300',
+      iconClassName: 'text-status-warning',
       rowClassName: 'bg-transparent hover:bg-white/[0.05]',
     },
     pages: {
-      iconClassName: 'text-amber-300',
+      iconClassName: 'text-status-warning',
       rowClassName: 'bg-transparent hover:bg-white/[0.05]',
     },
     data: {
-      iconClassName: 'text-amber-300',
+      iconClassName: 'text-status-warning',
       rowClassName: 'bg-transparent hover:bg-white/[0.05]',
     },
   };
 
   const DEFAULT_FOLDER_VISUAL: FolderVisual = {
-    iconClassName: 'text-amber-300',
+    iconClassName: 'text-status-warning',
     rowClassName: 'bg-transparent hover:bg-white/[0.05]',
   };
 
@@ -271,33 +299,36 @@ export function ExplorerPanel({
 
               <div className="ml-auto flex items-center gap-0.5 opacity-0 transition-opacity duration-fast group-hover/item:opacity-100">
                 {isSandbox && onSyncSandbox && (
-                  <button
+                  <IconButton
+                    icon={<RefreshCw size={11} />}
+                    size="sm"
+                    variant="ghost"
+                    tooltip="Sync from source"
                     onClick={(e) => { e.stopPropagation(); onSyncSandbox(node.name, projectId || ''); }}
-                    className="rounded p-0.5 text-text-muted hover:bg-white/[0.08] hover:text-text-primary"
-                    title="Sync from source"
-                  >
-                    <RefreshCw size={11} />
-                  </button>
+                    className="h-5 w-5"
+                  />
                 )}
 
                 {isEnvFolder && lowerName === 'sandboxes' && onCreateSandbox && (
-                  <button
+                  <IconButton
+                    icon={<Plus size={11} />}
+                    size="sm"
+                    variant="ghost"
+                    tooltip="New Sandbox"
                     onClick={(e) => { e.stopPropagation(); onCreateSandbox(projectId || ''); }}
-                    className="rounded p-0.5 text-text-muted hover:bg-white/[0.08] hover:text-text-primary"
-                    title="New Sandbox"
-                  >
-                    <Plus size={11} />
-                  </button>
+                    className="h-5 w-5"
+                  />
                 )}
 
                 {onCreateFile && !isEnvFolder && !isSandbox && (
-                  <button
+                  <IconButton
+                    icon={<Plus size={11} />}
+                    size="sm"
+                    variant="ghost"
+                    tooltip="New File"
                     onClick={(e) => { e.stopPropagation(); onCreateFile(projectId || '', node.path); }}
-                    className="rounded p-0.5 text-text-muted hover:bg-white/[0.08] hover:text-text-primary"
-                    title="New File"
-                  >
-                    <Plus size={11} />
-                  </button>
+                    className="h-5 w-5"
+                  />
                 )}
               </div>
             </div>
@@ -329,7 +360,7 @@ export function ExplorerPanel({
           onClick={() => onFileSelect(node, projectId)}
           onContextMenu={handleContextMenu}
           className={`
-            group relative flex w-full cursor-pointer items-center rounded-sm py-1 pr-2 text-[11px]
+            group relative flex w-full cursor-pointer items-center rounded-sm py-1 pr-2 text-xxs
             transition-all duration-fast
             ${isSelected
               ? 'bg-brand-primary/22 text-text-primary font-medium'
@@ -359,7 +390,7 @@ export function ExplorerPanel({
         {/* Project Header */}
         <div
           className={`
-            group flex cursor-pointer items-center gap-1 rounded-sm px-2 py-1 text-[11px]
+            group flex cursor-pointer items-center gap-1 rounded-sm px-2 py-1 text-xxs
             transition-all duration-fast
             hover:bg-white/[0.05]
             ${isSelected ? 'bg-brand-primary/22' : ''}
@@ -374,20 +405,22 @@ export function ExplorerPanel({
             size={12}
             className={`text-text-muted transition-transform duration-fast ${isExpanded ? 'rotate-90' : ''}`}
           />
-          <Folder size={14} className="text-amber-300" />
-          <span className="ml-1 flex-1 truncate text-[11px] font-medium text-text-primary">{project.name}</span>
-          <span className="text-[10px] text-text-muted">
+          <Folder size={14} className="text-status-warning" />
+          <span className="ml-1 flex-1 truncate text-xxs font-medium text-text-primary">{project.name}</span>
+          <span className="text-3xs text-text-muted">
             {totalFiles}
           </span>
 
           {onDeleteProject && (
-            <button
+            <IconButton
+              icon={<Trash2 size={11} />}
+              size="sm"
+              variant="ghost"
+              tone="danger"
+              tooltip="Delete Project"
               onClick={(e) => { e.stopPropagation(); onDeleteProject(project.id); }}
-              className="rounded p-0.5 text-text-muted opacity-0 transition-all duration-fast hover:bg-status-danger/20 hover:text-status-danger group-hover:opacity-100"
-              title="Delete Project"
-            >
-              <Trash2 size={11} />
-            </button>
+              className="h-5 w-5 opacity-0 transition-all duration-fast group-hover:opacity-100"
+            />
           )}
         </div>
 
@@ -415,31 +448,33 @@ export function ExplorerPanel({
   return (
     <div className="relative flex h-full w-full shrink-0 flex-col overflow-hidden border-r border-border-default bg-dark-bg">
       {/* Header */}
-      <div className="relative z-10 shrink-0 border-b border-border-default bg-dark-bg px-3 py-2">
-        <div className="flex items-center">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-secondary">
-            Project
-          </span>
-          <button className="ml-auto rounded p-1 text-text-secondary transition-colors duration-fast hover:bg-white/10 hover:text-text-primary">
-            <MoreHorizontal size={14} />
-          </button>
-        </div>
-      </div>
+      <PanelHeader
+        title="Project"
+        actions={
+          <IconButton
+            icon={<MoreHorizontal size={14} />}
+            size="sm"
+            variant="ghost"
+            tooltip="More options"
+          />
+        }
+        className="relative z-10"
+      />
 
       {/* File Tree */}
       <div className="custom-scrollbar relative z-10 min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {/* Application Header */}
         <button
           onClick={() => setApplicationExpanded(!applicationExpanded)}
-          className="sticky top-0 z-10 flex w-full items-center rounded-sm px-2 py-1 text-[11px] font-medium tracking-wide text-text-primary transition-all duration-fast hover:bg-white/[0.05]"
+          className="sticky top-0 z-10 flex w-full items-center rounded-sm px-2 py-1 text-xxs font-medium tracking-wide text-text-primary transition-all duration-fast hover:bg-white/[0.05]"
         >
           <ChevronRight
             size={12}
             className={`mr-0.5 text-text-muted transition-transform duration-fast ${applicationExpanded ? 'rotate-90' : ''}`}
           />
-          <Folder size={14} className="mr-1 text-amber-300" />
+          <Folder size={14} className="mr-1 text-status-warning" />
           <span className="truncate">{applicationName}</span>
-          <span className="ml-auto text-[10px] text-text-muted">
+          <span className="ml-auto text-3xs text-text-muted">
             {projects.length}
           </span>
         </button>
@@ -448,15 +483,16 @@ export function ExplorerPanel({
         {applicationExpanded && (
           <div className="mt-1 p-1">
             <div className="group flex items-center justify-between px-1 py-1 text-text-secondary">
-              <span className="text-[9px] font-semibold uppercase tracking-[0.12em]">Folders</span>
+              <span className="text-4xs font-semibold uppercase tracking-[0.12em]">Folders</span>
               {onCreateProject && (
-                <button
+                <IconButton
+                  icon={<Plus size={12} />}
+                  size="sm"
+                  variant="ghost"
+                  tooltip="New Project"
                   onClick={onCreateProject}
-                  className="rounded p-0.5 opacity-0 transition-opacity duration-fast hover:bg-white/10 group-hover:opacity-100"
-                  title="New Project"
-                >
-                  <Plus size={12} />
-                </button>
+                  className="opacity-0 transition-opacity duration-fast group-hover:opacity-100"
+                />
               )}
             </div>
 
@@ -465,16 +501,42 @@ export function ExplorerPanel({
                 {projects.map(renderProject)}
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
-                <p className="text-xs text-text-muted mb-3">No projects found</p>
-                {onCreateProject && (
-                  <button
-                    onClick={onCreateProject}
-                    className="inline-flex items-center rounded-md border border-border-default bg-dark-elevated px-2.5 py-1 text-xs font-medium text-text-primary transition-colors hover:border-border-emphasis"
-                  >
-                    <Plus size={14} className="mr-1" />
-                    Create Project
-                  </button>
+              <div>
+                {isLoading ? (
+                  <EmptyState
+                    title="Loading projects..."
+                    compact
+                  />
+                ) : error ? (
+                  <EmptyState
+                    title="Unable to load projects"
+                    message={error}
+                    compact
+                    className="[&>p:first-of-type]:text-status-danger"
+                    action={onRetry ? (
+                      <button
+                        onClick={onRetry}
+                        className="inline-flex items-center rounded-md border border-border-default bg-dark-elevated px-2.5 py-1 text-xs font-medium text-text-primary transition-colors hover:border-border-emphasis"
+                      >
+                        <RefreshCw size={14} className="mr-1" />
+                        Retry
+                      </button>
+                    ) : undefined}
+                  />
+                ) : (
+                  <EmptyState
+                    title="No projects found"
+                    compact
+                    action={onCreateProject ? (
+                      <button
+                        onClick={onCreateProject}
+                        className="inline-flex items-center rounded-md border border-border-default bg-dark-elevated px-2.5 py-1 text-xs font-medium text-text-primary transition-colors hover:border-border-emphasis"
+                      >
+                        <Plus size={14} className="mr-1" />
+                        Create Project
+                      </button>
+                    ) : undefined}
+                  />
                 )}
               </div>
             )}

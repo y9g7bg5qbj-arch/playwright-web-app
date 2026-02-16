@@ -27,16 +27,16 @@ const formatDuration = (ms: number): string => {
 };
 
 const StatusIcon: React.FC<{ status: string; isFlaky?: boolean }> = ({ status, isFlaky }) => {
-  if (isFlaky) return <AlertTriangle className="w-4 h-4 text-yellow-400" />;
+  if (isFlaky) return <AlertTriangle className="w-4 h-4 text-status-warning" />;
   switch (status) {
     case 'passed':
-      return <CheckCircle2 className="w-4 h-4 text-green-400" />;
+      return <CheckCircle2 className="w-4 h-4 text-status-success" />;
     case 'failed':
-      return <XCircle className="w-4 h-4 text-red-400" />;
+      return <XCircle className="w-4 h-4 text-status-danger" />;
     case 'skipped':
-      return <SkipForward className="w-4 h-4 text-slate-400" />;
+      return <SkipForward className="w-4 h-4 text-text-secondary" />;
     default:
-      return <Clock className="w-4 h-4 text-blue-400" />;
+      return <Clock className="w-4 h-4 text-status-info" />;
   }
 };
 
@@ -58,30 +58,30 @@ export const TestResultsTable: React.FC<TestResultsTableProps> = ({
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
-        <thead className="bg-slate-800/50 border-b border-slate-700">
+        <thead className="bg-dark-card/50 border-b border-border-default">
           <tr>
-            <th className="text-left px-4 py-3 font-medium text-slate-400">Status</th>
-            <th className="text-left px-4 py-3 font-medium text-slate-400">Test Name</th>
-            <th className="text-left px-4 py-3 font-medium text-slate-400">Run</th>
-            <th className="text-left px-4 py-3 font-medium text-slate-400">Browser</th>
-            <th className="text-left px-4 py-3 font-medium text-slate-400">Duration</th>
-            <th className="text-left px-4 py-3 font-medium text-slate-400">Retries</th>
-            <th className="text-right px-4 py-3 font-medium text-slate-400">Actions</th>
+            <th className="text-left px-4 py-3 font-medium text-text-secondary">Status</th>
+            <th className="text-left px-4 py-3 font-medium text-text-secondary">Test Name</th>
+            <th className="text-left px-4 py-3 font-medium text-text-secondary">Run</th>
+            <th className="text-left px-4 py-3 font-medium text-text-secondary">Browser</th>
+            <th className="text-left px-4 py-3 font-medium text-text-secondary">Duration</th>
+            <th className="text-left px-4 py-3 font-medium text-text-secondary">Retries</th>
+            <th className="text-right px-4 py-3 font-medium text-text-secondary">Actions</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-800">
+        <tbody className="divide-y divide-border-default">
           {allResults.map((result, idx) => (
             <tr
               key={`${result.runId}-${result.id}-${idx}`}
-              className="hover:bg-slate-800/30 transition-colors"
+              className="hover:bg-dark-card/30 transition-colors"
             >
               <td className="px-4 py-3">
                 <StatusIcon status={result.status} isFlaky={result.isFlaky} />
               </td>
               <td className="px-4 py-3">
-                <div className="font-medium text-slate-200">{result.name}</div>
+                <div className="font-medium text-text-primary">{result.name}</div>
                 {result.error && (
-                  <div className="text-xs text-red-400 mt-0.5 truncate max-w-xs">
+                  <div className="text-xs text-status-danger mt-0.5 truncate max-w-xs">
                     {typeof result.error === 'string' ? result.error : result.error.message}
                   </div>
                 )}
@@ -89,32 +89,32 @@ export const TestResultsTable: React.FC<TestResultsTableProps> = ({
               <td className="px-4 py-3">
                 <button
                   onClick={() => onViewRun?.(result.runId)}
-                  className="text-slate-400 hover:text-blue-400 transition-colors"
+                  className="text-text-secondary hover:text-status-info transition-colors"
                 >
                   {result.runName}
                 </button>
                 {result.branch && (
-                  <span className="ml-2 text-xs text-slate-600 bg-slate-800 px-1.5 py-0.5 rounded">
+                  <span className="ml-2 text-xs text-text-muted bg-dark-card px-1.5 py-0.5 rounded">
                     {result.branch}
                   </span>
                 )}
               </td>
-              <td className="px-4 py-3 text-slate-400">{result.browser}</td>
-              <td className="px-4 py-3 text-slate-400">{formatDuration(result.duration)}</td>
+              <td className="px-4 py-3 text-text-secondary">{result.browser}</td>
+              <td className="px-4 py-3 text-text-secondary">{formatDuration(result.duration)}</td>
               <td className="px-4 py-3">
                 {(result.retries ?? 0) > 0 ? (
-                  <span className="text-yellow-400 text-xs bg-yellow-400/10 px-1.5 py-0.5 rounded">
+                  <span className="text-status-warning text-xs bg-status-warning/10 px-1.5 py-0.5 rounded">
                     {result.retries} retries
                   </span>
                 ) : (
-                  <span className="text-slate-600">-</span>
+                  <span className="text-text-muted">-</span>
                 )}
               </td>
               <td className="px-4 py-3 text-right">
                 {result.traceUrl && (
                   <button
                     onClick={() => onViewTrace?.(result.id, result.traceUrl!)}
-                    className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                    className="inline-flex items-center gap-1 text-xs text-status-info hover:text-status-info transition-colors"
                   >
                     <ExternalLink className="w-3 h-3" />
                     Trace

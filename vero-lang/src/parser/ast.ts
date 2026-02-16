@@ -31,11 +31,21 @@ export type SelectorType =
     | 'label' | 'placeholder' | 'testid' | 'text' | 'alt' | 'title'  // other locators
     | 'css' | 'xpath';  // raw selectors
 
+export type SelectorModifier =
+    | { type: 'first' }
+    | { type: 'last' }
+    | { type: 'nth'; index: number }
+    | { type: 'withText'; text: string }
+    | { type: 'withoutText'; text: string }
+    | { type: 'has'; selector: SelectorNode }
+    | { type: 'hasNot'; selector: SelectorNode };
+
 export interface SelectorNode {
     type: 'Selector';
     selectorType: SelectorType;
     value: string;
     nameParam?: string;  // For: ROLE "button" NAME "Submit"
+    modifiers?: SelectorModifier[];
 }
 
 export interface VariableNode {
@@ -150,6 +160,7 @@ export type StatementNode =
     | VerifyUrlStatement
     | VerifyTitleStatement
     | VerifyHasStatement
+    | VerifyScreenshotStatement
     | VerifyVariableStatement
     | PerformStatement
     | PerformAssignmentStatement
@@ -157,6 +168,7 @@ export type StatementNode =
     | WaitForStatement
     | RefreshStatement
     | CheckStatement
+    | UncheckStatement
     | HoverStatement
     | PressStatement
     | LogStatement
@@ -170,7 +182,11 @@ export type StatementNode =
     | ColumnAccessStatement
     | CountStatement
     | UtilityAssignmentStatement
-    | ReturnStatement;
+    | ReturnStatement
+    | SwitchToNewTabStatement
+    | SwitchToTabStatement
+    | OpenInNewTabStatement
+    | CloseTabStatement;
 
 // Action Statements
 
@@ -230,6 +246,12 @@ export interface CheckStatement {
     line: number;
 }
 
+export interface UncheckStatement {
+    type: 'Uncheck';
+    target: TargetNode;
+    line: number;
+}
+
 export interface HoverStatement {
     type: 'Hover';
     target: TargetNode;
@@ -267,6 +289,29 @@ export interface ReturnStatement {
 
 export interface RefreshStatement {
     type: 'Refresh';
+    line: number;
+}
+
+export interface SwitchToNewTabStatement {
+    type: 'SwitchToNewTab';
+    url?: ExpressionNode;
+    line: number;
+}
+
+export interface SwitchToTabStatement {
+    type: 'SwitchToTab';
+    tabIndex: ExpressionNode;
+    line: number;
+}
+
+export interface OpenInNewTabStatement {
+    type: 'OpenInNewTab';
+    url: ExpressionNode;
+    line: number;
+}
+
+export interface CloseTabStatement {
+    type: 'CloseTab';
     line: number;
 }
 
@@ -346,6 +391,21 @@ export interface VerifyHasStatement {
     target: TargetNode;
     hasCondition: HasCondition;
     line: number;
+}
+
+export interface VerifyScreenshotStatement {
+    type: 'VerifyScreenshot';
+    target?: TargetNode;
+    name?: string;
+    options?: VerifyScreenshotOptions;
+    line: number;
+}
+
+export interface VerifyScreenshotOptions {
+    preset?: 'STRICT' | 'BALANCED' | 'RELAXED';
+    threshold?: number;
+    maxDiffPixels?: number;
+    maxDiffPixelRatio?: number;
 }
 
 // VERIFY variable IS TRUE/FALSE or VERIFY variable CONTAINS "text"

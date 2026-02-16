@@ -8,6 +8,7 @@ import {
   CircleSlash,
   MousePointer2,
 } from 'lucide-react';
+import { IconButton, Toolbar, ToolbarGroup, ToolbarDivider } from '@/components/ui';
 
 // IntelliJ-style debug step icons
 function StepOverIcon({ className }: { className?: string }) {
@@ -93,129 +94,103 @@ export function DebugToolbar({
   const { isDebugging, isPaused, currentLine, breakpoints } = debugState;
   const isExecuting = isRunning || isDebugging;
 
-  // Button style helper
-  const iconButtonClass = (active = false, disabled = false) => `
-    flex items-center justify-center w-7 h-7 rounded transition-colors duration-fast
-    ${disabled
-      ? 'text-text-muted cursor-not-allowed opacity-40'
-      : active
-        ? 'bg-brand-primary text-white hover:brightness-110'
-        : 'text-text-secondary hover:bg-white/[0.06] hover:text-text-primary'
-    }
-  `;
-
   return (
-    <div className={`flex items-center gap-1 px-2 py-1.5 bg-dark-card border-b border-border-default ${className}`}>
+    <Toolbar className={`bg-dark-card ${className}`}>
       {/* Execution Controls - Only shown when running/debugging */}
       {isExecuting && (
         <>
-          <div className="w-px h-5 bg-border-emphasis mx-1" />
+          <ToolbarDivider />
 
-          <div className="flex items-center gap-0.5">
+          <ToolbarGroup>
             {/* Resume/Pause */}
             {isDebugging && (
               isPaused ? (
-                <button
+                <IconButton
+                  icon={<Play className="w-4 h-4" />}
+                  active
+                  tooltip="Resume (F9)"
                   onClick={onResume}
-                  className={iconButtonClass(true)}
-                  title="Resume (F9)"
-                >
-                  <Play className="w-4 h-4" />
-                </button>
+                />
               ) : (
-                <button
+                <IconButton
+                  icon={<Pause className="w-4 h-4" />}
+                  tooltip="Pause"
                   onClick={onPause}
-                  className={iconButtonClass()}
-                  title="Pause"
-                >
-                  <Pause className="w-4 h-4" />
-                </button>
+                />
               )
             )}
 
             {/* Stop */}
-            <button
+            <IconButton
+              icon={<Square className="w-3.5 h-3.5" />}
+              tone="danger"
+              tooltip="Stop (Shift+F5)"
               onClick={onStop}
-              className="flex items-center justify-center w-7 h-7 rounded text-status-danger hover:bg-status-danger/20 transition-colors duration-fast"
-              title="Stop (Shift+F5)"
-            >
-              <Square className="w-3.5 h-3.5" />
-            </button>
+            />
 
             {/* Restart */}
-            <button
+            <IconButton
+              icon={<RotateCw className="w-4 h-4" />}
+              tooltip="Restart (Ctrl+Shift+F5)"
               onClick={onRestart}
-              className={iconButtonClass()}
-              title="Restart (Ctrl+Shift+F5)"
-            >
-              <RotateCw className="w-4 h-4" />
-            </button>
-          </div>
+            />
+          </ToolbarGroup>
         </>
       )}
 
       {/* Step Controls - Only shown when debugging and paused */}
       {isDebugging && (
         <>
-          <div className="w-px h-5 bg-border-emphasis mx-1" />
+          <ToolbarDivider />
 
-          <div className="flex items-center gap-0.5">
-            <button
+          <ToolbarGroup>
+            <IconButton
+              icon={<StepOverIcon className="w-4 h-4" />}
+              disabled={!isPaused}
+              tooltip="Step Over (F10)"
               onClick={onStepOver}
-              disabled={!isPaused}
-              className={iconButtonClass(false, !isPaused)}
-              title="Step Over (F10)"
-            >
-              <StepOverIcon className="w-4 h-4" />
-            </button>
+            />
 
-            <button
+            <IconButton
+              icon={<StepIntoIcon className="w-4 h-4" />}
+              disabled={!isPaused}
+              tooltip="Step Into (F11)"
               onClick={onStepInto}
-              disabled={!isPaused}
-              className={iconButtonClass(false, !isPaused)}
-              title="Step Into (F11)"
-            >
-              <StepIntoIcon className="w-4 h-4" />
-            </button>
+            />
 
-            <button
-              onClick={onStepOut}
+            <IconButton
+              icon={<StepOutIcon className="w-4 h-4" />}
               disabled={!isPaused}
-              className={iconButtonClass(false, !isPaused)}
-              title="Step Out (Shift+F11)"
-            >
-              <StepOutIcon className="w-4 h-4" />
-            </button>
-          </div>
+              tooltip="Step Out (Shift+F11)"
+              onClick={onStepOut}
+            />
+          </ToolbarGroup>
         </>
       )}
 
       {/* Breakpoint Controls */}
       {breakpoints.size > 0 && (
         <>
-          <div className="w-px h-5 bg-border-emphasis mx-1" />
+          <ToolbarDivider />
 
-          <button
+          <IconButton
+            icon={<CircleSlash className={`w-4 h-4 ${breakpointsMuted ? 'text-status-danger' : ''}`} />}
+            active={breakpointsMuted}
+            tooltip={breakpointsMuted ? 'Unmute Breakpoints' : 'Mute All Breakpoints'}
             onClick={onToggleMuteBreakpoints}
-            className={iconButtonClass(breakpointsMuted)}
-            title={breakpointsMuted ? 'Unmute Breakpoints' : 'Mute All Breakpoints'}
-          >
-            <CircleSlash className={`w-4 h-4 ${breakpointsMuted ? 'text-status-danger' : ''}`} />
-          </button>
+          />
         </>
       )}
 
       {/* Playwright Inspector - when debugging */}
       {isDebugging && (
         <>
-          <div className="w-px h-5 bg-border-emphasis mx-1" />
-          <button
+          <ToolbarDivider />
+          <IconButton
+            icon={<MousePointer2 className="w-4 h-4" />}
+            tooltip="Open Playwright Inspector (pick elements, test selectors)"
             onClick={onOpenInspector}
-            className={iconButtonClass()}
-            title="Open Playwright Inspector (pick elements, test selectors)"
-          >
-            <MousePointer2 className="w-4 h-4" />
-          </button>
+          />
         </>
       )}
 
@@ -258,7 +233,7 @@ export function DebugToolbar({
           </div>
         )}
       </div>
-    </div>
+    </Toolbar>
   );
 }
 
@@ -287,29 +262,30 @@ export function CompactDebugToolbar({
     <div className={`flex items-center gap-1 ${className}`}>
       {!isExecuting ? (
         <>
-          <button
+          <IconButton
+            icon={<Play className="w-3.5 h-3.5" />}
+            size="sm"
+            tooltip="Run (Shift+F10)"
             onClick={() => onRun()}
-            className="flex items-center justify-center w-6 h-6 rounded bg-status-success/20 hover:bg-status-success/30 text-status-success transition-colors duration-fast"
-            title="Run (Shift+F10)"
-          >
-            <Play className="w-3.5 h-3.5" />
-          </button>
-          <button
+            className="bg-status-success/20 hover:bg-status-success/30 text-status-success"
+          />
+          <IconButton
+            icon={<Bug className="w-3.5 h-3.5" />}
+            size="sm"
+            tooltip="Debug (Shift+F9)"
             onClick={() => onDebug()}
-            className="flex items-center justify-center w-6 h-6 rounded bg-status-warning/20 hover:bg-status-warning/30 text-status-warning transition-colors duration-fast"
-            title="Debug (Shift+F9)"
-          >
-            <Bug className="w-3.5 h-3.5" />
-          </button>
+            className="bg-status-warning/20 hover:bg-status-warning/30 text-status-warning"
+          />
         </>
       ) : (
-        <button
+        <IconButton
+          icon={<Square className="w-3 h-3" />}
+          size="sm"
+          tone="danger"
+          tooltip="Stop (Shift+F5)"
           onClick={onStop}
-          className="flex items-center justify-center w-6 h-6 rounded bg-status-danger/20 hover:bg-status-danger/30 text-status-danger transition-colors duration-fast"
-          title="Stop (Shift+F5)"
-        >
-          <Square className="w-3 h-3" />
-        </button>
+          className="bg-status-danger/20 hover:bg-status-danger/30 text-status-danger"
+        />
       )}
     </div>
   );

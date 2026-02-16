@@ -218,6 +218,11 @@ All three services support hot reload during development:
 - Frontend: Uses Vite's HMR
 - Agent: Uses `tsx watch`
 
+### Backend Runtime Mode (Important)
+
+Use a single backend runtime in local development: `cd backend && npm run dev` (`tsx watch src/index.ts`).
+Do not run PM2 (`npm run start:pm2`) at the same time as the watcher, because mixed runtimes can cause inconsistent Vero execution behavior.
+
 ### Database Management
 
 View and edit database records:

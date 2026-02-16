@@ -49,13 +49,13 @@ const getActionIcon = (type: TraceAction['type']) => {
 const getStatusIcon = (status: TraceAction['status']) => {
   switch (status) {
     case 'passed':
-      return <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />;
+      return <CheckCircle2 className="w-3.5 h-3.5 text-status-success" />;
     case 'failed':
-      return <XCircle className="w-3.5 h-3.5 text-red-400" />;
+      return <XCircle className="w-3.5 h-3.5 text-status-danger" />;
     case 'running':
-      return <div className="w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />;
+      return <div className="w-3.5 h-3.5 border-2 border-status-info border-t-transparent rounded-full animate-spin" />;
     default:
-      return <div className="w-3.5 h-3.5 rounded-full bg-slate-600" />;
+      return <div className="w-3.5 h-3.5 rounded-full bg-dark-elevated" />;
   }
 };
 
@@ -98,22 +98,22 @@ export const TraceTimeline: React.FC<TraceTimelineProps> = ({
   return (
     <div className="flex flex-col h-full">
       {/* Summary Bar */}
-      <div className="px-3 py-2 border-b border-slate-700/50 bg-slate-800/30">
-        <div className="flex items-center justify-between text-xs text-slate-400">
+      <div className="px-3 py-2 border-b border-border-default/50 bg-dark-card/30">
+        <div className="flex items-center justify-between text-xs text-text-secondary">
           <span>{actions.length} actions</span>
           <span>{formatDuration(totalDuration)} total</span>
         </div>
         {/* Duration distribution bar */}
-        <div className="mt-2 h-1.5 bg-slate-700 rounded-full overflow-hidden flex">
+        <div className="mt-2 h-1.5 bg-dark-elevated rounded-full overflow-hidden flex">
           {actions.map((action, index) => {
             const width = (action.duration / totalDuration) * 100;
             return (
               <div
                 key={action.index}
                 className={`h-full transition-opacity cursor-pointer ${
-                  action.status === 'passed' ? 'bg-green-500' :
-                  action.status === 'failed' ? 'bg-red-500' :
-                  'bg-blue-500'
+                  action.status === 'passed' ? 'bg-status-success' :
+                  action.status === 'failed' ? 'bg-status-danger' :
+                  'bg-status-info'
                 } ${selectedIndex === index ? 'opacity-100' : 'opacity-60 hover:opacity-80'}`}
                 style={{ width: `${Math.max(width, 2)}%` }}
                 onClick={() => onSelectAction(index)}
@@ -134,9 +134,9 @@ export const TraceTimeline: React.FC<TraceTimelineProps> = ({
               onKeyDown={(e) => handleKeyDown(e, index)}
               className={`w-full text-left px-3 py-2 flex items-start gap-2 transition-colors ${
                 selectedIndex === index
-                  ? 'bg-blue-500/20 border-l-2 border-blue-400'
-                  : 'hover:bg-slate-800/50 border-l-2 border-transparent'
-              } ${action.status === 'failed' ? 'bg-red-500/10' : ''}`}
+                  ? 'bg-status-info/20 border-l-2 border-status-info'
+                  : 'hover:bg-dark-card/50 border-l-2 border-transparent'
+              } ${action.status === 'failed' ? 'bg-status-danger/10' : ''}`}
               tabIndex={0}
               role="option"
               aria-selected={selectedIndex === index}
@@ -144,17 +144,17 @@ export const TraceTimeline: React.FC<TraceTimelineProps> = ({
               {/* Timeline connector */}
               <div className="flex flex-col items-center pt-1">
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                  selectedIndex === index ? 'bg-blue-500/30 text-blue-400' :
-                  action.status === 'failed' ? 'bg-red-500/20 text-red-400' :
-                  'bg-slate-700 text-slate-400'
+                  selectedIndex === index ? 'bg-status-info/30 text-status-info' :
+                  action.status === 'failed' ? 'bg-status-danger/20 text-status-danger' :
+                  'bg-dark-elevated text-text-secondary'
                 }`}>
                   {getActionIcon(action.type)}
                 </div>
                 {index < actions.length - 1 && (
                   <div className={`w-0.5 h-full min-h-[16px] mt-1 ${
-                    action.status === 'passed' ? 'bg-green-500/30' :
-                    action.status === 'failed' ? 'bg-red-500/30' :
-                    'bg-slate-700'
+                    action.status === 'passed' ? 'bg-status-success/30' :
+                    action.status === 'failed' ? 'bg-status-danger/30' :
+                    'bg-dark-elevated'
                   }`} />
                 )}
               </div>
@@ -164,16 +164,16 @@ export const TraceTimeline: React.FC<TraceTimelineProps> = ({
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className={`font-mono text-xs truncate ${
-                      selectedIndex === index ? 'text-blue-300' :
-                      action.status === 'failed' ? 'text-red-300' :
-                      'text-slate-300'
+                      selectedIndex === index ? 'text-status-info' :
+                      action.status === 'failed' ? 'text-status-danger' :
+                      'text-text-primary'
                     }`}>
                       {action.title}
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {getStatusIcon(action.status)}
-                    <span className="text-[10px] text-slate-500">
+                    <span className="text-3xs text-text-secondary">
                       {formatDuration(action.duration)}
                     </span>
                   </div>
@@ -181,27 +181,27 @@ export const TraceTimeline: React.FC<TraceTimelineProps> = ({
 
                 {/* Selector/Value */}
                 {(action.selector || action.value) && (
-                  <div className="mt-1 text-[11px] text-slate-500 truncate font-mono">
+                  <div className="mt-1 text-xxs text-text-secondary truncate font-mono">
                     {action.selector && (
-                      <span className="text-purple-400/80">{action.selector}</span>
+                      <span className="text-accent-purple/80">{action.selector}</span>
                     )}
                     {action.selector && action.value && <span className="mx-1">-</span>}
                     {action.value && (
-                      <span className="text-slate-400">"{action.value}"</span>
+                      <span className="text-text-secondary">"{action.value}"</span>
                     )}
                   </div>
                 )}
 
                 {/* Error message */}
                 {action.error && (
-                  <div className="mt-1 flex items-start gap-1 text-[11px] text-red-400">
+                  <div className="mt-1 flex items-start gap-1 text-xxs text-status-danger">
                     <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
                     <span className="line-clamp-2">{action.error}</span>
                   </div>
                 )}
 
                 {/* Timestamp */}
-                <div className="mt-1 text-[10px] text-slate-600">
+                <div className="mt-1 text-3xs text-text-muted">
                   {formatTimestamp(action.timestamp)}
                 </div>
               </div>
@@ -211,7 +211,7 @@ export const TraceTimeline: React.FC<TraceTimelineProps> = ({
       </div>
 
       {/* Keyboard navigation hint */}
-      <div className="px-3 py-2 border-t border-slate-700/50 text-[10px] text-slate-600 text-center">
+      <div className="px-3 py-2 border-t border-border-default/50 text-3xs text-text-muted text-center">
         Use arrow keys to navigate
       </div>
     </div>

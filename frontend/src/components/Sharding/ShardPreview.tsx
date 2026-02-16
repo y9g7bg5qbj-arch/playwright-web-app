@@ -22,33 +22,33 @@ interface ShardPreviewProps {
 
 // Color palette for shards
 const shardColors = [
-  'bg-blue-500',
-  'bg-green-500',
-  'bg-purple-500',
-  'bg-orange-500',
-  'bg-pink-500',
-  'bg-cyan-500',
-  'bg-yellow-500',
-  'bg-red-500',
-  'bg-indigo-500',
-  'bg-teal-500',
-  'bg-rose-500',
-  'bg-amber-500',
+  'bg-shard-1',
+  'bg-shard-2',
+  'bg-shard-3',
+  'bg-shard-4',
+  'bg-shard-5',
+  'bg-shard-6',
+  'bg-shard-7',
+  'bg-shard-8',
+  'bg-shard-9',
+  'bg-shard-10',
+  'bg-shard-11',
+  'bg-shard-12',
 ];
 
 const shardBorderColors = [
-  'border-blue-500',
-  'border-green-500',
-  'border-purple-500',
-  'border-orange-500',
-  'border-pink-500',
-  'border-cyan-500',
-  'border-yellow-500',
-  'border-red-500',
-  'border-indigo-500',
-  'border-teal-500',
-  'border-rose-500',
-  'border-amber-500',
+  'border-shard-1',
+  'border-shard-2',
+  'border-shard-3',
+  'border-shard-4',
+  'border-shard-5',
+  'border-shard-6',
+  'border-shard-7',
+  'border-shard-8',
+  'border-shard-9',
+  'border-shard-10',
+  'border-shard-11',
+  'border-shard-12',
 ];
 
 export const ShardPreview: React.FC<ShardPreviewProps> = ({
@@ -90,8 +90,8 @@ export const ShardPreview: React.FC<ShardPreviewProps> = ({
     return (
       <div className="flex items-center justify-center h-48">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="mt-2 text-sm text-slate-500">Calculating distribution...</p>
+          <div className="w-8 h-8 border-2 border-status-info border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="mt-2 text-sm text-text-secondary">Calculating distribution...</p>
         </div>
       </div>
     );
@@ -99,11 +99,11 @@ export const ShardPreview: React.FC<ShardPreviewProps> = ({
 
   if (distributions.length === 0) {
     return (
-      <div className="flex items-center justify-center h-48 rounded-lg border border-dashed border-slate-700 bg-slate-800/30">
+      <div className="flex items-center justify-center h-48 rounded-lg border border-dashed border-border-default bg-dark-card/30">
         <div className="text-center">
-          <Layers className="w-10 h-10 text-slate-600 mx-auto" />
-          <p className="mt-2 text-slate-400">No sharding configured</p>
-          <p className="text-sm text-slate-500">Enable sharding to see distribution preview</p>
+          <Layers className="w-10 h-10 text-text-muted mx-auto" />
+          <p className="mt-2 text-text-secondary">No sharding configured</p>
+          <p className="text-sm text-text-secondary">Enable sharding to see distribution preview</p>
         </div>
       </div>
     );
@@ -113,16 +113,16 @@ export const ShardPreview: React.FC<ShardPreviewProps> = ({
     <div className="space-y-4">
       {/* Header with View Toggle */}
       <div className="flex items-center justify-between">
-        <h3 className="flex items-center gap-2 text-sm font-medium text-slate-300">
-          <Layers className="w-4 h-4 text-blue-400" />
+        <h3 className="flex items-center gap-2 text-sm font-medium text-text-primary">
+          <Layers className="w-4 h-4 text-status-info" />
           Shard Distribution Preview
         </h3>
         {onViewModeChange && (
-          <div className="flex items-center bg-slate-800 rounded-lg p-0.5">
+          <div className="flex items-center bg-dark-card rounded-lg p-0.5">
             <button
               onClick={() => onViewModeChange('bar')}
               className={`p-1.5 rounded transition-colors ${
-                viewMode === 'bar' ? 'bg-slate-700 text-slate-200' : 'text-slate-500 hover:text-slate-300'
+                viewMode === 'bar' ? 'bg-dark-elevated text-text-primary' : 'text-text-secondary hover:text-text-primary'
               }`}
               aria-label="Bar chart view"
             >
@@ -131,7 +131,7 @@ export const ShardPreview: React.FC<ShardPreviewProps> = ({
             <button
               onClick={() => onViewModeChange('pie')}
               className={`p-1.5 rounded transition-colors ${
-                viewMode === 'pie' ? 'bg-slate-700 text-slate-200' : 'text-slate-500 hover:text-slate-300'
+                viewMode === 'pie' ? 'bg-dark-elevated text-text-primary' : 'text-text-secondary hover:text-text-primary'
               }`}
               aria-label="Pie chart view"
             >
@@ -140,7 +140,7 @@ export const ShardPreview: React.FC<ShardPreviewProps> = ({
             <button
               onClick={() => onViewModeChange('list')}
               className={`p-1.5 rounded transition-colors ${
-                viewMode === 'list' ? 'bg-slate-700 text-slate-200' : 'text-slate-500 hover:text-slate-300'
+                viewMode === 'list' ? 'bg-dark-elevated text-text-primary' : 'text-text-secondary hover:text-text-primary'
               }`}
               aria-label="List view"
             >
@@ -152,36 +152,36 @@ export const ShardPreview: React.FC<ShardPreviewProps> = ({
 
       {/* Summary Stats */}
       <div className="grid grid-cols-4 gap-3">
-        <div className="p-3 rounded-lg bg-slate-800/50 border border-slate-700 text-center">
-          <div className="text-lg font-bold text-slate-200">{distributions.length}</div>
-          <div className="text-xs text-slate-500">Shards</div>
+        <div className="p-3 rounded-lg bg-dark-card/50 border border-border-default text-center">
+          <div className="text-lg font-bold text-text-primary">{distributions.length}</div>
+          <div className="text-xs text-text-secondary">Shards</div>
         </div>
-        <div className="p-3 rounded-lg bg-slate-800/50 border border-slate-700 text-center">
-          <div className="text-lg font-bold text-slate-200">{totalTests}</div>
-          <div className="text-xs text-slate-500">Total Tests</div>
+        <div className="p-3 rounded-lg bg-dark-card/50 border border-border-default text-center">
+          <div className="text-lg font-bold text-text-primary">{totalTests}</div>
+          <div className="text-xs text-text-secondary">Total Tests</div>
         </div>
-        <div className="p-3 rounded-lg bg-slate-800/50 border border-slate-700 text-center">
-          <div className="text-lg font-bold text-slate-200">
+        <div className="p-3 rounded-lg bg-dark-card/50 border border-border-default text-center">
+          <div className="text-lg font-bold text-text-primary">
             {(maxDuration / 1000 / 60).toFixed(1)}m
           </div>
-          <div className="text-xs text-slate-500">Est. Duration</div>
+          <div className="text-xs text-text-secondary">Est. Duration</div>
         </div>
         <div className={`p-3 rounded-lg border text-center ${
           isBalanced
-            ? 'bg-green-500/10 border-green-500/30'
-            : 'bg-yellow-500/10 border-yellow-500/30'
+            ? 'bg-status-success/10 border-status-success/30'
+            : 'bg-status-warning/10 border-status-warning/30'
         }`}>
           <div className="flex items-center justify-center gap-1">
             {isBalanced ? (
-              <CheckCircle className="w-4 h-4 text-green-400" />
+              <CheckCircle className="w-4 h-4 text-status-success" />
             ) : (
-              <AlertTriangle className="w-4 h-4 text-yellow-400" />
+              <AlertTriangle className="w-4 h-4 text-status-warning" />
             )}
-            <span className={`text-lg font-bold ${isBalanced ? 'text-green-400' : 'text-yellow-400'}`}>
+            <span className={`text-lg font-bold ${isBalanced ? 'text-status-success' : 'text-status-warning'}`}>
               {isBalanced ? 'Balanced' : 'Uneven'}
             </span>
           </div>
-          <div className="text-xs text-slate-500">Distribution</div>
+          <div className="text-xs text-text-secondary">Distribution</div>
         </div>
       </div>
 
@@ -195,12 +195,12 @@ export const ShardPreview: React.FC<ShardPreviewProps> = ({
             return (
               <div key={dist.shardIndex} className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Shard {dist.shardIndex + 1}</span>
-                  <span className="text-slate-500">
+                  <span className="text-text-secondary">Shard {dist.shardIndex + 1}</span>
+                  <span className="text-text-secondary">
                     {dist.testCount} tests | {(dist.estimatedDuration / 1000).toFixed(1)}s
                   </span>
                 </div>
-                <div className="h-6 bg-slate-800 rounded-full overflow-hidden">
+                <div className="h-6 bg-dark-card rounded-full overflow-hidden">
                   <div
                     className={`h-full ${color} transition-all flex items-center justify-end px-2`}
                     style={{ width: `${percentage}%` }}
@@ -229,12 +229,12 @@ export const ShardPreview: React.FC<ShardPreviewProps> = ({
                   accumulatedPercentage += percentage;
 
                   const colorClasses = [
-                    'stroke-blue-500',
-                    'stroke-green-500',
-                    'stroke-purple-500',
-                    'stroke-orange-500',
-                    'stroke-pink-500',
-                    'stroke-cyan-500',
+                    'stroke-shard-1',
+                    'stroke-shard-2',
+                    'stroke-shard-3',
+                    'stroke-shard-4',
+                    'stroke-shard-5',
+                    'stroke-shard-6',
                   ];
 
                   return (
@@ -256,8 +256,8 @@ export const ShardPreview: React.FC<ShardPreviewProps> = ({
             </svg>
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center">
-                <div className="text-2xl font-bold text-slate-200">{totalTests}</div>
-                <div className="text-xs text-slate-500">tests</div>
+                <div className="text-2xl font-bold text-text-primary">{totalTests}</div>
+                <div className="text-xs text-text-secondary">tests</div>
               </div>
             </div>
           </div>
@@ -269,7 +269,7 @@ export const ShardPreview: React.FC<ShardPreviewProps> = ({
               return (
                 <div key={dist.shardIndex} className="flex items-center gap-2">
                   <span className={`w-3 h-3 rounded ${color}`} />
-                  <span className="text-sm text-slate-400">
+                  <span className="text-sm text-text-secondary">
                     Shard {dist.shardIndex + 1}: {dist.testCount} ({percentage}%)
                   </span>
                 </div>
@@ -287,13 +287,13 @@ export const ShardPreview: React.FC<ShardPreviewProps> = ({
             return (
               <div
                 key={dist.shardIndex}
-                className={`rounded-lg bg-slate-800/50 border-l-4 ${borderColor} overflow-hidden`}
+                className={`rounded-lg bg-dark-card/50 border-l-4 ${borderColor} overflow-hidden`}
               >
-                <div className="flex items-center justify-between px-4 py-2 bg-slate-800/50 border-b border-slate-700">
-                  <span className="font-medium text-sm text-slate-200">
+                <div className="flex items-center justify-between px-4 py-2 bg-dark-card/50 border-b border-border-default">
+                  <span className="font-medium text-sm text-text-primary">
                     Shard {dist.shardIndex + 1}
                   </span>
-                  <div className="flex items-center gap-3 text-xs text-slate-500">
+                  <div className="flex items-center gap-3 text-xs text-text-secondary">
                     <span className="flex items-center gap-1">
                       <FileCode className="w-3.5 h-3.5" />
                       {dist.testCount} tests
@@ -307,19 +307,19 @@ export const ShardPreview: React.FC<ShardPreviewProps> = ({
                 <div className="px-4 py-2 max-h-24 overflow-y-auto">
                   {dist.tests.slice(0, 5).map((test) => (
                     <div key={test.id} className="flex items-center gap-2 py-1 text-xs">
-                      <FileCode className="w-3 h-3 text-slate-600 shrink-0" />
-                      <span className="text-slate-400 truncate" title={test.name}>
+                      <FileCode className="w-3 h-3 text-text-muted shrink-0" />
+                      <span className="text-text-secondary truncate" title={test.name}>
                         {test.name}
                       </span>
                       {test.tags && test.tags.length > 0 && (
-                        <span className="px-1.5 py-0.5 bg-slate-700 rounded text-slate-500">
+                        <span className="px-1.5 py-0.5 bg-dark-elevated rounded text-text-secondary">
                           {test.tags[0]}
                         </span>
                       )}
                     </div>
                   ))}
                   {dist.tests.length > 5 && (
-                    <div className="text-xs text-slate-600 py-1">
+                    <div className="text-xs text-text-muted py-1">
                       +{dist.tests.length - 5} more tests
                     </div>
                   )}
@@ -332,9 +332,9 @@ export const ShardPreview: React.FC<ShardPreviewProps> = ({
 
       {/* Balance Warning */}
       {!isBalanced && (
-        <div className="flex items-start gap-2 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
-          <AlertTriangle className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" />
-          <div className="text-xs text-yellow-300">
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-status-warning/10 border border-status-warning/30">
+          <AlertTriangle className="w-4 h-4 text-status-warning shrink-0 mt-0.5" />
+          <div className="text-xs text-status-warning">
             <strong>Uneven Distribution:</strong> Some shards have significantly more tests than others.
             Consider adjusting your sharding strategy for better parallelization.
           </div>

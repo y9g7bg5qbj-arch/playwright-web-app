@@ -58,6 +58,10 @@ export enum TokenType {
     DOUBLE = 'DOUBLE',
     FORCE = 'FORCE',
     DRAG = 'DRAG',
+    SWITCH = 'SWITCH',
+    NEW = 'NEW',
+    TAB = 'TAB',
+    CLOSE = 'CLOSE',
 
     // Assertions
     VERIFY = 'VERIFY',
@@ -71,6 +75,12 @@ export enum TokenType {
     ELEMENT = 'ELEMENT',
     OF = 'OF',
     CLASS = 'CLASS',
+    STRICT = 'STRICT',
+    BALANCED = 'BALANCED',
+    RELAXED = 'RELAXED',
+    THRESHOLD = 'THRESHOLD',
+    MAX_DIFF_PIXELS = 'MAX_DIFF_PIXELS',
+    MAX_DIFF_RATIO = 'MAX_DIFF_RATIO',
 
     // Conditions
     IS = 'IS',

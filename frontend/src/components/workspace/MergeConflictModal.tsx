@@ -1,5 +1,7 @@
+// design-lint-ignore NO_HARDCODED_MODAL — full-screen 95vw/90vh layout exceeds Modal's max-w-4xl; interior controls use shared primitives
 import { useState, useEffect, useCallback } from 'react';
 import { X, GitMerge, ChevronLeft, ChevronRight, AlertCircle, Check } from 'lucide-react';
+import { IconButton, Button, Badge } from '@/components/ui';
 import { type ConflictFile, type DiffHunk } from '@/api/sandbox';
 import { ConflictFileList } from './ConflictFileList';
 import { MergeConflictEditor } from './MergeConflictEditor';
@@ -205,38 +207,36 @@ export function MergeConflictModal({
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal */}
-      <div className="relative w-[95vw] h-[90vh] max-w-[1600px] bg-[#0d1117] border border-[#30363d] rounded-lg shadow-2xl flex flex-col overflow-hidden">
+      <div className="relative w-[95vw] h-[90vh] max-w-[1600px] bg-dark-canvas border border-border-default rounded-lg shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#30363d] bg-[#161b22]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border-default bg-dark-card">
           <div className="flex items-center gap-3">
-            <GitMerge className="w-5 h-5 text-[#f0883e]" />
+            <GitMerge className="w-5 h-5 text-accent-orange" />
             <div>
               <h2 className="text-lg font-semibold text-white">
                 Sync Conflicts: {sandboxName}
               </h2>
-              <p className="text-xs text-[#8b949e]">
-                Syncing from: <span className="text-[#58a6ff]">{sourceBranch}</span>
+              <p className="text-xs text-text-secondary">
+                Syncing from: <span className="text-brand-secondary">{sourceBranch}</span>
               </p>
             </div>
           </div>
           <div className="flex items-center gap-4">
             {/* Progress indicator */}
-            <div className="flex items-center gap-2 px-3 py-1 bg-[#21262d] rounded text-sm">
+            <Badge variant={allFilesResolved() ? 'green' : 'yellow'}>
               {allFilesResolved() ? (
-                <Check className="w-4 h-4 text-[#3fb950]" />
+                <Check className="w-3.5 h-3.5" />
               ) : (
-                <AlertCircle className="w-4 h-4 text-[#f0883e]" />
+                <AlertCircle className="w-3.5 h-3.5" />
               )}
-              <span className="text-[#c9d1d9]">
-                {resolvedHunks}/{totalHunks} hunks resolved
-              </span>
-            </div>
-            <button
+              {resolvedHunks}/{totalHunks} hunks resolved
+            </Badge>
+            <IconButton
+              icon={<X className="w-5 h-5" />}
+              variant="ghost"
+              tooltip="Close"
               onClick={onClose}
-              className="p-1.5 text-[#8b949e] hover:text-white hover:bg-[#21262d] rounded"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            />
           </div>
         </div>
 
@@ -253,27 +253,27 @@ export function MergeConflictModal({
           {/* Merge Editor */}
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* File Navigation */}
-            <div className="flex items-center justify-between px-4 py-2 border-b border-[#30363d] bg-[#161b22]">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-border-default bg-dark-card">
               <div className="flex items-center gap-2">
-                <button
-                  onClick={goToPreviousFile}
+                <IconButton
+                  icon={<ChevronLeft className="w-5 h-5" />}
+                  variant="ghost"
+                  tooltip="Previous file"
                   disabled={selectedFileIndex === 0}
-                  className="p-1 text-[#8b949e] hover:text-white hover:bg-[#21262d] rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                <span className="text-sm text-[#c9d1d9] font-mono">
+                  onClick={goToPreviousFile}
+                />
+                <span className="text-sm text-text-primary font-mono">
                   {selectedConflict?.filePath.split('/').pop()}
                 </span>
-                <button
-                  onClick={goToNextFile}
+                <IconButton
+                  icon={<ChevronRight className="w-5 h-5" />}
+                  variant="ghost"
+                  tooltip="Next file"
                   disabled={selectedFileIndex === conflicts.length - 1}
-                  className="p-1 text-[#8b949e] hover:text-white hover:bg-[#21262d] rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
+                  onClick={goToNextFile}
+                />
               </div>
-              <span className="text-sm text-[#8b949e]">
+              <span className="text-sm text-text-secondary">
                 {selectedFileIndex + 1} / {conflicts.length}
               </span>
             </div>
@@ -292,44 +292,33 @@ export function MergeConflictModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-[#30363d] bg-[#161b22]">
-          <div className="text-sm text-[#8b949e]">
+        <div className="flex items-center justify-between px-4 py-3 border-t border-border-default bg-dark-card">
+          <div className="text-sm text-text-secondary">
             {allFilesResolved() ? (
-              <span className="text-[#3fb950] flex items-center gap-1">
+              <span className="text-status-success flex items-center gap-1">
                 <Check className="w-4 h-4" />
                 All conflicts resolved
               </span>
             ) : (
               <span className="flex items-center gap-1">
-                <AlertCircle className="w-4 h-4 text-[#f0883e]" />
+                <AlertCircle className="w-4 h-4 text-accent-orange" />
                 Resolve all hunks to apply
               </span>
             )}
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm text-[#c9d1d9] hover:text-white hover:bg-[#21262d] rounded transition-colors"
-            >
+            <Button variant="ghost" onClick={onClose}>
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="success"
+              leftIcon={<GitMerge className="w-4 h-4" />}
+              isLoading={isApplying}
+              disabled={!allFilesResolved()}
               onClick={handleApplyAll}
-              disabled={!allFilesResolved() || isApplying}
-              className="px-4 py-2 text-sm font-medium bg-[#238636] hover:bg-[#2ea043] text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              {isApplying ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                  Applying...
-                </>
-              ) : (
-                <>
-                  <GitMerge className="w-4 h-4" />
-                  Apply & Sync
-                </>
-              )}
-            </button>
+              Apply & Sync
+            </Button>
           </div>
         </div>
       </div>

@@ -1,5 +1,6 @@
 import React from 'react';
-import { FolderOpen, Play, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { FolderOpen, Clock } from 'lucide-react';
+import { Card, StatusBadge } from '@/components/ui';
 
 interface ProjectCardProps {
   id: string;
@@ -20,18 +21,6 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
   passRate,
   onClick,
 }) => {
-  const getStatusIcon = () => {
-    if (!lastRun) return null;
-    switch (lastRun.status) {
-      case 'passed':
-        return <CheckCircle className="w-4 h-4 text-accent-green" />;
-      case 'failed':
-        return <XCircle className="w-4 h-4 text-accent-red" />;
-      case 'running':
-        return <Play className="w-4 h-4 text-accent-blue animate-pulse" />;
-    }
-  };
-
   const formatTime = (timestamp: string) => {
     const date = new Date(timestamp);
     const now = new Date();
@@ -45,9 +34,11 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
   };
 
   return (
-    <div
+    <Card
+      padding="lg"
+      hover
       onClick={onClick}
-      className="bg-dark-card border border-border-default rounded-lg p-5 hover:border-accent-blue/50 hover:bg-dark-elevated transition-all cursor-pointer group"
+      className="hover:border-accent-blue/50 hover:bg-dark-elevated cursor-pointer group"
     >
       <div className="flex items-start gap-4">
         <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-accent-blue/20 to-accent-purple/20 flex items-center justify-center group-hover:from-accent-blue/30 group-hover:to-accent-purple/30 transition-colors">
@@ -65,12 +56,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
 
       <div className="mt-4 pt-4 border-t border-border-default flex items-center justify-between">
         {lastRun ? (
-          <div className="flex items-center gap-2">
-            {getStatusIcon()}
-            <span className="text-sm text-text-secondary capitalize">
-              {lastRun.status}
-            </span>
-          </div>
+          <StatusBadge status={lastRun.status} />
         ) : (
           <span className="text-sm text-text-muted">No runs yet</span>
         )}
@@ -101,7 +87,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
           </div>
         </div>
       )}
-    </div>
+    </Card>
   );
 };
 

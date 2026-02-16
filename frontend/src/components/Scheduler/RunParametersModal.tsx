@@ -1,33 +1,33 @@
 /**
  * RunParametersModal - Jenkins-style "Build with Parameters" modal
- * Allows users to override parameters when manually triggering a schedule run
+ * Manual trigger now supports parameter overrides only.
  */
-import React, { useState, useEffect } from 'react';
-import {
-  X,
-  Play,
-  Settings,
-  Sliders,
-  ChevronDown,
-  ChevronUp,
-  AlertCircle,
-  Monitor,
-  RefreshCw,
-} from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Play, AlertCircle, Sliders, Settings } from 'lucide-react';
+import { Modal, Button } from '@/components/ui';
 import type {
   Schedule,
-  ScheduleParameterDefinition,
   ScheduleParameterValues,
-  ScheduleExecutionConfig,
   ScheduleTriggerRequest,
+  RunParameterDefinition,
+  RunParameterSet,
 } from '@playwright-web-app/shared';
+import type { RunConfiguration } from '@/store/runConfigStore';
 
 interface RunParametersModalProps {
   isOpen: boolean;
   onClose: () => void;
   onRun: (request: ScheduleTriggerRequest) => void;
   schedule: Schedule;
+  runConfiguration?: RunConfiguration | null;
+  parameterDefinitions?: RunParameterDefinition[];
+  parameterSets?: RunParameterSet[];
   isLoading?: boolean;
+}
+
+function toScheduleValue(value: string | number | boolean | undefined): string | number | boolean {
+  if (value === undefined) return '';
+  return value;
 }
 
 export const RunParametersModal: React.FC<RunParametersModalProps> = ({
@@ -35,37 +35,67 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
   onClose,
   onRun,
   schedule,
+  runConfiguration,
+  parameterDefinitions = [],
+  parameterSets = [],
   isLoading = false,
 }) => {
   const [parameterValues, setParameterValues] = useState<ScheduleParameterValues>({});
-  const [executionConfig, setExecutionConfig] = useState<ScheduleExecutionConfig>({});
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Initialize with default values when modal opens
+  const selectedParameterSet = useMemo(() => {
+    if (!runConfiguration?.parameterSetId) return undefined;
+    return parameterSets.find((set) => set.id === runConfiguration.parameterSetId);
+  }, [parameterSets, runConfiguration?.parameterSetId]);
+
+  const legacyParameters = schedule.parameters || [];
+  const hasModernParameters = parameterDefinitions.length > 0;
+  const hasLegacyParameters = !hasModernParameters && legacyParameters.length > 0;
+
+  // Initialize defaults whenever modal opens or upstream data changes
   useEffect(() => {
-    if (isOpen && schedule) {
-      const defaults: ScheduleParameterValues = {};
-      (schedule.parameters || []).forEach(param => {
-        defaults[param.name] = param.defaultValue;
+    if (!isOpen) return;
+
+    const defaults: ScheduleParameterValues = {};
+
+    if (hasModernParameters) {
+      parameterDefinitions.forEach((def) => {
+        defaults[def.name] = toScheduleValue(def.defaultValue as any);
       });
-      setParameterValues(defaults);
-      setExecutionConfig(schedule.defaultExecutionConfig || {});
-      setErrors({});
-      setShowAdvanced(false);
+
+      if (selectedParameterSet) {
+        Object.entries(selectedParameterSet.values || {}).forEach(([key, value]) => {
+          defaults[key] = toScheduleValue(value as any);
+        });
+      }
+
+      if (runConfiguration?.parameterOverrides) {
+        Object.entries(runConfiguration.parameterOverrides).forEach(([key, value]) => {
+          defaults[key] = toScheduleValue(value as any);
+        });
+      }
+    } else if (hasLegacyParameters) {
+      legacyParameters.forEach((param) => {
+        defaults[param.name] = toScheduleValue(param.defaultValue as any);
+      });
     }
-  }, [isOpen, schedule]);
 
-  if (!isOpen) return null;
-
-  const parameters = schedule.parameters || [];
-  const hasParameters = parameters.length > 0;
+    setParameterValues(defaults);
+    setErrors({});
+  }, [
+    hasLegacyParameters,
+    hasModernParameters,
+    isOpen,
+    legacyParameters,
+    parameterDefinitions,
+    runConfiguration?.parameterOverrides,
+    selectedParameterSet,
+  ]);
 
   const updateParameter = (name: string, value: string | number | boolean) => {
-    setParameterValues(prev => ({ ...prev, [name]: value }));
-    // Clear error when value changes
+    setParameterValues((prev) => ({ ...prev, [name]: value }));
     if (errors[name]) {
-      setErrors(prev => {
+      setErrors((prev) => {
         const next = { ...prev };
         delete next[name];
         return next;
@@ -73,33 +103,48 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
     }
   };
 
-  const updateExecutionConfig = <K extends keyof ScheduleExecutionConfig>(
-    key: K,
-    value: ScheduleExecutionConfig[K]
-  ) => {
-    setExecutionConfig(prev => ({ ...prev, [key]: value }));
-  };
-
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    parameters.forEach(param => {
-      const value = parameterValues[param.name];
+    if (hasModernParameters) {
+      parameterDefinitions.forEach((def) => {
+        const raw = parameterValues[def.name];
 
-      if (param.required && (value === undefined || value === '')) {
-        newErrors[param.name] = `${param.label} is required`;
-      }
+        if (def.required && (raw === undefined || raw === '')) {
+          newErrors[def.name] = `${def.label} is required`;
+          return;
+        }
 
-      if (param.type === 'number' && value !== undefined) {
-        const numValue = Number(value);
-        if (param.min !== undefined && numValue < param.min) {
-          newErrors[param.name] = `Must be at least ${param.min}`;
+        if (raw === undefined || raw === '') {
+          return;
         }
-        if (param.max !== undefined && numValue > param.max) {
-          newErrors[param.name] = `Must be at most ${param.max}`;
+
+        if (def.type === 'number') {
+          const num = Number(raw);
+          if (Number.isNaN(num)) {
+            newErrors[def.name] = `${def.label} must be a number`;
+            return;
+          }
+          if (def.min !== undefined && num < def.min) {
+            newErrors[def.name] = `${def.label} must be at least ${def.min}`;
+          }
+          if (def.max !== undefined && num > def.max) {
+            newErrors[def.name] = `${def.label} must be at most ${def.max}`;
+          }
         }
-      }
-    });
+
+        if (def.type === 'enum' && def.choices?.length && !def.choices.includes(String(raw))) {
+          newErrors[def.name] = `${def.label} must be one of: ${def.choices.join(', ')}`;
+        }
+      });
+    } else if (hasLegacyParameters) {
+      legacyParameters.forEach((param) => {
+        const value = parameterValues[param.name];
+        if (param.required && (value === undefined || value === '')) {
+          newErrors[param.name] = `${param.label} is required`;
+        }
+      });
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -109,341 +154,271 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
     if (!validate()) return;
 
     onRun({
-      parameterValues: hasParameters ? parameterValues : undefined,
-      executionConfig: showAdvanced ? executionConfig : undefined,
+      parameterValues: Object.keys(parameterValues).length > 0 ? parameterValues : undefined,
     });
   };
 
-  const renderParameterInput = (param: ScheduleParameterDefinition) => {
-    const value = parameterValues[param.name] ?? param.defaultValue;
-    const error = errors[param.name];
+  const renderModernInput = (def: RunParameterDefinition) => {
+    const value = parameterValues[def.name];
 
-    switch (param.type) {
-      case 'boolean':
-        return (
-          <div className="space-y-1">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={Boolean(value)}
-                onChange={(e) => updateParameter(param.name, e.target.checked)}
-                disabled={isLoading}
-                className="w-4 h-4 rounded border-border-default bg-dark-card text-blue-600 focus:ring-blue-500 focus:ring-offset-dark-bg"
-              />
-              <span className="text-sm text-text-secondary">{param.label}</span>
-              {param.required && <span className="text-red-400">*</span>}
-            </label>
-            {param.description && (
-              <p className="text-xs text-text-muted ml-6">{param.description}</p>
-            )}
-          </div>
-        );
-
-      case 'choice':
-        return (
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-text-secondary">
-              {param.label}
-              {param.required && <span className="text-red-400 ml-1">*</span>}
-            </label>
-            <select
-              value={String(value)}
-              onChange={(e) => updateParameter(param.name, e.target.value)}
-              disabled={isLoading}
-              className={`
-                w-full px-3 py-2 bg-dark-card border rounded-lg text-sm text-text-primary
-                focus:outline-none focus:ring-2 focus:ring-blue-500
-                ${error ? 'border-red-500' : 'border-border-default'}
-              `}
-            >
-              {param.choices?.map(choice => (
-                <option key={choice} value={choice}>{choice}</option>
-              ))}
-            </select>
-            {param.description && (
-              <p className="text-xs text-text-muted">{param.description}</p>
-            )}
-          </div>
-        );
-
-      case 'number':
-        return (
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-text-secondary">
-              {param.label}
-              {param.required && <span className="text-red-400 ml-1">*</span>}
-            </label>
-            <input
-              type="number"
-              value={Number(value)}
-              onChange={(e) => updateParameter(param.name, Number(e.target.value))}
-              min={param.min}
-              max={param.max}
-              step={param.step}
-              disabled={isLoading}
-              className={`
-                w-full px-3 py-2 bg-dark-card border rounded-lg text-sm text-text-primary
-                focus:outline-none focus:ring-2 focus:ring-blue-500
-                ${error ? 'border-red-500' : 'border-border-default'}
-              `}
-            />
-            {param.description && (
-              <p className="text-xs text-text-muted">{param.description}</p>
-            )}
-          </div>
-        );
-
-      case 'string':
-      default:
-        return (
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-text-secondary">
-              {param.label}
-              {param.required && <span className="text-red-400 ml-1">*</span>}
-            </label>
-            <input
-              type="text"
-              value={String(value)}
-              onChange={(e) => updateParameter(param.name, e.target.value)}
-              placeholder={param.placeholder}
-              disabled={isLoading}
-              className={`
-                w-full px-3 py-2 bg-dark-card border rounded-lg text-sm text-text-primary
-                placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-blue-500
-                ${error ? 'border-red-500' : 'border-border-default'}
-              `}
-            />
-            {param.description && (
-              <p className="text-xs text-text-muted">{param.description}</p>
-            )}
-          </div>
-        );
+    if (def.type === 'boolean') {
+      return (
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={Boolean(value)}
+            onChange={(e) => updateParameter(def.name, e.target.checked)}
+            disabled={isLoading}
+            className="w-4 h-4 rounded border-border-default bg-dark-card text-brand-primary focus:ring-status-info"
+          />
+          <span className="text-sm text-text-secondary">{def.label}</span>
+          {def.required && <span className="text-status-danger">*</span>}
+        </label>
+      );
     }
+
+    if (def.type === 'enum') {
+      return (
+        <>
+          <label className="block text-sm font-medium text-text-secondary mb-1">
+            {def.label}
+            {def.required && <span className="text-status-danger ml-1">*</span>}
+          </label>
+          <select
+            value={String(value ?? '')}
+            onChange={(e) => updateParameter(def.name, e.target.value)}
+            disabled={isLoading}
+            className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
+          >
+            <option value="">Select...</option>
+            {def.choices?.map((choice) => (
+              <option key={choice} value={choice}>{choice}</option>
+            ))}
+          </select>
+        </>
+      );
+    }
+
+    if (def.type === 'number') {
+      return (
+        <>
+          <label className="block text-sm font-medium text-text-secondary mb-1">
+            {def.label}
+            {def.required && <span className="text-status-danger ml-1">*</span>}
+          </label>
+          <input
+            type="number"
+            value={Number(value ?? 0)}
+            onChange={(e) => updateParameter(def.name, Number(e.target.value))}
+            min={def.min}
+            max={def.max}
+            disabled={isLoading}
+            className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
+          />
+        </>
+      );
+    }
+
+    return (
+      <>
+        <label className="block text-sm font-medium text-text-secondary mb-1">
+          {def.label}
+          {def.required && <span className="text-status-danger ml-1">*</span>}
+        </label>
+        <input
+          type="text"
+          value={String(value ?? '')}
+          onChange={(e) => updateParameter(def.name, e.target.value)}
+          disabled={isLoading}
+          className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
+        />
+      </>
+    );
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-dark-bg border border-border-default rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border-default">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-green-600/20 rounded-lg">
-              <Play className="w-5 h-5 text-green-400" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-white">Run: {schedule.name}</h2>
-              <p className="text-sm text-text-muted">
-                {hasParameters ? 'Configure parameters and run' : 'Configure and run'}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
+  const renderLegacyInput = (param: any) => {
+    const value = parameterValues[param.name] ?? param.defaultValue;
+
+    if (param.type === 'boolean') {
+      return (
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={Boolean(value)}
+            onChange={(e) => updateParameter(param.name, e.target.checked)}
             disabled={isLoading}
-            className="p-2 text-text-muted hover:text-white hover:bg-dark-card rounded-lg transition-colors"
+            className="w-4 h-4 rounded border-border-default bg-dark-card text-brand-primary focus:ring-status-info"
+          />
+          <span className="text-sm text-text-secondary">{param.label}</span>
+          {param.required && <span className="text-status-danger">*</span>}
+        </label>
+      );
+    }
+
+    if (param.type === 'choice') {
+      return (
+        <>
+          <label className="block text-sm font-medium text-text-secondary mb-1">
+            {param.label}
+            {param.required && <span className="text-status-danger ml-1">*</span>}
+          </label>
+          <select
+            value={String(value ?? '')}
+            onChange={(e) => updateParameter(param.name, e.target.value)}
+            disabled={isLoading}
+            className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
           >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+            {(param.choices || []).map((choice: string) => (
+              <option key={choice} value={choice}>{choice}</option>
+            ))}
+          </select>
+        </>
+      );
+    }
 
-        {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)] space-y-6">
-          {/* Parameters Section */}
-          {hasParameters && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 text-sm font-medium text-text-secondary">
-                <Sliders className="w-4 h-4" />
-                Parameters
-              </div>
+    if (param.type === 'number') {
+      return (
+        <>
+          <label className="block text-sm font-medium text-text-secondary mb-1">
+            {param.label}
+            {param.required && <span className="text-status-danger ml-1">*</span>}
+          </label>
+          <input
+            type="number"
+            value={Number(value ?? 0)}
+            onChange={(e) => updateParameter(param.name, Number(e.target.value))}
+            min={param.min}
+            max={param.max}
+            step={param.step}
+            disabled={isLoading}
+            className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
+          />
+        </>
+      );
+    }
 
-              <div className="space-y-4">
-                {parameters.map(param => (
-                  <div key={param.name}>
-                    {renderParameterInput(param)}
-                    {errors[param.name] && (
-                      <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" />
-                        {errors[param.name]}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+    return (
+      <>
+        <label className="block text-sm font-medium text-text-secondary mb-1">
+          {param.label}
+          {param.required && <span className="text-status-danger ml-1">*</span>}
+        </label>
+        <input
+          type="text"
+          value={String(value ?? '')}
+          onChange={(e) => updateParameter(param.name, e.target.value)}
+          disabled={isLoading}
+          className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
+        />
+      </>
+    );
+  };
 
-          {/* No Parameters Message */}
-          {!hasParameters && (
-            <div className="text-center py-4">
-              <Settings className="w-8 h-8 text-text-muted mx-auto mb-2" />
-              <p className="text-sm text-text-muted">
-                This schedule has no custom parameters
-              </p>
-              <p className="text-xs text-text-muted mt-1">
-                You can still configure execution settings below
-              </p>
-            </div>
-          )}
+  const hasParameters = hasModernParameters || hasLegacyParameters;
 
-          {/* Advanced Execution Settings (Collapsible) */}
-          <div className="border border-border-default rounded-lg overflow-hidden">
-            <button
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="w-full flex items-center justify-between p-3 bg-dark-card/50 hover:bg-dark-card transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <Monitor className="w-4 h-4 text-text-muted" />
-                <span className="text-sm font-medium text-text-secondary">
-                  Execution Settings
-                </span>
-              </div>
-              {showAdvanced ? (
-                <ChevronUp className="w-4 h-4 text-text-muted" />
-              ) : (
-                <ChevronDown className="w-4 h-4 text-text-muted" />
-              )}
-            </button>
-
-            {showAdvanced && (
-              <div className="p-4 space-y-4 border-t border-border-default">
-                {/* Browser */}
-                <div className="space-y-1.5">
-                  <label className="block text-sm font-medium text-text-secondary">Browser</label>
-                  <div className="flex gap-2">
-                    {(['chromium', 'firefox', 'webkit'] as const).map(browser => (
-                      <button
-                        key={browser}
-                        type="button"
-                        onClick={() => updateExecutionConfig('browser', browser)}
-                        disabled={isLoading}
-                        className={`
-                          flex-1 px-3 py-2 text-sm rounded-lg border transition-colors
-                          ${executionConfig.browser === browser
-                            ? 'bg-blue-600/20 border-blue-500 text-blue-400'
-                            : 'bg-dark-card border-border-default text-text-muted hover:border-border-default'
-                          }
-                        `}
-                      >
-                        {browser.charAt(0).toUpperCase() + browser.slice(1)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Headless */}
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={executionConfig.headless ?? true}
-                    onChange={(e) => updateExecutionConfig('headless', e.target.checked)}
-                    disabled={isLoading}
-                    className="w-4 h-4 rounded border-border-default bg-dark-card text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="text-sm text-text-secondary">Headless mode</span>
-                </label>
-
-                {/* Workers & Retries */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="block text-sm font-medium text-text-secondary">Workers</label>
-                    <input
-                      type="number"
-                      value={executionConfig.workers ?? 4}
-                      onChange={(e) => updateExecutionConfig('workers', parseInt(e.target.value) || 1)}
-                      min={1}
-                      max={16}
-                      disabled={isLoading}
-                      className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="block text-sm font-medium text-text-secondary">Retries</label>
-                    <input
-                      type="number"
-                      value={executionConfig.retries ?? 2}
-                      onChange={(e) => updateExecutionConfig('retries', parseInt(e.target.value) || 0)}
-                      min={0}
-                      max={5}
-                      disabled={isLoading}
-                      className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-
-                {/* Timeout */}
-                <div className="space-y-1.5">
-                  <label className="block text-sm font-medium text-text-secondary">Timeout (seconds)</label>
-                  <input
-                    type="number"
-                    value={(executionConfig.timeout ?? 30000) / 1000}
-                    onChange={(e) => updateExecutionConfig('timeout', (parseInt(e.target.value) || 30) * 1000)}
-                    min={1}
-                    max={600}
-                    disabled={isLoading}
-                    className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                {/* Artifacts */}
-                <div className="space-y-3">
-                  <label className="block text-sm font-medium text-text-secondary">Artifacts</label>
-                  <div className="grid grid-cols-3 gap-3">
-                    {(['tracing', 'screenshot', 'video'] as const).map(artifact => (
-                      <div key={artifact} className="space-y-1">
-                        <label className="block text-xs text-text-muted capitalize">{artifact}</label>
-                        <select
-                          value={executionConfig[artifact] || 'on-failure'}
-                          onChange={(e) => updateExecutionConfig(artifact, e.target.value as any)}
-                          disabled={isLoading}
-                          className="w-full px-2 py-1.5 bg-dark-card border border-border-default rounded text-xs text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="always">Always</option>
-                          <option value="on-failure">On Failure</option>
-                          <option value="never">Never</option>
-                        </select>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-border-default bg-dark-card/30">
-          <div className="text-sm text-text-muted">
-            Trigger type: manual
-          </div>
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Run: ${schedule.name}`}
+      description={hasParameters ? 'Configure parameter overrides and run' : 'Run using linked configuration defaults'}
+      size="lg"
+      bodyClassName="max-h-[70vh]"
+      closeOnOverlayClick={!isLoading}
+      closeOnEscape={!isLoading}
+      footer={
+        <div className="flex items-center justify-between w-full">
+          <div className="text-sm text-text-muted">Trigger type: manual</div>
           <div className="flex items-center gap-3">
-            <button
-              onClick={onClose}
-              disabled={isLoading}
-              className="px-4 py-2 text-text-muted hover:text-white transition-colors"
-            >
-              Cancel
-            </button>
-            <button
+            <Button variant="ghost" onClick={onClose} disabled={isLoading}>Cancel</Button>
+            <Button
+              variant="success"
+              leftIcon={<Play className="w-4 h-4" />}
+              isLoading={isLoading}
               onClick={handleRun}
-              disabled={isLoading}
-              className="flex items-center gap-2 px-5 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
             >
-              {isLoading ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  Starting...
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4" />
-                  Run Now
-                </>
-              )}
-            </button>
+              Run Now
+            </Button>
           </div>
         </div>
+      }
+    >
+      <div className="space-y-6">
+        <div className="border border-border-default rounded-lg p-4 bg-dark-card/40">
+          <div className="flex items-center gap-2 text-sm font-medium text-text-secondary mb-2">
+            <Settings className="w-4 h-4" />
+            Linked Run Configuration
+          </div>
+          {runConfiguration ? (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-muted">
+              <span>Name: <span className="text-text-primary">{runConfiguration.name}</span></span>
+              <span>Target: <span className="text-text-primary">{runConfiguration.target}</span></span>
+              <span>Browser: <span className="text-text-primary">{runConfiguration.browser}</span></span>
+              <span>Workers: <span className="text-text-primary">{runConfiguration.workers}</span></span>
+              <span>Retries: <span className="text-text-primary">{runConfiguration.retries}</span></span>
+              <span>Timeout: <span className="text-text-primary">{Math.round(runConfiguration.timeout / 1000)}s</span></span>
+              {runConfiguration.tagExpression && (
+                <span className="col-span-2">Tag expression: <span className="text-text-primary">{runConfiguration.tagExpression}</span></span>
+              )}
+              {selectedParameterSet && (
+                <span className="col-span-2">Parameter set: <span className="text-text-primary">{selectedParameterSet.name}</span></span>
+              )}
+            </div>
+          ) : (
+            <div className="text-xs text-status-warning">
+              Linked run configuration could not be resolved in the client store. The backend will still enforce linkage.
+            </div>
+          )}
+        </div>
+
+        {hasParameters ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-text-secondary">
+              <Sliders className="w-4 h-4" />
+              Parameter Overrides
+            </div>
+
+            <div className="space-y-4">
+              {hasModernParameters && parameterDefinitions.map((def) => (
+                <div key={def.id}>
+                  {renderModernInput(def)}
+                  {def.description && (
+                    <p className="text-xs text-text-muted mt-1">{def.description}</p>
+                  )}
+                  {errors[def.name] && (
+                    <p className="text-xs text-status-danger mt-1 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {errors[def.name]}
+                    </p>
+                  )}
+                </div>
+              ))}
+
+              {hasLegacyParameters && legacyParameters.map((param: any) => (
+                <div key={param.name}>
+                  {renderLegacyInput(param)}
+                  {param.description && (
+                    <p className="text-xs text-text-muted mt-1">{param.description}</p>
+                  )}
+                  {errors[param.name] && (
+                    <p className="text-xs text-status-danger mt-1 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {errors[param.name]}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-4">
+            <Settings className="w-8 h-8 text-text-muted mx-auto mb-2" />
+            <p className="text-sm text-text-muted">No run parameters defined for this application</p>
+            <p className="text-xs text-text-muted mt-1">This run will use run configuration defaults.</p>
+          </div>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 };
 

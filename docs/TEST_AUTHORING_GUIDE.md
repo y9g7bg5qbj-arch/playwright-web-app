@@ -68,6 +68,7 @@ wait for "Dashboard" to be visible
 ```
 
 See [VERO_GRAMMAR_REFERENCE.md](./VERO_GRAMMAR_REFERENCE.md) for complete syntax.
+See [VERO_VISUAL_VALIDATION.md](./VERO_VISUAL_VALIDATION.md) for native Playwright visual baseline workflow.
 
 ---
 

@@ -2,7 +2,7 @@ import React from 'react';
 import { Loader2 } from 'lucide-react';
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'danger' | 'success' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'danger' | 'success' | 'ghost' | 'action';
   size?: 'sm' | 'md' | 'lg';
   isLoading?: boolean;
   leftIcon?: React.ReactNode;
@@ -11,6 +11,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 const variantClasses = {
   primary: 'btn-primary-gradient text-white hover:brightness-110 active:brightness-95',
+  action: 'bg-brand-primary text-white border border-border-active shadow-sm hover:bg-brand-hover active:bg-brand-primary-depth active:shadow-none',
   secondary: 'bg-dark-elevated text-text-secondary border border-border-default hover:border-border-emphasis hover:text-text-primary',
   danger: 'bg-status-danger text-white hover:brightness-110',
   success: 'bg-status-success text-white hover:brightness-110',

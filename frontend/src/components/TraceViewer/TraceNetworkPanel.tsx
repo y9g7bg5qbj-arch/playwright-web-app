@@ -9,6 +9,7 @@
  */
 import React, { useState, useMemo } from 'react';
 import { Search, ChevronDown, ChevronRight, Copy, Check, ExternalLink } from 'lucide-react';
+import { IconButton, EmptyState, Toolbar } from '@/components/ui';
 
 export interface NetworkRequest {
   id: string;
@@ -65,21 +66,21 @@ const getRequestType = (contentType: string, url: string): FilterType => {
 };
 
 const getStatusColor = (status: number): string => {
-  if (status >= 200 && status < 300) return 'text-green-400';
-  if (status >= 300 && status < 400) return 'text-blue-400';
-  if (status >= 400 && status < 500) return 'text-yellow-400';
-  if (status >= 500) return 'text-red-400';
-  return 'text-slate-400';
+  if (status >= 200 && status < 300) return 'text-status-success';
+  if (status >= 300 && status < 400) return 'text-status-info';
+  if (status >= 400 && status < 500) return 'text-status-warning';
+  if (status >= 500) return 'text-status-danger';
+  return 'text-text-secondary';
 };
 
 const getMethodColor = (method: string): string => {
   switch (method) {
-    case 'GET': return 'bg-green-500/20 text-green-400';
-    case 'POST': return 'bg-blue-500/20 text-blue-400';
-    case 'PUT': return 'bg-yellow-500/20 text-yellow-400';
-    case 'DELETE': return 'bg-red-500/20 text-red-400';
-    case 'PATCH': return 'bg-purple-500/20 text-purple-400';
-    default: return 'bg-slate-500/20 text-slate-400';
+    case 'GET': return 'bg-status-success/20 text-status-success';
+    case 'POST': return 'bg-status-info/20 text-status-info';
+    case 'PUT': return 'bg-status-warning/20 text-status-warning';
+    case 'DELETE': return 'bg-status-danger/20 text-status-danger';
+    case 'PATCH': return 'bg-accent-purple/20 text-accent-purple';
+    default: return 'bg-dark-elevated/20 text-text-secondary';
   }
 };
 
@@ -147,16 +148,16 @@ export const TraceNetworkPanel: React.FC<TraceNetworkPanelProps> = ({ requests }
   return (
     <div className="flex flex-col h-full">
       {/* Search & Filters */}
-      <div className="p-2 border-b border-slate-700/50 space-y-2">
+      <div className="p-2 border-b border-border-default/50 space-y-2">
         {/* Search */}
         <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-secondary" />
           <input
             type="text"
             placeholder="Filter requests..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 bg-slate-800/50 border border-slate-700/50 rounded text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/50"
+            className="w-full pl-8 pr-3 py-1.5 bg-dark-card/50 border border-border-default/50 rounded text-xs text-text-primary placeholder-text-muted focus:outline-none focus:border-status-info/50"
           />
         </div>
 
@@ -166,10 +167,10 @@ export const TraceNetworkPanel: React.FC<TraceNetworkPanelProps> = ({ requests }
             <button
               key={option.value}
               onClick={() => setActiveFilter(option.value)}
-              className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
+              className={`px-2 py-0.5 text-3xs font-medium rounded transition-colors ${
                 activeFilter === option.value
-                  ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                  : 'bg-slate-800/50 text-slate-500 border border-transparent hover:text-slate-300'
+                  ? 'bg-status-info/20 text-status-info border border-status-info/30'
+                  : 'bg-dark-card/50 text-text-secondary border border-transparent hover:text-text-primary'
               }`}
             >
               {option.label}
@@ -181,25 +182,26 @@ export const TraceNetworkPanel: React.FC<TraceNetworkPanelProps> = ({ requests }
       {/* Request List */}
       <div className="flex-1 overflow-auto">
         {filteredRequests.length === 0 ? (
-          <div className="p-4 text-center text-slate-500 text-sm">
-            No requests match your filter
-          </div>
+          <EmptyState
+            title="No requests match your filter"
+            compact
+          />
         ) : (
-          <div className="divide-y divide-slate-700/30">
+          <div className="divide-y divide-border-default/30">
             {filteredRequests.map(request => {
               const isExpanded = expandedRequest === request.id;
               const waterfallStart = ((request.timestamp - minTimestamp) / totalDuration) * 100;
               const waterfallWidth = (request.duration / totalDuration) * 100;
 
               return (
-                <div key={request.id} className="bg-slate-900/30">
+                <div key={request.id} className="bg-dark-bg/30">
                   {/* Request row */}
                   <button
                     onClick={() => setExpandedRequest(isExpanded ? null : request.id)}
-                    className="w-full px-2 py-1.5 flex items-center gap-2 hover:bg-slate-800/50 transition-colors text-left"
+                    className="w-full px-2 py-1.5 flex items-center gap-2 hover:bg-dark-card/50 transition-colors text-left"
                   >
                     {/* Expand icon */}
-                    <div className="w-4 text-slate-500">
+                    <div className="w-4 text-text-secondary">
                       {isExpanded ? (
                         <ChevronDown className="w-3.5 h-3.5" />
                       ) : (
@@ -208,7 +210,7 @@ export const TraceNetworkPanel: React.FC<TraceNetworkPanelProps> = ({ requests }
                     </div>
 
                     {/* Method */}
-                    <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${getMethodColor(request.method)}`}>
+                    <span className={`px-1.5 py-0.5 text-3xs font-bold rounded ${getMethodColor(request.method)}`}>
                       {request.method}
                     </span>
 
@@ -218,20 +220,20 @@ export const TraceNetworkPanel: React.FC<TraceNetworkPanelProps> = ({ requests }
                     </span>
 
                     {/* URL */}
-                    <span className="flex-1 text-xs text-slate-300 truncate font-mono" title={request.url}>
+                    <span className="flex-1 text-xs text-text-primary truncate font-mono" title={request.url}>
                       {getFileName(request.url)}
                     </span>
 
                     {/* Size */}
-                    <span className="text-[10px] text-slate-500 w-14 text-right">
+                    <span className="text-3xs text-text-secondary w-14 text-right">
                       {formatSize(request.size)}
                     </span>
 
                     {/* Waterfall */}
-                    <div className="w-24 h-3 bg-slate-800 rounded overflow-hidden">
+                    <div className="w-24 h-3 bg-dark-card rounded overflow-hidden">
                       <div
                         className={`h-full rounded ${
-                          request.status >= 400 ? 'bg-red-500/60' : 'bg-blue-500/60'
+                          request.status >= 400 ? 'bg-status-danger/60' : 'bg-status-info/60'
                         }`}
                         style={{
                           marginLeft: `${waterfallStart}%`,
@@ -241,37 +243,34 @@ export const TraceNetworkPanel: React.FC<TraceNetworkPanelProps> = ({ requests }
                     </div>
 
                     {/* Duration */}
-                    <span className="text-[10px] text-slate-500 w-12 text-right">
+                    <span className="text-3xs text-text-secondary w-12 text-right">
                       {formatDuration(request.duration)}
                     </span>
                   </button>
 
                   {/* Expanded details */}
                   {isExpanded && (
-                    <div className="px-4 py-3 bg-slate-800/30 border-t border-slate-700/30 space-y-3">
+                    <div className="px-4 py-3 bg-dark-card/30 border-t border-border-default/30 space-y-3">
                       {/* Full URL */}
                       <div className="flex items-start gap-2">
-                        <span className="text-[10px] text-slate-500 w-16 shrink-0 pt-0.5">URL:</span>
+                        <span className="text-3xs text-text-secondary w-16 shrink-0 pt-0.5">URL:</span>
                         <div className="flex-1 flex items-start gap-2">
-                          <code className="text-[11px] text-slate-300 font-mono break-all">
+                          <code className="text-xxs text-text-primary font-mono break-all">
                             {request.url}
                           </code>
-                          <button
+                          <IconButton
+                            icon={copiedId === request.id ? <Check className="w-3 h-3 text-status-success" /> : <Copy className="w-3 h-3" />}
+                            size="sm"
+                            variant="ghost"
+                            tooltip="Copy URL"
                             onClick={() => handleCopyUrl(request.id, request.url)}
-                            className="shrink-0 p-1 text-slate-500 hover:text-slate-300 transition-colors"
-                            title="Copy URL"
-                          >
-                            {copiedId === request.id ? (
-                              <Check className="w-3 h-3 text-green-400" />
-                            ) : (
-                              <Copy className="w-3 h-3" />
-                            )}
-                          </button>
+                            className="h-auto w-auto p-1 shrink-0"
+                          />
                           <a
                             href={request.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="shrink-0 p-1 text-slate-500 hover:text-slate-300 transition-colors"
+                            className="shrink-0 p-1 text-text-secondary hover:text-text-primary transition-colors"
                             title="Open URL"
                           >
                             <ExternalLink className="w-3 h-3" />
@@ -281,16 +280,16 @@ export const TraceNetworkPanel: React.FC<TraceNetworkPanelProps> = ({ requests }
 
                       {/* Content Type */}
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-slate-500 w-16 shrink-0">Type:</span>
-                        <span className="text-[11px] text-slate-400">{request.contentType}</span>
+                        <span className="text-3xs text-text-secondary w-16 shrink-0">Type:</span>
+                        <span className="text-xxs text-text-secondary">{request.contentType}</span>
                       </div>
 
                       {/* Headers preview */}
                       {request.responseHeaders && (
                         <div className="space-y-1">
-                          <span className="text-[10px] text-slate-500">Response Headers:</span>
-                          <div className="bg-slate-900/50 rounded p-2 max-h-32 overflow-auto">
-                            <pre className="text-[10px] text-slate-400 font-mono">
+                          <span className="text-3xs text-text-secondary">Response Headers:</span>
+                          <div className="bg-dark-bg/50 rounded p-2 max-h-32 overflow-auto">
+                            <pre className="text-3xs text-text-secondary font-mono">
                               {JSON.stringify(request.responseHeaders, null, 2)}
                             </pre>
                           </div>
@@ -306,10 +305,10 @@ export const TraceNetworkPanel: React.FC<TraceNetworkPanelProps> = ({ requests }
       </div>
 
       {/* Summary */}
-      <div className="px-3 py-2 border-t border-slate-700/50 text-[10px] text-slate-500 flex items-center justify-between">
+      <Toolbar position="bottom" size="sm" className="text-3xs text-text-secondary justify-between">
         <span>{filteredRequests.length} requests</span>
         <span>{formatSize(filteredRequests.reduce((sum, r) => sum + r.size, 0))} transferred</span>
-      </div>
+      </Toolbar>
     </div>
   );
 };

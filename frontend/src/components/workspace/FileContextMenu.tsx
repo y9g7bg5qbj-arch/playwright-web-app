@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { GitCompare, Copy, Trash2, Edit3, FileText } from 'lucide-react';
+import { Card } from '@/components/ui';
 
 export interface FileContextMenuProps {
   x: number;
@@ -105,7 +106,7 @@ export function FileContextMenu({
       icon: Trash2,
       label: 'Delete',
       shortcut: 'Delete',
-      className: 'text-[#f85149] hover:bg-[#3d1f1f]',
+      className: 'text-status-danger hover:bg-status-danger/10',
       onClick: () => {
         onDelete(filePath);
         onClose();
@@ -114,13 +115,14 @@ export function FileContextMenu({
   ];
 
   return (
-    <div
+    <Card
       ref={menuRef}
       style={adjustedStyle}
-      className="bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl py-1 min-w-[200px]"
+      padding="none"
+      className="shadow-xl py-1 min-w-[200px]"
     >
       {/* File name header */}
-      <div className="px-3 py-1.5 text-xs text-[#8b949e] border-b border-[#30363d] flex items-center gap-2">
+      <div className="px-3 py-1.5 text-xs text-text-secondary border-b border-border-default flex items-center gap-2">
         <FileText className="w-3 h-3" />
         <span className="truncate">{fileName}</span>
       </div>
@@ -128,7 +130,7 @@ export function FileContextMenu({
       {/* Menu items */}
       {menuItems.map((item, index) => {
         if (item.type === 'divider') {
-          return <div key={index} className="border-t border-[#30363d] my-1" />;
+          return <div key={index} className="border-t border-border-default my-1" />;
         }
 
         const Icon = item.icon;
@@ -137,17 +139,17 @@ export function FileContextMenu({
           <button
             key={index}
             onClick={item.onClick}
-            className={`w-full flex items-center gap-3 px-3 py-1.5 text-sm text-[#c9d1d9] hover:bg-[#21262d] transition-colors ${(item as any).className || ''}`}
+            className={`w-full flex items-center gap-3 px-3 py-1.5 text-sm text-text-primary hover:bg-dark-elevated transition-colors ${(item as any).className || ''}`}
           >
             <Icon className="w-4 h-4" />
             <span className="flex-1 text-left">{item.label}</span>
             {(item as any).shortcut && (
-              <span className="text-xs text-[#484f58]">{(item as any).shortcut}</span>
+              <span className="text-xs text-text-muted">{(item as any).shortcut}</span>
             )}
           </button>
         );
       })}
-    </div>
+    </Card>
   );
 }
 

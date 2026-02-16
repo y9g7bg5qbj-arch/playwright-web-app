@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHand
 import Editor, { OnMount, Monaco } from '@monaco-editor/react';
 import * as monacoEditor from 'monaco-editor';
 import { registerVeroLanguage, registerVeroCompletionProvider, registerVeroLSPProviders, parseVeroCode, VeroCodeItem } from './veroLanguage';
+import { registerVDQLCodeLensProvider } from './veroCodeLens';
 import { useEditorErrors } from '../../errors/useEditorErrors';
 import { ErrorPanel } from '../../errors/ErrorPanel';
 
@@ -39,12 +40,17 @@ interface VeroEditorProps {
     filePath?: string | null;
     // Nested project ID for cross-file definition lookups
     projectId?: string | null;
+    // Application ID for VDQL CodeLens row count resolution
+    applicationId?: string | null;
     // Callback for cross-file "Go to Definition" navigation
     onNavigateToDefinition?: (filePath: string, line: number, column: number) => void;
+    // Callback to open the Data Query builder modal (Ctrl+D)
+    onInsertDataQuery?: () => void;
 }
 
 export interface VeroEditorHandle {
     goToLine: (line: number) => void;
+    insertText: (text: string, position?: 'cursor' | 'newline') => void;
 }
 
 function formatDebugValue(value: unknown): string {
@@ -89,7 +95,9 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
     veroPath = null,
     filePath = null,
     projectId = null,
+    applicationId = null,
     onNavigateToDefinition,
+    onInsertDataQuery,
 }, ref) {
     const [code, setCode] = useState(initialValue);
     const [codeItems, setCodeItems] = useState<VeroCodeItem[]>([]);
@@ -107,6 +115,26 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
     const [monacoInstance, setMonacoInstance] = useState<Monaco | null>(null);
     // State for Monaco model (needed for error validation hook)
     const [editorModel, setEditorModel] = useState<monacoEditor.editor.ITextModel | null>(null);
+
+    // Register VDQL CodeLens provider (re-registers when applicationId changes)
+    const codeLensDisposableRef = useRef<{ dispose: () => void } | null>(null);
+    useEffect(() => {
+        const monaco = monacoRef.current;
+        if (!monaco) return;
+
+        codeLensDisposableRef.current?.dispose();
+        codeLensDisposableRef.current = registerVDQLCodeLensProvider(monaco, {
+            applicationId: applicationId ?? undefined,
+            onEditQuery: (_lineNumber, _tableName) => {
+                onInsertDataQueryRef.current?.();
+            },
+        });
+
+        return () => {
+            codeLensDisposableRef.current?.dispose();
+            codeLensDisposableRef.current = null;
+        };
+    }, [applicationId, monacoInstance]); // monacoInstance state triggers after mount
 
     // Use error validation hook
     const {
@@ -180,7 +208,7 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         }
     }, []);
 
-    // Expose goToLine method via ref
+    // Expose goToLine and insertText methods via ref
     useImperativeHandle(ref, () => ({
         goToLine: (lineNumber: number) => {
             const editor = editorRef.current;
@@ -189,7 +217,40 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
                 editor.setPosition({ lineNumber, column: 1 });
                 editor.focus();
             }
-        }
+        },
+        insertText: (text: string, position: 'cursor' | 'newline' = 'cursor') => {
+            const editor = editorRef.current;
+            if (!editor) return;
+
+            const currentPosition = editor.getPosition();
+            if (!currentPosition) return;
+
+            let insertLine = currentPosition.lineNumber;
+            let insertCol = currentPosition.column;
+            let insertText = text;
+
+            if (position === 'newline') {
+                // Insert on a new line after the current line
+                const lineCount = editor.getModel()?.getLineCount() || 1;
+                const targetLine = Math.min(currentPosition.lineNumber, lineCount);
+                const lineContent = editor.getModel()?.getLineContent(targetLine) || '';
+                insertLine = targetLine;
+                insertCol = lineContent.length + 1;
+                insertText = '\n' + text;
+            }
+
+            editor.executeEdits('vero.insertDataQuery', [{
+                range: {
+                    startLineNumber: insertLine,
+                    startColumn: insertCol,
+                    endLineNumber: insertLine,
+                    endColumn: insertCol,
+                },
+                text: insertText,
+                forceMoveMarkers: true,
+            }]);
+            editor.focus();
+        },
     }), []);
 
     // Sync code state when initialValue prop changes (e.g., switching tabs/files)
@@ -219,6 +280,12 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
     useEffect(() => {
         onNavigateToDefinitionRef.current = onNavigateToDefinition;
     }, [onNavigateToDefinition]);
+
+    // Store latest onInsertDataQuery in a ref for the editor action
+    const onInsertDataQueryRef = useRef(onInsertDataQuery);
+    useEffect(() => {
+        onInsertDataQueryRef.current = onInsertDataQuery;
+    }, [onInsertDataQuery]);
 
     // Setup editor after mount
     const handleEditorDidMount: OnMount = useCallback((editor, monaco) => {
@@ -273,6 +340,18 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
             },
         });
 
+        // Register "Insert Data Query" action (Ctrl+D)
+        editor.addAction({
+            id: 'vero.insertDataQuery',
+            label: 'Insert Data Query',
+            keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyD],
+            contextMenuGroupId: 'navigation',
+            contextMenuOrder: 1.5,
+            run: () => {
+                onInsertDataQueryRef.current?.();
+            },
+        });
+
         // Update code items when content changes
         editor.onDidChangeModelContent(() => {
             const value = editor.getValue();
@@ -324,9 +403,19 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         setCodeItems(items);
 
         // Find empty scenarios for record icon
+        // Supports both quoted (scenario "Name") and unquoted (scenario Name) forms
         const emptyNames = items.filter(item => {
             if (item.type !== 'scenario') return false;
-            const scenarioStart = value.indexOf(`scenario "${item.name}"`);
+            // Try quoted form first, then unquoted
+            let scenarioStart = value.indexOf(`scenario "${item.name}"`);
+            if (scenarioStart === -1) {
+                scenarioStart = value.indexOf(`SCENARIO "${item.name}"`);
+            }
+            if (scenarioStart === -1) {
+                const unquotedRegex = new RegExp(`(?:scenario|SCENARIO)\\s+${item.name}(?=\\s|@|\\{)`);
+                const match = unquotedRegex.exec(value);
+                if (match) scenarioStart = match.index;
+            }
             if (scenarioStart === -1) return false;
             const scenarioContent = value.slice(scenarioStart);
             const braceStart = scenarioContent.indexOf('{');
@@ -503,10 +592,10 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         <div className="vero-editor-container h-full flex flex-col">
             {/* Recording indicator - Signature element */}
             {isRecording && (
-                <div className="recording-indicator flex items-center gap-2 px-3 py-1.5 bg-[rgba(248,81,73,0.15)] border-b border-[rgba(248,81,73,0.3)] text-[#f85149] text-xs">
-                    <span className="w-2 h-2 rounded-full bg-[#f85149] animate-pulse-recording" />
+                <div className="recording-indicator flex items-center gap-2 px-3 py-1.5 bg-status-danger/15 border-b border-status-danger/30 text-status-danger text-xs">
+                    <span className="w-2 h-2 rounded-full bg-status-danger animate-pulse-recording" />
                     <span className="font-medium">Recording</span>
-                    <span className="text-[#f85149]/70 text-[10px]">Actions will appear in editor</span>
+                    <span className="text-status-danger/70 text-3xs">Actions will appear in editor</span>
                 </div>
             )}
 

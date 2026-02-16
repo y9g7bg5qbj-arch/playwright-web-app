@@ -109,9 +109,9 @@ export const SandboxSwitcher: React.FC<SandboxSwitcherProps> = ({
   };
 
   const getEnvironmentColor = () => {
-    if (activeEnvironment === 'master') return 'text-green-400';
-    if (activeEnvironment === 'dev') return 'text-blue-400';
-    return 'text-purple-400';
+    if (activeEnvironment === 'master') return 'text-status-success';
+    if (activeEnvironment === 'dev') return 'text-status-info';
+    return 'text-accent-purple';
   };
 
   return (
@@ -145,10 +145,10 @@ export const SandboxSwitcher: React.FC<SandboxSwitcherProps> = ({
               onClick={() => handleEnvironmentSelect('master')}
               className={`
                 w-full flex items-center gap-3 px-2 py-2 rounded-md transition-colors
-                ${activeEnvironment === 'master' ? 'bg-green-500/10 text-green-400' : 'hover:bg-dark-elevated text-text-primary'}
+                ${activeEnvironment === 'master' ? 'bg-status-success/10 text-status-success' : 'hover:bg-dark-elevated text-text-primary'}
               `}
             >
-              <Server className="w-4 h-4 text-green-400" />
+              <Server className="w-4 h-4 text-status-success" />
               <div className="flex-1 text-left">
                 <div className="font-medium">Production</div>
                 <div className="text-xs text-text-muted">Stable, tested code</div>
@@ -161,10 +161,10 @@ export const SandboxSwitcher: React.FC<SandboxSwitcherProps> = ({
               onClick={() => handleEnvironmentSelect('dev')}
               className={`
                 w-full flex items-center gap-3 px-2 py-2 rounded-md transition-colors
-                ${activeEnvironment === 'dev' ? 'bg-blue-500/10 text-blue-400' : 'hover:bg-dark-elevated text-text-primary'}
+                ${activeEnvironment === 'dev' ? 'bg-status-info/10 text-status-info' : 'hover:bg-dark-elevated text-text-primary'}
               `}
             >
-              <GitBranch className="w-4 h-4 text-blue-400" />
+              <GitBranch className="w-4 h-4 text-status-info" />
               <div className="flex-1 text-left">
                 <div className="font-medium">Development</div>
                 <div className="text-xs text-text-muted">Integration branch</div>
@@ -202,10 +202,10 @@ export const SandboxSwitcher: React.FC<SandboxSwitcherProps> = ({
                   onClick={() => handleEnvironmentSelect({ sandboxId: sandbox.id })}
                   className={`
                     w-full flex items-center gap-3 px-2 py-2 rounded-md transition-colors cursor-pointer group
-                    ${currentSandboxId === sandbox.id ? 'bg-purple-500/10 text-purple-400' : 'hover:bg-dark-elevated text-text-primary'}
+                    ${currentSandboxId === sandbox.id ? 'bg-accent-purple/10 text-accent-purple' : 'hover:bg-dark-elevated text-text-primary'}
                   `}
                 >
-                  <Box className="w-4 h-4 text-purple-400" />
+                  <Box className="w-4 h-4 text-accent-purple" />
                   <div className="flex-1 text-left min-w-0">
                     <div className="font-medium truncate">{sandbox.name}</div>
                     <div className="text-xs text-text-muted">
@@ -225,7 +225,7 @@ export const SandboxSwitcher: React.FC<SandboxSwitcherProps> = ({
                     </button>
                     <button
                       onClick={(e) => handleArchiveSandbox(e, sandbox)}
-                      className="p-1 text-text-muted hover:text-yellow-400 rounded transition-colors"
+                      className="p-1 text-text-muted hover:text-status-warning rounded transition-colors"
                       title="Archive sandbox"
                     >
                       <Archive className="w-3.5 h-3.5" />
@@ -255,7 +255,7 @@ export const SandboxSwitcher: React.FC<SandboxSwitcherProps> = ({
                 }}
                 className="w-full flex items-center gap-3 px-2 py-2 rounded-md hover:bg-dark-elevated transition-colors text-text-primary"
               >
-                <GitPullRequest className="w-4 h-4 text-orange-400" />
+                <GitPullRequest className="w-4 h-4 text-status-warning" />
                 <div className="flex-1 text-left">
                   <div className="font-medium">Pull Requests</div>
                   <div className="text-xs text-text-muted">
@@ -263,7 +263,7 @@ export const SandboxSwitcher: React.FC<SandboxSwitcherProps> = ({
                   </div>
                 </div>
                 {openPRCount > 0 && (
-                  <span className="px-2 py-0.5 text-xs font-medium bg-orange-500/20 text-orange-400 rounded-full">
+                  <span className="px-2 py-0.5 text-xs font-medium bg-status-warning/20 text-status-warning rounded-full">
                     {openPRCount}
                   </span>
                 )}

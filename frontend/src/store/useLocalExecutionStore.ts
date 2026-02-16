@@ -32,11 +32,10 @@ interface LocalExecutionState {
   lastFetched: string | null;
 
   // Actions
-  fetchExecutions: () => Promise<void>;
+  fetchExecutions: (applicationId?: string) => Promise<void>;
   addExecution: (execution: LocalExecution) => void;
   updateExecution: (id: string, updates: Partial<LocalExecution>) => void;
   removeExecution: (id: string) => void;
-  clearAll: () => void;
 }
 
 export const useLocalExecutionStore = create<LocalExecutionState>()(
@@ -46,35 +45,24 @@ export const useLocalExecutionStore = create<LocalExecutionState>()(
       isLoading: false,
       lastFetched: null,
 
-      fetchExecutions: async () => {
+      fetchExecutions: async (applicationId?: string) => {
         set({ isLoading: true });
         try {
-          const executions = await executionsApi.getRecent(200);
+          const executions = await executionsApi.getRecent(200, applicationId);
           if (executions && Array.isArray(executions)) {
-            // Merge with existing executions (keep real-time updates)
-            const existingMap = new Map(
-              get().executions.map((e) => [e.id, e])
-            );
-
-            // Use API data as base, overlay any real-time updates
-            const mergedExecutions = executions.map((apiExec: ExecutionWithDetails) => {
-              const existing = existingMap.get(apiExec.id);
-              if (existing && existing.status === 'running') {
-                // Keep running status from real-time updates
-                return existing;
-              }
-              return apiExec as LocalExecution;
-            });
-
-            // Add any running executions not in API response (just started)
-            const runningNotInApi = get().executions.filter(
+            // API is the source of truth — replace store entirely.
+            // Only preserve locally-added running executions from the last 2 minutes
+            // (just-started runs that the API may not have indexed yet).
+            const justStartedLocally = get().executions.filter(
               (e) =>
                 e.status === 'running' &&
-                !executions.find((apiE: ExecutionWithDetails) => apiE.id === e.id)
+                (!applicationId || e.applicationId === applicationId) &&
+                !executions.find((apiE: ExecutionWithDetails) => apiE.id === e.id) &&
+                e.startedAt && (Date.now() - new Date(e.startedAt).getTime()) < 2 * 60 * 1000
             );
 
             set({
-              executions: [...runningNotInApi, ...mergedExecutions],
+              executions: [...justStartedLocally, ...(executions as LocalExecution[])],
               isLoading: false,
               lastFetched: new Date().toISOString(),
             });
@@ -116,12 +104,10 @@ export const useLocalExecutionStore = create<LocalExecutionState>()(
         }));
       },
 
-      clearAll: () => {
-        set({ executions: [], lastFetched: null });
-      },
     }),
     {
-      name: 'local-executions',
+      // Changed from 'local-executions' to abandon stale cached data
+      name: 'local-executions-v2',
       partialize: (state) => ({
         // Only persist recent executions (last 50)
         executions: state.executions.slice(0, 50),

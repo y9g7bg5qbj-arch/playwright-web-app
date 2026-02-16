@@ -47,13 +47,14 @@ const DARK_THEME_RULES: ThemeRule[] = [
     { token: 'constant.condition', foreground: '00FF41', fontStyle: 'bold' },
     { token: 'type', foreground: '00FF41', fontStyle: 'bold' },
     { token: 'type.identifier', foreground: 'E0E0E0' },
-    { token: 'variable.name', foreground: 'E0E0E0' },
+    { token: 'variable.name', foreground: '82B1FF' },
     { token: 'identifier', foreground: 'E0E0E0' },
-    { token: 'keyword.vdql', foreground: '03DAC5', fontStyle: 'bold' },
-    { token: 'keyword.vdql.operator', foreground: '03DAC5' },
-    { token: 'function.vdql', foreground: 'CF6679', fontStyle: 'bold' },
+    { token: 'keyword.vdql', foreground: 'FFAB40', fontStyle: 'bold' },
+    { token: 'keyword.vdql.operator', foreground: 'FFAB40' },
+    { token: 'function.vdql', foreground: 'FFAB40', fontStyle: 'bold' },
     { token: 'operator.vdql', foreground: 'FF7043' },
-    { token: 'variable.vdql.table', foreground: 'FFAB40', fontStyle: 'bold' },
+    { token: 'variable.vdql.table', foreground: '03DAC5', fontStyle: 'bold' },
+    { token: 'variable.vdql.name', foreground: '82B1FF' },
     { token: 'function.utility.string', foreground: '64B5F6', fontStyle: 'bold' },
     { token: 'function.utility.date', foreground: '81C784', fontStyle: 'bold' },
     { token: 'function.utility.number', foreground: 'FFB74D', fontStyle: 'bold' },
@@ -75,13 +76,14 @@ const LIGHT_THEME_RULES: ThemeRule[] = [
     { token: 'constant.condition', foreground: '0070C1' },
     { token: 'type', foreground: '267F99' },
     { token: 'type.identifier', foreground: '267F99' },
-    { token: 'variable.name', foreground: '001080' },
+    { token: 'variable.name', foreground: '1565C0' },
     { token: 'identifier', foreground: '000000' },
-    { token: 'keyword.vdql', foreground: '0097A7', fontStyle: 'bold' },
-    { token: 'keyword.vdql.operator', foreground: '0097A7' },
-    { token: 'function.vdql', foreground: 'C2185B', fontStyle: 'bold' },
-    { token: 'operator.vdql', foreground: 'E65100' },
-    { token: 'variable.vdql.table', foreground: 'FF6F00', fontStyle: 'bold' },
+    { token: 'keyword.vdql', foreground: 'E65100', fontStyle: 'bold' },
+    { token: 'keyword.vdql.operator', foreground: 'E65100' },
+    { token: 'function.vdql', foreground: 'E65100', fontStyle: 'bold' },
+    { token: 'operator.vdql', foreground: 'BF360C' },
+    { token: 'variable.vdql.table', foreground: '00838F', fontStyle: 'bold' },
+    { token: 'variable.vdql.name', foreground: '1565C0' },
     { token: 'function.utility.string', foreground: '1565C0', fontStyle: 'bold' },
     { token: 'function.utility.date', foreground: '2E7D32', fontStyle: 'bold' },
     { token: 'function.utility.number', foreground: 'EF6C00', fontStyle: 'bold' },
@@ -114,24 +116,36 @@ export function registerVeroLanguage(monaco: Monaco): void {
         ignoreCase: true,
         tokenizer: {
             root: [
-                [/#.*$/, 'comment'],
+                [/(#|\/\/).*$/, 'comment'],
                 [/@[a-zA-Z][a-zA-Z0-9]*/, 'tag'],
                 [/"([^"\\]|\\.)*"/, 'string'],
                 [/\b\d+(\.\d+)?\b/, 'number'],
                 [/\b[A-Z][a-zA-Z0-9]*\.[a-zA-Z][a-zA-Z0-9]*\b/, 'variable.name'],
+
+                // VDQL compound patterns — must come before individual keyword rules
+                // ROW/ROWS x FROM TableName  (blue variable, gold table)
+                [/\b(ROW|ROWS)(\s+)(\w+)(\s+)(FROM)(\s+)([A-Z]\w*)/i,
+                    ['keyword.vdql', '', 'variable.vdql.name', '', 'keyword.vdql', '', 'variable.vdql.table']],
+                // NUMBER total = COUNT TableName
+                [/\b(NUMBER)(\s+)(\w+)(\s*)(=)(\s*)(COUNT)(\s+)([A-Z]\w*)/i,
+                    ['keyword.vdql', '', 'variable.vdql.name', '', 'operator.vdql', '', 'function.vdql', '', 'variable.vdql.table']],
+                // WHERE/AND/OR column_name — color the column reference
+                [/\b(WHERE|AND|OR)(\s+)(\w+)/i,
+                    ['keyword.vdql', '', 'variable.vdql.name']],
+
                 [/\b(page|feature|scenario|field|use)\b/i, 'keyword.structure'],
                 [/\b(before|after|all|each)\b/i, 'keyword.hook'],
                 [/\b(if|else|repeat|times)\b/i, 'keyword.control'],
-                [/\b(with|and|from|to|in|returns|return|then|as|by)\b/i, 'keyword.operator'],
+                [/\b(with|and|to|in|returns|return|then|as)\b/i, 'keyword.operator'],
                 // The 9 Vero selector keywords + 'name' modifier
                 [/\b(role|text|label|placeholder|alt|title|testid|css|xpath|name)\b/i, 'type.selector'],
+                [/\b(verify|screenshot|matches|strict|balanced|relaxed|threshold|max_diff_pixels|max_diff_ratio)\b/i, 'keyword.assertion'],
                 [/\b(click|fill|open|check|uncheck|select|hover|press|scroll|wait|perform|do|refresh|clear|take|screenshot|log|switch|new|tab|close|other|tabs)\b/i, 'function.action'],
-                [/\b(verify)\b/i, 'keyword.assertion'],
                 [/\b(is|not|visible|hidden|enabled|disabled|checked|contains|empty|has|value|count|nth|without|exact)\b/i, 'constant.condition'],
                 [/\b(text|number|flag|list|seconds|milliseconds)\b/i, 'type'],
-                [/\b(data|where|order|by|asc|desc|limit|offset|first|last|random|default)\b/i, 'keyword.vdql'],
+                [/\b(row|rows|data|from|by|where|order|asc|desc|limit|offset|first|last|random|default)\b/i, 'keyword.vdql'],
                 [/\b(or|starts|ends|matches|null)\b/i, 'keyword.vdql.operator'],
-                [/\b(count|sum|average|min|max|distinct|rows|columns|headers)\b/i, 'function.vdql'],
+                [/\b(count|sum|average|min|max|distinct|columns|headers)\b/i, 'function.vdql'],
                 [/\b(trim|convert|uppercase|lowercase|extract|replace|split|join|length|pad)\b/i, 'function.utility.string'],
                 [/\b(today|now|add|subtract|day|days|month|months|year|years|format)\b/i, 'function.utility.date'],
                 [/\b(round|decimals|up|down|absolute|currency|percent)\b/i, 'function.utility.number'],
@@ -228,6 +242,17 @@ export function getRegisteredPages(): VeroPageDefinition[] {
 
 export function getRegisteredTestDataSheets(): TestDataSheetDefinition[] {
     return Array.from(testDataRegistry.values());
+}
+
+/**
+ * Populate the test data registry with sheet definitions from the API.
+ * Called by useTestDataRegistry when the project loads.
+ */
+export function registerTestDataSheets(sheets: TestDataSheetDefinition[]): void {
+    testDataRegistry.clear();
+    for (const sheet of sheets) {
+        testDataRegistry.set(sheet.name, sheet);
+    }
 }
 
 // =============================================================================
@@ -346,11 +371,76 @@ function getAllUtilitySuggestions(monaco: Monaco): CompletionSuggestion[] {
     ];
 }
 
+function getVisualAssertionSuggestions(monaco: Monaco): CompletionSuggestion[] {
+    return [
+        createSnippet(
+            monaco,
+            'VERIFY SCREENSHOT',
+            'VERIFY SCREENSHOT AS "${1:home}" WITH ${2|STRICT,BALANCED,RELAXED|}',
+            'Visual baseline assertion (page)',
+            'Compares the current page screenshot against the baseline image.'
+        ),
+        createSnippet(
+            monaco,
+            'VERIFY TARGET MATCHES SCREENSHOT',
+            'VERIFY ${1:PageName}.${2:fieldName} MATCHES SCREENSHOT AS "${3:element}" WITH ${4|STRICT,BALANCED,RELAXED|}',
+            'Visual baseline assertion (locator)',
+            'Compares a locator screenshot against the baseline image.'
+        ),
+        createSnippet(
+            monaco,
+            'WITH THRESHOLDS',
+            'WITH ${1|STRICT,BALANCED,RELAXED|} THRESHOLD ${2:0.2} MAX_DIFF_PIXELS ${3:0} MAX_DIFF_RATIO ${4:0}',
+            'Visual tolerance options',
+            'Optional strictness overrides for screenshot assertions.'
+        ),
+    ];
+}
+
 // =============================================================================
 // Completion Providers
 // =============================================================================
 
 export function registerVeroCompletionProvider(monaco: Monaco): void {
+    // Visual screenshot assertion completions.
+    monaco.languages.registerCompletionItemProvider('vero', {
+        triggerCharacters: [' ', '\n'],
+        provideCompletionItems: (model: MonacoEditor.editor.ITextModel, position: MonacoEditor.Position) => {
+            const lineContent = model.getLineContent(position.lineNumber);
+            const textBeforeCursor = lineContent.substring(0, position.column - 1).trim();
+            const suggestions: CompletionSuggestion[] = [];
+
+            if (/^verify\s*$/i.test(textBeforeCursor)) {
+                suggestions.push(...getVisualAssertionSuggestions(monaco));
+            }
+
+            if (/^verify\s+(?!screenshot\b)(?:[A-Z]\w*\.\w+|\w+|"[^"]*")\s*$/i.test(textBeforeCursor)) {
+                suggestions.push(
+                    createSnippet(
+                        monaco,
+                        'MATCHES SCREENSHOT',
+                        'MATCHES SCREENSHOT AS "${1:element}" WITH ${2|STRICT,BALANCED,RELAXED|}',
+                        'Compare locator to baseline screenshot'
+                    )
+                );
+            }
+
+            if (/^verify\s+screenshot(?:\s+as\s+"[^"]*")?\s+with\s*$/i.test(textBeforeCursor) ||
+                /\bmatches\s+screenshot(?:\s+as\s+"[^"]*")?\s+with\s*$/i.test(textBeforeCursor)) {
+                suggestions.push(
+                    createKeyword(monaco, 'STRICT', 'STRICT', 'Lowest tolerance for visual diffs'),
+                    createKeyword(monaco, 'BALANCED', 'BALANCED', 'Default visual tolerance'),
+                    createKeyword(monaco, 'RELAXED', 'RELAXED', 'Higher tolerance for noisy rendering'),
+                    createSnippet(monaco, 'THRESHOLD', 'THRESHOLD ${1:0.2}', 'Set pixel comparison threshold'),
+                    createSnippet(monaco, 'MAX_DIFF_PIXELS', 'MAX_DIFF_PIXELS ${1:0}', 'Set max allowed differing pixels'),
+                    createSnippet(monaco, 'MAX_DIFF_RATIO', 'MAX_DIFF_RATIO ${1:0.01}', 'Set max allowed differing pixel ratio'),
+                );
+            }
+
+            return { suggestions };
+        },
+    });
+
     // Dot-triggered completion for page/TestData members
     monaco.languages.registerCompletionItemProvider('vero', {
         triggerCharacters: ['.'],
@@ -548,39 +638,75 @@ function registerVDQLCompletionProvider(monaco: Monaco): void {
             const textBeforeCursor = lineContent.substring(0, position.column - 1).trim();
             const suggestions: CompletionSuggestion[] = [];
 
-            // Start of line - data declaration keywords
+            // Start of line - runtime-safe query templates
             if (textBeforeCursor === '' || textBeforeCursor.match(/^\s*$/)) {
                 suggestions.push(
-                    createSnippet(monaco, 'data', 'data ${1:varName} = TestData.${2:TableName}', 'VDQL: Declare data variable'),
-                    createSnippet(monaco, 'list', 'list ${1:varName} = TestData.${2:TableName}.${3:column}', 'VDQL: Declare list variable'),
-                    createSnippet(monaco, 'number', 'number ${1:varName} = count TestData.${2:TableName}', 'VDQL: Declare number variable')
+                    createSnippet(monaco, 'row', 'ROW ${1:one} FROM ${2:Users} WHERE ${3:id} == ${4:\"U-1001\"}', 'Runtime-safe: single row query'),
+                    createSnippet(monaco, 'rows', 'ROWS ${1:many} FROM ${2:Users} WHERE ${3:status} == ${4:\"active\"} ORDER BY ${5:id} ASC LIMIT ${6:25}', 'Runtime-safe: multi-row query'),
+                    createSnippet(monaco, 'count', 'NUMBER ${1:total} = COUNT ${2:Users} WHERE ${3:status} == ${4:\"active\"}', 'Runtime-safe: count query')
                 );
             }
 
-            // After TestData.TableName - query modifiers
-            if (textBeforeCursor.match(/TestData\.\w+\s*$/)) {
-                suggestions.push(
-                    createSnippet(monaco, 'where', 'where ${1:column} ${2|==,!=,>,<,>=,<=,contains,starts with,ends with|} ${3:value}', 'Filter rows'),
-                    createSnippet(monaco, 'order by', 'order by ${1:column} ${2|asc,desc|}', 'Sort results'),
-                    createSnippet(monaco, 'limit', 'limit ${1:10}', 'Limit results')
-                );
-            }
-
-            // After WHERE - column names
-            if (textBeforeCursor.match(/where\s+$/i)) {
+            // After ROW/ROWS x = or ROW/ROWS x FROM (suggest table names)
+            if (textBeforeCursor.match(/\b(?:ROW|ROWS)\s+\w+\s*(?:=|FROM)\s*$/i)) {
                 getRegisteredTestDataSheets().forEach(sheet => {
-                    sheet.columns.forEach(col => suggestions.push({
-                        label: col.name,
-                        kind: monaco.languages.CompletionItemKind.Field,
-                        insertText: col.name,
-                        detail: `Column (${col.type})`,
-                    }));
+                    suggestions.push({
+                        label: sheet.name,
+                        kind: monaco.languages.CompletionItemKind.Class,
+                        insertText: sheet.name + ' ',
+                        detail: `Table (${sheet.columns.length} columns)`,
+                    });
+                });
+            }
+
+            // After COUNT (suggest table names)
+            if (textBeforeCursor.match(/\bCOUNT\s*$/i)) {
+                getRegisteredTestDataSheets().forEach(sheet => {
+                    suggestions.push({
+                        label: sheet.name,
+                        kind: monaco.languages.CompletionItemKind.Class,
+                        insertText: sheet.name + ' ',
+                        detail: `Table (${sheet.columns.length} columns)`,
+                    });
+                });
+            }
+
+            // After ROW/ROWS assignment table reference - query modifiers
+            if (textBeforeCursor.match(/\b(?:ROW|ROWS)\s+\w+\s*(?:=|FROM)\s+\w+\s*$/i)) {
+                suggestions.push(
+                    createSnippet(monaco, 'where', 'WHERE ${1:column} ${2|==,!=,>,<,>=,<=,CONTAINS,STARTS WITH,ENDS WITH|} ${3:value}', 'Filter rows'),
+                    createSnippet(monaco, 'order by', 'ORDER BY ${1:column} ${2|ASC,DESC|}', 'Sort results'),
+                    createSnippet(monaco, 'limit', 'LIMIT ${1:10}', 'Limit results')
+                );
+            }
+
+            // After WHERE - column names (table-specific if we can parse the table name)
+            if (textBeforeCursor.match(/where\s+$/i)) {
+                // Try to extract table name from `ROW/ROWS x = TableName WHERE`
+                const tableMatch = textBeforeCursor.match(/\b(?:ROW|ROWS)\s+\w+\s*(?:=|FROM)\s+(\w+)\s+where\s*$/i);
+                const targetSheets = tableMatch
+                    ? getRegisteredTestDataSheets().filter(s => s.name.toLowerCase() === tableMatch[1].toLowerCase() || toPascalCase(s.name) === tableMatch[1])
+                    : getRegisteredTestDataSheets();
+
+                const seen = new Set<string>();
+                targetSheets.forEach(sheet => {
+                    sheet.columns.forEach(col => {
+                        if (!seen.has(col.name)) {
+                            seen.add(col.name);
+                            suggestions.push({
+                                label: col.name,
+                                kind: monaco.languages.CompletionItemKind.Field,
+                                insertText: col.name,
+                                detail: `Column (${col.type})${tableMatch ? '' : ` in ${sheet.name}`}`,
+                            });
+                        }
+                    });
                 });
             }
 
             // After WHERE <column> - comparison operators
             if (textBeforeCursor.match(/where\s+\w+\s*$/i)) {
-                const operators = ['==', '!=', '>', '<', '>=', '<=', 'contains', 'starts with', 'ends with', 'matches', 'is empty', 'is not empty', 'in'];
+                const operators = ['==', '!=', '>', '<', '>=', '<=', 'CONTAINS', 'STARTS WITH', 'ENDS WITH', 'MATCHES', 'IS EMPTY', 'IS NOT EMPTY', 'IN'];
                 operators.forEach(op => {
                     suggestions.push({
                         label: op,
@@ -592,25 +718,36 @@ function registerVDQLCompletionProvider(monaco: Monaco): void {
 
             // After NUMBER <var> = - aggregate functions
             if (textBeforeCursor.match(/number\s+\w+\s*=\s*$/i)) {
-                const functions = ['count', 'sum', 'average', 'min', 'max', 'rows in', 'columns in'];
+                const functions = ['COUNT', 'SUM', 'AVERAGE', 'MIN', 'MAX', 'ROWS IN', 'COLUMNS IN'];
                 functions.forEach(fn => {
                     suggestions.push({
                         label: fn,
                         kind: monaco.languages.CompletionItemKind.Function,
-                        insertText: fn + ' TestData.',
+                        insertText: fn + ' ',
                     });
                 });
             }
 
-            // After AND/OR - column names for additional conditions
+            // After AND/OR - column names for additional conditions (table-aware)
             if (textBeforeCursor.match(/\b(and|or)\s*$/i)) {
-                getRegisteredTestDataSheets().forEach(sheet => {
-                    sheet.columns.forEach(col => suggestions.push({
-                        label: col.name,
-                        kind: monaco.languages.CompletionItemKind.Field,
-                        insertText: col.name,
-                        detail: `Column (${col.type})`,
-                    }));
+                const andOrTableMatch = textBeforeCursor.match(/\b(?:ROW|ROWS)\s+\w+\s*(?:=|FROM)\s+(\w+)\s+/i);
+                const andOrSheets = andOrTableMatch
+                    ? getRegisteredTestDataSheets().filter(s => s.name.toLowerCase() === andOrTableMatch[1].toLowerCase() || toPascalCase(s.name) === andOrTableMatch[1])
+                    : getRegisteredTestDataSheets();
+
+                const seen = new Set<string>();
+                andOrSheets.forEach(sheet => {
+                    sheet.columns.forEach(col => {
+                        if (!seen.has(col.name)) {
+                            seen.add(col.name);
+                            suggestions.push({
+                                label: col.name,
+                                kind: monaco.languages.CompletionItemKind.Field,
+                                insertText: col.name,
+                                detail: `Column (${col.type})`,
+                            });
+                        }
+                    });
                 });
             }
 
@@ -693,6 +830,118 @@ function registerModifierCompletionProvider(monaco: Monaco): void {
 // =============================================================================
 // LSP Providers
 // =============================================================================
+
+// =============================================================================
+// VDQL Hover Preview (shows match count + sample rows on hover)
+// =============================================================================
+
+interface ParsedVDQLHover {
+    tableName: string;
+    filters: { column: string; operator: string; value: string }[];
+}
+
+function parseVDQLLineForHover(line: string): ParsedVDQLHover | null {
+    // Match ROW/ROWS var =/FROM TableName [WHERE ...] or COUNT TableName [WHERE ...]
+    const rowMatch = line.match(/\b(?:ROW|ROWS)\s+\w+\s*(?:=|FROM)\s+(\w+)(?:\s+WHERE\s+(.+))?/i);
+    const countMatch = line.match(/\bCOUNT\s+(\w+)(?:\s+WHERE\s+(.+))?/i);
+    const match = rowMatch || countMatch;
+    if (!match) return null;
+
+    const tableName = match[1];
+    const whereClause = match[2];
+    const filters: ParsedVDQLHover['filters'] = [];
+
+    if (whereClause) {
+        // Split on AND/OR and parse each condition
+        const conditions = whereClause.split(/\s+(?:AND|OR)\s+/i);
+        for (const cond of conditions) {
+            const condMatch = cond.match(/(\w+)\s*(==|!=|>=|<=|>|<|CONTAINS|STARTS\s+WITH|ENDS\s+WITH)\s*"?([^"]*)"?/i);
+            if (condMatch) {
+                filters.push({
+                    column: condMatch[1],
+                    operator: condMatch[2].trim(),
+                    value: condMatch[3],
+                });
+            }
+        }
+    }
+
+    return { tableName, filters };
+}
+
+function registerVDQLHoverPreviewProvider(monaco: Monaco, options?: { getProjectId?: () => string | null }): void {
+    monaco.languages.registerHoverProvider('vero', {
+        provideHover: async (model: MonacoEditor.editor.ITextModel, position: MonacoEditor.Position) => {
+            const lineContent = model.getLineContent(position.lineNumber);
+            const parsed = parseVDQLLineForHover(lineContent);
+            if (!parsed) return null;
+
+            const projectId = options?.getProjectId?.();
+            if (!projectId) {
+                return {
+                    range: new monaco.Range(position.lineNumber, 1, position.lineNumber, lineContent.length + 1),
+                    contents: [{ value: `**${parsed.tableName}** — no project context for preview` }],
+                };
+            }
+
+            try {
+                const response = await fetch('/api/test-data/preview-query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        tableName: parsed.tableName,
+                        applicationId: projectId,
+                        filters: parsed.filters,
+                        limit: 3,
+                    }),
+                });
+
+                if (!response.ok) return null;
+                const data = await response.json();
+
+                if (!data.success) {
+                    return {
+                        range: new monaco.Range(position.lineNumber, 1, position.lineNumber, lineContent.length + 1),
+                        contents: [{ value: `**${parsed.tableName}** — ${data.error || 'preview unavailable'}` }],
+                    };
+                }
+
+                const lines: string[] = [];
+                lines.push(`**${parsed.tableName}** — ${data.matchCount} matching row${data.matchCount === 1 ? '' : 's'}`);
+
+                if (data.preview && data.preview.length > 0) {
+                    // Build a mini markdown table from the first few rows
+                    const allKeys = new Set<string>();
+                    for (const row of data.preview) {
+                        Object.keys(row).forEach((k) => allKeys.add(k));
+                    }
+                    const keys = Array.from(allKeys).slice(0, 5); // limit columns
+
+                    if (keys.length > 0) {
+                        lines.push('');
+                        lines.push('| ' + keys.join(' | ') + ' |');
+                        lines.push('| ' + keys.map(() => '---').join(' | ') + ' |');
+                        for (const row of data.preview) {
+                            const cells = keys.map((k) => {
+                                const v = String(row[k] ?? '');
+                                return v.length > 20 ? v.substring(0, 20) + '...' : v;
+                            });
+                            lines.push('| ' + cells.join(' | ') + ' |');
+                        }
+                    }
+                }
+
+                return {
+                    range: new monaco.Range(position.lineNumber, 1, position.lineNumber, lineContent.length + 1),
+                    contents: [{ value: lines.join('\n') }],
+                };
+            } catch {
+                return null;
+            }
+        },
+    });
+}
 
 let lspProvidersRegistered = false;
 
@@ -1020,6 +1269,9 @@ export function registerVeroLSPProviders(monaco: Monaco, options?: { apiBase?: s
             };
         },
     });
+
+    // VDQL Hover Preview (match count + sample rows)
+    registerVDQLHoverPreviewProvider(monaco, options);
 
     // Document Formatting Provider (Ctrl+Shift+F or right-click -> Format Document)
     monaco.languages.registerDocumentFormattingEditProvider('vero', {

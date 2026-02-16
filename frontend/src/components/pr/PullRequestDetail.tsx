@@ -15,6 +15,7 @@ import {
   Send,
   Eye,
 } from 'lucide-react';
+import { IconButton, EmptyState, Tabs, TabsList, TabsTrigger } from '@/components/ui';
 import { useSandboxStore } from '@/store/sandboxStore';
 import { DiffViewer } from './DiffViewer';
 
@@ -26,26 +27,26 @@ interface PullRequestDetailProps {
 const statusConfig = {
   draft: {
     color: 'text-text-muted',
-    bgColor: 'bg-gray-500/10',
-    borderColor: 'border-gray-500/20',
+    bgColor: 'bg-dark-elevated/10',
+    borderColor: 'border-border-default/20',
     label: 'Draft',
   },
   open: {
-    color: 'text-green-400',
-    bgColor: 'bg-green-500/10',
-    borderColor: 'border-green-500/20',
+    color: 'text-status-success',
+    bgColor: 'bg-status-success/10',
+    borderColor: 'border-status-success/20',
     label: 'Open',
   },
   approved: {
-    color: 'text-blue-400',
-    bgColor: 'bg-blue-500/10',
-    borderColor: 'border-blue-500/20',
+    color: 'text-status-info',
+    bgColor: 'bg-status-info/10',
+    borderColor: 'border-status-info/20',
     label: 'Approved',
   },
   merged: {
-    color: 'text-purple-400',
-    bgColor: 'bg-purple-500/10',
-    borderColor: 'border-purple-500/20',
+    color: 'text-accent-purple',
+    bgColor: 'bg-accent-purple/10',
+    borderColor: 'border-accent-purple/20',
     label: 'Merged',
   },
   closed: {
@@ -166,12 +167,12 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
       <div className="px-4 py-3 border-b border-border-default bg-dark-card">
         <div className="flex items-center gap-3 mb-2">
           {onBack && (
-            <button
+            <IconButton
+              icon={<ArrowLeft className="w-5 h-5" />}
+              variant="ghost"
+              tooltip="Back"
               onClick={onBack}
-              className="p-1 text-text-muted hover:text-text-primary rounded transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
+            />
           )}
 
           <div className={`px-2 py-0.5 text-xs font-medium rounded ${status.bgColor} ${status.color}`}>
@@ -200,28 +201,14 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-border-default bg-dark-card">
-        {(['overview', 'files', 'comments'] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`
-              px-4 py-2 text-sm font-medium border-b-2 transition-colors
-              ${activeTab === tab
-                ? 'border-accent-blue text-accent-blue'
-                : 'border-transparent text-text-muted hover:text-text-primary'
-              }
-            `}
-          >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
-            {tab === 'files' && currentPRDiff && (
-              <span className="ml-1 text-xs">({currentPRDiff.totalFiles})</span>
-            )}
-            {tab === 'comments' && (
-              <span className="ml-1 text-xs">({currentPRComments.length})</span>
-            )}
-          </button>
-        ))}
+      <div className="bg-dark-card">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} variant="underline" size="md" className="px-4">
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="files" count={currentPRDiff?.totalFiles}>Files</TabsTrigger>
+            <TabsTrigger value="comments" count={currentPRComments.length}>Comments</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       {/* Content */}
@@ -253,7 +240,7 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
                     <FileText className="w-4 h-4 text-text-muted" />
                     <span className="text-text-primary">{currentPRDiff.totalFiles} files</span>
                   </div>
-                  <div className="flex items-center gap-1 text-green-400">
+                  <div className="flex items-center gap-1 text-status-success">
                     <Plus className="w-4 h-4" />
                     <span>{currentPRDiff.totalAdditions}</span>
                   </div>
@@ -277,13 +264,13 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
                     <div key={review.id} className="flex items-start gap-3">
                       <div className={`p-1 rounded ${
                         review.status === 'approved'
-                          ? 'bg-green-500/10'
+                          ? 'bg-status-success/10'
                           : review.status === 'changes_requested'
                           ? 'bg-status-danger/10'
-                          : 'bg-gray-500/10'
+                          : 'bg-dark-elevated/10'
                       }`}>
                         {review.status === 'approved' ? (
-                          <CheckCircle2 className="w-4 h-4 text-green-400" />
+                          <CheckCircle2 className="w-4 h-4 text-status-success" />
                         ) : review.status === 'changes_requested' ? (
                           <XCircle className="w-4 h-4 text-status-danger" />
                         ) : (
@@ -297,7 +284,7 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
                           </span>
                           <span className={`text-xs ${
                             review.status === 'approved'
-                              ? 'text-green-400'
+                              ? 'text-status-success'
                               : review.status === 'changes_requested'
                               ? 'text-status-danger'
                               : 'text-text-muted'
@@ -323,8 +310,8 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
                       onClick={() => setReviewAction(reviewAction === 'approve' ? null : 'approve')}
                       className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                         reviewAction === 'approve'
-                          ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                          : 'bg-dark-elevated text-text-muted hover:text-green-400 border border-border-default'
+                          ? 'bg-status-success/20 text-status-success border border-status-success/30'
+                          : 'bg-dark-elevated text-text-muted hover:text-status-success border border-border-default'
                       }`}
                     >
                       <CheckCircle2 className="w-4 h-4 inline mr-1" />
@@ -355,7 +342,7 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
                       <button
                         onClick={handleSubmitReview}
                         disabled={isLoading}
-                        className="px-4 py-2 text-sm font-medium text-white bg-accent-blue hover:bg-blue-600 rounded-md transition-colors disabled:opacity-50"
+                        className="px-4 py-2 text-sm font-medium text-white bg-accent-blue hover:bg-brand-primary rounded-md transition-colors disabled:opacity-50"
                       >
                         Submit Review
                       </button>
@@ -374,7 +361,7 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
                   {canMergeResult.reasons.map((reason, idx) => (
                     <div key={idx} className="flex items-center gap-2 text-sm">
                       {canMergeResult.canMerge ? (
-                        <CheckCircle2 className="w-4 h-4 text-green-400" />
+                        <CheckCircle2 className="w-4 h-4 text-status-success" />
                       ) : (
                         <AlertCircle className="w-4 h-4 text-status-warning" />
                       )}
@@ -389,7 +376,7 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
                   <button
                     onClick={() => openPullRequestForReview(prId)}
                     disabled={isLoading}
-                    className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-md transition-colors disabled:opacity-50"
+                    className="px-4 py-2 text-sm font-medium text-white bg-status-success hover:bg-status-success/90 rounded-md transition-colors disabled:opacity-50"
                   >
                     Ready for Review
                   </button>
@@ -399,7 +386,7 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
                   <button
                     onClick={handleMerge}
                     disabled={isLoading}
-                    className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-md transition-colors disabled:opacity-50 flex items-center gap-2"
+                    className="px-4 py-2 text-sm font-medium text-white bg-accent-purple hover:bg-accent-purple/90 rounded-md transition-colors disabled:opacity-50 flex items-center gap-2"
                   >
                     <GitMerge className="w-4 h-4" />
                     Merge Pull Request
@@ -444,7 +431,7 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
                       }`}
                     >
                       <FileText className={`w-4 h-4 ${
-                        file.changeType === 'added' ? 'text-green-400' :
+                        file.changeType === 'added' ? 'text-status-success' :
                         file.changeType === 'deleted' ? 'text-status-danger' :
                         'text-status-warning'
                       }`} />
@@ -452,7 +439,7 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
                         {file.filePath}
                       </span>
                       <div className="flex items-center gap-2 text-xs">
-                        <span className="text-green-400">+{file.additions}</span>
+                        <span className="text-status-success">+{file.additions}</span>
                         <span className="text-status-danger">-{file.deletions}</span>
                       </div>
                     </button>
@@ -473,10 +460,10 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
           <div className="space-y-4">
             {/* Comment list */}
             {currentPRComments.length === 0 ? (
-              <div className="p-8 text-center text-text-muted">
-                <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                <p>No comments yet</p>
-              </div>
+              <EmptyState
+                icon={<MessageSquare className="w-12 h-12" />}
+                title="No comments yet"
+              />
             ) : (
               <div className="space-y-4">
                 {currentPRComments.map((comment) => (
@@ -519,7 +506,7 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
                 <button
                   onClick={handleAddComment}
                   disabled={isLoading || !newComment.trim()}
-                  className="px-4 py-2 text-sm font-medium text-white bg-accent-blue hover:bg-blue-600 rounded-md transition-colors disabled:opacity-50 flex items-center gap-2"
+                  className="px-4 py-2 text-sm font-medium text-white bg-accent-blue hover:bg-brand-primary rounded-md transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
                   <Send className="w-4 h-4" />
                   Comment

@@ -37,10 +37,15 @@ const TOGGLE_OPTIONS: ToggleOption[] = [
 ];
 
 export function ExecutionTab({ config, onChange }: ExecutionTabProps) {
+  const sectionTitleClass = 'text-sm font-semibold text-text-primary';
+  const fieldLabelClass = 'text-xs font-medium text-text-secondary';
+  const helperCopyClass = 'mt-1 text-xs text-text-secondary';
+
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <section className={runConfigTheme.section}>
-        <p className={runConfigTheme.label}>Execution Mode</p>
+        <p className={sectionTitleClass}>Execution Mode</p>
+        <p className="mt-1 text-xs text-text-secondary">Controls below tune local Playwright run behavior.</p>
         <div className="mt-3 grid gap-2">
           {TOGGLE_OPTIONS.map((option) => {
             const Icon = option.icon;
@@ -51,8 +56,8 @@ export function ExecutionTab({ config, onChange }: ExecutionTabProps) {
                 className={cx(
                   'flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 transition-colors',
                   enabled
-                    ? 'border-border-active bg-brand-primary/12'
-                    : 'border-border-default bg-dark-canvas/45 hover:border-border-emphasis'
+                    ? 'border-border-selected bg-surface-selected'
+                    : 'border-border-default bg-dark-elevated/35 hover:border-border-emphasis hover:bg-surface-hover/70'
                 )}
               >
                 <input
@@ -61,9 +66,9 @@ export function ExecutionTab({ config, onChange }: ExecutionTabProps) {
                   onChange={(event) => onChange(option.id, event.target.checked)}
                   className={cx(runConfigTheme.toggle, 'mt-0.5 shrink-0')}
                 />
-                <Icon className={cx('mt-0.5 h-4 w-4', enabled ? 'text-brand-secondary' : 'text-text-muted')} />
+                <Icon className={cx('mt-0.5 h-4 w-4', enabled ? 'text-brand-secondary' : 'text-text-secondary')} />
                 <div>
-                  <p className="text-sm font-medium text-text-primary">{option.title}</p>
+                  <p className="text-sm font-semibold text-text-primary">{option.title}</p>
                   <p className="text-xs text-text-secondary">{option.description}</p>
                 </div>
               </label>
@@ -75,12 +80,12 @@ export function ExecutionTab({ config, onChange }: ExecutionTabProps) {
       <section className={runConfigTheme.section}>
         <div className="mb-3 flex items-center gap-2">
           <Layers className="h-4 w-4 text-brand-secondary" />
-          <p className={runConfigTheme.label}>Parallelism</p>
+          <p className={sectionTitleClass}>Parallelism</p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
           <div>
-            <label className={runConfigTheme.label}>Workers</label>
+            <label className={fieldLabelClass}>Workers</label>
             <input
               type="number"
               min={1}
@@ -89,11 +94,11 @@ export function ExecutionTab({ config, onChange }: ExecutionTabProps) {
               onChange={(event) => onChange('workers', parseInt(event.target.value, 10) || 1)}
               className={cx(runConfigTheme.input, 'mt-2')}
             />
-            <p className="mt-1 text-xs text-text-muted">Number of concurrent workers for local execution.</p>
+            <p className={helperCopyClass}>Number of concurrent workers for local execution.</p>
           </div>
 
           <div>
-            <label className={runConfigTheme.label}>Quick Presets</label>
+            <label className={fieldLabelClass}>Quick Presets</label>
             <div className="mt-2 flex flex-wrap gap-2">
               {[1, 2, 4, 8].map((workers) => (
                 <button
@@ -114,30 +119,36 @@ export function ExecutionTab({ config, onChange }: ExecutionTabProps) {
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Split className="h-4 w-4 text-brand-secondary" />
-            <p className={runConfigTheme.label}>Sharding</p>
+            <p className={sectionTitleClass}>Sharding</p>
           </div>
 
-          <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-text-secondary">
-            <input
-              type="checkbox"
-              checked={Boolean(config.shards)}
-              onChange={(event) => {
-                if (event.target.checked) {
-                  onChange('shards', { current: 1, total: 4 });
-                  return;
-                }
-                onChange('shards', undefined);
-              }}
-              className={runConfigTheme.toggle}
-            />
-            Enable sharding
-          </label>
+          {config.target === 'github-actions' && (
+            <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-text-secondary">
+              <input
+                type="checkbox"
+                checked={Boolean(config.shards)}
+                onChange={(event) => {
+                  if (event.target.checked) {
+                    onChange('shards', { current: 1, total: 4 });
+                    return;
+                  }
+                  onChange('shards', undefined);
+                }}
+                className={runConfigTheme.toggle}
+              />
+              Enable sharding
+            </label>
+          )}
         </div>
 
-        {config.shards ? (
+        {config.target !== 'github-actions' ? (
+          <p className="text-xs text-text-secondary">
+            Local Vero runs use workers only. Sharding is enabled for GitHub Actions target.
+          </p>
+        ) : config.shards ? (
           <div className="grid gap-3 md:grid-cols-2">
             <div>
-              <label className={runConfigTheme.label}>Current Shard</label>
+              <label className={fieldLabelClass}>Current Shard</label>
               <input
                 type="number"
                 min={1}
@@ -154,7 +165,7 @@ export function ExecutionTab({ config, onChange }: ExecutionTabProps) {
             </div>
 
             <div>
-              <label className={runConfigTheme.label}>Total Shards</label>
+              <label className={fieldLabelClass}>Total Shards</label>
               <input
                 type="number"
                 min={1}
@@ -171,7 +182,7 @@ export function ExecutionTab({ config, onChange }: ExecutionTabProps) {
             </div>
 
             <div className="md:col-span-2">
-              <p className={runConfigTheme.helper}>
+              <p className="text-xs font-medium text-text-secondary">
                 Shard CLI preview:
               </p>
               <div className={cx(runConfigTheme.code, 'mt-1')}>
@@ -180,12 +191,12 @@ export function ExecutionTab({ config, onChange }: ExecutionTabProps) {
             </div>
           </div>
         ) : (
-          <p className="text-xs text-text-muted">Disable for local single-node runs. Enable for distributed CI jobs.</p>
+          <p className="text-xs text-text-secondary">Disable for local single-node runs. Enable for distributed CI jobs.</p>
         )}
       </section>
 
       <section className={runConfigTheme.section}>
-        <p className={runConfigTheme.label}>Playwright Project (Optional)</p>
+        <p className={sectionTitleClass}>Playwright Project (Optional)</p>
         <input
           type="text"
           value={config.project || ''}
@@ -193,7 +204,7 @@ export function ExecutionTab({ config, onChange }: ExecutionTabProps) {
           className={cx(runConfigTheme.input, 'mt-2')}
           placeholder="chromium, firefox, mobile"
         />
-        <p className="mt-2 text-xs text-text-muted">Target a single `project` from `playwright.config.ts`.</p>
+        <p className="mt-2 text-xs text-text-secondary">Target a single `project` from `playwright.config.ts`.</p>
       </section>
     </div>
   );

@@ -1,4 +1,5 @@
 import { FileCode, Check, AlertCircle } from 'lucide-react';
+import { Badge } from '@/components/ui';
 import { type ConflictFile } from '@/api/sandbox';
 
 export interface ConflictFileListProps {
@@ -15,10 +16,10 @@ export function ConflictFileList({
   getResolvedCount,
 }: ConflictFileListProps) {
   return (
-    <div className="w-64 border-r border-[#30363d] bg-[#0d1117] flex flex-col">
+    <div className="w-64 border-r border-border-default bg-dark-canvas flex flex-col">
       {/* Header */}
-      <div className="px-3 py-2 border-b border-[#30363d] bg-[#161b22]">
-        <h3 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wide">
+      <div className="px-3 py-2 border-b border-border-default bg-dark-card">
+        <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
           Files ({conflicts.length})
         </h3>
       </div>
@@ -39,40 +40,40 @@ export function ConflictFileList({
               onClick={() => onSelectFile(index)}
               className={`w-full px-3 py-2 flex items-start gap-2 text-left transition-colors ${
                 isSelected
-                  ? 'bg-[#1f6feb]/20 border-l-2 border-[#58a6ff]'
-                  : 'hover:bg-[#21262d] border-l-2 border-transparent'
+                  ? 'bg-brand-primary/20 border-l-2 border-brand-secondary'
+                  : 'hover:bg-dark-elevated border-l-2 border-transparent'
               }`}
             >
               {/* Status indicator */}
               <div className="mt-0.5 flex-shrink-0">
                 {isFullyResolved ? (
-                  <Check className="w-4 h-4 text-[#3fb950]" />
+                  <Check className="w-4 h-4 text-status-success" />
                 ) : (
-                  <AlertCircle className="w-4 h-4 text-[#f0883e]" />
+                  <AlertCircle className="w-4 h-4 text-status-warning" />
                 )}
               </div>
 
               {/* File icon */}
               <FileCode className={`w-4 h-4 mt-0.5 flex-shrink-0 ${
-                isSelected ? 'text-[#58a6ff]' : 'text-[#8b949e]'
+                isSelected ? 'text-brand-secondary' : 'text-text-secondary'
               }`} />
 
               {/* File info */}
               <div className="flex-1 min-w-0">
                 <div className={`text-sm font-medium truncate ${
-                  isSelected ? 'text-white' : 'text-[#c9d1d9]'
+                  isSelected ? 'text-white' : 'text-text-primary'
                 }`}>
                   {fileName}
                 </div>
                 {dirPath && (
-                  <div className="text-xs text-[#6e7681] truncate">
+                  <div className="text-xs text-text-muted truncate">
                     {dirPath}
                   </div>
                 )}
-                <div className="text-xs mt-1">
-                  <span className={isFullyResolved ? 'text-[#3fb950]' : 'text-[#f0883e]'}>
+                <div className="mt-1">
+                  <Badge variant={isFullyResolved ? 'green' : 'yellow'} size="sm">
                     {resolvedCount}/{totalHunks} resolved
-                  </span>
+                  </Badge>
                 </div>
               </div>
             </button>
@@ -81,8 +82,8 @@ export function ConflictFileList({
       </div>
 
       {/* Summary */}
-      <div className="px-3 py-2 border-t border-[#30363d] bg-[#161b22]">
-        <div className="text-xs text-[#8b949e]">
+      <div className="px-3 py-2 border-t border-border-default bg-dark-card">
+        <div className="text-xs text-text-secondary">
           {conflicts.filter(c => getResolvedCount(c.filePath) >= c.hunks.length).length} of {conflicts.length} files resolved
         </div>
       </div>
