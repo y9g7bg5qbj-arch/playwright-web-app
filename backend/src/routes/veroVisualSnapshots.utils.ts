@@ -107,6 +107,9 @@ export async function ensureEnvironmentResources(environmentRoot: string): Promi
   const visualBaselinesDir = join(resourcesDir, 'Visual', 'Baselines');
   const docsDir = join(resourcesDir, 'Docs');
 
+  await mkdir(join(environmentRoot, 'Pages'), { recursive: true });
+  await mkdir(join(environmentRoot, 'Features'), { recursive: true });
+  await mkdir(join(environmentRoot, 'PageActions'), { recursive: true });
   await mkdir(visualBaselinesDir, { recursive: true });
   await mkdir(docsDir, { recursive: true });
 
