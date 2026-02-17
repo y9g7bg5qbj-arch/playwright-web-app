@@ -27,6 +27,7 @@ interface ExcelRibbonProps {
   onUnfreezeColumns: () => void;
   onRunQualityScan: () => void;
   onOpenAdvancedTools: () => void;
+  onOpenVDQLBuilder?: () => void;
   loadingRows: boolean;
   selectedRowCount: number;
 }
@@ -84,6 +85,7 @@ export function ExcelRibbon({
   onUnfreezeColumns,
   onRunQualityScan,
   onOpenAdvancedTools,
+  onOpenVDQLBuilder,
   loadingRows,
   selectedRowCount,
 }: ExcelRibbonProps) {
@@ -117,6 +119,9 @@ export function ExcelRibbon({
           <GroupDivider />
 
           <CompactIconButton icon={<ExcelIcon name="query" className="h-3.5 w-3.5" />} label="Generate Query" onClick={onOpenQueryGenerator} />
+          {onOpenVDQLBuilder && (
+            <CompactIconButton icon={<ExcelIcon name="preset" className="h-3.5 w-3.5" />} label="VDQL Script Builder" onClick={onOpenVDQLBuilder} />
+          )}
           <CompactIconButton icon={<ExcelIcon name="quality" className="h-3.5 w-3.5" />} label="Run Quality Scan" onClick={onRunQualityScan} />
 
           <GroupDivider />

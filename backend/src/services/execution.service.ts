@@ -20,6 +20,18 @@ function safeJsonParse<T>(json: string | null | undefined, fallback: T): T {
   try { return JSON.parse(json); } catch { return fallback; }
 }
 
+function countStepStatuses(steps: { status: string }[]): { passed: number; failed: number; skipped: number } {
+  let passed = 0;
+  let failed = 0;
+  let skipped = 0;
+  for (const s of steps) {
+    if (s.status === 'passed') passed++;
+    else if (s.status === 'failed') failed++;
+    else if (s.status === 'skipped') skipped++;
+  }
+  return { passed, failed, skipped };
+}
+
 interface RecentExecutionScenario {
   id: string;
   name: string;
@@ -269,6 +281,7 @@ export class ExecutionService {
         const children = matrixChildrenByParent.get(exec.id) || [];
         matrixChildrenData = children.map((child) => {
           const childSteps = matrixStepsByExecId.get(child.id) || [];
+          const counts = countStepStatuses(childSteps);
           return {
             id: child.id,
             label: child.matrixLabel || '',
@@ -276,9 +289,9 @@ export class ExecutionService {
             durationLabel: child.startedAt && child.finishedAt
               ? `${Math.round((new Date(child.finishedAt).getTime() - new Date(child.startedAt).getTime()) / 1000)}s`
               : '',
-            passedCount: childSteps.filter((s) => s.status === 'passed').length,
-            failedCount: childSteps.filter((s) => s.status === 'failed').length,
-            skippedCount: childSteps.filter((s) => s.status === 'skipped').length,
+            passedCount: counts.passed,
+            failedCount: counts.failed,
+            skippedCount: counts.skipped,
           };
         });
         passedCount = matrixChildrenData.reduce((sum, c) => sum + c.passedCount, 0);
@@ -287,15 +300,17 @@ export class ExecutionService {
         stepCount = passedCount + failedCount + skippedCount;
         // When children haven't reported yet, fall back to parent's own steps
         if (stepCount === 0 && steps.length > 0) {
-          passedCount = steps.filter((s) => s.status === 'passed').length;
-          failedCount = steps.filter((s) => s.status === 'failed').length;
-          skippedCount = steps.filter((s) => s.status === 'skipped').length;
+          const fallbackCounts = countStepStatuses(steps);
+          passedCount = fallbackCounts.passed;
+          failedCount = fallbackCounts.failed;
+          skippedCount = fallbackCounts.skipped;
           stepCount = steps.length;
         }
       } else {
-        passedCount = steps.filter((s) => s.status === 'passed').length;
-        failedCount = steps.filter((s) => s.status === 'failed').length;
-        skippedCount = steps.filter((s) => s.status === 'skipped').length;
+        const counts = countStepStatuses(steps);
+        passedCount = counts.passed;
+        failedCount = counts.failed;
+        skippedCount = counts.skipped;
         stepCount = steps.length;
       }
 

@@ -26,6 +26,7 @@ import { useProjectStore } from '@/store/projectStore';
 import { useRunConfigStore } from '@/store/runConfigStore';
 import { useGitHubExecutionStore } from '@/store/useGitHubExecutionStore';
 import { CreateSandboxModal } from '@/components/sandbox/CreateSandboxModal';
+import { SandboxSwitcher } from '@/components/sandbox/SandboxSwitcher';
 import { MergeConflictModal } from './MergeConflictModal';
 import { IconButton, PanelHeader, EmptyState, Toolbar, ToolbarGroup } from '@/components/ui';
 import { Bot, Database, FileBarChart2, Play, Bug, FileText, Terminal, Settings, FilePlus, Folder } from 'lucide-react';
@@ -687,6 +688,11 @@ export function VeroWorkspace() {
             <aside className="w-[280px] flex flex-col bg-dark-card shrink-0">
               {activeView === 'explorer' && (
                 <>
+                  {currentProject?.id && (
+                    <div className="px-3 py-2 border-b border-border-default">
+                      <SandboxSwitcher projectId={currentProject.id} />
+                    </div>
+                  )}
                   <ExplorerPanel
                     applicationName={currentProject?.name || 'VERO-PROJECT'}
                     projects={nestedProjects}

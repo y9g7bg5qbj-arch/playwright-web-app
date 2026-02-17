@@ -8,7 +8,6 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/ui';
 import { TestDataCanvasMockPage } from './components/TestData/canvas-v2';
-import { VeroIdeMockupPackPage } from './components/mockups/VeroIdeMockupPackPage';
 
 export function App() {
   const { checkAuth, isLoading } = useAuthStore();
@@ -59,17 +58,6 @@ export function App() {
           }
         />
 
-        {/* Full IDE UI mockup review route */}
-        <Route
-          path="/mock/vero-ide-pack"
-          element={
-            <ProtectedRoute>
-              <ErrorBoundary>
-                <VeroIdeMockupPackPage />
-              </ErrorBoundary>
-            </ProtectedRoute>
-          }
-        />
 
         {/* Catch-all redirect */}
         <Route path="*" element={<Navigate to="/" replace />} />
