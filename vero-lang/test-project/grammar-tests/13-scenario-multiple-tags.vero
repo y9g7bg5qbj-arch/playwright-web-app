@@ -2,15 +2,15 @@
 # Category: Features - Tags
 
 feature MultipleTagsFeature {
-    scenario "Critical smoke test" @smoke @critical @p0 @regression {
+    scenario CriticalSmokeScenario @smoke @critical @p0 @regression {
         log "Running critical test"
     }
 
-    scenario "Regular test" @regression @p1 {
+    scenario RegularScenario @regression @p1 {
         log "Running regular test"
     }
 
-    scenario "Low priority" @p3 {
+    scenario LowPriorityScenario @p3 {
         log "Running low priority test"
     }
 }

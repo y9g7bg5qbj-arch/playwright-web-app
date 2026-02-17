@@ -59,7 +59,7 @@ router.post(
                 url,
                 sessionId,
                 // onAction callback - broadcast to WebSocket
-                (veroCode, pagePath, pageCode, fieldCreated, duplicateWarning) => {
+                (veroCode, pagePath, pageCode, fieldCreated) => {
                     recordingSessionStore.addLine(sessionId, veroCode);
 
                     // Broadcast to subscribed clients
@@ -69,8 +69,7 @@ router.post(
                             veroCode,
                             pagePath,
                             pageCode,
-                            fieldCreated,
-                            duplicateWarning
+                            fieldCreated
                         });
                     }
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { readFileSync } from 'fs';
+import { join } from 'path';
 
 vi.mock('vero-lang', async () => await import('../../../vero-lang/src/index.ts'));
 
@@ -89,7 +90,7 @@ FEATURE TabFlow {
     });
 
     it('keeps backend transpilation routed through vero-lang compile', () => {
-        const serviceSource = readFileSync('src/services/veroTranspiler.ts', 'utf8');
+        const serviceSource = readFileSync(join(__dirname, '..', 'services', 'veroTranspiler.ts'), 'utf8');
         expect(serviceSource).toContain("import { compile");
         expect(serviceSource).not.toContain("import { transpile");
     });

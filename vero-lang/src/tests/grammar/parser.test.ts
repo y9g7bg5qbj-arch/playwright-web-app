@@ -103,9 +103,9 @@ describe('Vero Grammar - Page Declarations', () => {
         it('should parse page with CSS selector', () => {
             assertParses(`
                 page DashboardPage {
-                    field header = ".dashboard-header"
-                    field sidebar = "#sidebar-nav"
-                    field content = "div.content-area"
+                    field headerEl = ".dashboard-header"
+                    field sidebarEl = "#sidebar-nav"
+                    field contentEl = "div.content-area"
                 }
             `);
         });
@@ -113,8 +113,8 @@ describe('Vero Grammar - Page Declarations', () => {
         it('should parse page with XPath selector', () => {
             assertParses(`
                 page FormPage {
-                    field input = "//input[@type='text']"
-                    field button = "//button[contains(text(), 'Submit')]"
+                    field inputEl = "//input[@type='text']"
+                    field btnEl = "//button[contains(text(), 'Submit')]"
                 }
             `);
         });
@@ -123,7 +123,7 @@ describe('Vero Grammar - Page Declarations', () => {
             assertParses(`
                 page ProductPage {
                     field addToCart = "[data-testid='add-to-cart']"
-                    field quantity = "[data-test='quantity-input']"
+                    field quantityEl = "[data-test='quantity-input']"
                 }
             `);
         });
@@ -131,8 +131,8 @@ describe('Vero Grammar - Page Declarations', () => {
         it('should parse page with special characters in selector', () => {
             assertParses(`
                 page SpecialPage {
-                    field email = "input[type='email']"
-                    field price = ".product-price::after"
+                    field emailEl = "input[type='email']"
+                    field priceEl = ".product-price::after"
                 }
             `);
         });
@@ -158,7 +158,7 @@ describe('Vero Grammar - Page Declarations', () => {
                 page LoginPage {
                     field submitBtn = "Submit"
 
-                    submit {
+                    submitForm {
                         click submitBtn
                     }
                 }
@@ -183,7 +183,7 @@ describe('Vero Grammar - Page Declarations', () => {
                     field emailInput = "Email"
                     field passwordInput = "Password"
 
-                    login with email, password {
+                    loginWith with email, password {
                         fill emailInput with email
                         fill passwordInput with password
                     }
@@ -218,7 +218,7 @@ describe('Vero Grammar - Page Declarations', () => {
                         fill passwordInput with password
                     }
 
-                    submit {
+                    submitForm {
                         click submitBtn
                     }
                 }
@@ -258,11 +258,11 @@ describe('Vero Grammar - Page Declarations', () => {
         it('should parse action with nested loops', () => {
             assertParses(`
                 page TestPage {
-                    field button = "Button"
+                    field btn = "Button"
 
-                    multiClick with count {
-                        repeat count times {
-                            click button
+                    multiClick with n {
+                        repeat n times {
+                            click btn
                             wait 1 seconds
                         }
                     }
@@ -362,7 +362,7 @@ describe('Vero Grammar - Feature Declarations', () => {
         it('should parse feature with single scenario', () => {
             assertParses(`
                 feature Login {
-                    scenario "Valid login" {
+                    scenario ValidLogin {
                         log "Test"
                     }
                 }
@@ -372,15 +372,15 @@ describe('Vero Grammar - Feature Declarations', () => {
         it('should parse feature with multiple scenarios', () => {
             assertParses(`
                 feature Login {
-                    scenario "Valid login" {
+                    scenario ValidLogin {
                         log "Valid"
                     }
 
-                    scenario "Invalid login" {
+                    scenario InvalidLogin {
                         log "Invalid"
                     }
 
-                    scenario "Empty credentials" {
+                    scenario EmptyCredentials {
                         log "Empty"
                     }
                 }
@@ -388,11 +388,11 @@ describe('Vero Grammar - Feature Declarations', () => {
         });
 
         it('should reject feature without name', () => {
-            assertFails(`feature { scenario "test" { } }`);
+            assertFails(`feature { scenario tst { } }`);
         });
 
         it('should reject feature without braces', () => {
-            assertFails(`feature Test scenario "test" { }`);
+            assertFails(`feature TestFeature scenario tst { }`);
         });
     });
 
@@ -458,7 +458,7 @@ describe('Vero Grammar - Feature Declarations', () => {
                         log "Suite complete"
                     }
 
-                    scenario "Test" {
+                    scenario BasicTest {
                         log "Running test"
                     }
                 }
@@ -478,7 +478,7 @@ describe('Vero Grammar - Feature Declarations', () => {
         });
 
         it('should reject hook without timing', () => {
-            assertFails(`feature Test { before { log "test" } }`);
+            assertFails(`feature TestFeature { before { log "test" } }`);
         });
     });
 
@@ -488,7 +488,7 @@ describe('Vero Grammar - Feature Declarations', () => {
         it('should parse scenario with single tag', () => {
             assertParses(`
                 feature Login {
-                    scenario "Test" @smoke {
+                    scenario BasicTest @smoke {
                         log "Test"
                     }
                 }
@@ -498,7 +498,7 @@ describe('Vero Grammar - Feature Declarations', () => {
         it('should parse scenario with multiple tags', () => {
             assertParses(`
                 feature Login {
-                    scenario "Test" @smoke @regression @critical {
+                    scenario BasicTest @smoke @regression @critical {
                         log "Test"
                     }
                 }
@@ -508,7 +508,7 @@ describe('Vero Grammar - Feature Declarations', () => {
         it('should parse scenario with many tags', () => {
             assertParses(`
                 feature Login {
-                    scenario "Test" @tag1 @tag2 @tag3 @tag4 @tag5 {
+                    scenario BasicTest @tag1 @tag2 @tag3 @tag4 @tag5 {
                         log "Test"
                     }
                 }
@@ -518,15 +518,15 @@ describe('Vero Grammar - Feature Declarations', () => {
         it('should parse scenarios with different tags', () => {
             assertParses(`
                 feature Login {
-                    scenario "Smoke test" @smoke {
+                    scenario SmokeTest @smoke {
                         log "Smoke"
                     }
 
-                    scenario "Regression test" @regression {
+                    scenario RegressionTest @regression {
                         log "Regression"
                     }
 
-                    scenario "Critical test" @critical @p0 {
+                    scenario CriticalTest @critical @p0 {
                         log "Critical"
                     }
                 }
@@ -536,7 +536,7 @@ describe('Vero Grammar - Feature Declarations', () => {
         it('should parse tag with underscore', () => {
             assertParses(`
                 feature Login {
-                    scenario "Test" @smoke_test {
+                    scenario BasicTest @smoke_test {
                         log "Test"
                     }
                 }
@@ -546,7 +546,7 @@ describe('Vero Grammar - Feature Declarations', () => {
         it('should parse tag with numbers', () => {
             assertParses(`
                 feature Login {
-                    scenario "Test" @p1 @priority2 {
+                    scenario BasicTest @p1 @priority2 {
                         log "Test"
                     }
                 }
@@ -572,14 +572,14 @@ describe('Vero Grammar - Feature Declarations', () => {
                         take screenshot "final"
                     }
 
-                    scenario "Valid login" @smoke @critical {
+                    scenario ValidLogin @smoke @critical {
                         fill LoginPage.emailInput with "test@example.com"
                         fill LoginPage.passwordInput with "password123"
                         click LoginPage.submitBtn
-                        verify DashboardPage.header is visible
+                        verify DashboardPage.headerEl is visible
                     }
 
-                    scenario "Invalid login" @regression {
+                    scenario InvalidLogin @regression {
                         fill LoginPage.emailInput with "invalid"
                         click LoginPage.submitBtn
                         verify LoginPage.errorMsg is visible
@@ -590,7 +590,7 @@ describe('Vero Grammar - Feature Declarations', () => {
 
         it('should parse feature with many scenarios', () => {
             const scenarios = Array.from({length: 50}, (_, i) =>
-                `scenario "Test ${i}" { log "Test ${i}" }`
+                `scenario Test${i} { log "Test ${i}" }`
             ).join('\n                ');
 
             assertParses(`
@@ -612,19 +612,19 @@ describe('Vero Grammar - Actions', () => {
     describe('Click Action', () => {
 
         it('should parse click with string selector', () => {
-            assertParses(`feature T { scenario "t" { click "Button" } }`);
+            assertParses(`feature T { scenario t { click "Button" } }`);
         });
 
         it('should parse click with CSS selector', () => {
-            assertParses(`feature T { scenario "t" { click ".submit-btn" } }`);
+            assertParses(`feature T { scenario t { click ".submit-btn" } }`);
         });
 
         it('should parse click with page field reference', () => {
-            assertParses(`feature T { scenario "t" { click LoginPage.submitBtn } }`);
+            assertParses(`feature T { scenario t { click LoginPage.submitBtn } }`);
         });
 
         it('should parse click with bare identifier', () => {
-            assertParses(`feature T { scenario "t" { click submitBtn } }`);
+            assertParses(`feature T { scenario t { click submitBtn } }`);
         });
     });
 
@@ -632,19 +632,19 @@ describe('Vero Grammar - Actions', () => {
     describe('Fill Action', () => {
 
         it('should parse fill with string value', () => {
-            assertParses(`feature T { scenario "t" { fill "email" with "test@example.com" } }`);
+            assertParses(`feature T { scenario t { fill "email" with "test@example.com" } }`);
         });
 
         it('should parse fill with variable', () => {
-            assertParses(`feature T { scenario "t" { fill emailInput with userData } }`);
+            assertParses(`feature T { scenario t { fill emailInput with userData } }`);
         });
 
         it('should parse fill with page field', () => {
-            assertParses(`feature T { scenario "t" { fill LoginPage.emailInput with "test" } }`);
+            assertParses(`feature T { scenario t { fill LoginPage.emailInput with "test" } }`);
         });
 
         it('should parse fill with number', () => {
-            assertParses(`feature T { scenario "t" { fill "quantity" with 5 } }`);
+            assertParses(`feature T { scenario t { fill "quantity" with 5 } }`);
         });
     });
 
@@ -652,15 +652,15 @@ describe('Vero Grammar - Actions', () => {
     describe('Open Action', () => {
 
         it('should parse open with relative URL', () => {
-            assertParses(`feature T { scenario "t" { open "/login" } }`);
+            assertParses(`feature T { scenario t { open "/login" } }`);
         });
 
         it('should parse open with absolute URL', () => {
-            assertParses(`feature T { scenario "t" { open "https://example.com" } }`);
+            assertParses(`feature T { scenario t { open "https://example.com" } }`);
         });
 
         it('should parse open with variable', () => {
-            assertParses(`feature T { scenario "t" { open baseUrl } }`);
+            assertParses(`feature T { scenario t { open baseUrl } }`);
         });
     });
 
@@ -668,15 +668,15 @@ describe('Vero Grammar - Actions', () => {
     describe('Check/Uncheck Actions', () => {
 
         it('should parse check action', () => {
-            assertParses(`feature T { scenario "t" { check "terms" } }`);
+            assertParses(`feature T { scenario t { check "terms" } }`);
         });
 
         it('should parse uncheck action', () => {
-            assertParses(`feature T { scenario "t" { uncheck "newsletter" } }`);
+            assertParses(`feature T { scenario t { uncheck "newsletter" } }`);
         });
 
         it('should parse check with page field', () => {
-            assertParses(`feature T { scenario "t" { check FormPage.termsCheckbox } }`);
+            assertParses(`feature T { scenario t { check FormPage.termsCheckbox } }`);
         });
     });
 
@@ -684,15 +684,15 @@ describe('Vero Grammar - Actions', () => {
     describe('Select Action', () => {
 
         it('should parse select with string option', () => {
-            assertParses(`feature T { scenario "t" { select "Option 1" from "dropdown" } }`);
+            assertParses(`feature T { scenario t { select "Option 1" from "dropdown" } }`);
         });
 
         it('should parse select with variable', () => {
-            assertParses(`feature T { scenario "t" { select selectedOption from dropdown } }`);
+            assertParses(`feature T { scenario t { select selectedOption from dropdownEl } }`);
         });
 
         it('should parse select with page fields', () => {
-            assertParses(`feature T { scenario "t" { select "CA" from FormPage.stateDropdown } }`);
+            assertParses(`feature T { scenario t { select "CA" from FormPage.stateDropdown } }`);
         });
     });
 
@@ -700,11 +700,11 @@ describe('Vero Grammar - Actions', () => {
     describe('Hover Action', () => {
 
         it('should parse hover with string selector', () => {
-            assertParses(`feature T { scenario "t" { hover "menuItem" } }`);
+            assertParses(`feature T { scenario t { hover "menuItem" } }`);
         });
 
         it('should parse hover with page field', () => {
-            assertParses(`feature T { scenario "t" { hover NavPage.submenu } }`);
+            assertParses(`feature T { scenario t { hover NavPage.submenu } }`);
         });
     });
 
@@ -712,15 +712,15 @@ describe('Vero Grammar - Actions', () => {
     describe('Press Action', () => {
 
         it('should parse press Enter', () => {
-            assertParses(`feature T { scenario "t" { press "Enter" } }`);
+            assertParses(`feature T { scenario t { press "Enter" } }`);
         });
 
         it('should parse press key combination', () => {
-            assertParses(`feature T { scenario "t" { press "Control+C" } }`);
+            assertParses(`feature T { scenario t { press "Control+C" } }`);
         });
 
         it('should parse press special key', () => {
-            assertParses(`feature T { scenario "t" { press "Escape" } }`);
+            assertParses(`feature T { scenario t { press "Escape" } }`);
         });
     });
 
@@ -728,27 +728,27 @@ describe('Vero Grammar - Actions', () => {
     describe('Scroll Action', () => {
 
         it('should parse scroll to element', () => {
-            assertParses(`feature T { scenario "t" { scroll to "footer" } }`);
+            assertParses(`feature T { scenario t { scroll to "footer" } }`);
         });
 
         it('should parse scroll down', () => {
-            assertParses(`feature T { scenario "t" { scroll down } }`);
+            assertParses(`feature T { scenario t { scroll down } }`);
         });
 
         it('should parse scroll up', () => {
-            assertParses(`feature T { scenario "t" { scroll up } }`);
+            assertParses(`feature T { scenario t { scroll up } }`);
         });
 
         it('should parse scroll left', () => {
-            assertParses(`feature T { scenario "t" { scroll left } }`);
+            assertParses(`feature T { scenario t { scroll left } }`);
         });
 
         it('should parse scroll right', () => {
-            assertParses(`feature T { scenario "t" { scroll right } }`);
+            assertParses(`feature T { scenario t { scroll right } }`);
         });
 
         it('should parse scroll to page field', () => {
-            assertParses(`feature T { scenario "t" { scroll to PageName.element } }`);
+            assertParses(`feature T { scenario t { scroll to PageName.element } }`);
         });
     });
 
@@ -756,43 +756,43 @@ describe('Vero Grammar - Actions', () => {
     describe('Wait Action', () => {
 
         it('should parse wait seconds', () => {
-            assertParses(`feature T { scenario "t" { wait 2 seconds } }`);
+            assertParses(`feature T { scenario t { wait 2 seconds } }`);
         });
 
         it('should parse wait milliseconds', () => {
-            assertParses(`feature T { scenario "t" { wait 500 milliseconds } }`);
+            assertParses(`feature T { scenario t { wait 500 milliseconds } }`);
         });
 
         it('should parse wait for element', () => {
-            assertParses(`feature T { scenario "t" { wait for "loading" } }`);
+            assertParses(`feature T { scenario t { wait for "loading" } }`);
         });
 
         it('should parse wait for page field', () => {
-            assertParses(`feature T { scenario "t" { wait for PageName.loader } }`);
+            assertParses(`feature T { scenario t { wait for PageName.loader } }`);
         });
 
         it('should parse wait with decimal', () => {
-            assertParses(`feature T { scenario "t" { wait 1.5 seconds } }`);
+            assertParses(`feature T { scenario t { wait 1.5 seconds } }`);
         });
     });
 
-    // 3.10 Do Action
-    describe('Do Action', () => {
+    // 3.10 Perform Action
+    describe('Perform Action', () => {
 
-        it('should parse do with page action', () => {
-            assertParses(`feature T { scenario "t" { do LoginPage.login } }`);
+        it('should parse perform with page action', () => {
+            assertParses(`feature T { scenario t { perform LoginPage.loginWith } }`);
         });
 
-        it('should parse do with single argument', () => {
-            assertParses(`feature T { scenario "t" { do LoginPage.login with "test@example.com" } }`);
+        it('should parse perform with single argument', () => {
+            assertParses(`feature T { scenario t { perform LoginPage.loginWith with "test@example.com" } }`);
         });
 
-        it('should parse do with multiple arguments', () => {
-            assertParses(`feature T { scenario "t" { do LoginPage.login with "email", "password" } }`);
+        it('should parse perform with multiple arguments', () => {
+            assertParses(`feature T { scenario t { perform LoginPage.loginWith with "email", "password" } }`);
         });
 
-        it('should parse do with variable arguments', () => {
-            assertParses(`feature T { scenario "t" { do LoginPage.login with email, password } }`);
+        it('should parse perform with variable arguments', () => {
+            assertParses(`feature T { scenario t { perform LoginPage.loginWith with email, password } }`);
         });
     });
 
@@ -800,7 +800,7 @@ describe('Vero Grammar - Actions', () => {
     describe('Refresh Action', () => {
 
         it('should parse refresh', () => {
-            assertParses(`feature T { scenario "t" { refresh } }`);
+            assertParses(`feature T { scenario t { refresh } }`);
         });
     });
 
@@ -808,11 +808,11 @@ describe('Vero Grammar - Actions', () => {
     describe('Clear Action', () => {
 
         it('should parse clear with string selector', () => {
-            assertParses(`feature T { scenario "t" { clear "searchInput" } }`);
+            assertParses(`feature T { scenario t { clear "searchInput" } }`);
         });
 
         it('should parse clear with page field', () => {
-            assertParses(`feature T { scenario "t" { clear SearchPage.input } }`);
+            assertParses(`feature T { scenario t { clear SearchPage.inputEl } }`);
         });
     });
 
@@ -820,11 +820,11 @@ describe('Vero Grammar - Actions', () => {
     describe('Screenshot Action', () => {
 
         it('should parse take screenshot without name', () => {
-            assertParses(`feature T { scenario "t" { take screenshot } }`);
+            assertParses(`feature T { scenario t { take screenshot } }`);
         });
 
         it('should parse take screenshot with name', () => {
-            assertParses(`feature T { scenario "t" { take screenshot "error-state" } }`);
+            assertParses(`feature T { scenario t { take screenshot "error-state" } }`);
         });
     });
 
@@ -832,15 +832,15 @@ describe('Vero Grammar - Actions', () => {
     describe('Log Action', () => {
 
         it('should parse log with string', () => {
-            assertParses(`feature T { scenario "t" { log "Test message" } }`);
+            assertParses(`feature T { scenario t { log "Test message" } }`);
         });
 
         it('should parse log with variable', () => {
-            assertParses(`feature T { scenario "t" { log message } }`);
+            assertParses(`feature T { scenario t { log msg } }`);
         });
 
         it('should parse log with number', () => {
-            assertParses(`feature T { scenario "t" { log 123 } }`);
+            assertParses(`feature T { scenario t { log 123 } }`);
         });
     });
 
@@ -850,7 +850,7 @@ describe('Vero Grammar - Actions', () => {
         it('should parse many actions in sequence', () => {
             assertParses(`
                 feature T {
-                    scenario "Complete flow" {
+                    scenario CompleteFlow {
                         open "/login"
                         wait 1 seconds
                         fill "email" with "test@example.com"
@@ -877,23 +877,23 @@ describe('Vero Grammar - Assertions', () => {
     describe('Visibility Assertions', () => {
 
         it('should parse is visible', () => {
-            assertParses(`feature T { scenario "t" { verify "Dashboard" is visible } }`);
+            assertParses(`feature T { scenario t { verify "Dashboard" is visible } }`);
         });
 
         it('should parse is not visible', () => {
-            assertParses(`feature T { scenario "t" { verify "Error" is not visible } }`);
+            assertParses(`feature T { scenario t { verify "Error" is not visible } }`);
         });
 
         it('should parse is hidden', () => {
-            assertParses(`feature T { scenario "t" { verify "Loader" is hidden } }`);
+            assertParses(`feature T { scenario t { verify "Loader" is hidden } }`);
         });
 
         it('should parse with page field', () => {
-            assertParses(`feature T { scenario "t" { verify LoginPage.errorMsg is visible } }`);
+            assertParses(`feature T { scenario t { verify LoginPage.errorMsg is visible } }`);
         });
 
         it('should parse with CSS selector', () => {
-            assertParses(`feature T { scenario "t" { verify ".success-message" is visible } }`);
+            assertParses(`feature T { scenario t { verify ".success-message" is visible } }`);
         });
     });
 
@@ -901,31 +901,31 @@ describe('Vero Grammar - Assertions', () => {
     describe('State Assertions', () => {
 
         it('should parse is enabled', () => {
-            assertParses(`feature T { scenario "t" { verify "Submit" is enabled } }`);
+            assertParses(`feature T { scenario t { verify "Submit" is enabled } }`);
         });
 
         it('should parse is disabled', () => {
-            assertParses(`feature T { scenario "t" { verify "Submit" is disabled } }`);
+            assertParses(`feature T { scenario t { verify "Submit" is disabled } }`);
         });
 
         it('should parse is not enabled', () => {
-            assertParses(`feature T { scenario "t" { verify "Submit" is not enabled } }`);
+            assertParses(`feature T { scenario t { verify "Submit" is not enabled } }`);
         });
 
         it('should parse is checked', () => {
-            assertParses(`feature T { scenario "t" { verify "checkbox" is checked } }`);
+            assertParses(`feature T { scenario t { verify "checkbox" is checked } }`);
         });
 
         it('should parse is not checked', () => {
-            assertParses(`feature T { scenario "t" { verify "checkbox" is not checked } }`);
+            assertParses(`feature T { scenario t { verify "checkbox" is not checked } }`);
         });
 
         it('should parse is empty', () => {
-            assertParses(`feature T { scenario "t" { verify "input" is empty } }`);
+            assertParses(`feature T { scenario t { verify "input" is empty } }`);
         });
 
         it('should parse is not empty', () => {
-            assertParses(`feature T { scenario "t" { verify "input" is not empty } }`);
+            assertParses(`feature T { scenario t { verify "input" is not empty } }`);
         });
     });
 
@@ -933,15 +933,15 @@ describe('Vero Grammar - Assertions', () => {
     describe('Contains Assertions', () => {
 
         it('should parse contains with string', () => {
-            assertParses(`feature T { scenario "t" { verify "message" is contains "Hello" } }`);
+            assertParses(`feature T { scenario t { verify "message" is contains "Hello" } }`);
         });
 
         it('should parse is not contains', () => {
-            assertParses(`feature T { scenario "t" { verify "message" is not contains "Error" } }`);
+            assertParses(`feature T { scenario t { verify "message" is not contains "Error" } }`);
         });
 
         it('should parse contains with variable', () => {
-            assertParses(`feature T { scenario "t" { verify "message" is contains expectedText } }`);
+            assertParses(`feature T { scenario t { verify "message" is contains expectedText } }`);
         });
     });
 
@@ -949,15 +949,15 @@ describe('Vero Grammar - Assertions', () => {
     describe('Page Field Assertions', () => {
 
         it('should parse page field visibility', () => {
-            assertParses(`feature T { scenario "t" { verify LoginPage.submitBtn is visible } }`);
+            assertParses(`feature T { scenario t { verify LoginPage.submitBtn is visible } }`);
         });
 
         it('should parse page field enabled state', () => {
-            assertParses(`feature T { scenario "t" { verify LoginPage.submitBtn is enabled } }`);
+            assertParses(`feature T { scenario t { verify LoginPage.submitBtn is enabled } }`);
         });
 
         it('should parse page field contains', () => {
-            assertParses(`feature T { scenario "t" { verify LoginPage.errorMsg is contains "Invalid" } }`);
+            assertParses(`feature T { scenario t { verify LoginPage.errorMsg is contains "Invalid" } }`);
         });
     });
 
@@ -965,11 +965,11 @@ describe('Vero Grammar - Assertions', () => {
     describe('Identifier Assertions', () => {
 
         it('should parse bare identifier visibility', () => {
-            assertParses(`feature T { scenario "t" { verify submitBtn is visible } }`);
+            assertParses(`feature T { scenario t { verify submitBtn is visible } }`);
         });
 
         it('should parse bare identifier state', () => {
-            assertParses(`feature T { scenario "t" { verify submitBtn is enabled } }`);
+            assertParses(`feature T { scenario t { verify submitBtn is enabled } }`);
         });
     });
 });
@@ -986,7 +986,7 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse simple if with element condition', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         if submitBtn is visible {
                             click submitBtn
                         }
@@ -998,7 +998,7 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse if with is not condition', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         if errorMsg is not visible {
                             log "No errors"
                         }
@@ -1010,7 +1010,7 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse if with page field condition', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         if LoginPage.submitBtn is enabled {
                             click LoginPage.submitBtn
                         }
@@ -1022,8 +1022,8 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse if else', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
-                        if error is visible {
+                    scenario t {
+                        if errorEl is visible {
                             log "Error found"
                         } else {
                             log "No errors"
@@ -1036,7 +1036,7 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse if with empty body', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         if element is visible {
                         }
                     }
@@ -1047,7 +1047,7 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse if with multiple statements', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         if submitBtn is enabled {
                             log "Button enabled"
                             click submitBtn
@@ -1065,8 +1065,8 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse equals comparison', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
-                        if count == 5 {
+                    scenario t {
+                        if total == 5 {
                             log "Five"
                         }
                     }
@@ -1077,8 +1077,8 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse not equals comparison', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
-                        if count != 0 {
+                    scenario t {
+                        if total != 0 {
                             log "Not zero"
                         }
                     }
@@ -1089,8 +1089,8 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse greater than comparison', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
-                        if count > 10 {
+                    scenario t {
+                        if total > 10 {
                             log "More than 10"
                         }
                     }
@@ -1101,8 +1101,8 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse less than comparison', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
-                        if count < 100 {
+                    scenario t {
+                        if total < 100 {
                             log "Less than 100"
                         }
                     }
@@ -1113,8 +1113,8 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse greater than or equal comparison', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
-                        if count >= 5 {
+                    scenario t {
+                        if total >= 5 {
                             log "Five or more"
                         }
                     }
@@ -1125,8 +1125,8 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse less than or equal comparison', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
-                        if count <= 100 {
+                    scenario t {
+                        if total <= 100 {
                             log "Hundred or less"
                         }
                     }
@@ -1137,7 +1137,7 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse string comparison', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         if status == "active" {
                             log "Active"
                         }
@@ -1153,7 +1153,7 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse repeat with number', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         repeat 5 times {
                             click "Next"
                         }
@@ -1165,8 +1165,8 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse repeat with variable', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
-                        repeat count times {
+                    scenario t {
+                        repeat total times {
                             click "Next"
                         }
                     }
@@ -1177,7 +1177,7 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse repeat with multiple statements', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         repeat 3 times {
                             click "Next"
                             wait 1 seconds
@@ -1191,7 +1191,7 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse repeat with empty body', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         repeat 5 times {
                         }
                     }
@@ -1206,7 +1206,7 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse nested if statements', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         if outer is visible {
                             if inner is visible {
                                 log "Both visible"
@@ -1220,7 +1220,7 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse if inside repeat', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         repeat 5 times {
                             if element is visible {
                                 click element
@@ -1234,7 +1234,7 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse repeat inside if', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         if condition is visible {
                             repeat 3 times {
                                 click element
@@ -1248,7 +1248,7 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse deeply nested control flow', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         if a is visible {
                             repeat 3 times {
                                 if b is visible {
@@ -1268,9 +1268,9 @@ describe('Vero Grammar - Control Flow', () => {
         it('should parse complex nested with else', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
-                        if user is visible {
-                            if admin is visible {
+                    scenario t {
+                        if userEl is visible {
+                            if adminEl is visible {
                                 log "Admin user"
                             } else {
                                 log "Regular user"
@@ -1295,19 +1295,19 @@ describe('Vero Grammar - Variables', () => {
     describe('Text Variables', () => {
 
         it('should parse text variable with string', () => {
-            assertParses(`feature T { scenario "t" { text username = "testuser" } }`);
+            assertParses(`feature T { scenario t { text username = "testuser" } }`);
         });
 
         it('should parse text variable with empty string', () => {
-            assertParses(`feature T { scenario "t" { text empty = "" } }`);
+            assertParses(`feature T { scenario t { text blank = "" } }`);
         });
 
         it('should parse text variable with special characters', () => {
-            assertParses(`feature T { scenario "t" { text email = "user+tag@example.com" } }`);
+            assertParses(`feature T { scenario t { text email = "user+tag@example.com" } }`);
         });
 
         it('should parse text variable with escaped quotes', () => {
-            assertParses(`feature T { scenario "t" { text quoted = "Say \\"Hello\\"" } }`);
+            assertParses(`feature T { scenario t { text quoted = "Say \\"Hello\\"" } }`);
         });
     });
 
@@ -1315,19 +1315,19 @@ describe('Vero Grammar - Variables', () => {
     describe('Number Variables', () => {
 
         it('should parse number variable with integer', () => {
-            assertParses(`feature T { scenario "t" { number count = 5 } }`);
+            assertParses(`feature T { scenario t { number total = 5 } }`);
         });
 
         it('should parse number variable with decimal', () => {
-            assertParses(`feature T { scenario "t" { number price = 99.99 } }`);
+            assertParses(`feature T { scenario t { number price = 99.99 } }`);
         });
 
         it('should parse number variable with zero', () => {
-            assertParses(`feature T { scenario "t" { number zero = 0 } }`);
+            assertParses(`feature T { scenario t { number zero = 0 } }`);
         });
 
         it('should parse number variable with large number', () => {
-            assertParses(`feature T { scenario "t" { number big = 999999999 } }`);
+            assertParses(`feature T { scenario t { number big = 999999999 } }`);
         });
     });
 
@@ -1335,11 +1335,11 @@ describe('Vero Grammar - Variables', () => {
     describe('Flag Variables', () => {
 
         it('should parse flag variable with string true', () => {
-            assertParses(`feature T { scenario "t" { flag isActive = "true" } }`);
+            assertParses(`feature T { scenario t { flag isActive = "true" } }`);
         });
 
         it('should parse flag variable with string false', () => {
-            assertParses(`feature T { scenario "t" { flag isDisabled = "false" } }`);
+            assertParses(`feature T { scenario t { flag isDisabled = "false" } }`);
         });
     });
 
@@ -1347,7 +1347,7 @@ describe('Vero Grammar - Variables', () => {
     describe('List Variables', () => {
 
         it('should parse list variable with string', () => {
-            assertParses(`feature T { scenario "t" { list items = "apple" } }`);
+            assertParses(`feature T { scenario t { list items = "apple" } }`);
         });
     });
 
@@ -1357,7 +1357,7 @@ describe('Vero Grammar - Variables', () => {
         it('should parse variable in fill action', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         text email = "test@example.com"
                         fill "email" with email
                     }
@@ -1368,9 +1368,9 @@ describe('Vero Grammar - Variables', () => {
         it('should parse variable in log action', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
-                        text message = "Hello World"
-                        log message
+                    scenario t {
+                        text msg = "Hello World"
+                        log msg
                     }
                 }
             `);
@@ -1379,9 +1379,9 @@ describe('Vero Grammar - Variables', () => {
         it('should parse variable in if condition', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
-                        number count = 5
-                        if count > 0 {
+                    scenario t {
+                        number total = 5
+                        if total > 0 {
                             log "Positive"
                         }
                     }
@@ -1392,9 +1392,9 @@ describe('Vero Grammar - Variables', () => {
         it('should parse variable in repeat', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
-                        number times = 3
-                        repeat times times {
+                    scenario t {
+                        number iterations = 3
+                        repeat iterations times {
                             log "Repeat"
                         }
                     }
@@ -1409,7 +1409,7 @@ describe('Vero Grammar - Variables', () => {
         it('should parse multiple variables', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         text username = "testuser"
                         text password = "password123"
                         number retries = 3
@@ -1422,7 +1422,7 @@ describe('Vero Grammar - Variables', () => {
         it('should parse variables mixed with actions', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         text email = "test@example.com"
                         fill "email" with email
                         text password = "password123"
@@ -1448,7 +1448,7 @@ describe('Vero Grammar - Edge Cases', () => {
             assertParses(`
                 # This is a comment
                 page TestPage {
-                    field button = "Button"
+                    field btn = "Button"
                 }
             `);
         });
@@ -1456,7 +1456,7 @@ describe('Vero Grammar - Edge Cases', () => {
         it('should parse with inline comment', () => {
             assertParses(`
                 page TestPage {
-                    field button = "Button"  # Inline comment
+                    field btn = "Button"  # Inline comment
                 }
             `);
         });
@@ -1467,7 +1467,7 @@ describe('Vero Grammar - Edge Cases', () => {
                 # Comment 2
                 page TestPage {
                     # Comment 3
-                    field button = "Button"
+                    field btn = "Button"
                 }
             `);
         });
@@ -1484,7 +1484,7 @@ describe('Vero Grammar - Edge Cases', () => {
     describe('Whitespace Handling', () => {
 
         it('should parse with minimal whitespace', () => {
-            assertParses(`page P{field f="x"}feature F{scenario "s"{log "x"}}`);
+            assertParses(`page P{field f="x"}feature F{scenario s{log "x"}}`);
         });
 
         it('should parse with excessive whitespace', () => {
@@ -1493,7 +1493,7 @@ describe('Vero Grammar - Edge Cases', () => {
 
                 page   TestPage    {
 
-                    field    button   =   "Button"
+                    field    btn   =   "Button"
 
                 }
 
@@ -1501,7 +1501,7 @@ describe('Vero Grammar - Edge Cases', () => {
         });
 
         it('should parse with tabs', () => {
-            assertParses(`page\tTestPage\t{\tfield\tbutton\t=\t"Button"\t}`);
+            assertParses(`page\tTestPage\t{\tfield\tbtn\t=\t"Button"\t}`);
         });
     });
 
@@ -1509,23 +1509,23 @@ describe('Vero Grammar - Edge Cases', () => {
     describe('String Literals', () => {
 
         it('should parse string with spaces', () => {
-            assertParses(`feature T { scenario "Test with spaces" { log "Message with spaces" } }`);
+            assertParses(`feature T { scenario TestWithSpaces { log "Message with spaces" } }`);
         });
 
         it('should parse string with newlines', () => {
-            assertParses(`feature T { scenario "t" { log "Line1\\nLine2" } }`);
+            assertParses(`feature T { scenario t { log "Line1\\nLine2" } }`);
         });
 
         it('should parse string with tabs', () => {
-            assertParses(`feature T { scenario "t" { log "Col1\\tCol2" } }`);
+            assertParses(`feature T { scenario t { log "Col1\\tCol2" } }`);
         });
 
         it('should parse string with backslashes', () => {
-            assertParses(`feature T { scenario "t" { log "Path\\\\to\\\\file" } }`);
+            assertParses(`feature T { scenario t { log "Path\\\\to\\\\file" } }`);
         });
 
         it('should parse string with unicode', () => {
-            assertParses(`feature T { scenario "t" { log "Hello World" } }`);
+            assertParses(`feature T { scenario t { log "Hello World" } }`);
         });
     });
 
@@ -1579,7 +1579,7 @@ describe('Vero Grammar - Edge Cases', () => {
         it('should parse mixed case actions', () => {
             assertParses(`
                 feature T {
-                    scenario "t" {
+                    scenario t {
                         CLICK "button"
                         Fill "input" with "text"
                         WAIT 1 SECONDS
@@ -1593,7 +1593,7 @@ describe('Vero Grammar - Edge Cases', () => {
     describe('Empty Constructs', () => {
 
         it('should parse empty scenario', () => {
-            assertParses(`feature T { scenario "Empty" {} }`);
+            assertParses(`feature T { scenario EmptyScenario {} }`);
         });
 
         it('should parse empty hook', () => {
@@ -1601,19 +1601,19 @@ describe('Vero Grammar - Edge Cases', () => {
         });
 
         it('should parse empty page action', () => {
-            assertParses(`page P { action {} }`);
+            assertParses(`page P { doAction {} }`);
         });
 
         it('should parse empty if body', () => {
-            assertParses(`feature T { scenario "t" { if x is visible {} } }`);
+            assertParses(`feature T { scenario t { if x is visible {} } }`);
         });
 
         it('should parse empty else body', () => {
-            assertParses(`feature T { scenario "t" { if x is visible { log "y" } else {} } }`);
+            assertParses(`feature T { scenario t { if x is visible { log "y" } else {} } }`);
         });
 
         it('should parse empty repeat body', () => {
-            assertParses(`feature T { scenario "t" { repeat 5 times {} } }`);
+            assertParses(`feature T { scenario t { repeat 5 times {} } }`);
         });
     });
 
@@ -1621,7 +1621,7 @@ describe('Vero Grammar - Edge Cases', () => {
     describe('Complex Nesting', () => {
 
         it('should parse 10 levels of nesting', () => {
-            let code = `feature T { scenario "t" {`;
+            let code = `feature T { scenario t {`;
             for (let i = 0; i < 10; i++) {
                 code += ` if x is visible {`;
             }
@@ -1649,14 +1649,14 @@ describe('Vero Grammar - Error Cases', () => {
         });
 
         it('should reject missing closing brace in feature', () => {
-            assertFails(`feature TestFeature { scenario "t" { log "x" }`);
+            assertFails(`feature TestFeature { scenario t { log "x" }`);
         });
 
         it('should reject missing closing brace in scenario', () => {
-            assertFails(`feature T { scenario "t" { log "x" }`);
+            assertFails(`feature T { scenario t { log "x" }`);
         });
 
-        it('should reject missing string quotes', () => {
+        it('should reject reserved word as scenario name', () => {
             assertFails(`feature T { scenario test { log "x" } }`);
         });
 
@@ -1669,11 +1669,11 @@ describe('Vero Grammar - Error Cases', () => {
         });
 
         it('should reject missing with in fill', () => {
-            assertFails(`feature T { scenario "t" { fill "x" "value" } }`);
+            assertFails(`feature T { scenario t { fill "x" "value" } }`);
         });
 
         it('should reject missing from in select', () => {
-            assertFails(`feature T { scenario "t" { select "option" "dropdown" } }`);
+            assertFails(`feature T { scenario t { select "option" "dropdown" } }`);
         });
     });
 
@@ -1681,7 +1681,7 @@ describe('Vero Grammar - Error Cases', () => {
     describe('Invalid Constructs', () => {
 
         it('should reject scenario outside feature', () => {
-            assertFails(`scenario "orphan" { log "x" }`);
+            assertFails(`scenario orphan { log "x" }`);
         });
 
         it('should reject field outside page', () => {
@@ -1693,7 +1693,6 @@ describe('Vero Grammar - Error Cases', () => {
         });
 
         it('should reject action keyword in wrong context', () => {
-            // Click at top level should fail
             assertFails(`click "button"`);
         });
     });
@@ -1702,23 +1701,23 @@ describe('Vero Grammar - Error Cases', () => {
     describe('Incomplete Statements', () => {
 
         it('should reject incomplete click', () => {
-            assertFails(`feature T { scenario "t" { click } }`);
+            assertFails(`feature T { scenario t { click } }`);
         });
 
         it('should reject incomplete fill', () => {
-            assertFails(`feature T { scenario "t" { fill "x" with } }`);
+            assertFails(`feature T { scenario t { fill "x" with } }`);
         });
 
         it('should reject incomplete verify', () => {
-            assertFails(`feature T { scenario "t" { verify "x" is } }`);
+            assertFails(`feature T { scenario t { verify "x" is } }`);
         });
 
         it('should reject incomplete if', () => {
-            assertFails(`feature T { scenario "t" { if } }`);
+            assertFails(`feature T { scenario t { if } }`);
         });
 
         it('should reject incomplete repeat', () => {
-            assertFails(`feature T { scenario "t" { repeat times { } } }`);
+            assertFails(`feature T { scenario t { repeat times { } } }`);
         });
     });
 
@@ -1726,15 +1725,15 @@ describe('Vero Grammar - Error Cases', () => {
     describe('Invalid Token Sequences', () => {
 
         it('should reject consecutive dots', () => {
-            assertFails(`feature T { scenario "t" { click Page..field } }`);
+            assertFails(`feature T { scenario t { click Page..elem } }`);
         });
 
         it('should reject empty tag', () => {
-            assertFails(`feature T { scenario "t" @ { log "x" } }`);
+            assertFails(`feature T { scenario t @ { log "x" } }`);
         });
 
         it('should reject invalid characters', () => {
-            assertFails(`feature T { scenario "t" { log $ } }`);
+            assertFails(`feature T { scenario t { log $ } }`);
         });
     });
 });
@@ -1756,7 +1755,7 @@ describe('Vero Grammar - Integration Tests', () => {
                     field submitBtn = "button[type='submit']"
                     field errorMsg = ".error-message"
 
-                    login with email, password {
+                    loginWith with email, password {
                         fill emailInput with email
                         fill passwordInput with password
                         click submitBtn
@@ -1775,19 +1774,19 @@ describe('Vero Grammar - Integration Tests', () => {
                         take screenshot "test-result"
                     }
 
-                    scenario "Valid credentials" @smoke @critical {
-                        do LoginPage.login with "admin@example.com", "password123"
+                    scenario ValidCredentials @smoke @critical {
+                        perform LoginPage.loginWith with "admin@example.com", "password123"
                         wait 2 seconds
                         verify "Dashboard" is visible
                     }
 
-                    scenario "Invalid credentials" @regression {
-                        do LoginPage.login with "invalid@example.com", "wrong"
+                    scenario InvalidCredentials @regression {
+                        perform LoginPage.loginWith with "invalid@example.com", "wrong"
                         verify LoginPage.errorMsg is visible
                         verify LoginPage.errorMsg is contains "Invalid"
                     }
 
-                    scenario "Empty credentials" @regression {
+                    scenario EmptyCredentials @regression {
                         click LoginPage.submitBtn
                         verify LoginPage.errorMsg is visible
                     }
@@ -1802,21 +1801,21 @@ describe('Vero Grammar - Integration Tests', () => {
                     field totalPrice = ".total"
                     field checkoutBtn = "Proceed to Checkout"
 
-                    checkout {
+                    doCheckout {
                         click checkoutBtn
                     }
                 }
 
                 page CheckoutPage {
                     field addressInput = "#address"
-                    field cardNumber = "#card-number"
-                    field cvv = "#cvv"
+                    field cardNumberInput = "#card-number"
+                    field cvvInput = "#cvv"
                     field placeOrderBtn = "Place Order"
                     field confirmation = ".order-confirmation"
 
-                    fillPayment with card, cvv {
-                        fill cardNumber with card
-                        fill cvv with cvv
+                    fillPayment with card, cvvVal {
+                        fill cardNumberInput with card
+                        fill cvvInput with cvvVal
                     }
                 }
 
@@ -1828,12 +1827,12 @@ describe('Vero Grammar - Integration Tests', () => {
                         open "/cart"
                     }
 
-                    scenario "Complete checkout" @smoke {
+                    scenario CompleteCheckout @smoke {
                         verify CartPage.cartItems is visible
-                        do CartPage.checkout
+                        perform CartPage.doCheckout
                         wait 2 seconds
                         fill CheckoutPage.addressInput with "123 Main St"
-                        do CheckoutPage.fillPayment with "4111111111111111", "123"
+                        perform CheckoutPage.fillPayment with "4111111111111111", "123"
                         click CheckoutPage.placeOrderBtn
                         verify CheckoutPage.confirmation is visible
                     }
@@ -1848,7 +1847,7 @@ describe('Vero Grammar - Integration Tests', () => {
                     field emailInput = "#email"
                     field passwordInput = "#password"
                     field confirmPassword = "#confirm-password"
-                    field termsCheckbox = "#terms"
+                    field termsChk = "#terms"
                     field submitBtn = "Register"
                     field nameError = "#name-error"
                     field emailError = "#email-error"
@@ -1862,14 +1861,14 @@ describe('Vero Grammar - Integration Tests', () => {
                         open "/register"
                     }
 
-                    scenario "All fields required" @regression {
+                    scenario AllFieldsRequired @regression {
                         click RegistrationPage.submitBtn
                         verify RegistrationPage.nameError is visible
                         verify RegistrationPage.emailError is visible
                         verify RegistrationPage.passwordError is visible
                     }
 
-                    scenario "Invalid email format" @regression {
+                    scenario InvalidEmailFormat @regression {
                         fill RegistrationPage.nameInput with "John Doe"
                         fill RegistrationPage.emailInput with "invalid-email"
                         click RegistrationPage.submitBtn
@@ -1877,7 +1876,7 @@ describe('Vero Grammar - Integration Tests', () => {
                         verify RegistrationPage.emailError is contains "valid email"
                     }
 
-                    scenario "Password mismatch" @regression {
+                    scenario PasswordMismatch @regression {
                         fill RegistrationPage.nameInput with "John Doe"
                         fill RegistrationPage.emailInput with "john@example.com"
                         fill RegistrationPage.passwordInput with "password123"
@@ -1898,39 +1897,39 @@ describe('Vero Grammar - Integration Tests', () => {
                     field noResults = ".no-results"
                     field filterDropdown = "#filter"
 
-                    search with query {
+                    doSearch with query {
                         fill searchInput with query
                         click searchBtn
                         wait 2 seconds
                     }
                 }
 
-                feature Search {
+                feature SearchFeature {
                     use SearchPage
 
                     before each {
                         open "/search"
                     }
 
-                    scenario "Basic search" @smoke {
-                        do SearchPage.search with "laptop"
+                    scenario BasicSearch @smoke {
+                        perform SearchPage.doSearch with "laptop"
                         verify SearchPage.results is visible
                     }
 
-                    scenario "No results" @regression {
-                        do SearchPage.search with "xyznonexistent123"
+                    scenario NoResults @regression {
+                        perform SearchPage.doSearch with "xyznonexistent123"
                         verify SearchPage.noResults is visible
                     }
 
-                    scenario "Search with filter" @regression {
-                        do SearchPage.search with "laptop"
+                    scenario SearchWithFilter @regression {
+                        perform SearchPage.doSearch with "laptop"
                         select "Price: Low to High" from SearchPage.filterDropdown
                         wait 1 seconds
                         verify SearchPage.results is visible
                     }
 
-                    scenario "Pagination" @regression {
-                        do SearchPage.search with "phone"
+                    scenario PaginationTest @regression {
+                        perform SearchPage.doSearch with "phone"
                         repeat 3 times {
                             scroll down
                             wait 1 seconds
@@ -1947,7 +1946,7 @@ describe('Vero Grammar - Integration Tests', () => {
 
         it('should parse feature with 100 scenarios', () => {
             const scenarios = Array.from({length: 100}, (_, i) =>
-                `scenario "Test ${i}" @tag${i % 5} { log "Test ${i}" }`
+                `scenario Test${i} @tag${i % 5} { log "Test ${i}" }`
             ).join('\n            ');
 
             assertParses(`
@@ -1976,7 +1975,7 @@ describe('Vero Grammar - Integration Tests', () => {
 
             assertParses(`
                 feature T {
-                    scenario "Many actions" {
+                    scenario ManyActions {
                         ${actions}
                     }
                 }
@@ -1989,8 +1988,8 @@ describe('Vero Grammar - Integration Tests', () => {
 
         it('should parse retry pattern', () => {
             assertParses(`
-                feature Retry {
-                    scenario "Retry on failure" {
+                feature RetryFeature {
+                    scenario RetryOnFailure {
                         number attempts = 0
                         repeat 3 times {
                             if "Success" is not visible {
@@ -2006,7 +2005,7 @@ describe('Vero Grammar - Integration Tests', () => {
         it('should parse conditional flow pattern', () => {
             assertParses(`
                 feature ConditionalFlow {
-                    scenario "Different paths" {
+                    scenario DifferentPaths {
                         if "Login" is visible {
                             fill "email" with "test@example.com"
                             click "Submit"
@@ -2025,7 +2024,7 @@ describe('Vero Grammar - Integration Tests', () => {
         it('should parse data-driven pattern', () => {
             assertParses(`
                 feature DataDriven {
-                    scenario "Multiple users" {
+                    scenario MultipleUsers {
                         text user1 = "user1@example.com"
                         text user2 = "user2@example.com"
                         text user3 = "user3@example.com"
@@ -2041,7 +2040,7 @@ describe('Vero Grammar - Integration Tests', () => {
 
         it('should parse cleanup pattern', () => {
             assertParses(`
-                feature Cleanup {
+                feature CleanupFeature {
                     before each {
                         open "/setup"
                         log "Setting up test"
@@ -2052,7 +2051,7 @@ describe('Vero Grammar - Integration Tests', () => {
                         log "Cleaning up"
                     }
 
-                    scenario "Test with cleanup" {
+                    scenario TestWithCleanup {
                         log "Running test"
                     }
                 }
@@ -2070,7 +2069,7 @@ describe('Vero Grammar - Return Statements', () => {
     it('should parse return without value', () => {
         assertParses(`
             page P {
-                action {
+                doAction {
                     return
                 }
             }
@@ -2080,7 +2079,7 @@ describe('Vero Grammar - Return Statements', () => {
     it('should parse return with string value', () => {
         assertParses(`
             page P {
-                action {
+                doAction {
                     return "result"
                 }
             }
@@ -2090,7 +2089,7 @@ describe('Vero Grammar - Return Statements', () => {
     it('should parse return with number value', () => {
         assertParses(`
             page P {
-                action {
+                doAction {
                     return 42
                 }
             }
@@ -2100,7 +2099,7 @@ describe('Vero Grammar - Return Statements', () => {
     it('should parse return with variable', () => {
         assertParses(`
             page P {
-                action {
+                doAction {
                     return result
                 }
             }
@@ -2110,7 +2109,7 @@ describe('Vero Grammar - Return Statements', () => {
     it('should parse return in conditional', () => {
         assertParses(`
             page P {
-                action {
+                doAction {
                     if condition is visible {
                         return "visible"
                     }
@@ -2127,7 +2126,6 @@ describe('Vero Grammar - Return Statements', () => {
 
 describe('Vero Grammar - Test Summary', () => {
     it('should have comprehensive coverage', () => {
-        // This test serves as documentation of our coverage
         const coverage = {
             pageDeclarations: 30,
             featureDeclarations: 30,

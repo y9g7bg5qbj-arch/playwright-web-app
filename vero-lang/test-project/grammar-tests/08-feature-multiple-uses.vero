@@ -1,57 +1,49 @@
 # Test: Feature with Multiple Use Statements
-# Category: Features - Multiple Uses (Updated to PAGEACTIONS Pattern)
+# Category: Features - Multiple Uses (Inline Actions)
 
 PAGE LoginPage {
     FIELD emailInput = "Email"
+
+    isEmailVisible RETURNS FLAG {
+        RETURN emailInput
+    }
+
+    enterEmail WITH val {
+        FILL emailInput WITH val
+    }
 }
 
 PAGE DashboardPage {
     FIELD header = "h1"
+
+    isHeaderVisible RETURNS FLAG {
+        RETURN header
+    }
+
+    getHeaderText RETURNS TEXT {
+        RETURN header
+    }
 }
 
 PAGE ProfilePage {
     FIELD avatar = ".avatar"
-}
 
-PAGEACTIONS LoginPageActions FOR LoginPage {
-    isEmailVisible RETURNS FLAG {
-        RETURN VISIBLE OF emailInput
-    }
-
-    enterEmail WITH value {
-        FILL emailInput WITH value
-    }
-}
-
-PAGEACTIONS DashboardPageActions FOR DashboardPage {
-    isHeaderVisible RETURNS FLAG {
-        RETURN VISIBLE OF header
-    }
-
-    getHeaderText RETURNS TEXT {
-        RETURN TEXT OF header
-    }
-}
-
-PAGEACTIONS ProfilePageActions FOR ProfilePage {
     isAvatarVisible RETURNS FLAG {
-        RETURN VISIBLE OF avatar
+        RETURN avatar
     }
 }
 
 FEATURE MultipleUsesFeature {
-    USE LoginPageActions
-    USE DashboardPageActions
-    USE ProfilePageActions
+    USE LoginPage
+    USE DashboardPage
+    USE ProfilePage
 
     SCENARIO AccessAllPages {
-        FLAG isEmail = PERFORM LoginPageActions.isEmailVisible
-        VERIFY isEmail IS TRUE
+        # Verify visibility using direct page field references
+        VERIFY LoginPage.emailInput IS VISIBLE
 
-        FLAG isHeader = PERFORM DashboardPageActions.isHeaderVisible
-        VERIFY isHeader IS TRUE
+        VERIFY DashboardPage.header IS VISIBLE
 
-        FLAG isAvatar = PERFORM ProfilePageActions.isAvatarVisible
-        VERIFY isAvatar IS TRUE
+        VERIFY ProfilePage.avatar IS VISIBLE
     }
 }

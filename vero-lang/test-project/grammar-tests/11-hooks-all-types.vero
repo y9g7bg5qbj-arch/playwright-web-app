@@ -20,7 +20,7 @@ feature AllHooksFeature {
         log "Suite completed"
     }
 
-    scenario "Test with all hooks" {
+    scenario ScenarioWithAllHooks {
         log "Running test"
     }
 }

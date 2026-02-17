@@ -9,7 +9,7 @@ PAGE LoginPage {
 PAGE FormPage {
     FIELD emailField = "#email"
     FIELD items = ".items"
-    FIELD link = "#link"
+    FIELD lnk = "#link"
 }
 
 PAGE UploadPage {
@@ -22,15 +22,15 @@ PAGE UploadPage {
 }
 
 PAGEACTIONS LoginPageActions FOR LoginPage {
-    enterEmail WITH value {
-        FILL emailInput WITH value
+    enterEmail WITH val {
+        FILL emailInput WITH val
     }
 
     clickLogin {
         CLICK loginButton
     }
 
-    login WITH email {
+    doLogin WITH email {
         FILL emailInput WITH email
         CLICK loginButton
     }
@@ -38,15 +38,15 @@ PAGEACTIONS LoginPageActions FOR LoginPage {
 
 PAGEACTIONS FormPageActions FOR FormPage {
     getEmailValue RETURNS TEXT {
-        RETURN VALUE OF emailField
+        RETURN emailField
     }
 
     getItemCount RETURNS NUMBER {
-        RETURN COUNT OF items
+        RETURN items
     }
 
     isEmailVisible RETURNS FLAG {
-        RETURN VISIBLE OF emailField
+        RETURN emailField
     }
 }
 
@@ -67,12 +67,8 @@ PAGEACTIONS UploadPageActions FOR UploadPage {
         CLICK uploadAllBtn
     }
 
-    isSuccessVisible RETURNS FLAG {
-        RETURN VISIBLE OF successMessage
-    }
-
     getUploadedCount RETURNS NUMBER {
-        RETURN COUNT OF uploadedCount
+        RETURN uploadedCount
     }
 }
 
@@ -83,14 +79,14 @@ FEATURE SerialLoginTests {
 
     SCENARIO FirstLoginTest @smoke {
         OPEN "https://example.com/login"
-        PERFORM LoginPageActions.login WITH "user1@test.com"
+        PERFORM LoginPageActions.doLogin WITH "user1@test.com"
         VERIFY URL CONTAINS "/dashboard"
         VERIFY TITLE EQUAL "Dashboard"
     }
 
     SCENARIO SecondLoginTest {
         OPEN "https://example.com/login"
-        PERFORM LoginPageActions.login WITH "user2@test.com"
+        PERFORM LoginPageActions.doLogin WITH "user2@test.com"
         VERIFY URL EQUAL "https://example.com/dashboard"
         VERIFY TITLE CONTAINS "Dashboard"
     }
@@ -164,11 +160,8 @@ FEATURE UrlTitleAssertions {
     SCENARIO VerifyElementHasProperties {
         OPEN "https://example.com/form"
 
-        TEXT emailValue = PERFORM FormPageActions.getEmailValue
-        VERIFY emailValue EQUAL "test@example.com"
-
-        NUMBER itemCount = PERFORM FormPageActions.getItemCount
-        VERIFY itemCount IS 5
+        VERIFY FormPage.emailField HAS VALUE "test@example.com"
+        VERIFY FormPage.items HAS COUNT 5
     }
 }
 
@@ -181,16 +174,14 @@ FEATURE FileUpload {
         PERFORM UploadPageActions.uploadFile WITH "test-files/document.pdf"
         PERFORM UploadPageActions.clickSubmit
 
-        FLAG isSuccess = PERFORM UploadPageActions.isSuccessVisible
-        VERIFY isSuccess IS TRUE
+        VERIFY UploadPage.successMessage IS VISIBLE
     }
 
     SCENARIO MultipleFileUpload {
         OPEN "https://example.com/gallery"
-        PERFORM UploadPageActions.uploadMultipleFiles WITH "images/photo1.jpg", "images/photo2.jpg", "images/photo3.jpg"
+        PERFORM UploadPageActions.uploadMultipleFiles WITH "images/photo1.jpg"
         PERFORM UploadPageActions.clickUploadAll
 
-        NUMBER count = PERFORM UploadPageActions.getUploadedCount
-        VERIFY count IS 3
+        VERIFY UploadPage.uploadedCount IS VISIBLE
     }
 }

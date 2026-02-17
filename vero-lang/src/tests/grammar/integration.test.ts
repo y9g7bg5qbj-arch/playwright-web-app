@@ -133,7 +133,7 @@ page LoginPage {
     field password = "#password"
     field submit = "Submit"
 
-    login with email, password {
+    doLogin with email, password {
         fill email with email
         fill password with password
         click submit
@@ -145,9 +145,9 @@ page LoginPage {
 feature Login {
     use LoginPage
 
-    scenario "Valid login" {
+    scenario ValidLogin {
         open "/login"
-        do LoginPage.login with "test@example.com", "password"
+        perform LoginPage.doLogin with "test@example.com", "password"
         verify "Dashboard" is visible
     }
 }
@@ -179,7 +179,7 @@ feature FullFlow {
     use DashboardPage
     use ProfilePage
 
-    scenario "Navigate all pages" {
+    scenario NavigateAllPages {
         fill LoginPage.email with "test@example.com"
         verify DashboardPage.header is visible
         click ProfilePage.avatar
@@ -197,7 +197,7 @@ feature FullFlow {
         it('should parse data-driven test pattern', () => {
             const code = `
 feature DataDrivenTests {
-    scenario "Test with multiple data sets" {
+    scenario TestWithMultipleDataSets {
         # First dataset
         text email1 = "user1@example.com"
         text password1 = "password1"
@@ -224,7 +224,7 @@ feature DataDrivenTests {
         it('should parse retry pattern', () => {
             const code = `
 feature RetryPattern {
-    scenario "Retry on failure" {
+    scenario RetryOnFailure {
         number attempts = 0
         repeat 3 times {
             click "Submit"
@@ -244,7 +244,7 @@ feature RetryPattern {
         it('should parse conditional navigation pattern', () => {
             const code = `
 feature ConditionalNavigation {
-    scenario "Handle different states" {
+    scenario HandleDifferentStates {
         open "/app"
 
         if "Login" is visible {
@@ -282,17 +282,17 @@ page FormPage {
     field reset = "Reset"
     field cancel = "Cancel"
 
-    fillPersonalInfo with first, last, email, phone {
-        fill firstName with first
-        fill lastName with last
+    fillPersonalInfo with fname, lname, email, phone {
+        fill firstName with fname
+        fill lastName with lname
         fill email with email
         fill phone with phone
     }
 
-    fillAddress with address, city, state, zip {
+    fillAddress with address, city, province, zip {
         fill address with address
         fill city with city
-        fill state with state
+        fill state with province
         fill zip with zip
     }
 
@@ -313,14 +313,14 @@ page FormPage {
         click cancel
     }
 
-    fillAndSubmit with first, last, email, phone, address, city, state, zip {
-        fill firstName with first
-        fill lastName with last
+    fillAndSubmit with fname, lname, email, phone, address, city, province, zip {
+        fill firstName with fname
+        fill lastName with lname
         fill email with email
         fill phone with phone
         fill address with address
         fill city with city
-        fill state with state
+        fill state with province
         fill zip with zip
         click submit
     }

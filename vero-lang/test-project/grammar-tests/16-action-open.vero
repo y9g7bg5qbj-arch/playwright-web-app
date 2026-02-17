@@ -2,7 +2,7 @@
 # Category: Actions - Open
 
 feature OpenActions {
-    scenario "Open variations" {
+    scenario OpenVariations {
         # Relative URL
         open "/login"
 

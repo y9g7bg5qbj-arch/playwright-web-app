@@ -1,13 +1,11 @@
-# Test: Page with PAGEACTIONS Definition
-# Category: Page Objects - Actions (New Pattern)
+# Test: Page with Action Definition
+# Category: Page Objects - Actions (Inline Pattern)
 
 PAGE PageWithAction {
     FIELD emailInput = "Email"
     FIELD passwordInput = "Password"
     FIELD submitBtn = "Submit"
-}
 
-PAGEACTIONS PageWithActionActions FOR PageWithAction {
     login WITH email, password {
         FILL emailInput WITH email
         FILL passwordInput WITH password

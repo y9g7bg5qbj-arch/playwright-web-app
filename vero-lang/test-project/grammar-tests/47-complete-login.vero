@@ -1,5 +1,5 @@
 # Test: Complete Login Flow
-# Category: Integration - Login (New PAGEACTIONS Pattern)
+# Category: Integration - Login (Inline Actions)
 
 PAGE LoginPage {
     FIELD emailInput = "input[type='email']"
@@ -7,21 +7,13 @@ PAGE LoginPage {
     FIELD submitBtn = "button[type='submit']"
     FIELD errorMsg = ".error-message"
     FIELD rememberMe = "#remember"
-}
 
-PAGE DashboardPage {
-    FIELD header = ".dashboard-header"
-    FIELD welcomeMsg = ".welcome-message"
-    FIELD logoutBtn = "Logout"
-}
-
-PAGEACTIONS LoginPageActions FOR LoginPage {
-    enterEmail WITH value {
-        FILL emailInput WITH value
+    enterEmail WITH val {
+        FILL emailInput WITH val
     }
 
-    enterPassword WITH value {
-        FILL passwordInput WITH value
+    enterPassword WITH val {
+        FILL passwordInput WITH val
     }
 
     clickSubmit {
@@ -32,7 +24,7 @@ PAGEACTIONS LoginPageActions FOR LoginPage {
         CHECK rememberMe
     }
 
-    login WITH email, password {
+    doLogin WITH email, password {
         FILL emailInput WITH email
         FILL passwordInput WITH password
         CLICK submitBtn
@@ -45,20 +37,12 @@ PAGEACTIONS LoginPageActions FOR LoginPage {
         CLICK submitBtn
     }
 
-    isErrorVisible RETURNS FLAG {
-        RETURN VISIBLE OF errorMsg
-    }
-
     getErrorText RETURNS TEXT {
-        RETURN TEXT OF errorMsg
-    }
-
-    isEmailEmpty RETURNS FLAG {
-        RETURN VISIBLE OF emailInput
+        RETURN errorMsg
     }
 
     getEmailValue RETURNS TEXT {
-        RETURN TEXT OF emailInput
+        RETURN emailInput
     }
 
     awaitLoginPage {
@@ -66,22 +50,22 @@ PAGEACTIONS LoginPageActions FOR LoginPage {
     }
 }
 
-PAGEACTIONS DashboardPageActions FOR DashboardPage {
+PAGE DashboardPage {
+    FIELD header = ".dashboard-header"
+    FIELD welcomeMsg = ".welcome-message"
+    FIELD logoutBtn = "Logout"
+
     clickLogout {
         CLICK logoutBtn
     }
 
-    logout {
+    doLogout {
         CLICK logoutBtn
         WAIT 1 SECONDS
     }
 
-    isHeaderVisible RETURNS FLAG {
-        RETURN VISIBLE OF header
-    }
-
     getWelcomeText RETURNS TEXT {
-        RETURN TEXT OF welcomeMsg
+        RETURN welcomeMsg
     }
 
     awaitDashboard {
@@ -90,8 +74,8 @@ PAGEACTIONS DashboardPageActions FOR DashboardPage {
 }
 
 FEATURE UserAuthentication {
-    USE LoginPageActions
-    USE DashboardPageActions
+    USE LoginPage
+    USE DashboardPage
 
     BEFORE EACH {
         OPEN "/login"
@@ -103,42 +87,38 @@ FEATURE UserAuthentication {
     }
 
     SCENARIO ValidLogin @smoke @critical {
-        PERFORM LoginPageActions.login WITH "admin@example.com", "password123"
+        PERFORM LoginPage.doLogin WITH "admin@example.com", "password123"
         WAIT 2 SECONDS
 
-        FLAG isHeader = PERFORM DashboardPageActions.isHeaderVisible
-        VERIFY isHeader IS TRUE
+        VERIFY DashboardPage.header IS VISIBLE
 
-        TEXT welcomeText = PERFORM DashboardPageActions.getWelcomeText
-        VERIFY welcomeText CONTAINS "Welcome"
+        TEXT welcomeText = DashboardPage.getWelcomeText
+        VERIFY welcomeText IS CONTAINS "Welcome"
     }
 
     SCENARIO InvalidCredentials @regression {
-        PERFORM LoginPageActions.login WITH "invalid@example.com", "wrongpassword"
+        PERFORM LoginPage.doLogin WITH "invalid@example.com", "wrongpassword"
 
-        FLAG hasError = PERFORM LoginPageActions.isErrorVisible
-        VERIFY hasError IS TRUE
+        VERIFY LoginPage.errorMsg IS VISIBLE
 
-        TEXT errorText = PERFORM LoginPageActions.getErrorText
-        VERIFY errorText CONTAINS "Invalid"
+        TEXT errorText = LoginPage.getErrorText
+        VERIFY errorText IS CONTAINS "Invalid"
     }
 
     SCENARIO EmptyCredentials @regression {
-        PERFORM LoginPageActions.clickSubmit
+        PERFORM LoginPage.clickSubmit
 
-        FLAG hasError = PERFORM LoginPageActions.isErrorVisible
-        VERIFY hasError IS TRUE
+        VERIFY LoginPage.errorMsg IS VISIBLE
     }
 
     SCENARIO RememberMe @regression {
-        PERFORM LoginPageActions.loginWithRemember WITH "user@example.com", "password"
+        PERFORM LoginPage.loginWithRemember WITH "user@example.com", "password"
 
-        FLAG isHeader = PERFORM DashboardPageActions.isHeaderVisible
-        VERIFY isHeader IS TRUE
+        VERIFY DashboardPage.header IS VISIBLE
 
-        PERFORM DashboardPageActions.logout
+        PERFORM DashboardPage.doLogout
 
-        TEXT emailValue = PERFORM LoginPageActions.getEmailValue
-        VERIFY emailValue CONTAINS "user@example.com"
+        TEXT emailValue = LoginPage.getEmailValue
+        VERIFY emailValue IS CONTAINS "user@example.com"
     }
 }

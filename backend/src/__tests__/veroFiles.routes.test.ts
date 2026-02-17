@@ -1,7 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
+
+// Mock MongoDB connection (prevents MONGODB_URI requirement at import time)
+vi.mock('../db/mongodb', () => ({
+  getMongoUri: () => 'mongodb://localhost:27017/test',
+  getDb: vi.fn(),
+  COLLECTIONS: {},
+}));
+
+vi.mock('../db/repositories/mongo', () => ({}));
 
 describe('veroFiles.routes sandbox filtering', () => {
   let tempProjectRoot = '';

@@ -7,12 +7,12 @@
 
 page CommentPage {
     # Comment before field
-    field button = "Button"  # Inline comment after field
+    field btn = "Button"  # Inline comment after field
 
     # Comment before action
-    action {
+    doAction {
         # Comment inside action
-        click button  # Inline comment after statement
+        click btn  # Inline comment after statement
     }
 }
 
@@ -26,7 +26,7 @@ feature CommentFeature {
     }
 
     # Comment before scenario
-    scenario "Test with comments" {
+    scenario TestWithComments {
         # Comment inside scenario
         log "Running"  # Inline comment
 

@@ -44,11 +44,11 @@ PAGEACTIONS ProductPageActions FOR ProductPage {
     }
 
     getProductTitle RETURNS TEXT {
-        RETURN TEXT OF productTitle
+        RETURN productTitle
     }
 
     getPrice RETURNS TEXT {
-        RETURN TEXT OF price
+        RETURN price
     }
 }
 
@@ -62,20 +62,8 @@ PAGEACTIONS CartPageActions FOR CartPage {
         WAIT 2 SECONDS
     }
 
-    isCartItemsVisible RETURNS FLAG {
-        RETURN VISIBLE OF cartItems
-    }
-
-    isCartTotalVisible RETURNS FLAG {
-        RETURN VISIBLE OF cartTotal
-    }
-
-    isEmptyCartVisible RETURNS FLAG {
-        RETURN VISIBLE OF emptyCart
-    }
-
-    isCheckoutDisabled RETURNS FLAG {
-        RETURN VISIBLE OF checkoutBtn
+    getOrderNumber RETURNS TEXT {
+        RETURN cartTotal
     }
 }
 
@@ -94,18 +82,6 @@ PAGEACTIONS CheckoutPageActions FOR CheckoutPage {
 
     clickPlaceOrder {
         CLICK placeOrderBtn
-    }
-
-    isOrderConfirmationVisible RETURNS FLAG {
-        RETURN VISIBLE OF orderConfirmation
-    }
-
-    isOrderNumberVisible RETURNS FLAG {
-        RETURN VISIBLE OF orderNumber
-    }
-
-    getOrderNumber RETURNS TEXT {
-        RETURN TEXT OF orderNumber
     }
 }
 
@@ -126,8 +102,7 @@ FEATURE CheckoutFlow {
         # Add product to cart
         PERFORM ProductPageActions.addToCart
 
-        FLAG hasItems = PERFORM CartPageActions.isCartItemsVisible
-        VERIFY hasItems IS TRUE
+        VERIFY CartPage.cartItems IS VISIBLE
 
         # Proceed to checkout
         PERFORM CartPageActions.proceedToCheckout
@@ -143,11 +118,8 @@ FEATURE CheckoutFlow {
         WAIT 3 SECONDS
 
         # Verify confirmation
-        FLAG isConfirmed = PERFORM CheckoutPageActions.isOrderConfirmationVisible
-        VERIFY isConfirmed IS TRUE
-
-        FLAG hasOrderNumber = PERFORM CheckoutPageActions.isOrderNumberVisible
-        VERIFY hasOrderNumber IS TRUE
+        VERIFY CheckoutPage.orderConfirmation IS VISIBLE
+        VERIFY CheckoutPage.orderNumber IS VISIBLE
 
         TAKE SCREENSHOT "order-confirmation"
     }
@@ -155,8 +127,7 @@ FEATURE CheckoutFlow {
     SCENARIO MultipleItemsCheckout @regression {
         PERFORM ProductPageActions.addMultiple WITH "3"
 
-        FLAG hasTotal = PERFORM CartPageActions.isCartTotalVisible
-        VERIFY hasTotal IS TRUE
+        VERIFY CartPage.cartTotal IS VISIBLE
 
         PERFORM CartPageActions.proceedToCheckout
     }
@@ -164,7 +135,6 @@ FEATURE CheckoutFlow {
     SCENARIO EmptyCartCheckout @regression {
         OPEN "/cart"
 
-        FLAG isEmpty = PERFORM CartPageActions.isEmptyCartVisible
-        VERIFY isEmpty IS TRUE
+        VERIFY CartPage.emptyCart IS VISIBLE
     }
 }

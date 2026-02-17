@@ -22,7 +22,7 @@ PAGEACTIONS SearchPageActions FOR SearchPage {
         CLICK searchBtn
     }
 
-    search WITH query {
+    doSearch WITH query {
         FILL searchInput WITH query
         CLICK searchBtn
         WAIT 2 SECONDS
@@ -37,29 +37,13 @@ PAGEACTIONS SearchPageActions FOR SearchPage {
         WAIT 1 SECONDS
     }
 
-    sortBy WITH option {
-        SELECT option FROM sortDropdown
+    sortBy WITH opt {
+        SELECT opt FROM sortDropdown
         WAIT 1 SECONDS
     }
 
     clickLoadMore {
         CLICK loadMore
-    }
-
-    isResultsVisible RETURNS FLAG {
-        RETURN VISIBLE OF results
-    }
-
-    isResultItemVisible RETURNS FLAG {
-        RETURN VISIBLE OF resultItem
-    }
-
-    isNoResultsVisible RETURNS FLAG {
-        RETURN VISIBLE OF noResults
-    }
-
-    isLoadMoreVisible RETURNS FLAG {
-        RETURN VISIBLE OF loadMore
     }
 
     awaitSearchPage {
@@ -76,69 +60,57 @@ FEATURE SearchFunctionality {
     }
 
     SCENARIO BasicSearch @smoke {
-        PERFORM SearchPageActions.search WITH "laptop"
+        PERFORM SearchPageActions.doSearch WITH "laptop"
 
-        FLAG hasResults = PERFORM SearchPageActions.isResultsVisible
-        VERIFY hasResults IS TRUE
-
-        FLAG hasItems = PERFORM SearchPageActions.isResultItemVisible
-        VERIFY hasItems IS TRUE
+        VERIFY SearchPage.results IS VISIBLE
+        VERIFY SearchPage.resultItem IS VISIBLE
     }
 
     SCENARIO NoResults @regression {
-        PERFORM SearchPageActions.search WITH "xyznonexistent123456"
+        PERFORM SearchPageActions.doSearch WITH "xyznonexistent123456"
 
-        FLAG noResults = PERFORM SearchPageActions.isNoResultsVisible
-        VERIFY noResults IS TRUE
-
-        FLAG hasResults = PERFORM SearchPageActions.isResultsVisible
-        VERIFY hasResults IS NOT TRUE
+        VERIFY SearchPage.noResults IS VISIBLE
+        VERIFY SearchPage.results IS HIDDEN
     }
 
     SCENARIO SearchWithFilter @regression {
-        PERFORM SearchPageActions.search WITH "phone"
+        PERFORM SearchPageActions.doSearch WITH "phone"
         PERFORM SearchPageActions.applyFilter WITH "Electronics"
 
-        FLAG hasResults = PERFORM SearchPageActions.isResultsVisible
-        VERIFY hasResults IS TRUE
+        VERIFY SearchPage.results IS VISIBLE
     }
 
     SCENARIO SearchWithSort @regression {
-        PERFORM SearchPageActions.search WITH "tablet"
+        PERFORM SearchPageActions.doSearch WITH "tablet"
         PERFORM SearchPageActions.sortBy WITH "Price: Low to High"
 
-        FLAG hasResults = PERFORM SearchPageActions.isResultsVisible
-        VERIFY hasResults IS TRUE
+        VERIFY SearchPage.results IS VISIBLE
     }
 
     SCENARIO ClearAndNewSearch @regression {
-        PERFORM SearchPageActions.search WITH "keyboard"
+        PERFORM SearchPageActions.doSearch WITH "keyboard"
 
-        FLAG hasResults = PERFORM SearchPageActions.isResultsVisible
-        VERIFY hasResults IS TRUE
+        VERIFY SearchPage.results IS VISIBLE
 
         PERFORM SearchPageActions.clearSearch
-        PERFORM SearchPageActions.search WITH "mouse"
+        PERFORM SearchPageActions.doSearch WITH "mouse"
 
-        FLAG hasNewResults = PERFORM SearchPageActions.isResultsVisible
-        VERIFY hasNewResults IS TRUE
+        VERIFY SearchPage.results IS VISIBLE
     }
 
     SCENARIO Pagination @regression {
-        PERFORM SearchPageActions.search WITH "accessories"
+        PERFORM SearchPageActions.doSearch WITH "accessories"
 
         REPEAT 3 TIMES {
             SCROLL DOWN
             WAIT 1 SECONDS
         }
 
-        FLAG hasLoadMore = PERFORM SearchPageActions.isLoadMoreVisible
-        IF hasLoadMore IS TRUE {
+        IF SearchPage.loadMore IS VISIBLE {
             PERFORM SearchPageActions.clickLoadMore
             WAIT 2 SECONDS
         }
 
-        FLAG hasResults = PERFORM SearchPageActions.isResultsVisible
-        VERIFY hasResults IS TRUE
+        VERIFY SearchPage.results IS VISIBLE
     }
 }

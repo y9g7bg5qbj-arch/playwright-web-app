@@ -104,14 +104,17 @@ export const COLLECTIONS = {
   // Scheduling
   SCHEDULES: 'schedules',
   SCHEDULE_RUNS: 'schedule_runs',
+  SCHEDULE_TEST_RESULTS: 'schedule_test_results',
   SCHEDULED_TESTS: 'scheduled_tests',
   SCHEDULED_TEST_RUNS: 'scheduled_test_runs',
   SCHEDULE_NOTIFICATIONS: 'schedule_notifications',
+  NOTIFICATION_HISTORY: 'notification_history',
 
   // Variables & Environments
   ENVIRONMENTS: 'environments',
   ENVIRONMENT_VARIABLES: 'environment_variables',
   GLOBAL_VARIABLES: 'global_variables',
+  USER_ENVIRONMENTS: 'user_environments',
   APP_ENVIRONMENTS: 'app_environments',
 
   // Repository & Page Objects
@@ -128,15 +131,25 @@ export const COLLECTIONS = {
   // Collaboration
   SANDBOXES: 'sandboxes',
   PULL_REQUESTS: 'pull_requests',
+  PULL_REQUEST_REVIEWS: 'pull_request_reviews',
+  PULL_REQUEST_COMMENTS: 'pull_request_comments',
+  PULL_REQUEST_FILES: 'pull_request_files',
+  PROJECT_SETTINGS: 'project_settings',
 
   // Agents & GitHub
   AGENTS: 'agents',
   GITHUB_INTEGRATIONS: 'github_integrations',
+  GITHUB_REPOSITORY_CONFIGS: 'github_repository_configs',
   GITHUB_WORKFLOW_RUNS: 'github_workflow_runs',
+  GITHUB_WORKFLOW_JOBS: 'github_workflow_jobs',
 
   // Run Parameters
   RUN_PARAMETER_DEFINITIONS: 'run_parameter_definitions',
   RUN_PARAMETER_SETS: 'run_parameter_sets',
+
+  // Infrastructure
+  REMOTE_RUNNERS: 'remote_runners',
+  STORED_CREDENTIALS: 'stored_credentials',
 
   // System
   SETTINGS: 'settings',

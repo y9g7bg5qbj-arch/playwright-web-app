@@ -2,7 +2,7 @@
 # Category: Variables - List
 
 feature ListVariables {
-    scenario "List variable" {
+    scenario ListVariableDecl {
         # List as string (current grammar limitation)
         list items = "apple, banana, orange"
 

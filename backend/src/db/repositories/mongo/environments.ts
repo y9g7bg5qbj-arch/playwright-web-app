@@ -23,18 +23,18 @@ export interface MongoUserEnvironment {
 
 export const userEnvironmentRepository = {
   async findById(id: string): Promise<MongoUserEnvironment | null> {
-    return getCollection<MongoUserEnvironment>('user_environments').findOne({ id });
+    return getCollection<MongoUserEnvironment>(COLLECTIONS.USER_ENVIRONMENTS).findOne({ id });
   },
 
   async findByUserId(userId: string): Promise<MongoUserEnvironment[]> {
-    return getCollection<MongoUserEnvironment>('user_environments')
+    return getCollection<MongoUserEnvironment>(COLLECTIONS.USER_ENVIRONMENTS)
       .find({ userId })
       .sort({ name: 1 })
       .toArray();
   },
 
   async findActiveByUserId(userId: string): Promise<MongoUserEnvironment | null> {
-    return getCollection<MongoUserEnvironment>('user_environments').findOne({ userId, isActive: true });
+    return getCollection<MongoUserEnvironment>(COLLECTIONS.USER_ENVIRONMENTS).findOne({ userId, isActive: true });
   },
 
   async create(data: Omit<MongoUserEnvironment, '_id' | 'id' | 'createdAt' | 'updatedAt'>): Promise<MongoUserEnvironment> {
@@ -45,12 +45,12 @@ export const userEnvironmentRepository = {
       createdAt: now,
       updatedAt: now
     };
-    await getCollection<MongoUserEnvironment>('user_environments').insertOne(env);
+    await getCollection<MongoUserEnvironment>(COLLECTIONS.USER_ENVIRONMENTS).insertOne(env);
     return env;
   },
 
   async update(id: string, data: Partial<MongoUserEnvironment>): Promise<MongoUserEnvironment | null> {
-    const result = await getCollection<MongoUserEnvironment>('user_environments').findOneAndUpdate(
+    const result = await getCollection<MongoUserEnvironment>(COLLECTIONS.USER_ENVIRONMENTS).findOneAndUpdate(
       { id },
       { $set: { ...data, updatedAt: new Date() } },
       { returnDocument: 'after' }
@@ -59,14 +59,14 @@ export const userEnvironmentRepository = {
   },
 
   async deactivateAll(userId: string): Promise<void> {
-    await getCollection<MongoUserEnvironment>('user_environments').updateMany(
+    await getCollection<MongoUserEnvironment>(COLLECTIONS.USER_ENVIRONMENTS).updateMany(
       { userId },
       { $set: { isActive: false, updatedAt: new Date() } }
     );
   },
 
   async delete(id: string): Promise<boolean> {
-    const result = await getCollection<MongoUserEnvironment>('user_environments').deleteOne({ id });
+    const result = await getCollection<MongoUserEnvironment>(COLLECTIONS.USER_ENVIRONMENTS).deleteOne({ id });
     return result.deletedCount > 0;
   }
 };
@@ -90,23 +90,23 @@ export interface MongoEnvironmentVariable {
 
 export const environmentVariableRepository = {
   async findByEnvironmentId(environmentId: string): Promise<MongoEnvironmentVariable[]> {
-    return getCollection<MongoEnvironmentVariable>('environment_variables')
+    return getCollection<MongoEnvironmentVariable>(COLLECTIONS.ENVIRONMENT_VARIABLES)
       .find({ environmentId })
       .sort({ key: 1 })
       .toArray();
   },
 
   async findByKey(environmentId: string, key: string): Promise<MongoEnvironmentVariable | null> {
-    return getCollection<MongoEnvironmentVariable>('environment_variables').findOne({ environmentId, key });
+    return getCollection<MongoEnvironmentVariable>(COLLECTIONS.ENVIRONMENT_VARIABLES).findOne({ environmentId, key });
   },
 
   async countByEnvironmentId(environmentId: string): Promise<number> {
-    return getCollection<MongoEnvironmentVariable>('environment_variables').countDocuments({ environmentId });
+    return getCollection<MongoEnvironmentVariable>(COLLECTIONS.ENVIRONMENT_VARIABLES).countDocuments({ environmentId });
   },
 
   async upsert(environmentId: string, key: string, data: Partial<MongoEnvironmentVariable>): Promise<MongoEnvironmentVariable> {
     const now = new Date();
-    const result = await getCollection<MongoEnvironmentVariable>('environment_variables').findOneAndUpdate(
+    const result = await getCollection<MongoEnvironmentVariable>(COLLECTIONS.ENVIRONMENT_VARIABLES).findOneAndUpdate(
       { environmentId, key },
       {
         $set: { ...data, updatedAt: now },
@@ -118,12 +118,12 @@ export const environmentVariableRepository = {
   },
 
   async delete(environmentId: string, key: string): Promise<boolean> {
-    const result = await getCollection<MongoEnvironmentVariable>('environment_variables').deleteOne({ environmentId, key });
+    const result = await getCollection<MongoEnvironmentVariable>(COLLECTIONS.ENVIRONMENT_VARIABLES).deleteOne({ environmentId, key });
     return result.deletedCount > 0;
   },
 
   async deleteByEnvironmentId(environmentId: string): Promise<number> {
-    const result = await getCollection<MongoEnvironmentVariable>('environment_variables').deleteMany({ environmentId });
+    const result = await getCollection<MongoEnvironmentVariable>(COLLECTIONS.ENVIRONMENT_VARIABLES).deleteMany({ environmentId });
     return result.deletedCount;
   }
 };
@@ -147,19 +147,19 @@ export interface MongoGlobalVariable {
 
 export const globalVariableRepository = {
   async findByUserId(userId: string): Promise<MongoGlobalVariable[]> {
-    return getCollection<MongoGlobalVariable>('global_variables')
+    return getCollection<MongoGlobalVariable>(COLLECTIONS.GLOBAL_VARIABLES)
       .find({ userId })
       .sort({ key: 1 })
       .toArray();
   },
 
   async findByKey(userId: string, key: string): Promise<MongoGlobalVariable | null> {
-    return getCollection<MongoGlobalVariable>('global_variables').findOne({ userId, key });
+    return getCollection<MongoGlobalVariable>(COLLECTIONS.GLOBAL_VARIABLES).findOne({ userId, key });
   },
 
   async upsert(userId: string, key: string, data: Partial<MongoGlobalVariable>): Promise<MongoGlobalVariable> {
     const now = new Date();
-    const result = await getCollection<MongoGlobalVariable>('global_variables').findOneAndUpdate(
+    const result = await getCollection<MongoGlobalVariable>(COLLECTIONS.GLOBAL_VARIABLES).findOneAndUpdate(
       { userId, key },
       {
         $set: { ...data, updatedAt: now },
@@ -171,7 +171,7 @@ export const globalVariableRepository = {
   },
 
   async delete(userId: string, key: string): Promise<boolean> {
-    const result = await getCollection<MongoGlobalVariable>('global_variables').deleteOne({ userId, key });
+    const result = await getCollection<MongoGlobalVariable>(COLLECTIONS.GLOBAL_VARIABLES).deleteOne({ userId, key });
     return result.deletedCount > 0;
   }
 };

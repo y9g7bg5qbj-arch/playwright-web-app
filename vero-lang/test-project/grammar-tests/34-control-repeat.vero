@@ -2,7 +2,7 @@
 # Category: Control Flow - Repeat
 
 feature RepeatStatements {
-    scenario "Repeat variations" {
+    scenario RepeatVariations {
         # Repeat with literal
         repeat 5 times {
             log "Iteration"

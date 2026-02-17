@@ -188,7 +188,7 @@ export const scheduleRunRepository = {
 
 export const scheduleTestResultRepository = {
   async findByRunId(runId: string): Promise<MongoScheduleTestResult[]> {
-    return getCollection<MongoScheduleTestResult>('schedule_test_results').find({ runId }).toArray();
+    return getCollection<MongoScheduleTestResult>(COLLECTIONS.SCHEDULE_TEST_RESULTS).find({ runId }).toArray();
   },
 
   async create(data: Omit<MongoScheduleTestResult, '_id' | 'id'>): Promise<MongoScheduleTestResult> {
@@ -196,12 +196,12 @@ export const scheduleTestResultRepository = {
       id: uuidv4(),
       ...data
     };
-    await getCollection<MongoScheduleTestResult>('schedule_test_results').insertOne(result);
+    await getCollection<MongoScheduleTestResult>(COLLECTIONS.SCHEDULE_TEST_RESULTS).insertOne(result);
     return result;
   },
 
   async deleteByRunId(runId: string): Promise<number> {
-    const result = await getCollection<MongoScheduleTestResult>('schedule_test_results').deleteMany({ runId });
+    const result = await getCollection<MongoScheduleTestResult>(COLLECTIONS.SCHEDULE_TEST_RESULTS).deleteMany({ runId });
     return result.deletedCount;
   }
 };
@@ -375,11 +375,11 @@ export const scheduleNotificationRepository = {
 
 export const notificationHistoryRepository = {
   async findById(id: string): Promise<MongoNotificationHistory | null> {
-    return getCollection<MongoNotificationHistory>('notification_history').findOne({ id });
+    return getCollection<MongoNotificationHistory>(COLLECTIONS.NOTIFICATION_HISTORY).findOne({ id });
   },
 
   async findByScheduleId(scheduleId: string, limit: number = 50): Promise<MongoNotificationHistory[]> {
-    return getCollection<MongoNotificationHistory>('notification_history')
+    return getCollection<MongoNotificationHistory>(COLLECTIONS.NOTIFICATION_HISTORY)
       .find({ scheduleId })
       .sort({ createdAt: -1 })
       .limit(limit)
@@ -387,7 +387,7 @@ export const notificationHistoryRepository = {
   },
 
   async findByRunId(runId: string): Promise<MongoNotificationHistory[]> {
-    return getCollection<MongoNotificationHistory>('notification_history')
+    return getCollection<MongoNotificationHistory>(COLLECTIONS.NOTIFICATION_HISTORY)
       .find({ runId })
       .sort({ createdAt: -1 })
       .toArray();
@@ -399,12 +399,12 @@ export const notificationHistoryRepository = {
       ...data,
       createdAt: new Date()
     };
-    await getCollection<MongoNotificationHistory>('notification_history').insertOne(notification);
+    await getCollection<MongoNotificationHistory>(COLLECTIONS.NOTIFICATION_HISTORY).insertOne(notification);
     return notification;
   },
 
   async update(id: string, data: Partial<MongoNotificationHistory>): Promise<MongoNotificationHistory | null> {
-    const result = await getCollection<MongoNotificationHistory>('notification_history').findOneAndUpdate(
+    const result = await getCollection<MongoNotificationHistory>(COLLECTIONS.NOTIFICATION_HISTORY).findOneAndUpdate(
       { id },
       { $set: data },
       { returnDocument: 'after' }

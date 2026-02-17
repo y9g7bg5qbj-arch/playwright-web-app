@@ -9,7 +9,7 @@ page WaitPage {
 feature WaitActions {
     use WaitPage
 
-    scenario "Wait variations" {
+    scenario WaitVariations {
         # Wait with seconds
         wait 1 seconds
         wait 2 seconds

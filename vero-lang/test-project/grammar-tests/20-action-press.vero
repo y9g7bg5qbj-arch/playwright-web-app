@@ -2,7 +2,7 @@
 # Category: Actions - Press
 
 feature PressActions {
-    scenario "Press key variations" {
+    scenario PressKeyVariations {
         # Single keys
         press "Enter"
         press "Tab"

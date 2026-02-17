@@ -219,7 +219,7 @@ export function useRecording({
         }, 1000);
       });
 
-      socket.on('codegen:error', (data: { error: string }) => {
+      socket.on('codegen:error', (data: { sessionId: string; error: string }) => {
         console.error('[Recording] Error:', data.error);
         addConsoleOutput(`Recording error: ${data.error}`);
       });

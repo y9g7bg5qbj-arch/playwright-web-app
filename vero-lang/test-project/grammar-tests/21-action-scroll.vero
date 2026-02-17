@@ -9,7 +9,7 @@ page ScrollPage {
 feature ScrollActions {
     use ScrollPage
 
-    scenario "Scroll variations" {
+    scenario ScrollVariations {
         # Scroll to element
         scroll to "footer"
         scroll to ScrollPage.footer

@@ -2,17 +2,17 @@
 # Category: Actions - Log
 
 feature LogActions {
-    scenario "Log variations" {
+    scenario LogVariations {
         # Log with string
         log "Starting test"
         log "Step 1 complete"
 
         # Log with variable
-        text message = "Dynamic message"
-        log message
+        text msg = "Dynamic message"
+        log msg
 
         # Log with number
-        number count = 42
-        log count
+        number total = 42
+        log total
     }
 }

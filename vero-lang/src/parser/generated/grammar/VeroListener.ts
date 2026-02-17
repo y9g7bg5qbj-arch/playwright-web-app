@@ -6,11 +6,18 @@ import { ErrorNode, ParseTreeListener, ParserRuleContext, TerminalNode } from "a
 import { ProgramContext } from "./VeroParser.js";
 import { DeclarationContext } from "./VeroParser.js";
 import { PageDeclarationContext } from "./VeroParser.js";
+import { UrlPatternsContext } from "./VeroParser.js";
 import { PageBodyContext } from "./VeroParser.js";
 import { PageMemberContext } from "./VeroParser.js";
 import { FieldDeclarationContext } from "./VeroParser.js";
+import { SelectorTypeContext } from "./VeroParser.js";
 import { ActionDeclarationContext } from "./VeroParser.js";
 import { ParameterListContext } from "./VeroParser.js";
+import { ReturnTypeContext } from "./VeroParser.js";
+import { PageActionsDeclarationContext } from "./VeroParser.js";
+import { PageActionsBodyContext } from "./VeroParser.js";
+import { PageActionsMemberContext } from "./VeroParser.js";
+import { PageActionsActionDeclarationContext } from "./VeroParser.js";
 import { FeatureDeclarationContext } from "./VeroParser.js";
 import { FeatureAnnotationContext } from "./VeroParser.js";
 import { FeatureBodyContext } from "./VeroParser.js";
@@ -34,6 +41,28 @@ import { WithFixtureStatementContext } from "./VeroParser.js";
 import { FixtureOptionsBlockContext } from "./VeroParser.js";
 import { FixtureOptionContext } from "./VeroParser.js";
 import { StatementContext } from "./VeroParser.js";
+import { UtilityStatementContext } from "./VeroParser.js";
+import { UtilityAssignmentContext } from "./VeroParser.js";
+import { UtilityExpressionContext } from "./VeroParser.js";
+import { TrimExpressionContext } from "./VeroParser.js";
+import { ConvertExpressionContext } from "./VeroParser.js";
+import { ExtractExpressionContext } from "./VeroParser.js";
+import { ReplaceExpressionContext } from "./VeroParser.js";
+import { SplitExpressionContext } from "./VeroParser.js";
+import { JoinExpressionContext } from "./VeroParser.js";
+import { LengthExpressionContext } from "./VeroParser.js";
+import { PadExpressionContext } from "./VeroParser.js";
+import { TodayExpressionContext } from "./VeroParser.js";
+import { NowExpressionContext } from "./VeroParser.js";
+import { AddDateExpressionContext } from "./VeroParser.js";
+import { SubtractDateExpressionContext } from "./VeroParser.js";
+import { DateUnitContext } from "./VeroParser.js";
+import { FormatExpressionContext } from "./VeroParser.js";
+import { DatePartExpressionContext } from "./VeroParser.js";
+import { RoundExpressionContext } from "./VeroParser.js";
+import { AbsoluteExpressionContext } from "./VeroParser.js";
+import { GenerateExpressionContext } from "./VeroParser.js";
+import { RandomExpressionContext } from "./VeroParser.js";
 import { ActionStatementContext } from "./VeroParser.js";
 import { ClickActionContext } from "./VeroParser.js";
 import { FillActionContext } from "./VeroParser.js";
@@ -46,13 +75,17 @@ import { PressActionContext } from "./VeroParser.js";
 import { ScrollActionContext } from "./VeroParser.js";
 import { DirectionContext } from "./VeroParser.js";
 import { WaitActionContext } from "./VeroParser.js";
-import { DoActionContext } from "./VeroParser.js";
+import { PerformActionContext } from "./VeroParser.js";
 import { RefreshActionContext } from "./VeroParser.js";
 import { ClearActionContext } from "./VeroParser.js";
 import { ScreenshotActionContext } from "./VeroParser.js";
 import { LogActionContext } from "./VeroParser.js";
 import { UploadActionContext } from "./VeroParser.js";
 import { FileListContext } from "./VeroParser.js";
+import { SwitchToNewTabActionContext } from "./VeroParser.js";
+import { SwitchToTabActionContext } from "./VeroParser.js";
+import { OpenInNewTabActionContext } from "./VeroParser.js";
+import { CloseTabActionContext } from "./VeroParser.js";
 import { AssertionStatementContext } from "./VeroParser.js";
 import { SelectorOrTextContext } from "./VeroParser.js";
 import { ConditionContext } from "./VeroParser.js";
@@ -69,6 +102,13 @@ import { VariableDeclarationContext } from "./VeroParser.js";
 import { VariableTypeContext } from "./VeroParser.js";
 import { ReturnStatementContext } from "./VeroParser.js";
 import { DataQueryStatementContext } from "./VeroParser.js";
+import { RowStatementContext } from "./VeroParser.js";
+import { RowModifierContext } from "./VeroParser.js";
+import { RowsStatementContext } from "./VeroParser.js";
+import { ColumnAccessStatementContext } from "./VeroParser.js";
+import { CountStatementContext } from "./VeroParser.js";
+import { SimpleTableReferenceContext } from "./VeroParser.js";
+import { LegacyDataQueryStatementContext } from "./VeroParser.js";
 import { DataResultTypeContext } from "./VeroParser.js";
 import { DataQueryContext } from "./VeroParser.js";
 import { AggregationQueryContext } from "./VeroParser.js";
@@ -132,6 +172,16 @@ export class VeroListener implements ParseTreeListener {
      */
     exitPageDeclaration?: (ctx: PageDeclarationContext) => void;
     /**
+     * Enter a parse tree produced by `VeroParser.urlPatterns`.
+     * @param ctx the parse tree
+     */
+    enterUrlPatterns?: (ctx: UrlPatternsContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.urlPatterns`.
+     * @param ctx the parse tree
+     */
+    exitUrlPatterns?: (ctx: UrlPatternsContext) => void;
+    /**
      * Enter a parse tree produced by `VeroParser.pageBody`.
      * @param ctx the parse tree
      */
@@ -162,6 +212,16 @@ export class VeroListener implements ParseTreeListener {
      */
     exitFieldDeclaration?: (ctx: FieldDeclarationContext) => void;
     /**
+     * Enter a parse tree produced by `VeroParser.selectorType`.
+     * @param ctx the parse tree
+     */
+    enterSelectorType?: (ctx: SelectorTypeContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.selectorType`.
+     * @param ctx the parse tree
+     */
+    exitSelectorType?: (ctx: SelectorTypeContext) => void;
+    /**
      * Enter a parse tree produced by `VeroParser.actionDeclaration`.
      * @param ctx the parse tree
      */
@@ -181,6 +241,56 @@ export class VeroListener implements ParseTreeListener {
      * @param ctx the parse tree
      */
     exitParameterList?: (ctx: ParameterListContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.returnType`.
+     * @param ctx the parse tree
+     */
+    enterReturnType?: (ctx: ReturnTypeContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.returnType`.
+     * @param ctx the parse tree
+     */
+    exitReturnType?: (ctx: ReturnTypeContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.pageActionsDeclaration`.
+     * @param ctx the parse tree
+     */
+    enterPageActionsDeclaration?: (ctx: PageActionsDeclarationContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.pageActionsDeclaration`.
+     * @param ctx the parse tree
+     */
+    exitPageActionsDeclaration?: (ctx: PageActionsDeclarationContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.pageActionsBody`.
+     * @param ctx the parse tree
+     */
+    enterPageActionsBody?: (ctx: PageActionsBodyContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.pageActionsBody`.
+     * @param ctx the parse tree
+     */
+    exitPageActionsBody?: (ctx: PageActionsBodyContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.pageActionsMember`.
+     * @param ctx the parse tree
+     */
+    enterPageActionsMember?: (ctx: PageActionsMemberContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.pageActionsMember`.
+     * @param ctx the parse tree
+     */
+    exitPageActionsMember?: (ctx: PageActionsMemberContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.pageActionsActionDeclaration`.
+     * @param ctx the parse tree
+     */
+    enterPageActionsActionDeclaration?: (ctx: PageActionsActionDeclarationContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.pageActionsActionDeclaration`.
+     * @param ctx the parse tree
+     */
+    exitPageActionsActionDeclaration?: (ctx: PageActionsActionDeclarationContext) => void;
     /**
      * Enter a parse tree produced by `VeroParser.featureDeclaration`.
      * @param ctx the parse tree
@@ -412,6 +522,226 @@ export class VeroListener implements ParseTreeListener {
      */
     exitStatement?: (ctx: StatementContext) => void;
     /**
+     * Enter a parse tree produced by `VeroParser.utilityStatement`.
+     * @param ctx the parse tree
+     */
+    enterUtilityStatement?: (ctx: UtilityStatementContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.utilityStatement`.
+     * @param ctx the parse tree
+     */
+    exitUtilityStatement?: (ctx: UtilityStatementContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.utilityAssignment`.
+     * @param ctx the parse tree
+     */
+    enterUtilityAssignment?: (ctx: UtilityAssignmentContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.utilityAssignment`.
+     * @param ctx the parse tree
+     */
+    exitUtilityAssignment?: (ctx: UtilityAssignmentContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.utilityExpression`.
+     * @param ctx the parse tree
+     */
+    enterUtilityExpression?: (ctx: UtilityExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.utilityExpression`.
+     * @param ctx the parse tree
+     */
+    exitUtilityExpression?: (ctx: UtilityExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.trimExpression`.
+     * @param ctx the parse tree
+     */
+    enterTrimExpression?: (ctx: TrimExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.trimExpression`.
+     * @param ctx the parse tree
+     */
+    exitTrimExpression?: (ctx: TrimExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.convertExpression`.
+     * @param ctx the parse tree
+     */
+    enterConvertExpression?: (ctx: ConvertExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.convertExpression`.
+     * @param ctx the parse tree
+     */
+    exitConvertExpression?: (ctx: ConvertExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.extractExpression`.
+     * @param ctx the parse tree
+     */
+    enterExtractExpression?: (ctx: ExtractExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.extractExpression`.
+     * @param ctx the parse tree
+     */
+    exitExtractExpression?: (ctx: ExtractExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.replaceExpression`.
+     * @param ctx the parse tree
+     */
+    enterReplaceExpression?: (ctx: ReplaceExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.replaceExpression`.
+     * @param ctx the parse tree
+     */
+    exitReplaceExpression?: (ctx: ReplaceExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.splitExpression`.
+     * @param ctx the parse tree
+     */
+    enterSplitExpression?: (ctx: SplitExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.splitExpression`.
+     * @param ctx the parse tree
+     */
+    exitSplitExpression?: (ctx: SplitExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.joinExpression`.
+     * @param ctx the parse tree
+     */
+    enterJoinExpression?: (ctx: JoinExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.joinExpression`.
+     * @param ctx the parse tree
+     */
+    exitJoinExpression?: (ctx: JoinExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.lengthExpression`.
+     * @param ctx the parse tree
+     */
+    enterLengthExpression?: (ctx: LengthExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.lengthExpression`.
+     * @param ctx the parse tree
+     */
+    exitLengthExpression?: (ctx: LengthExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.padExpression`.
+     * @param ctx the parse tree
+     */
+    enterPadExpression?: (ctx: PadExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.padExpression`.
+     * @param ctx the parse tree
+     */
+    exitPadExpression?: (ctx: PadExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.todayExpression`.
+     * @param ctx the parse tree
+     */
+    enterTodayExpression?: (ctx: TodayExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.todayExpression`.
+     * @param ctx the parse tree
+     */
+    exitTodayExpression?: (ctx: TodayExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.nowExpression`.
+     * @param ctx the parse tree
+     */
+    enterNowExpression?: (ctx: NowExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.nowExpression`.
+     * @param ctx the parse tree
+     */
+    exitNowExpression?: (ctx: NowExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.addDateExpression`.
+     * @param ctx the parse tree
+     */
+    enterAddDateExpression?: (ctx: AddDateExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.addDateExpression`.
+     * @param ctx the parse tree
+     */
+    exitAddDateExpression?: (ctx: AddDateExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.subtractDateExpression`.
+     * @param ctx the parse tree
+     */
+    enterSubtractDateExpression?: (ctx: SubtractDateExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.subtractDateExpression`.
+     * @param ctx the parse tree
+     */
+    exitSubtractDateExpression?: (ctx: SubtractDateExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.dateUnit`.
+     * @param ctx the parse tree
+     */
+    enterDateUnit?: (ctx: DateUnitContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.dateUnit`.
+     * @param ctx the parse tree
+     */
+    exitDateUnit?: (ctx: DateUnitContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.formatExpression`.
+     * @param ctx the parse tree
+     */
+    enterFormatExpression?: (ctx: FormatExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.formatExpression`.
+     * @param ctx the parse tree
+     */
+    exitFormatExpression?: (ctx: FormatExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.datePartExpression`.
+     * @param ctx the parse tree
+     */
+    enterDatePartExpression?: (ctx: DatePartExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.datePartExpression`.
+     * @param ctx the parse tree
+     */
+    exitDatePartExpression?: (ctx: DatePartExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.roundExpression`.
+     * @param ctx the parse tree
+     */
+    enterRoundExpression?: (ctx: RoundExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.roundExpression`.
+     * @param ctx the parse tree
+     */
+    exitRoundExpression?: (ctx: RoundExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.absoluteExpression`.
+     * @param ctx the parse tree
+     */
+    enterAbsoluteExpression?: (ctx: AbsoluteExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.absoluteExpression`.
+     * @param ctx the parse tree
+     */
+    exitAbsoluteExpression?: (ctx: AbsoluteExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.generateExpression`.
+     * @param ctx the parse tree
+     */
+    enterGenerateExpression?: (ctx: GenerateExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.generateExpression`.
+     * @param ctx the parse tree
+     */
+    exitGenerateExpression?: (ctx: GenerateExpressionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.randomExpression`.
+     * @param ctx the parse tree
+     */
+    enterRandomExpression?: (ctx: RandomExpressionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.randomExpression`.
+     * @param ctx the parse tree
+     */
+    exitRandomExpression?: (ctx: RandomExpressionContext) => void;
+    /**
      * Enter a parse tree produced by `VeroParser.actionStatement`.
      * @param ctx the parse tree
      */
@@ -532,15 +862,15 @@ export class VeroListener implements ParseTreeListener {
      */
     exitWaitAction?: (ctx: WaitActionContext) => void;
     /**
-     * Enter a parse tree produced by `VeroParser.doAction`.
+     * Enter a parse tree produced by `VeroParser.performAction`.
      * @param ctx the parse tree
      */
-    enterDoAction?: (ctx: DoActionContext) => void;
+    enterPerformAction?: (ctx: PerformActionContext) => void;
     /**
-     * Exit a parse tree produced by `VeroParser.doAction`.
+     * Exit a parse tree produced by `VeroParser.performAction`.
      * @param ctx the parse tree
      */
-    exitDoAction?: (ctx: DoActionContext) => void;
+    exitPerformAction?: (ctx: PerformActionContext) => void;
     /**
      * Enter a parse tree produced by `VeroParser.refreshAction`.
      * @param ctx the parse tree
@@ -601,6 +931,46 @@ export class VeroListener implements ParseTreeListener {
      * @param ctx the parse tree
      */
     exitFileList?: (ctx: FileListContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.switchToNewTabAction`.
+     * @param ctx the parse tree
+     */
+    enterSwitchToNewTabAction?: (ctx: SwitchToNewTabActionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.switchToNewTabAction`.
+     * @param ctx the parse tree
+     */
+    exitSwitchToNewTabAction?: (ctx: SwitchToNewTabActionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.switchToTabAction`.
+     * @param ctx the parse tree
+     */
+    enterSwitchToTabAction?: (ctx: SwitchToTabActionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.switchToTabAction`.
+     * @param ctx the parse tree
+     */
+    exitSwitchToTabAction?: (ctx: SwitchToTabActionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.openInNewTabAction`.
+     * @param ctx the parse tree
+     */
+    enterOpenInNewTabAction?: (ctx: OpenInNewTabActionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.openInNewTabAction`.
+     * @param ctx the parse tree
+     */
+    exitOpenInNewTabAction?: (ctx: OpenInNewTabActionContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.closeTabAction`.
+     * @param ctx the parse tree
+     */
+    enterCloseTabAction?: (ctx: CloseTabActionContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.closeTabAction`.
+     * @param ctx the parse tree
+     */
+    exitCloseTabAction?: (ctx: CloseTabActionContext) => void;
     /**
      * Enter a parse tree produced by `VeroParser.assertionStatement`.
      * @param ctx the parse tree
@@ -761,6 +1131,76 @@ export class VeroListener implements ParseTreeListener {
      * @param ctx the parse tree
      */
     exitDataQueryStatement?: (ctx: DataQueryStatementContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.rowStatement`.
+     * @param ctx the parse tree
+     */
+    enterRowStatement?: (ctx: RowStatementContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.rowStatement`.
+     * @param ctx the parse tree
+     */
+    exitRowStatement?: (ctx: RowStatementContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.rowModifier`.
+     * @param ctx the parse tree
+     */
+    enterRowModifier?: (ctx: RowModifierContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.rowModifier`.
+     * @param ctx the parse tree
+     */
+    exitRowModifier?: (ctx: RowModifierContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.rowsStatement`.
+     * @param ctx the parse tree
+     */
+    enterRowsStatement?: (ctx: RowsStatementContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.rowsStatement`.
+     * @param ctx the parse tree
+     */
+    exitRowsStatement?: (ctx: RowsStatementContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.columnAccessStatement`.
+     * @param ctx the parse tree
+     */
+    enterColumnAccessStatement?: (ctx: ColumnAccessStatementContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.columnAccessStatement`.
+     * @param ctx the parse tree
+     */
+    exitColumnAccessStatement?: (ctx: ColumnAccessStatementContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.countStatement`.
+     * @param ctx the parse tree
+     */
+    enterCountStatement?: (ctx: CountStatementContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.countStatement`.
+     * @param ctx the parse tree
+     */
+    exitCountStatement?: (ctx: CountStatementContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.simpleTableReference`.
+     * @param ctx the parse tree
+     */
+    enterSimpleTableReference?: (ctx: SimpleTableReferenceContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.simpleTableReference`.
+     * @param ctx the parse tree
+     */
+    exitSimpleTableReference?: (ctx: SimpleTableReferenceContext) => void;
+    /**
+     * Enter a parse tree produced by `VeroParser.legacyDataQueryStatement`.
+     * @param ctx the parse tree
+     */
+    enterLegacyDataQueryStatement?: (ctx: LegacyDataQueryStatementContext) => void;
+    /**
+     * Exit a parse tree produced by `VeroParser.legacyDataQueryStatement`.
+     * @param ctx the parse tree
+     */
+    exitLegacyDataQueryStatement?: (ctx: LegacyDataQueryStatementContext) => void;
     /**
      * Enter a parse tree produced by `VeroParser.dataResultType`.
      * @param ctx the parse tree
