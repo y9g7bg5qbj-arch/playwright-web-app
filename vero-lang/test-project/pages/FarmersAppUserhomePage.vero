@@ -1,0 +1,13 @@
+# FarmersAppUserhomePage - Okta login page for Farmers app
+# Access these fields through FarmersAppUserhomePageActions
+
+PAGE FarmersAppUserhomePage {
+    FIELD connectingToOktaDashboardheading = "[data-se='o-form-head']"
+    FIELD myidOrUsernametextbox = "[name='identifier'], [id='idp-discovery-username']"
+    FIELD nextbutton1 = "[data-type='save'], [id='idp-discovery-submit']"
+    FIELD verifyWithYourPasswordheading = "[data-se='o-form-head']"
+    FIELD passwordtextbox = "[name='credentials.passcode'], [type='password']"
+    FIELD verifybutton = "[data-type='save'], [type='submit']"
+    FIELD workforemoststarQaAkamaitext = "[data-se='app-card']"
+    FIELD launchAppApexUatlink = "[data-se='app-card'] a, [aria-label*='Apex']"
+}

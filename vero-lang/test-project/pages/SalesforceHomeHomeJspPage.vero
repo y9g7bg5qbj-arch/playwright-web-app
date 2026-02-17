@@ -1,0 +1,23 @@
+# SalesforceHomeHomeJspPage - Salesforce home and account creation page
+# Access these fields through SalesforceHomeHomeJspPageActions
+
+PAGE SalesforceHomeHomeJspPage {
+    FIELD globalnavigation = "one-app-nav-bar, [role='navigation']"
+    FIELD accountslink = "a[title='Accounts'], one-app-nav-bar-item-root[data-id='Account']"
+    FIELD selectItem1Autfntxcarencacrow = "table tbody tr"
+    FIELD newbutton = "a[title='New'], button[name='New']"
+    FIELD newAccountdialog = "[role='dialog']"
+    FIELD representAPersonWhoHastext = "input[value='PersonAccount'], label:has-text('Person')"
+    FIELD nextbutton2 = "button:has-text('Next'), lightning-button[data-id='nextBtn']"
+    FIELD newAccountPersonalLinesdialog = "[role='dialog']"
+    FIELD salutationcombobox = "button[name='salutation'], lightning-combobox[field-name='Salutation']"
+    FIELD salutationlistbox = "[role='listbox']"
+    FIELD mrOption = "lightning-base-combobox-item[data-value='Mr.'], [title='Mr.']"
+    FIELD lastNametextbox = "input[name='lastName'], lightning-input[field-name='LastName'] input"
+    FIELD firstNametextbox = "input[name='firstName'], lightning-input[field-name='FirstName'] input"
+    FIELD sourceCategoryPlCombobox = "button[name='Source_Category_PL__c'], lightning-combobox[field-name='Source_Category_PL__c']"
+    FIELD sourceCategoryPlListbox = "[role='listbox']"
+    FIELD directContactoption = "lightning-base-combobox-item[data-value='Direct Contact'], [title='Direct Contact']"
+    FIELD undoSourceCategoryPlButton = "button[title='Clear Selection']"
+    FIELD savebutton = "button[name='SaveEdit'], button:has-text('Save')"
+}

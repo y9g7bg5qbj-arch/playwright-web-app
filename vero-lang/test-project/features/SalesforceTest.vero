@@ -1,0 +1,22 @@
+# Salesforce Test - Login via Okta and create a Personal Lines account
+
+FEATURE SalesforceTest {
+    USE FarmersAppUserhomePageActions
+    USE SalesforceHomeHomeJspPageActions
+
+    SCENARIO Saleforcetest {
+        OPEN "$OKTA_APP_URL"
+
+        PERFORM FarmersAppUserhomePageActions.loginToOkta WITH "$OKTA_USERNAME", "$OKTA_CREDENTIAL"
+
+        PERFORM FarmersAppUserhomePageActions.clickLaunchApexUat
+        SWITCH TO NEW TAB
+
+        PERFORM SalesforceHomeHomeJspPageActions.awaitSalesforceHome
+        PERFORM SalesforceHomeHomeJspPageActions.clickAccounts
+
+        PERFORM SalesforceHomeHomeJspPageActions.startNewPersonAccount
+
+        PERFORM SalesforceHomeHomeJspPageActions.fillPersonalLinesAccountForm WITH "as", "asdfasdf"
+    }
+}

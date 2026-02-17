@@ -1,0 +1,107 @@
+# SalesforceHomeHomeJspPageActions - Public interface to SalesforceHomeHomeJspPage
+# All interactions with Salesforce home and account creation go through these actions
+
+PAGEACTIONS SalesforceHomeHomeJspPageActions FOR SalesforceHomeHomeJspPage {
+    # ===== SETTERS =====
+    enterLastName WITH value {
+        CLICK lastNametextbox
+        FILL lastNametextbox WITH value
+    }
+
+    enterFirstName WITH value {
+        CLICK firstNametextbox
+        FILL firstNametextbox WITH value
+    }
+
+    # ===== ACTIONS =====
+    clickAccounts {
+        CLICK accountslink
+    }
+
+    clickNew {
+        CLICK newbutton
+    }
+
+    selectPersonAccount {
+        CLICK representAPersonWhoHastext
+    }
+
+    clickNext {
+        CLICK nextbutton2
+    }
+
+    selectSalutationMr {
+        CLICK salutationcombobox
+        CLICK mrOption
+    }
+
+    selectSourceCategoryDirectContact {
+        CLICK sourceCategoryPlCombobox
+        CLICK directContactoption
+    }
+
+    clickSave {
+        CLICK savebutton
+    }
+
+    # ===== COMPOSITE ACTIONS =====
+    startNewPersonAccount {
+        CLICK newbutton
+        CLICK representAPersonWhoHastext
+        CLICK nextbutton2
+    }
+
+    fillPersonalLinesAccountForm WITH firstName, lastName {
+        CLICK salutationcombobox
+        CLICK mrOption
+        CLICK lastNametextbox
+        FILL lastNametextbox WITH lastName
+        CLICK firstNametextbox
+        FILL firstNametextbox WITH firstName
+        CLICK sourceCategoryPlCombobox
+        CLICK directContactoption
+        CLICK savebutton
+    }
+
+    # ===== GETTERS =====
+    isGlobalNavigationVisible RETURNS FLAG {
+        RETURN VISIBLE OF globalnavigation
+    }
+
+    isAccountsListVisible RETURNS FLAG {
+        RETURN VISIBLE OF selectItem1Autfntxcarencacrow
+    }
+
+    isNewAccountDialogVisible RETURNS FLAG {
+        RETURN VISIBLE OF newAccountdialog
+    }
+
+    isNewAccountPersonalLinesDialogVisible RETURNS FLAG {
+        RETURN VISIBLE OF newAccountPersonalLinesdialog
+    }
+
+    isSalutationListVisible RETURNS FLAG {
+        RETURN VISIBLE OF salutationlistbox
+    }
+
+    isSourceCategoryListVisible RETURNS FLAG {
+        RETURN VISIBLE OF sourceCategoryPlListbox
+    }
+
+    isUndoSourceCategoryVisible RETURNS FLAG {
+        RETURN VISIBLE OF undoSourceCategoryPlButton
+    }
+
+    # ===== WAITERS =====
+    awaitSalesforceHome {
+        WAIT FOR globalnavigation
+    }
+
+    awaitAccountsList {
+        WAIT FOR selectItem1Autfntxcarencacrow
+    }
+
+    awaitNewAccountDialog {
+        WAIT FOR newAccountdialog
+    }
+}
