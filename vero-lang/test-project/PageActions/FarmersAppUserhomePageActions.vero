@@ -1,0 +1,62 @@
+# FarmersAppUserhomePageActions - Public interface to FarmersAppUserhomePage
+# All interactions with the Okta login flow go through these actions
+
+PAGEACTIONS FarmersAppUserhomePageActions FOR FarmersAppUserhomePage {
+    # ===== SETTERS =====
+    enterUsername WITH value {
+        CLICK myidOrUsernametextbox
+        FILL myidOrUsernametextbox WITH value
+    }
+
+    enterPassword WITH value {
+        FILL passwordtextbox WITH value
+    }
+
+    # ===== ACTIONS =====
+    clickNext {
+        CLICK nextbutton1
+    }
+
+    clickVerify {
+        CLICK verifybutton
+    }
+
+    clickLaunchApexUat {
+        CLICK launchAppApexUatlink
+    }
+
+    # ===== COMPOSITE ACTIONS =====
+    loginToOkta WITH username, password {
+        CLICK myidOrUsernametextbox
+        FILL myidOrUsernametextbox WITH username
+        CLICK nextbutton1
+        FILL passwordtextbox WITH password
+        CLICK verifybutton
+    }
+
+    # ===== GETTERS =====
+    isConnectingHeadingVisible RETURNS FLAG {
+        RETURN VISIBLE OF connectingToOktaDashboardheading
+    }
+
+    isVerifyPasswordHeadingVisible RETURNS FLAG {
+        RETURN VISIBLE OF verifyWithYourPasswordheading
+    }
+
+    isWorkforemostVisible RETURNS FLAG {
+        RETURN VISIBLE OF workforemoststarQaAkamaitext
+    }
+
+    # ===== WAITERS =====
+    awaitOktaDashboard {
+        WAIT FOR connectingToOktaDashboardheading
+    }
+
+    awaitPasswordPrompt {
+        WAIT FOR passwordtextbox
+    }
+
+    awaitAppList {
+        WAIT FOR workforemoststarQaAkamaitext
+    }
+}
