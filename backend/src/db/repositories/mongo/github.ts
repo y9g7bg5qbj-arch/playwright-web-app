@@ -123,6 +123,7 @@ export interface MongoGitHubWorkflowRun {
   startedAt?: Date;
   completedAt?: Date;
   createdAt: Date;
+  updatedAt?: Date;
 }
 
 export const githubWorkflowRunRepository = {
@@ -163,7 +164,7 @@ export const githubWorkflowRunRepository = {
     const result = await getCollection<MongoGitHubWorkflowRun>(COLLECTIONS.GITHUB_WORKFLOW_RUNS).findOneAndUpdate(
       { runId },
       {
-        $set: data,
+        $set: { ...data, updatedAt: now },
         $setOnInsert: { id: uuidv4(), runId, createdAt: now }
       },
       { upsert: true, returnDocument: 'after' }

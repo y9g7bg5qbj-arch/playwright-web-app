@@ -941,9 +941,9 @@ export class Parser {
             if (this.match(TokenType.STORAGE)) {
                 return { type: 'ClearStorage', line };
             }
-            // CLEAR target (existing behavior for clearing input fields)
+            // CLEAR target — clears an input field via .fill('')
             const target = this.parseTarget();
-            return { type: 'Click', target, line }; // fallback: treat CLEAR <target> as click for now
+            return { type: 'ClearField', target, line };
         }
 
         // SCROLL DOWN | SCROLL UP | SCROLL TO target

@@ -200,7 +200,8 @@ export type StatementNode =
     | ScrollStatement
     | WaitForNavigationStatement
     | WaitForNetworkIdleStatement
-    | WaitForUrlStatement;
+    | WaitForUrlStatement
+    | ClearFieldStatement;
 
 // Action Statements
 
@@ -417,6 +418,12 @@ export interface WaitForUrlStatement {
     type: 'WaitForUrl';
     condition: 'contains' | 'equals';
     value: ExpressionNode;
+    line: number;
+}
+
+export interface ClearFieldStatement {
+    type: 'ClearField';
+    target: TargetNode;
     line: number;
 }
 

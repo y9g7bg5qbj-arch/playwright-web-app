@@ -57,9 +57,9 @@ export function ProblemsPanel({ problems, isOpen, onClose, onNavigate }: Problem
             No problems detected
           </div>
         )}
-        {problems.map((problem, i) => (
+        {problems.map((problem) => (
           <div
-            key={i}
+            key={`${problem.severity}-${problem.file}-${problem.line}-${problem.column ?? 0}-${problem.message}`}
             className="flex items-start gap-2 px-3 py-1 text-xs cursor-pointer hover:bg-bg-secondary"
             onClick={() => onNavigate(problem.file, problem.line)}
           >

@@ -318,7 +318,7 @@ export type ServerToClientEvents = {
   'recording:debug': (data: { sessionId: string; message: string; elementInfo?: Record<string, unknown>; urlAfter?: string }) => void;
   // Codegen action events (forwarded to subscribers)
   'codegen:action': (data: { sessionId: string; veroCode: string; pagePath?: string; pageCode?: string; fieldCreated?: Record<string, unknown> }) => void;
-  'codegen:error': (data: { error: string }) => void;
+  'codegen:error': (data: { sessionId: string; error: string }) => void;
   'codegen:stopped': (data: { sessionId: string; veroLines: string[]; scenarioName: string }) => void;
   // Execution events
   'execution:log': (data: { executionId: string; message: string; level: 'info' | 'warn' | 'error' }) => void;
