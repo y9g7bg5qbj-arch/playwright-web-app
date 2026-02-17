@@ -1,28 +1,26 @@
 # Test: Visibility Assertions
-# Category: Assertions - Visibility (Updated to PAGEACTIONS Pattern)
+# Category: Assertions - Visibility (Inline Actions)
 
 PAGE VisibilityPage {
     FIELD header = "h1"
     FIELD loader = ".loading"
-    FIELD error = ".error"
+    FIELD errorEl = ".error"
     FIELD dashboard = "Dashboard"
-}
 
-PAGEACTIONS VisibilityPageActions FOR VisibilityPage {
     isHeaderVisible RETURNS FLAG {
-        RETURN VISIBLE OF header
+        RETURN header
     }
 
     isLoaderVisible RETURNS FLAG {
-        RETURN VISIBLE OF loader
+        RETURN loader
     }
 
     isErrorVisible RETURNS FLAG {
-        RETURN VISIBLE OF error
+        RETURN errorEl
     }
 
     isDashboardVisible RETURNS FLAG {
-        RETURN VISIBLE OF dashboard
+        RETURN dashboard
     }
 
     awaitPage {
@@ -31,23 +29,19 @@ PAGEACTIONS VisibilityPageActions FOR VisibilityPage {
 }
 
 FEATURE VisibilityAssertions {
-    USE VisibilityPageActions
+    USE VisibilityPage
 
     SCENARIO VisibilityChecks {
-        # Is visible - using getters
-        FLAG isDashboard = PERFORM VisibilityPageActions.isDashboardVisible
-        VERIFY isDashboard IS TRUE
+        # Is visible - using page field references directly
+        VERIFY VisibilityPage.dashboard IS VISIBLE
 
-        FLAG isHeader = PERFORM VisibilityPageActions.isHeaderVisible
-        VERIFY isHeader IS TRUE
+        VERIFY VisibilityPage.header IS VISIBLE
 
         # Is not visible
-        FLAG isError = PERFORM VisibilityPageActions.isErrorVisible
-        VERIFY isError IS NOT TRUE
+        VERIFY VisibilityPage.errorEl IS NOT VISIBLE
 
         # Is hidden
-        FLAG isLoader = PERFORM VisibilityPageActions.isLoaderVisible
-        VERIFY isLoader IS NOT TRUE
+        VERIFY VisibilityPage.loader IS NOT VISIBLE
 
         # Direct text verification (still allowed)
         VERIFY "Dashboard" IS VISIBLE

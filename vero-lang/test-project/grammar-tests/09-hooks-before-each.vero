@@ -7,11 +7,11 @@ feature BeforeEachHook {
         log "Starting test"
     }
 
-    scenario "Test 1" {
+    scenario Scenario1 {
         log "Running test 1"
     }
 
-    scenario "Test 2" {
+    scenario Scenario2 {
         log "Running test 2"
     }
 }

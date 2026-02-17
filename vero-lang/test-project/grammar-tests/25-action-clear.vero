@@ -9,7 +9,7 @@ page ClearPage {
 feature ClearActions {
     use ClearPage
 
-    scenario "Clear input variations" {
+    scenario ClearInputVariations {
         # Clear with string
         clear "search"
 

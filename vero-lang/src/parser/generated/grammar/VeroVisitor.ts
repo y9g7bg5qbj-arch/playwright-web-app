@@ -6,11 +6,18 @@ import { AbstractParseTreeVisitor } from "antlr4ng";
 import { ProgramContext } from "./VeroParser.js";
 import { DeclarationContext } from "./VeroParser.js";
 import { PageDeclarationContext } from "./VeroParser.js";
+import { UrlPatternsContext } from "./VeroParser.js";
 import { PageBodyContext } from "./VeroParser.js";
 import { PageMemberContext } from "./VeroParser.js";
 import { FieldDeclarationContext } from "./VeroParser.js";
+import { SelectorTypeContext } from "./VeroParser.js";
 import { ActionDeclarationContext } from "./VeroParser.js";
 import { ParameterListContext } from "./VeroParser.js";
+import { ReturnTypeContext } from "./VeroParser.js";
+import { PageActionsDeclarationContext } from "./VeroParser.js";
+import { PageActionsBodyContext } from "./VeroParser.js";
+import { PageActionsMemberContext } from "./VeroParser.js";
+import { PageActionsActionDeclarationContext } from "./VeroParser.js";
 import { FeatureDeclarationContext } from "./VeroParser.js";
 import { FeatureAnnotationContext } from "./VeroParser.js";
 import { FeatureBodyContext } from "./VeroParser.js";
@@ -34,6 +41,28 @@ import { WithFixtureStatementContext } from "./VeroParser.js";
 import { FixtureOptionsBlockContext } from "./VeroParser.js";
 import { FixtureOptionContext } from "./VeroParser.js";
 import { StatementContext } from "./VeroParser.js";
+import { UtilityStatementContext } from "./VeroParser.js";
+import { UtilityAssignmentContext } from "./VeroParser.js";
+import { UtilityExpressionContext } from "./VeroParser.js";
+import { TrimExpressionContext } from "./VeroParser.js";
+import { ConvertExpressionContext } from "./VeroParser.js";
+import { ExtractExpressionContext } from "./VeroParser.js";
+import { ReplaceExpressionContext } from "./VeroParser.js";
+import { SplitExpressionContext } from "./VeroParser.js";
+import { JoinExpressionContext } from "./VeroParser.js";
+import { LengthExpressionContext } from "./VeroParser.js";
+import { PadExpressionContext } from "./VeroParser.js";
+import { TodayExpressionContext } from "./VeroParser.js";
+import { NowExpressionContext } from "./VeroParser.js";
+import { AddDateExpressionContext } from "./VeroParser.js";
+import { SubtractDateExpressionContext } from "./VeroParser.js";
+import { DateUnitContext } from "./VeroParser.js";
+import { FormatExpressionContext } from "./VeroParser.js";
+import { DatePartExpressionContext } from "./VeroParser.js";
+import { RoundExpressionContext } from "./VeroParser.js";
+import { AbsoluteExpressionContext } from "./VeroParser.js";
+import { GenerateExpressionContext } from "./VeroParser.js";
+import { RandomExpressionContext } from "./VeroParser.js";
 import { ActionStatementContext } from "./VeroParser.js";
 import { ClickActionContext } from "./VeroParser.js";
 import { FillActionContext } from "./VeroParser.js";
@@ -46,13 +75,17 @@ import { PressActionContext } from "./VeroParser.js";
 import { ScrollActionContext } from "./VeroParser.js";
 import { DirectionContext } from "./VeroParser.js";
 import { WaitActionContext } from "./VeroParser.js";
-import { DoActionContext } from "./VeroParser.js";
+import { PerformActionContext } from "./VeroParser.js";
 import { RefreshActionContext } from "./VeroParser.js";
 import { ClearActionContext } from "./VeroParser.js";
 import { ScreenshotActionContext } from "./VeroParser.js";
 import { LogActionContext } from "./VeroParser.js";
 import { UploadActionContext } from "./VeroParser.js";
 import { FileListContext } from "./VeroParser.js";
+import { SwitchToNewTabActionContext } from "./VeroParser.js";
+import { SwitchToTabActionContext } from "./VeroParser.js";
+import { OpenInNewTabActionContext } from "./VeroParser.js";
+import { CloseTabActionContext } from "./VeroParser.js";
 import { AssertionStatementContext } from "./VeroParser.js";
 import { SelectorOrTextContext } from "./VeroParser.js";
 import { ConditionContext } from "./VeroParser.js";
@@ -69,6 +102,13 @@ import { VariableDeclarationContext } from "./VeroParser.js";
 import { VariableTypeContext } from "./VeroParser.js";
 import { ReturnStatementContext } from "./VeroParser.js";
 import { DataQueryStatementContext } from "./VeroParser.js";
+import { RowStatementContext } from "./VeroParser.js";
+import { RowModifierContext } from "./VeroParser.js";
+import { RowsStatementContext } from "./VeroParser.js";
+import { ColumnAccessStatementContext } from "./VeroParser.js";
+import { CountStatementContext } from "./VeroParser.js";
+import { SimpleTableReferenceContext } from "./VeroParser.js";
+import { LegacyDataQueryStatementContext } from "./VeroParser.js";
 import { DataResultTypeContext } from "./VeroParser.js";
 import { DataQueryContext } from "./VeroParser.js";
 import { AggregationQueryContext } from "./VeroParser.js";
@@ -123,6 +163,12 @@ export class VeroVisitor<Result> extends AbstractParseTreeVisitor<Result> {
      */
     visitPageDeclaration?: (ctx: PageDeclarationContext) => Result;
     /**
+     * Visit a parse tree produced by `VeroParser.urlPatterns`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitUrlPatterns?: (ctx: UrlPatternsContext) => Result;
+    /**
      * Visit a parse tree produced by `VeroParser.pageBody`.
      * @param ctx the parse tree
      * @return the visitor result
@@ -141,6 +187,12 @@ export class VeroVisitor<Result> extends AbstractParseTreeVisitor<Result> {
      */
     visitFieldDeclaration?: (ctx: FieldDeclarationContext) => Result;
     /**
+     * Visit a parse tree produced by `VeroParser.selectorType`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitSelectorType?: (ctx: SelectorTypeContext) => Result;
+    /**
      * Visit a parse tree produced by `VeroParser.actionDeclaration`.
      * @param ctx the parse tree
      * @return the visitor result
@@ -152,6 +204,36 @@ export class VeroVisitor<Result> extends AbstractParseTreeVisitor<Result> {
      * @return the visitor result
      */
     visitParameterList?: (ctx: ParameterListContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.returnType`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitReturnType?: (ctx: ReturnTypeContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.pageActionsDeclaration`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitPageActionsDeclaration?: (ctx: PageActionsDeclarationContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.pageActionsBody`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitPageActionsBody?: (ctx: PageActionsBodyContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.pageActionsMember`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitPageActionsMember?: (ctx: PageActionsMemberContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.pageActionsActionDeclaration`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitPageActionsActionDeclaration?: (ctx: PageActionsActionDeclarationContext) => Result;
     /**
      * Visit a parse tree produced by `VeroParser.featureDeclaration`.
      * @param ctx the parse tree
@@ -291,6 +373,138 @@ export class VeroVisitor<Result> extends AbstractParseTreeVisitor<Result> {
      */
     visitStatement?: (ctx: StatementContext) => Result;
     /**
+     * Visit a parse tree produced by `VeroParser.utilityStatement`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitUtilityStatement?: (ctx: UtilityStatementContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.utilityAssignment`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitUtilityAssignment?: (ctx: UtilityAssignmentContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.utilityExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitUtilityExpression?: (ctx: UtilityExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.trimExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitTrimExpression?: (ctx: TrimExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.convertExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitConvertExpression?: (ctx: ConvertExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.extractExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitExtractExpression?: (ctx: ExtractExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.replaceExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitReplaceExpression?: (ctx: ReplaceExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.splitExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitSplitExpression?: (ctx: SplitExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.joinExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitJoinExpression?: (ctx: JoinExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.lengthExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitLengthExpression?: (ctx: LengthExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.padExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitPadExpression?: (ctx: PadExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.todayExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitTodayExpression?: (ctx: TodayExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.nowExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitNowExpression?: (ctx: NowExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.addDateExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitAddDateExpression?: (ctx: AddDateExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.subtractDateExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitSubtractDateExpression?: (ctx: SubtractDateExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.dateUnit`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitDateUnit?: (ctx: DateUnitContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.formatExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitFormatExpression?: (ctx: FormatExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.datePartExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitDatePartExpression?: (ctx: DatePartExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.roundExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitRoundExpression?: (ctx: RoundExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.absoluteExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitAbsoluteExpression?: (ctx: AbsoluteExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.generateExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitGenerateExpression?: (ctx: GenerateExpressionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.randomExpression`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitRandomExpression?: (ctx: RandomExpressionContext) => Result;
+    /**
      * Visit a parse tree produced by `VeroParser.actionStatement`.
      * @param ctx the parse tree
      * @return the visitor result
@@ -363,11 +577,11 @@ export class VeroVisitor<Result> extends AbstractParseTreeVisitor<Result> {
      */
     visitWaitAction?: (ctx: WaitActionContext) => Result;
     /**
-     * Visit a parse tree produced by `VeroParser.doAction`.
+     * Visit a parse tree produced by `VeroParser.performAction`.
      * @param ctx the parse tree
      * @return the visitor result
      */
-    visitDoAction?: (ctx: DoActionContext) => Result;
+    visitPerformAction?: (ctx: PerformActionContext) => Result;
     /**
      * Visit a parse tree produced by `VeroParser.refreshAction`.
      * @param ctx the parse tree
@@ -404,6 +618,30 @@ export class VeroVisitor<Result> extends AbstractParseTreeVisitor<Result> {
      * @return the visitor result
      */
     visitFileList?: (ctx: FileListContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.switchToNewTabAction`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitSwitchToNewTabAction?: (ctx: SwitchToNewTabActionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.switchToTabAction`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitSwitchToTabAction?: (ctx: SwitchToTabActionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.openInNewTabAction`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitOpenInNewTabAction?: (ctx: OpenInNewTabActionContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.closeTabAction`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitCloseTabAction?: (ctx: CloseTabActionContext) => Result;
     /**
      * Visit a parse tree produced by `VeroParser.assertionStatement`.
      * @param ctx the parse tree
@@ -500,6 +738,48 @@ export class VeroVisitor<Result> extends AbstractParseTreeVisitor<Result> {
      * @return the visitor result
      */
     visitDataQueryStatement?: (ctx: DataQueryStatementContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.rowStatement`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitRowStatement?: (ctx: RowStatementContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.rowModifier`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitRowModifier?: (ctx: RowModifierContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.rowsStatement`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitRowsStatement?: (ctx: RowsStatementContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.columnAccessStatement`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitColumnAccessStatement?: (ctx: ColumnAccessStatementContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.countStatement`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitCountStatement?: (ctx: CountStatementContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.simpleTableReference`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitSimpleTableReference?: (ctx: SimpleTableReferenceContext) => Result;
+    /**
+     * Visit a parse tree produced by `VeroParser.legacyDataQueryStatement`.
+     * @param ctx the parse tree
+     * @return the visitor result
+     */
+    visitLegacyDataQueryStatement?: (ctx: LegacyDataQueryStatementContext) => Result;
     /**
      * Visit a parse tree produced by `VeroParser.dataResultType`.
      * @param ctx the parse tree

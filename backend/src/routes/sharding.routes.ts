@@ -7,8 +7,10 @@
  * - Execution status and shard info
  */
 import { Router, Request, Response } from 'express';
+import { authenticateToken } from '../middleware/auth';
 
 const router = Router();
+router.use(authenticateToken);
 
 // In-memory storage for demo (replace with database in production)
 interface Worker {

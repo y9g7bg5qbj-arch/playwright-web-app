@@ -3,11 +3,11 @@
 
 # Lowercase keywords
 page lowercasepage {
-    field button = "Button"
+    field btn = "Button"
 }
 
 feature lowercasefeature {
-    scenario "lowercase test" {
+    scenario lowercasetest {
         click "Button"
         verify "Text" is visible
     }
@@ -15,11 +15,11 @@ feature lowercasefeature {
 
 # Uppercase keywords
 PAGE UPPERCASEPAGE {
-    FIELD button = "Button"
+    FIELD btn = "Button"
 }
 
 FEATURE UPPERCASEFEATURE {
-    SCENARIO UppercaseTest {
+    SCENARIO UppercaseScenario {
         CLICK "Button"
         VERIFY "Text" IS VISIBLE
     }
@@ -27,11 +27,11 @@ FEATURE UPPERCASEFEATURE {
 
 # Mixed case keywords
 Page MixedCasePage {
-    Field button = "Button"
+    Field btn = "Button"
 }
 
 Feature MixedCaseFeature {
-    Scenario "mixed case test" {
+    Scenario MixedCaseScenario {
         Click "Button"
         Verify "Text" Is Visible
     }

@@ -1047,6 +1047,90 @@ export class Transpiler {
             case 'Return':
                 return this.transpileReturn(statement, uses, currentPage);
 
+            // Dialog handling
+            case 'AcceptDialog': {
+                const text = statement.responseText ? this.transpileExpression(statement.responseText) : undefined;
+                if (text) {
+                    return `await test.step('Accept dialog with text', async () => { page.once('dialog', async dialog => { await dialog.accept(${text}); }); });`;
+                }
+                return `await test.step('Accept dialog', async () => { page.once('dialog', async dialog => { await dialog.accept(); }); });`;
+            }
+
+            case 'DismissDialog':
+                return `await test.step('Dismiss dialog', async () => { page.once('dialog', async dialog => { await dialog.dismiss(); }); });`;
+
+            // Frame handling
+            case 'SwitchToFrame': {
+                const frameSelector = this.transpileSelector(statement.selector);
+                return `await test.step('Switch to frame', async () => { __currentFrame = page.frameLocator(${frameSelector}); });`;
+            }
+
+            case 'SwitchToMainFrame':
+                return `await test.step('Switch to main frame', async () => { __currentFrame = null; });`;
+
+            // Download handling
+            case 'Download': {
+                const dlTarget = this.transpileTarget(statement.target, uses, currentPage);
+                const dlDesc = this.getTargetDescription(statement.target);
+                if (statement.saveAs) {
+                    const saveAsExpr = this.transpileExpression(statement.saveAs);
+                    return `await test.step('Download from ${dlDesc}', async () => { const [download] = await Promise.all([page.waitForEvent('download'), ${dlTarget}.click()]); await download.saveAs(${saveAsExpr}); });`;
+                }
+                return `await test.step('Download from ${dlDesc}', async () => { const [download] = await Promise.all([page.waitForEvent('download'), ${dlTarget}.click()]); await download.path(); });`;
+            }
+
+            // Cookie management
+            case 'SetCookie': {
+                const cookieName = this.transpileExpression(statement.name);
+                const cookieValue = this.transpileExpression(statement.value);
+                return `await test.step('Set cookie ' + ${cookieName}, async () => { await page.context().addCookies([{ name: ${cookieName}, value: ${cookieValue}, url: page.url() }]); });`;
+            }
+
+            case 'ClearCookies':
+                return `await test.step('Clear cookies', async () => { await page.context().clearCookies(); });`;
+
+            // Storage management
+            case 'SetStorage': {
+                const storageKey = this.transpileExpression(statement.key);
+                const storageValue = this.transpileExpression(statement.value);
+                return `await test.step('Set storage ' + ${storageKey}, async () => { await page.evaluate(([k, v]) => localStorage.setItem(k, v), [${storageKey}, ${storageValue}]); });`;
+            }
+
+            case 'GetStorage': {
+                const gsKey = this.transpileExpression(statement.key);
+                return `await test.step('Get storage ' + ${gsKey}, async () => { ${statement.variable} = await page.evaluate((k) => localStorage.getItem(k), ${gsKey}); });`;
+            }
+
+            case 'ClearStorage':
+                return `await test.step('Clear storage', async () => { await page.evaluate(() => localStorage.clear()); });`;
+
+            // Scroll
+            case 'Scroll': {
+                if (statement.target) {
+                    const scrollTarget = this.transpileTarget(statement.target, uses, currentPage);
+                    const scrollDesc = this.getTargetDescription(statement.target);
+                    return `await test.step('Scroll to ${scrollDesc}', async () => { await ${scrollTarget}.scrollIntoViewIfNeeded(); });`;
+                }
+                const delta = statement.direction === 'up' ? -500 : 500;
+                const dir = statement.direction || 'down';
+                return `await test.step('Scroll ${dir}', async () => { await page.mouse.wheel(0, ${delta}); });`;
+            }
+
+            // Wait for network/navigation
+            case 'WaitForNavigation':
+                return `await test.step('Wait for navigation', async () => { await page.waitForLoadState('load'); });`;
+
+            case 'WaitForNetworkIdle':
+                return `await test.step('Wait for network idle', async () => { await page.waitForLoadState('networkidle'); });`;
+
+            case 'WaitForUrl': {
+                const urlVal = this.transpileExpression(statement.value);
+                if (statement.condition === 'contains') {
+                    return `await test.step('Wait for URL contains ' + ${urlVal}, async () => { await page.waitForURL(url => url.toString().includes(${urlVal})); });`;
+                }
+                return `await test.step('Wait for URL equals ' + ${urlVal}, async () => { await page.waitForURL(${urlVal}); });`;
+            }
+
             default:
                 return `// Unknown statement type`;
         }

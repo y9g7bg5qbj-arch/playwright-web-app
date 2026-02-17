@@ -73,16 +73,16 @@ export interface MongoGitHubRepositoryConfig {
 
 export const githubRepositoryConfigRepository = {
   async findByWorkflowId(workflowId: string): Promise<MongoGitHubRepositoryConfig | null> {
-    return getCollection<MongoGitHubRepositoryConfig>('github_repository_configs').findOne({ workflowId, isActive: true });
+    return getCollection<MongoGitHubRepositoryConfig>(COLLECTIONS.GITHUB_REPOSITORY_CONFIGS).findOne({ workflowId, isActive: true });
   },
 
   async findByWorkflowAndRepo(workflowId: string, repoFullName: string): Promise<MongoGitHubRepositoryConfig | null> {
-    return getCollection<MongoGitHubRepositoryConfig>('github_repository_configs').findOne({ workflowId, repoFullName });
+    return getCollection<MongoGitHubRepositoryConfig>(COLLECTIONS.GITHUB_REPOSITORY_CONFIGS).findOne({ workflowId, repoFullName });
   },
 
   async upsert(workflowId: string, repoFullName: string, data: Partial<MongoGitHubRepositoryConfig>): Promise<MongoGitHubRepositoryConfig> {
     const now = new Date();
-    const result = await getCollection<MongoGitHubRepositoryConfig>('github_repository_configs').findOneAndUpdate(
+    const result = await getCollection<MongoGitHubRepositoryConfig>(COLLECTIONS.GITHUB_REPOSITORY_CONFIGS).findOneAndUpdate(
       { workflowId, repoFullName },
       {
         $set: { ...data, updatedAt: now },
@@ -94,7 +94,7 @@ export const githubRepositoryConfigRepository = {
   },
 
   async delete(id: string): Promise<boolean> {
-    const result = await getCollection<MongoGitHubRepositoryConfig>('github_repository_configs').deleteOne({ id });
+    const result = await getCollection<MongoGitHubRepositoryConfig>(COLLECTIONS.GITHUB_REPOSITORY_CONFIGS).deleteOne({ id });
     return result.deletedCount > 0;
   }
 };
@@ -193,14 +193,14 @@ export interface MongoGitHubWorkflowJob {
 
 export const githubWorkflowJobRepository = {
   async findByRunDbId(runDbId: string): Promise<MongoGitHubWorkflowJob[]> {
-    return getCollection<MongoGitHubWorkflowJob>('github_workflow_jobs')
+    return getCollection<MongoGitHubWorkflowJob>(COLLECTIONS.GITHUB_WORKFLOW_JOBS)
       .find({ runDbId })
       .toArray();
   },
 
   async upsert(jobId: string, data: Partial<MongoGitHubWorkflowJob>): Promise<MongoGitHubWorkflowJob> {
     const now = new Date();
-    const result = await getCollection<MongoGitHubWorkflowJob>('github_workflow_jobs').findOneAndUpdate(
+    const result = await getCollection<MongoGitHubWorkflowJob>(COLLECTIONS.GITHUB_WORKFLOW_JOBS).findOneAndUpdate(
       { jobId },
       {
         $set: data,

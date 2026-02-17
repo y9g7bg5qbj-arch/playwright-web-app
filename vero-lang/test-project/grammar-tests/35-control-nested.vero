@@ -2,7 +2,7 @@
 # Category: Control Flow - Nested
 
 feature NestedControlFlow {
-    scenario "Deeply nested control flow" {
+    scenario DeeplyNestedControlFlow {
         # If inside if
         if outer is visible {
             log "Outer visible"

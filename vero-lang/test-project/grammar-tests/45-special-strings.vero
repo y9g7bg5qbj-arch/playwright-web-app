@@ -2,7 +2,7 @@
 # Category: Edge Cases - Strings
 
 feature SpecialStrings {
-    scenario "Special string variations" {
+    scenario SpecialStringVariations {
         # Escaped characters
         log "Line1\nLine2"
         log "Tab\tSeparated"
@@ -13,7 +13,7 @@ feature SpecialStrings {
         log "Hello World"
 
         # Empty string
-        text empty = ""
+        text blank = ""
 
         # String with numbers
         log "User123"

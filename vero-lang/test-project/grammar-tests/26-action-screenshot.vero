@@ -2,7 +2,7 @@
 # Category: Actions - Screenshot
 
 feature ScreenshotActions {
-    scenario "Screenshot variations" {
+    scenario ScreenshotVariations {
         # Screenshot without name
         take screenshot
 

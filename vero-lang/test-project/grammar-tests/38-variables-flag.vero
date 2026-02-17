@@ -2,7 +2,7 @@
 # Category: Variables - Flag
 
 feature FlagVariables {
-    scenario "Flag variable variations" {
+    scenario FlagVariableVariations {
         # Boolean as string
         flag isEnabled = "true"
         flag isDisabled = "false"

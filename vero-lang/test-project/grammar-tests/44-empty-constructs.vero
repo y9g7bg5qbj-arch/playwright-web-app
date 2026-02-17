@@ -9,7 +9,7 @@ feature EmptyFeature {}
 
 # Empty scenario
 feature FeatureWithEmpty {
-    scenario "Empty scenario" {}
+    scenario BlankScenario {}
 }
 
 # Empty hooks
@@ -19,8 +19,8 @@ feature HooksEmpty {
     before all {}
     after all {}
 
-    scenario "Test" {
-        log "test"
+    scenario BasicScenario {
+        log "running"
     }
 }
 
@@ -31,7 +31,7 @@ page PageWithEmptyAction {
 
 # Empty control flow
 feature EmptyControlFlow {
-    scenario "Empty bodies" {
+    scenario EmptyBodies {
         if element is visible {}
 
         repeat 5 times {}

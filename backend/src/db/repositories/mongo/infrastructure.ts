@@ -114,11 +114,11 @@ export interface MongoRemoteRunner {
 
 export const remoteRunnerRepository = {
   async findById(id: string): Promise<MongoRemoteRunner | null> {
-    return getCollection<MongoRemoteRunner>('remote_runners').findOne({ id });
+    return getCollection<MongoRemoteRunner>(COLLECTIONS.REMOTE_RUNNERS).findOne({ id });
   },
 
   async findByWorkflowId(workflowId: string): Promise<MongoRemoteRunner[]> {
-    return getCollection<MongoRemoteRunner>('remote_runners')
+    return getCollection<MongoRemoteRunner>(COLLECTIONS.REMOTE_RUNNERS)
       .find({ workflowId })
       .sort({ isHealthy: -1, name: 1 })
       .toArray();
@@ -132,12 +132,12 @@ export const remoteRunnerRepository = {
       createdAt: now,
       updatedAt: now
     };
-    await getCollection<MongoRemoteRunner>('remote_runners').insertOne(runner);
+    await getCollection<MongoRemoteRunner>(COLLECTIONS.REMOTE_RUNNERS).insertOne(runner);
     return runner;
   },
 
   async update(id: string, data: Partial<MongoRemoteRunner>): Promise<MongoRemoteRunner | null> {
-    const result = await getCollection<MongoRemoteRunner>('remote_runners').findOneAndUpdate(
+    const result = await getCollection<MongoRemoteRunner>(COLLECTIONS.REMOTE_RUNNERS).findOneAndUpdate(
       { id },
       { $set: { ...data, updatedAt: new Date() } },
       { returnDocument: 'after' }
@@ -146,7 +146,7 @@ export const remoteRunnerRepository = {
   },
 
   async delete(id: string): Promise<boolean> {
-    const result = await getCollection<MongoRemoteRunner>('remote_runners').deleteOne({ id });
+    const result = await getCollection<MongoRemoteRunner>(COLLECTIONS.REMOTE_RUNNERS).deleteOne({ id });
     return result.deletedCount > 0;
   }
 };
@@ -168,11 +168,11 @@ export interface MongoStoredCredential {
 
 export const storedCredentialRepository = {
   async findById(id: string): Promise<MongoStoredCredential | null> {
-    return getCollection<MongoStoredCredential>('stored_credentials').findOne({ id });
+    return getCollection<MongoStoredCredential>(COLLECTIONS.STORED_CREDENTIALS).findOne({ id });
   },
 
   async findByWorkflowId(workflowId: string): Promise<MongoStoredCredential[]> {
-    return getCollection<MongoStoredCredential>('stored_credentials')
+    return getCollection<MongoStoredCredential>(COLLECTIONS.STORED_CREDENTIALS)
       .find({ workflowId })
       .sort({ name: 1 })
       .toArray();
@@ -186,12 +186,12 @@ export const storedCredentialRepository = {
       createdAt: now,
       updatedAt: now
     };
-    await getCollection<MongoStoredCredential>('stored_credentials').insertOne(credential);
+    await getCollection<MongoStoredCredential>(COLLECTIONS.STORED_CREDENTIALS).insertOne(credential);
     return credential;
   },
 
   async delete(id: string): Promise<boolean> {
-    const result = await getCollection<MongoStoredCredential>('stored_credentials').deleteOne({ id });
+    const result = await getCollection<MongoStoredCredential>(COLLECTIONS.STORED_CREDENTIALS).deleteOne({ id });
     return result.deletedCount > 0;
   }
 };

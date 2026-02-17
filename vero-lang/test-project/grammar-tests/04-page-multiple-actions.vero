@@ -1,5 +1,5 @@
-# Test: Page with Multiple PAGEACTIONS
-# Category: Page Objects - Multiple Actions (New Pattern)
+# Test: Page with Multiple Actions
+# Category: Page Objects - Multiple Actions (Inline Pattern)
 
 PAGE CheckoutPage {
     FIELD cardNumber = "#card-number"
@@ -7,17 +7,15 @@ PAGE CheckoutPage {
     FIELD expiry = "#expiry"
     FIELD totalAmount = ".total"
     FIELD placeOrderBtn = "Place Order"
-}
 
-PAGEACTIONS CheckoutPageActions FOR CheckoutPage {
-    fillCardDetails WITH card, cvvValue, expiryDate {
+    fillCardDetails WITH card, cvvVal, expiryDate {
         FILL cardNumber WITH card
-        FILL cvv WITH cvvValue
+        FILL cvv WITH cvvVal
         FILL expiry WITH expiryDate
     }
 
     getTotalAmount RETURNS TEXT {
-        RETURN TEXT OF totalAmount
+        RETURN totalAmount
     }
 
     placeOrder {

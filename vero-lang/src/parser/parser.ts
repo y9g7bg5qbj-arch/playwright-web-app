@@ -799,8 +799,29 @@ export class Parser {
         }
 
         if (this.match(TokenType.WAIT)) {
-            // WAIT FOR target - wait until element is visible
+            // WAIT FOR NAVIGATION | WAIT FOR NETWORK IDLE | WAIT FOR URL CONTAINS "..." | WAIT FOR target
             if (this.match(TokenType.FOR)) {
+                // WAIT FOR NAVIGATION
+                if (this.match(TokenType.NAVIGATION)) {
+                    return { type: 'WaitForNavigation', line };
+                }
+                // WAIT FOR NETWORK IDLE
+                if (this.match(TokenType.NETWORK)) {
+                    this.consume(TokenType.IDLE, "Expected 'IDLE' after 'WAIT FOR NETWORK'");
+                    return { type: 'WaitForNetworkIdle', line };
+                }
+                // WAIT FOR URL CONTAINS "..."
+                if (this.match(TokenType.URL)) {
+                    let condition: 'contains' | 'equals' = 'contains';
+                    if (this.match(TokenType.CONTAINS)) {
+                        condition = 'contains';
+                    } else if (this.match(TokenType.EQUAL)) {
+                        condition = 'equals';
+                    }
+                    const value = this.parseExpression();
+                    return { type: 'WaitForUrl', condition, value, line };
+                }
+                // WAIT FOR target - wait until element is visible
                 const target = this.parseTarget();
                 return { type: 'WaitFor', target, line };
             }
@@ -822,7 +843,7 @@ export class Parser {
             return { type: 'Refresh', line };
         }
 
-        // SWITCH TO NEW TAB "url" | SWITCH TO TAB N
+        // SWITCH TO NEW TAB "url" | SWITCH TO TAB N | SWITCH TO FRAME selector | SWITCH TO MAIN FRAME
         if (this.match(TokenType.SWITCH)) {
             this.consume(TokenType.TO, "Expected 'TO' after 'SWITCH'");
             // SWITCH TO NEW TAB "url"
@@ -839,7 +860,17 @@ export class Parser {
                 const tabIndex = this.parseExpression();
                 return { type: 'SwitchToTab', tabIndex, line } as SwitchToTabStatement;
             }
-            this.error("Expected 'NEW TAB' or 'TAB' after 'SWITCH TO'");
+            // SWITCH TO MAIN FRAME
+            if (this.match(TokenType.MAIN)) {
+                this.consume(TokenType.FRAME, "Expected 'FRAME' after 'SWITCH TO MAIN'");
+                return { type: 'SwitchToMainFrame', line };
+            }
+            // SWITCH TO FRAME selector
+            if (this.match(TokenType.FRAME)) {
+                const selector = this.parseSelector();
+                return { type: 'SwitchToFrame', selector, line };
+            }
+            this.error("Expected 'NEW TAB', 'TAB', 'FRAME', or 'MAIN FRAME' after 'SWITCH TO'");
             return { type: 'SwitchToNewTab', line } as SwitchToNewTabStatement;
         }
 
@@ -847,6 +878,87 @@ export class Parser {
         if (this.match(TokenType.CLOSE)) {
             this.consume(TokenType.TAB, "Expected 'TAB' after 'CLOSE'");
             return { type: 'CloseTab', line } as CloseTabStatement;
+        }
+
+        // ACCEPT DIALOG [WITH "text"]
+        if (this.match(TokenType.ACCEPT)) {
+            this.consume(TokenType.DIALOG, "Expected 'DIALOG' after 'ACCEPT'");
+            let responseText: ExpressionNode | undefined;
+            if (this.match(TokenType.WITH)) {
+                responseText = this.parseExpression();
+            }
+            return { type: 'AcceptDialog', responseText, line };
+        }
+
+        // DISMISS DIALOG
+        if (this.match(TokenType.DISMISS)) {
+            this.consume(TokenType.DIALOG, "Expected 'DIALOG' after 'DISMISS'");
+            return { type: 'DismissDialog', line };
+        }
+
+        // DOWNLOAD FROM PageName.field [AS "filename"]
+        if (this.match(TokenType.DOWNLOAD)) {
+            this.consume(TokenType.FROM, "Expected 'FROM' after 'DOWNLOAD'");
+            const target = this.parseTarget();
+            let saveAs: ExpressionNode | undefined;
+            if (this.match(TokenType.AS)) {
+                saveAs = this.parseExpression();
+            }
+            return { type: 'Download', target, saveAs, line };
+        }
+
+        // SET COOKIE "name" TO "value" | SET STORAGE "key" TO "value"
+        if (this.match(TokenType.SET)) {
+            if (this.match(TokenType.COOKIE)) {
+                const name = this.parseExpression();
+                this.consume(TokenType.TO, "Expected 'TO' after cookie name");
+                const value = this.parseExpression();
+                return { type: 'SetCookie', name, value, line };
+            }
+            if (this.match(TokenType.STORAGE)) {
+                const key = this.parseExpression();
+                this.consume(TokenType.TO, "Expected 'TO' after storage key");
+                const value = this.parseExpression();
+                return { type: 'SetStorage', key, value, line };
+            }
+            this.error("Expected 'COOKIE' or 'STORAGE' after 'SET'");
+        }
+
+        // GET STORAGE "key" INTO variable
+        if (this.match(TokenType.GET)) {
+            this.consume(TokenType.STORAGE, "Expected 'STORAGE' after 'GET'");
+            const key = this.parseExpression();
+            this.consume(TokenType.INTO, "Expected 'INTO' after storage key");
+            const variable = this.consume(TokenType.IDENTIFIER, "Expected variable name after 'INTO'").value;
+            return { type: 'GetStorage', key, variable, line };
+        }
+
+        // CLEAR COOKIES | CLEAR STORAGE | CLEAR target
+        if (this.match(TokenType.CLEAR)) {
+            if (this.match(TokenType.COOKIES)) {
+                return { type: 'ClearCookies', line };
+            }
+            if (this.match(TokenType.STORAGE)) {
+                return { type: 'ClearStorage', line };
+            }
+            // CLEAR target (existing behavior for clearing input fields)
+            const target = this.parseTarget();
+            return { type: 'Click', target, line }; // fallback: treat CLEAR <target> as click for now
+        }
+
+        // SCROLL DOWN | SCROLL UP | SCROLL TO target
+        if (this.match(TokenType.SCROLL)) {
+            if (this.match(TokenType.DOWN)) {
+                return { type: 'Scroll', direction: 'down', line };
+            }
+            if (this.match(TokenType.UP)) {
+                return { type: 'Scroll', direction: 'up', line };
+            }
+            if (this.match(TokenType.TO)) {
+                const target = this.parseTarget();
+                return { type: 'Scroll', target, line };
+            }
+            return { type: 'Scroll', direction: 'down', line };
         }
 
         if (this.match(TokenType.CHECK)) {
@@ -940,7 +1052,7 @@ export class Parser {
         }
 
         // NUMBER count = COUNT Users WHERE state = "CA"
-        if (this.check(TokenType.NUMBER) && this.lookahead(2)?.type === TokenType.COUNT) {
+        if (this.check(TokenType.NUMBER) && this.lookahead(3)?.type === TokenType.COUNT) {
             return this.parseCountStatement(line);
         }
 

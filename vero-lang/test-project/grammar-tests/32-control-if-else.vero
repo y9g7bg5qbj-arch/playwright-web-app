@@ -2,9 +2,9 @@
 # Category: Control Flow - If-Else
 
 feature IfElseStatements {
-    scenario "If-else variations" {
+    scenario IfElseVariations {
         # Simple if-else
-        if error is visible {
+        if errorMsg is visible {
             log "Error found"
             take screenshot "error"
         } else {

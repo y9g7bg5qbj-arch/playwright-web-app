@@ -6,9 +6,11 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { authenticateToken } from '../middleware/auth';
 import { logger } from '../utils/logger';
 
 const router = Router();
+router.use(authenticateToken);
 
 // Store active preview sessions with their content
 const previewSessions: Map<string, {

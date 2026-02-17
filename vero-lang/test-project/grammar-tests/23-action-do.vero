@@ -1,16 +1,14 @@
 # Test: PERFORM Action Variations
-# Category: Actions - PERFORM (formerly DO)
+# Category: Actions - PERFORM
 
 PAGE LoginPage {
     FIELD emailInput = "Email"
     FIELD passwordInput = "Password"
     FIELD submitBtn = "Submit"
-}
 
-PAGEACTIONS LoginPageActions FOR LoginPage {
-    login WITH email, password {
+    login WITH email, pwd {
         FILL emailInput WITH email
-        FILL passwordInput WITH password
+        FILL passwordInput WITH pwd
         CLICK submitBtn
     }
 
@@ -25,21 +23,21 @@ PAGEACTIONS LoginPageActions FOR LoginPage {
 }
 
 FEATURE PerformActions {
-    USE LoginPageActions
+    USE LoginPage
 
     SCENARIO PerformActionVariations {
         # PERFORM without arguments
-        PERFORM LoginPageActions.logout
+        PERFORM LoginPage.logout
 
         # PERFORM with single argument
-        PERFORM LoginPageActions.quickLogin WITH "test@example.com"
+        PERFORM LoginPage.quickLogin WITH "test@example.com"
 
         # PERFORM with multiple arguments
-        PERFORM LoginPageActions.login WITH "admin@example.com", "password123"
+        PERFORM LoginPage.login WITH "admin@example.com", "password123"
 
         # PERFORM with variable arguments
         TEXT email = "user@example.com"
-        TEXT password = "secret"
-        PERFORM LoginPageActions.login WITH email, password
+        TEXT pwd = "secret"
+        PERFORM LoginPage.login WITH email, pwd
     }
 }

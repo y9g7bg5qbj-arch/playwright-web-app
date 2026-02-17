@@ -2,9 +2,9 @@
 # Category: Variables - Number
 
 feature NumberVariables {
-    scenario "Number variable variations" {
+    scenario NumberVariableVariations {
         # Integer
-        number count = 5
+        number total = 5
         number zero = 0
         number large = 999999
 
@@ -14,16 +14,16 @@ feature NumberVariables {
         number small = 0.001
 
         # Use in comparison
-        if count > 0 {
+        if total > 0 {
             log "Positive"
         }
 
         # Use in repeat
-        repeat count times {
+        repeat total times {
             log "Iteration"
         }
 
         # Use in fill
-        fill "quantity" with count
+        fill "quantity" with total
     }
 }

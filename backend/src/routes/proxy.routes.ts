@@ -8,9 +8,11 @@
 import { Router, Request, Response } from 'express';
 import axios from 'axios';
 import { JSDOM } from 'jsdom';
+import { authenticateToken } from '../middleware/auth';
 import { logger } from '../utils/logger';
 
 const router = Router();
+router.use(authenticateToken);
 
 // Store active proxy sessions
 const proxySessions = new Map<string, {

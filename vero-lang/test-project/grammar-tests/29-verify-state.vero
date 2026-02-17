@@ -1,36 +1,30 @@
 # Test: State Assertions
-# Category: Assertions - State (Updated to PAGEACTIONS Pattern)
+# Category: Assertions - State (Inline Actions)
 
 PAGE StatePage {
     FIELD submitBtn = "Submit"
-    FIELD checkbox = "#agree"
-    FIELD input = "#email"
+    FIELD agreeCheckbox = "#agree"
+    FIELD inputEl = "#email"
     FIELD disabledButton = "Disabled Button"
-}
 
-PAGEACTIONS StatePageActions FOR StatePage {
     isSubmitEnabled RETURNS FLAG {
-        RETURN ENABLED OF submitBtn
+        RETURN submitBtn
     }
 
     isCheckboxChecked RETURNS FLAG {
-        RETURN CHECKED OF checkbox
+        RETURN agreeCheckbox
     }
 
-    isInputEmpty RETURNS FLAG {
-        RETURN VISIBLE OF input
+    isInputVisible RETURNS FLAG {
+        RETURN inputEl
     }
 
-    isDisabledButtonDisabled RETURNS FLAG {
-        RETURN VISIBLE OF disabledButton
+    checkAgree {
+        CHECK agreeCheckbox
     }
 
-    checkCheckbox {
-        CHECK checkbox
-    }
-
-    enterEmail WITH value {
-        FILL input WITH value
+    enterEmail WITH val {
+        FILL inputEl WITH val
     }
 
     clickSubmit {
@@ -39,24 +33,20 @@ PAGEACTIONS StatePageActions FOR StatePage {
 }
 
 FEATURE StateAssertions {
-    USE StatePageActions
+    USE StatePage
 
     SCENARIO StateChecks {
-        # Enabled/Disabled via getters
-        FLAG isEnabled = PERFORM StatePageActions.isSubmitEnabled
-        VERIFY isEnabled IS TRUE
+        # Enabled/Disabled via direct page field references
+        VERIFY StatePage.submitBtn IS ENABLED
 
-        # Checked state via getters
-        FLAG isChecked = PERFORM StatePageActions.isCheckboxChecked
-        VERIFY isChecked IS NOT TRUE
+        # Checked state via direct page field references
+        VERIFY StatePage.agreeCheckbox IS NOT CHECKED
 
-        PERFORM StatePageActions.checkCheckbox
-        FLAG nowChecked = PERFORM StatePageActions.isCheckboxChecked
-        VERIFY nowChecked IS TRUE
+        PERFORM StatePage.checkAgree
+        VERIFY StatePage.agreeCheckbox IS CHECKED
 
-        # Empty state
-        FLAG isEmpty = PERFORM StatePageActions.isInputEmpty
-        VERIFY isEmpty IS TRUE
+        # Visible state
+        VERIFY StatePage.inputEl IS VISIBLE
 
         # Direct verification (still allowed)
         VERIFY "Submit" IS ENABLED

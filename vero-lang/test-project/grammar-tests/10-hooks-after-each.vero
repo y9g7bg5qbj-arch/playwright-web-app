@@ -7,7 +7,7 @@ feature AfterEachHook {
         log "Test completed"
     }
 
-    scenario "Test with cleanup" {
+    scenario ScenarioWithCleanup {
         log "Running test"
     }
 }

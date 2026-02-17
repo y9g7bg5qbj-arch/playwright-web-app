@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { type Socket } from 'socket.io-client';
 
 import { ActivityBar, type ActivityView } from './ActivityBar.js';
@@ -28,11 +28,15 @@ import { useGitHubExecutionStore } from '@/store/useGitHubExecutionStore';
 import { CreateSandboxModal } from '@/components/sandbox/CreateSandboxModal';
 import { MergeConflictModal } from './MergeConflictModal';
 import { IconButton, PanelHeader, EmptyState, Toolbar, ToolbarGroup } from '@/components/ui';
-import { Bot, Database, FileBarChart2 } from 'lucide-react';
+import { Bot, Database, FileBarChart2, Play, Bug, FileText, Terminal, Settings, FilePlus, Folder } from 'lucide-react';
 import { DataQueryModal } from '../ide/DataQueryModal';
 import { DataPanel } from '../ide/DataPanel';
 import { VDQLReferencePanel } from '../ide/VDQLReferencePanel';
+import { AIAgentPanel } from '../ide/AIAgentPanel';
 import { useTestDataRegistry } from '@/hooks/useTestDataRegistry';
+import { CommandPalette, type PaletteCommand } from './CommandPalette';
+import { QuickOpenDialog } from './QuickOpenDialog';
+import { ProblemsPanel, type Problem } from './ProblemsPanel';
 
 import { useFileManagement, type OpenTab } from './useFileManagement.js';
 import { useRecording } from './useRecording.js';
@@ -257,6 +261,10 @@ export function VeroWorkspace() {
   // ─── Remaining local state ────────────────────────────────────
   const [showDataQueryModal, setShowDataQueryModal] = useState(false);
   const [showAISettingsModal, setShowAISettingsModal] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [showQuickOpen, setShowQuickOpen] = useState(false);
+  const [showProblems, setShowProblems] = useState(false);
+  const [problems, setProblems] = useState<Problem[]>([]);
   const [selectedTraceUrl, setSelectedTraceUrl] = useState<string | null>(null);
   const [selectedTraceName, setSelectedTraceName] = useState<string>('');
   const [compareModal, setCompareModal] = useState<{ filePath: string; projectId?: string } | null>(null);
@@ -422,8 +430,129 @@ export function VeroWorkspace() {
     editorRef.current?.insertText(snippet, 'newline');
   }, []);
 
+  // ─── Global keyboard shortcuts ────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'p') {
+        e.preventDefault();
+        setShowCommandPalette(true);
+      }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'p') {
+        e.preventDefault();
+        setShowQuickOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // ─── Command palette commands ────────────────────────────────
+  const paletteCommands: PaletteCommand[] = useMemo(() => [
+    {
+      id: 'run-file', label: 'Run File', shortcut: 'F5',
+      icon: <Play size={14} />, category: 'Run',
+      action: () => { void testExecution.runTests(); },
+    },
+    {
+      id: 'debug-file', label: 'Debug File', shortcut: 'Shift+F5',
+      icon: <Bug size={14} />, category: 'Run',
+      action: () => { void testExecution.debugTests(); },
+    },
+    {
+      id: 'record-scenario', label: 'Record Scenario',
+      icon: <span className="w-3.5 h-3.5 rounded-full border-2 border-red-400 inline-block" />, category: 'Recording',
+      action: () => recording.handleRecordClick(),
+    },
+    {
+      id: 'toggle-terminal', label: 'Toggle Terminal', shortcut: 'Ctrl+`',
+      icon: <Terminal size={14} />, category: 'View',
+      action: () => setShowConsole(prev => !prev),
+    },
+    {
+      id: 'toggle-problems', label: 'Toggle Problems Panel', shortcut: 'Ctrl+Shift+M',
+      icon: <FileText size={14} />, category: 'View',
+      action: () => setShowProblems(prev => !prev),
+    },
+    {
+      id: 'open-settings', label: 'Open Settings',
+      icon: <Settings size={14} />, category: 'Preferences',
+      action: () => handleViewChange('settings'),
+    },
+    {
+      id: 'ai-settings', label: 'AI Provider Settings',
+      icon: <Bot size={14} />, category: 'Preferences',
+      action: () => setShowAISettingsModal(true),
+    },
+    {
+      id: 'new-file', label: 'New File',
+      icon: <FilePlus size={14} />, category: 'File',
+      action: () => fileManagement.handleCreateFile(selectedProjectId || nestedProjects[0]?.id || '', 'feature'),
+    },
+    {
+      id: 'quick-open', label: 'Go to File', shortcut: `${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl+'}P`,
+      icon: <FileText size={14} />, category: 'File',
+      action: () => setShowQuickOpen(true),
+    },
+    {
+      id: 'view-executions', label: 'View Executions',
+      icon: <FileBarChart2 size={14} />, category: 'View',
+      action: () => handleViewChange('executions'),
+    },
+    {
+      id: 'view-explorer', label: 'Show Explorer',
+      icon: <Folder size={14} />, category: 'View',
+      action: () => handleViewChange('explorer'),
+    },
+    {
+      id: 'ai-studio', label: 'Open AI Studio',
+      icon: <Bot size={14} />, category: 'AI',
+      action: () => handleViewChange('ai-test-generator'),
+    },
+  ], [testExecution, recording, handleViewChange, fileManagement, selectedProjectId, nestedProjects]);
+
+  // ─── Quick Open file list ────────────────────────────────────
+  const quickOpenFiles = useMemo(() => {
+    const result: { name: string; path: string; relativePath: string }[] = [];
+    function collectFiles(nodes: typeof nestedProjects[0]['files'], prefix: string) {
+      if (!nodes) return;
+      for (const node of nodes) {
+        if (node.type === 'file') {
+          result.push({ name: node.name, path: node.path, relativePath: `${prefix}/${node.name}` });
+        }
+        if (node.children) {
+          collectFiles(node.children, `${prefix}/${node.name}`);
+        }
+      }
+    }
+    for (const project of nestedProjects) {
+      collectFiles(project.files, project.name);
+    }
+    return result;
+  }, [nestedProjects]);
+
   const isFullPageView = FULL_PAGE_VIEWS.includes(activeView);
   const { activeTab, openTabs, activeTabId } = fileManagement;
+
+  // ─── Sync Monaco diagnostics to Problems panel ────────────────
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const monaco = (window as any).monaco as
+        | { editor?: { getModelMarkers?: (filter: Record<string, unknown>) => Array<{ severity: number; message: string; startLineNumber: number; startColumn: number; resource?: { path?: string } }> } }
+        | undefined;
+      if (!monaco?.editor?.getModelMarkers) return;
+      const markers = monaco.editor.getModelMarkers({});
+      const mapped: Problem[] = markers.map(m => ({
+        severity: m.severity >= 8 ? 'error' : m.severity >= 4 ? 'warning' : 'info',
+        message: m.message,
+        file: m.resource?.path?.split('/').pop() || activeTab?.name || 'unknown',
+        line: m.startLineNumber,
+        column: m.startColumn,
+      }));
+      setProblems(mapped);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [activeTab?.name]);
 
   // ─── JSX ──────────────────────────────────────────────────────
   return (
@@ -519,11 +648,17 @@ export function VeroWorkspace() {
               />
             )}
             {activeView === 'ai-test-generator' && (
-              <div className="flex-1 flex flex-col items-center justify-center text-text-secondary gap-3">
-                <Bot size={48} strokeWidth={1.25} className="text-text-tertiary" />
-                <h2 className="text-lg font-medium text-text-primary">AI Studio</h2>
-                <p className="text-sm">Coming soon</p>
-              </div>
+              <AIAgentPanel
+                isVisible={true}
+                onInsertCode={(code) => {
+                  editorRef.current?.insertText(code, 'newline');
+                  handleViewChange('explorer');
+                }}
+                onGeneratedCode={(code) => {
+                  editorRef.current?.insertText(code, 'newline');
+                }}
+                onClose={() => handleViewChange('explorer')}
+              />
             )}
             {activeView === 'trace' && selectedTraceUrl && (
               <TraceViewerPanel
@@ -826,6 +961,17 @@ export function VeroWorkspace() {
             <span className="material-symbols-outlined text-base">terminal</span>
             <span>Terminal</span>
           </button>
+          <button
+            onClick={() => setShowProblems(!showProblems)}
+            className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors ${showProblems
+              ? 'bg-status-warning text-white'
+              : 'text-text-secondary hover:text-white hover:bg-dark-elevated'
+              }`}
+            title="Toggle Problems (Ctrl+Shift+M)"
+          >
+            <span className="material-symbols-outlined text-base">error</span>
+            <span>Problems{problems.length > 0 ? ` (${problems.length})` : ''}</span>
+          </button>
         </ToolbarGroup>
 
         <div className="flex-1" />
@@ -866,6 +1012,34 @@ export function VeroWorkspace() {
           />
         </div>
       )}
+
+      {showProblems && (
+        <div className="fixed left-[48px] right-0 bottom-6 z-30 shadow-xl">
+          <ProblemsPanel
+            problems={problems}
+            isOpen={showProblems}
+            onClose={() => setShowProblems(false)}
+            onNavigate={(_file, line) => {
+              editorRef.current?.goToLine(line);
+            }}
+          />
+        </div>
+      )}
+
+      <CommandPalette
+        isOpen={showCommandPalette}
+        onClose={() => setShowCommandPalette(false)}
+        commands={paletteCommands}
+      />
+
+      <QuickOpenDialog
+        isOpen={showQuickOpen}
+        onClose={() => setShowQuickOpen(false)}
+        files={quickOpenFiles}
+        onSelect={(filePath) => {
+          void fileManagement.loadFileContent(filePath);
+        }}
+      />
 
       {/* Modals */}
       {currentProject?.id && (

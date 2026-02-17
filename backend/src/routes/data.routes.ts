@@ -8,9 +8,11 @@
 import { Router, Request, Response } from 'express';
 import { dataTableRepository, dataRowRepository } from '../db/repositories/mongo';
 import { generateTestDataCode } from '../codegen/testDataClassGenerator';
+import { authenticateToken } from '../middleware/auth';
 import { logger } from '../utils/logger';
 
 const router = Router();
+router.use(authenticateToken);
 
 // ============================================
 // DATA TABLE ENDPOINTS

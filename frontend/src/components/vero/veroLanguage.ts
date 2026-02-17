@@ -133,14 +133,21 @@ export function registerVeroLanguage(monaco: Monaco): void {
                 [/\b(WHERE|AND|OR)(\s+)(\w+)/i,
                     ['keyword.vdql', '', 'variable.vdql.name']],
 
+                // Assertion phrase rules must come before generic keyword rules
+                // so PAGE/TITLE in VERIFY PAGE TITLE are not colored as structure/selector keywords.
+                [/\b(verify)(\s+)(page)(\s+)(title)\b/i,
+                    ['keyword.assertion', '', 'keyword.assertion', '', 'keyword.assertion']],
+                [/\b(verify)(\s+)(title)\b/i,
+                    ['keyword.assertion', '', 'keyword.assertion']],
+
                 [/\b(page|feature|scenario|field|use)\b/i, 'keyword.structure'],
                 [/\b(before|after|all|each)\b/i, 'keyword.hook'],
                 [/\b(if|else|repeat|times)\b/i, 'keyword.control'],
-                [/\b(with|and|to|in|returns|return|then|as)\b/i, 'keyword.operator'],
+                [/\b(with|and|to|in|returns|return|then|as|into)\b/i, 'keyword.operator'],
                 // The 9 Vero selector keywords + 'name' modifier
                 [/\b(role|text|label|placeholder|alt|title|testid|css|xpath|name)\b/i, 'type.selector'],
                 [/\b(verify|screenshot|matches|strict|balanced|relaxed|threshold|max_diff_pixels|max_diff_ratio)\b/i, 'keyword.assertion'],
-                [/\b(click|fill|open|check|uncheck|select|hover|press|scroll|wait|perform|do|refresh|clear|take|screenshot|log|switch|new|tab|close|other|tabs)\b/i, 'function.action'],
+                [/\b(click|fill|open|check|uncheck|select|hover|press|scroll|wait|perform|do|refresh|clear|take|screenshot|log|switch|new|tab|close|other|tabs|accept|dismiss|dialog|frame|main|download|cookie|cookies|storage|set|get|navigation|network|idle)\b/i, 'function.action'],
                 [/\b(is|not|visible|hidden|enabled|disabled|checked|contains|empty|has|value|count|nth|without|exact)\b/i, 'constant.condition'],
                 [/\b(text|number|flag|list|seconds|milliseconds)\b/i, 'type'],
                 [/\b(row|rows|data|from|by|where|order|asc|desc|limit|offset|first|last|random|default)\b/i, 'keyword.vdql'],
