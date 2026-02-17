@@ -2,38 +2,38 @@
 # Category: Control Flow - Comparisons
 
 feature ComparisonOperators {
-    scenario "All comparison operators" {
-        number count = 10
-        number limit = 100
+    scenario AllComparisonOperators {
+        number total = 10
+        number maxVal = 100
         text status = "active"
 
         # Equals
-        if count == 10 {
+        if total == 10 {
             log "Count is 10"
         }
 
         # Not equals
-        if count != 0 {
+        if total != 0 {
             log "Count is not zero"
         }
 
         # Greater than
-        if count > 5 {
+        if total > 5 {
             log "Count greater than 5"
         }
 
         # Less than
-        if count < 100 {
+        if total < 100 {
             log "Count less than 100"
         }
 
         # Greater than or equal
-        if count >= 10 {
+        if total >= 10 {
             log "Count >= 10"
         }
 
         # Less than or equal
-        if count <= 10 {
+        if total <= 10 {
             log "Count <= 10"
         }
 

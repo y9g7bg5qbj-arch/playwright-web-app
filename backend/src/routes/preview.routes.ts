@@ -6,9 +6,12 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { authenticateToken } from '../middleware/auth';
 import { logger } from '../utils/logger';
+import { escapeHtml } from '../utils/html';
 
 const router = Router();
+router.use(authenticateToken);
 
 // Store active preview sessions with their content
 const previewSessions: Map<string, {
@@ -121,7 +124,7 @@ router.get('/:sessionId', (req: Request, res: Response) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vero Recording - ${session.scenarioName}</title>
+    <title>Vero Recording - ${escapeHtml(session.scenarioName)}</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         * {
@@ -276,7 +279,7 @@ router.get('/:sessionId', (req: Request, res: Response) => {
             <div class="recording-dot"></div>
             RECORDING
         </div>
-        <div class="scenario-name">Scenario: <strong>${session.scenarioName}</strong></div>
+        <div class="scenario-name">Scenario: <strong>${escapeHtml(session.scenarioName)}</strong></div>
     </div>
 
     <div class="content">
@@ -297,21 +300,25 @@ router.get('/:sessionId', (req: Request, res: Response) => {
     </div>
 
     <script>
-        const sessionId = '${sessionId}';
+        const sessionId = ${JSON.stringify(sessionId)};
         let lastUpdate = 0;
         let lastActionCount = 0;
 
         // Syntax highlighting for Vero code
+        function escapeHtmlInline(s) {
+            return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+        }
         function highlightVero(code) {
-            return code
+            return escapeHtmlInline(code)
                 // Comments
                 .replace(/(#.*$)/gm, '<span class="comment">$1</span>')
                 // Keywords
                 .replace(/\\b(feature|scenario|page|using|import|as|with|from|is|has|to|on|in)\\b/g, '<span class="keyword">$1</span>')
                 // Actions
                 .replace(/\\b(open|click|fill|check|uncheck|select|hover|press|wait|verify|assert|scroll|drag|drop|navigate|submit|clear)\\b/g, '<span class="action">$1</span>')
-                // Strings
-                .replace(/"([^"]+)"/g, '"<span class="string">$1</span>"')
+                // Strings (uses &quot; since input is already HTML-escaped)
+                .replace(/&quot;([^&]*?)&quot;/g, '&quot;<span class="string">$1</span>&quot;')
                 // Page object references (PageName.fieldName)
                 .replace(/([A-Z][a-zA-Z0-9]*)\\.([a-zA-Z][a-zA-Z0-9]*)/g, '<span class="page-ref">$1</span>.<span class="selector">$2</span>');
         }
@@ -319,7 +326,7 @@ router.get('/:sessionId', (req: Request, res: Response) => {
         // Poll for updates
         async function pollUpdates() {
             try {
-                const response = await fetch('/api/preview/${sessionId}/data');
+                const response = await fetch('/api/preview/' + sessionId + '/data');
                 if (!response.ok) {
                     // Session ended
                     document.getElementById('code-content').innerHTML = '<span class="comment"># Recording ended</span>';

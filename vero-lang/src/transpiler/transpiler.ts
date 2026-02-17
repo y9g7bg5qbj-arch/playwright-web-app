@@ -65,6 +65,7 @@ export class Transpiler {
     private indent = 0;
     private usedTables: Set<string> = new Set();  // Track tables used in VDQL
     private tempVarCounter = 0;
+    private _useFrameContext = false;  // True when inside a scenario with frame operations
 
     constructor(options: TranspileOptions = {}) {
         this.options = {
@@ -777,6 +778,7 @@ export class Transpiler {
     private transpileScenario(scenario: ScenarioNode, uses: string[], featureName: string): string {
         const lines: string[] = [];
         const needsContext = this.scenarioNeedsContext(scenario);
+        const needsFrame = this.scenarioNeedsFrame(scenario);
 
         const tags = scenario.tags.map(t => `@${t}`).join(' ');
         const readableName = this.toReadableTestName(scenario.name);
@@ -808,6 +810,13 @@ export class Transpiler {
             lines.push(this.line('let page = _page;'));
         }
 
+        // When frame operations are used, declare a frame locator variable
+        if (needsFrame) {
+            this._useFrameContext = true;
+            lines.push(this.line('let __currentFrame: ReturnType<typeof page.frameLocator> | null = null;'));
+        }
+
+        try {
         // Add test.slow() inside test body if @slow annotation is present
         if (hasSlow) {
             lines.push(this.line('test.slow(); // Triple the timeout'));
@@ -875,6 +884,10 @@ export class Transpiler {
         lines.push(this.line("await testInfo.attach('trace', { path: __traceFile, contentType: 'application/zip' });"));
         this.indent--;
         lines.push(this.line("} catch { /* trace not available */ }"));
+
+        } finally {
+            this._useFrameContext = false;
+        }
 
         this.indent--;
         lines.push(this.line('});'));
@@ -1046,6 +1059,108 @@ export class Transpiler {
 
             case 'Return':
                 return this.transpileReturn(statement, uses, currentPage);
+
+            // Dialog handling — handler must be registered BEFORE the action that triggers the dialog
+            case 'AcceptDialog': {
+                const text = statement.responseText ? this.transpileExpression(statement.responseText) : undefined;
+                if (text) {
+                    return `/* Register dialog handler before the triggering action */ await test.step('Accept dialog with text', async () => { page.once('dialog', async dialog => { await dialog.accept(${text}); }); });`;
+                }
+                return `/* Register dialog handler before the triggering action */ await test.step('Accept dialog', async () => { page.once('dialog', async dialog => { await dialog.accept(); }); });`;
+            }
+
+            case 'DismissDialog':
+                return `/* Register dialog handler before the triggering action */ await test.step('Dismiss dialog', async () => { page.once('dialog', async dialog => { await dialog.dismiss(); }); });`;
+
+            // Frame handling
+            case 'SwitchToFrame': {
+                const sel = statement.selector;
+                const v = sel.value.replace(/'/g, "\\'");
+                let frameSelectorStr: string;
+                if (sel.selectorType === 'css' || sel.selectorType === 'xpath') {
+                    frameSelectorStr = `'${v}'`;
+                } else if (sel.selectorType === 'role') {
+                    const nameParam = sel.nameParam ? `[name="${sel.nameParam}"]` : '';
+                    frameSelectorStr = `'${v}${nameParam}'`;
+                } else if (sel.selectorType === 'testid') {
+                    frameSelectorStr = `'[data-testid="${v}"]'`;
+                } else {
+                    frameSelectorStr = `'${v}'`;
+                }
+                return `await test.step('Switch to frame', async () => { __currentFrame = page.frameLocator(${frameSelectorStr}); });`;
+            }
+
+            case 'SwitchToMainFrame':
+                return `await test.step('Switch to main frame', async () => { __currentFrame = null; });`;
+
+            // Download handling
+            case 'Download': {
+                const dlTarget = this.transpileTarget(statement.target, uses, currentPage);
+                const dlDesc = this.getTargetDescription(statement.target);
+                if (statement.saveAs) {
+                    const saveAsExpr = this.transpileExpression(statement.saveAs);
+                    return `await test.step('Download from ${dlDesc}', async () => { const downloadPromise = page.waitForEvent('download'); await ${dlTarget}.click(); const download = await downloadPromise; await download.saveAs(${saveAsExpr}); });`;
+                }
+                return `await test.step('Download from ${dlDesc}', async () => { const downloadPromise = page.waitForEvent('download'); await ${dlTarget}.click(); const download = await downloadPromise; await download.path(); });`;
+            }
+
+            // Cookie management
+            case 'SetCookie': {
+                const cookieName = this.transpileExpression(statement.name);
+                const cookieValue = this.transpileExpression(statement.value);
+                return `await test.step('Set cookie ' + ${cookieName}, async () => { await page.context().addCookies([{ name: ${cookieName}, value: ${cookieValue}, url: page.url() }]); });`;
+            }
+
+            case 'ClearCookies':
+                return `await test.step('Clear cookies', async () => { await page.context().clearCookies(); });`;
+
+            // Storage management
+            case 'SetStorage': {
+                const storageKey = this.transpileExpression(statement.key);
+                const storageValue = this.transpileExpression(statement.value);
+                return `await test.step('Set storage ' + ${storageKey}, async () => { await page.evaluate(([k, v]) => localStorage.setItem(k, v), [${storageKey}, ${storageValue}]); });`;
+            }
+
+            case 'GetStorage': {
+                const gsKey = this.transpileExpression(statement.key);
+                return `const ${statement.variable} = await test.step('Get storage ' + ${gsKey}, async () => { return await page.evaluate((k) => localStorage.getItem(k), ${gsKey}); });`;
+            }
+
+            case 'ClearStorage':
+                return `await test.step('Clear storage', async () => { await page.evaluate(() => localStorage.clear()); });`;
+
+            case 'ClearField': {
+                const clearTarget = this.transpileTarget(statement.target, uses, currentPage);
+                const clearDesc = this.getTargetDescription(statement.target);
+                return `await test.step('Clear ${clearDesc}', async () => { await ${clearTarget}.fill(''); });`;
+            }
+
+            // Scroll
+            case 'Scroll': {
+                if (statement.target) {
+                    const scrollTarget = this.transpileTarget(statement.target, uses, currentPage);
+                    const scrollDesc = this.getTargetDescription(statement.target);
+                    return `await test.step('Scroll to ${scrollDesc}', async () => { await ${scrollTarget}.scrollIntoViewIfNeeded(); });`;
+                }
+                const delta = statement.direction === 'up' ? -500 : 500;
+                const dir = statement.direction || 'down';
+                return `await test.step('Scroll ${dir}', async () => { await page.mouse.wheel(0, ${delta}); });`;
+            }
+
+            // Wait for network/navigation
+            case 'WaitForNavigation':
+                return `await test.step('Wait for navigation', async () => { await page.waitForLoadState('load'); });`;
+
+            case 'WaitForNetworkIdle':
+                return `await test.step('Wait for network idle', async () => { await page.waitForLoadState('networkidle'); });`;
+
+            case 'WaitForUrl': {
+                const urlVal = this.transpileExpression(statement.value);
+                if (statement.condition === 'contains') {
+                    return `await test.step('Wait for URL contains ' + ${urlVal}, async () => { await page.waitForURL(url => url.toString().includes(${urlVal})); });`;
+                }
+                return `await test.step('Wait for URL equals ' + ${urlVal}, async () => { await page.waitForURL(url => url.toString() === ${urlVal}); });`;
+            }
 
             default:
                 return `// Unknown statement type`;
@@ -1982,6 +2097,26 @@ export class Transpiler {
         return this.statementsContainTabOperations(scenario.statements);
     }
 
+    private isFrameOperationStatement(statement: StatementNode): boolean {
+        return statement.type === 'SwitchToFrame' || statement.type === 'SwitchToMainFrame';
+    }
+
+    private statementsContainFrameOperations(statements: StatementNode[]): boolean {
+        for (const statement of statements) {
+            if (this.isFrameOperationStatement(statement)) {
+                return true;
+            }
+            if (statement.type === 'ForEach' && this.statementsContainFrameOperations(statement.statements)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private scenarioNeedsFrame(scenario: ScenarioNode): boolean {
+        return this.statementsContainFrameOperations(scenario.statements);
+    }
+
     private formatMultiline(lines: string[]): string {
         return lines.join('\n' + '  '.repeat(this.indent));
     }
@@ -2000,40 +2135,41 @@ export class Transpiler {
 
     private transpileSelector(selector: SelectorNode): string {
         const v = selector.value.replace(/'/g, "\\'");
+        const loc = this._useFrameContext ? '(__currentFrame || page)' : 'page';
 
         let base: string;
         switch (selector.selectorType) {
             // Role shorthands
-            case 'button':    base = `page.getByRole('button', { name: '${v}' })`; break;
-            case 'textbox':   base = `page.getByRole('textbox', { name: '${v}' })`; break;
-            case 'link':      base = `page.getByRole('link', { name: '${v}' })`; break;
-            case 'checkbox':  base = `page.getByRole('checkbox', { name: '${v}' })`; break;
-            case 'heading':   base = `page.getByRole('heading', { name: '${v}' })`; break;
-            case 'combobox':  base = `page.getByRole('combobox', { name: '${v}' })`; break;
-            case 'radio':     base = `page.getByRole('radio', { name: '${v}' })`; break;
+            case 'button':    base = `${loc}.getByRole('button', { name: '${v}' })`; break;
+            case 'textbox':   base = `${loc}.getByRole('textbox', { name: '${v}' })`; break;
+            case 'link':      base = `${loc}.getByRole('link', { name: '${v}' })`; break;
+            case 'checkbox':  base = `${loc}.getByRole('checkbox', { name: '${v}' })`; break;
+            case 'heading':   base = `${loc}.getByRole('heading', { name: '${v}' })`; break;
+            case 'combobox':  base = `${loc}.getByRole('combobox', { name: '${v}' })`; break;
+            case 'radio':     base = `${loc}.getByRole('radio', { name: '${v}' })`; break;
 
             // Generic role
             case 'role':
                 if (selector.nameParam) {
                     const nameEsc = selector.nameParam.replace(/'/g, "\\'");
-                    base = `page.getByRole('${v}', { name: '${nameEsc}', exact: true })`;
+                    base = `${loc}.getByRole('${v}', { name: '${nameEsc}', exact: true })`;
                 } else {
-                    base = `page.getByRole('${v}')`;
+                    base = `${loc}.getByRole('${v}')`;
                 }
                 break;
 
             // Other locator methods
-            case 'label':       base = `page.getByLabel('${v}')`; break;
-            case 'placeholder': base = `page.getByPlaceholder('${v}')`; break;
-            case 'testid':      base = `page.getByTestId('${v}')`; break;
-            case 'text':        base = `page.getByText('${v}')`; break;
-            case 'alt':         base = `page.getByAltText('${v}')`; break;
-            case 'title':       base = `page.getByTitle('${v}')`; break;
+            case 'label':       base = `${loc}.getByLabel('${v}')`; break;
+            case 'placeholder': base = `${loc}.getByPlaceholder('${v}')`; break;
+            case 'testid':      base = `${loc}.getByTestId('${v}')`; break;
+            case 'text':        base = `${loc}.getByText('${v}')`; break;
+            case 'alt':         base = `${loc}.getByAltText('${v}')`; break;
+            case 'title':       base = `${loc}.getByTitle('${v}')`; break;
 
             // Raw CSS/XPath selectors
             case 'css':
             case 'xpath':
-                base = `page.locator('${v}')`; break;
+                base = `${loc}.locator('${v}')`; break;
 
             // Legacy auto-detection
             case 'auto':
@@ -2108,12 +2244,13 @@ export class Transpiler {
             (/:[a-z-]+(\(|$)/i.test(value)) ||              // Pseudo-selectors
             /^[a-z]+[.#\[]/i.test(value);                   // Tag with selector
 
+        const loc = this._useFrameContext ? '(__currentFrame || page)' : 'page';
         if (isCssOrXPath) {
-            return `page.locator('${escapedValue}')`;
+            return `${loc}.locator('${escapedValue}')`;
         }
 
         // Default: treat as human-readable text
-        return `page.getByText('${escapedValue}')`;
+        return `${loc}.getByText('${escapedValue}')`;
     }
 
     private getTargetDescription(target: TargetNode): string {
@@ -2132,7 +2269,10 @@ export class Transpiler {
     }
 
     private transpileTarget(target: TargetNode, _uses: string[] = [], currentPage?: string): string {
-        if (target.text) return `page.getByText('${target.text.replace(/'/g, "\\'")}')`;
+        if (target.text) {
+            const loc = this._useFrameContext ? '(__currentFrame || page)' : 'page';
+            return `${loc}.getByText('${target.text.replace(/'/g, "\\'")}')`;
+        }
         if (target.selector) return this.transpileSelector(target.selector);
         if (target.page && target.field) {
             // If we're inside a page action and referencing the same page, use 'this'

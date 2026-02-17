@@ -48,7 +48,7 @@ function parseWithTiming(input: string): { duration: number; errors: string[] } 
  */
 function generateLargeFeature(scenarioCount: number): string {
     const scenarios = Array.from({ length: scenarioCount }, (_, i) => `
-    scenario "Test scenario ${i}" @tag${i % 10} {
+    scenario TestScenario${i} @tag${i % 10} {
         open "/page${i}"
         wait 1 seconds
         fill "input${i}" with "value${i}"
@@ -59,9 +59,9 @@ function generateLargeFeature(scenarioCount: number): string {
 
     return `
 page TestPage {
-    field input = "#input"
-    field button = "Button"
-    field result = ".result"
+    field myInput = "#input"
+    field btn = "Button"
+    field myResult = ".result"
 }
 
 feature LargeFeature {
@@ -94,7 +94,7 @@ function generateDeeplyNested(depth: number): string {
 
     return `
 feature NestedFeature {
-    scenario "Deep nesting" {
+    scenario DeepNesting {
 ${open}
         log "Reached depth ${depth}"
 ${close}
@@ -158,7 +158,7 @@ ${uses}
         log "Suite end"
     }
 
-    scenario "Test 1" @smoke @critical @p0 @regression @feature1 {
+    scenario Test1 @smoke @critical @p0 @regression @feature1 {
         repeat 5 times {
             if Page0.f is visible {
                 click Page0.f
@@ -167,7 +167,7 @@ ${uses}
         }
     }
 
-    scenario "Test 2" @regression @p1 {
+    scenario Test2 @regression @p1 {
         text var1 = "value1"
         number var2 = 123
         flag var3 = "true"

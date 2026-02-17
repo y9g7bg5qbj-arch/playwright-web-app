@@ -271,6 +271,21 @@ export type ClientToServerEvents = {
   'recording:cancel': (data: { testFlowId: string; executionId: string }) => void;
   'execution:start': (data: { executionId: string; target: ExecutionTarget; code: string }) => void;
   'execution:cancel': (data: { executionId: string }) => void;
+  // Codegen recorder events
+  'codegen:subscribe': (data: { sessionId: string }) => void;
+  'codegen:unsubscribe': (data: { sessionId: string }) => void;
+  'recording:codegen:start': (data: { url: string; sessionId: string; scenarioName: string }) => void;
+  'recording:codegen:stop': (data: { sessionId: string }) => void;
+  // Embedded recorder events
+  'recording:embedded:start': (data: { url: string; sessionId: string; scenarioName: string; useProxy?: boolean }) => void;
+  'recording:embedded:stop': (data: { sessionId: string }) => void;
+  // Embedded recorder input events
+  'recording:input:click': (data: { sessionId: string; x: number; y: number }) => void;
+  'recording:input:move': (data: { sessionId: string; x: number; y: number }) => void;
+  'recording:input:type': (data: { sessionId: string; text: string; key?: string }) => void;
+  'recording:input:scroll': (data: { sessionId: string; x: number; y: number; deltaX: number; deltaY: number }) => void;
+  // Embedded recorder iframe action forwarding
+  'recording:iframe:action': (data: { sessionId: string; action: Record<string, unknown>; url?: string; scenarioName?: string; sandboxPath?: string }) => void;
   // Debug client events
   'debug:start': (data: { executionId: string; testFlowId: string; code: string; breakpoints: number[] }) => void;
   'debug:set-breakpoints': (data: { executionId: string; breakpoints: number[] }) => void;
@@ -278,11 +293,34 @@ export type ClientToServerEvents = {
   'debug:step-over': (data: { executionId: string }) => void;
   'debug:step-into': (data: { executionId: string }) => void;
   'debug:stop': (data: { executionId: string }) => void;
+  'debug:evaluate': (data: { executionId: string; watchId: string; expression: string }) => void;
+  'debug:pause': (data: { executionId: string }) => void;
+  'debug:inspect': (data: { executionId: string }) => void;
+  'debug:step-out': (data: { executionId: string }) => void;
 };
 
 export type ServerToClientEvents = {
   'recording:ready': (data: { testFlowId: string; executionId: string }) => void;
   'recording:complete': (data: { testFlowId: string; executionId: string; success: boolean; code?: string; message?: string }) => void;
+  // Recording action & page object events
+  'recording:action': (data: { sessionId: string; veroCode: string; newPagePath?: string; newPageCode?: string }) => void;
+  'recording:page-updated': (data: { sessionId: string; pageName: string; fieldName: string; filePath: string; pageContent: string }) => void;
+  'recording:field-created': (data: { sessionId: string; pageName: string; fieldName: string }) => void;
+  'recording:error': (data: { sessionId?: string; error: string }) => void;
+  // Codegen recorder events
+  'recording:codegen:ready': (data: { sessionId: string }) => void;
+  'recording:codegen:complete': (data: { sessionId: string }) => void;
+  // Embedded recorder events
+  'recording:embedded:ready': (data: { sessionId: string; mode: string }) => void;
+  'recording:embedded:complete': (data: { sessionId: string; code?: string }) => void;
+  // Embedded recorder streaming
+  'recording:frame': (data: { sessionId: string; frame: string }) => void;
+  'recording:debug': (data: { sessionId: string; message: string; elementInfo?: Record<string, unknown>; urlAfter?: string }) => void;
+  // Codegen action events (forwarded to subscribers)
+  'codegen:action': (data: { sessionId: string; veroCode: string; pagePath?: string; pageCode?: string; fieldCreated?: Record<string, unknown> }) => void;
+  'codegen:error': (data: { sessionId: string; error: string }) => void;
+  'codegen:stopped': (data: { sessionId: string; veroLines: string[]; scenarioName: string }) => void;
+  // Execution events
   'execution:log': (data: { executionId: string; message: string; level: 'info' | 'warn' | 'error' }) => void;
   'execution:complete': (data: {
     executionId: string;
@@ -310,6 +348,7 @@ export type ServerToClientEvents = {
   'debug:complete': (data: { executionId: string; exitCode: number; duration: number }) => void;
   'debug:resumed': (data: { executionId: string }) => void;
   'debug:stopped': (data: { executionId: string }) => void;
+  'debug:evaluated': (data: { executionId: string; watchId: string; value?: unknown; error?: string }) => void;
 };
 
 // WebSocket Event Types - Agent

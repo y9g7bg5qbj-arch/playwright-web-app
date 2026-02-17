@@ -1,14 +1,12 @@
 # Test: Feature with Use Statement
-# Category: Features - Use (Updated to PAGEACTIONS Pattern)
+# Category: Features - Use (Inline Actions)
 
 PAGE LoginPage {
     FIELD emailInput = "Email"
     FIELD submitBtn = "Submit"
-}
 
-PAGEACTIONS LoginPageActions FOR LoginPage {
-    enterEmail WITH value {
-        FILL emailInput WITH value
+    enterEmail WITH val {
+        FILL emailInput WITH val
     }
 
     clickSubmit {
@@ -17,10 +15,10 @@ PAGEACTIONS LoginPageActions FOR LoginPage {
 }
 
 FEATURE FeatureWithUse {
-    USE LoginPageActions
+    USE LoginPage
 
     SCENARIO UseLoginPage {
-        PERFORM LoginPageActions.enterEmail WITH "test@example.com"
-        PERFORM LoginPageActions.clickSubmit
+        PERFORM LoginPage.enterEmail WITH "test@example.com"
+        PERFORM LoginPage.clickSubmit
     }
 }

@@ -9,7 +9,7 @@ page DropdownPage {
 feature SelectActions {
     use DropdownPage
 
-    scenario "Select variations" {
+    scenario SelectVariations {
         # Select with strings
         select "United States" from "country"
 

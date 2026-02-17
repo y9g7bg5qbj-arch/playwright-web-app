@@ -1,46 +1,42 @@
 # Test: Contains Assertions
-# Category: Assertions - Contains (Updated to PAGEACTIONS Pattern)
+# Category: Assertions - Contains (Inline Actions)
 
 PAGE ContainsPage {
     FIELD message = ".message"
-    FIELD error = ".error"
-}
+    FIELD errorEl = ".error"
 
-PAGEACTIONS ContainsPageActions FOR ContainsPage {
     getMessageText RETURNS TEXT {
-        RETURN TEXT OF message
+        RETURN message
     }
 
     getErrorText RETURNS TEXT {
-        RETURN TEXT OF error
+        RETURN errorEl
     }
 
     isMessageVisible RETURNS FLAG {
-        RETURN VISIBLE OF message
+        RETURN message
     }
 
     isErrorVisible RETURNS FLAG {
-        RETURN VISIBLE OF error
+        RETURN errorEl
     }
 }
 
 FEATURE ContainsAssertions {
-    USE ContainsPageActions
+    USE ContainsPage
 
     SCENARIO ContainsChecks {
-        # Contains with getters
-        TEXT messageText = PERFORM ContainsPageActions.getMessageText
-        VERIFY messageText CONTAINS "Hello"
-        VERIFY messageText CONTAINS "Welcome"
+        # Contains with page field references
+        VERIFY ContainsPage.message IS CONTAINS "Hello"
+        VERIFY ContainsPage.message IS CONTAINS "Welcome"
 
         # Not contains
-        VERIFY messageText NOT CONTAINS "Error"
+        VERIFY ContainsPage.message IS NOT CONTAINS "Error"
 
-        TEXT errorText = PERFORM ContainsPageActions.getErrorText
-        VERIFY errorText NOT CONTAINS "Success"
+        VERIFY ContainsPage.errorEl IS NOT CONTAINS "Success"
 
         # Contains with variable
         TEXT expected = "expected text"
-        VERIFY messageText CONTAINS expected
+        VERIFY ContainsPage.message IS CONTAINS expected
     }
 }

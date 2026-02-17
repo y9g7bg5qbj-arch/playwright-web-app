@@ -19,6 +19,18 @@ vi.mock('../middleware/auth', () => ({
   AuthRequest: {} as any,
 }));
 
+// Mock MongoDB connection (prevents MONGODB_URI requirement at import time)
+vi.mock('../db/mongodb', () => ({
+  getMongoUri: () => 'mongodb://localhost:27017/test',
+  getDb: vi.fn(),
+  COLLECTIONS: {},
+}));
+
+vi.mock('../services/mongodb-test-data.service', () => ({
+  MongoDBTestDataService: class { async findAll() { return []; } },
+  mongoDBTestDataService: { findAll: vi.fn().mockResolvedValue([]) },
+}));
+
 // Mock MongoDB repositories
 vi.mock('../db/repositories/mongo', () => ({
   testFlowRepository: {

@@ -2,7 +2,7 @@
 # Category: Actions - Refresh
 
 feature RefreshActions {
-    scenario "Page refresh" {
+    scenario PageRefresh {
         open "/page"
         wait 1 seconds
         refresh

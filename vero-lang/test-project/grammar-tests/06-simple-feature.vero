@@ -2,7 +2,7 @@
 # Category: Features - Basic
 
 feature SimpleFeature {
-    scenario "Basic test" {
+    scenario BasicScenario {
         log "Hello World"
     }
 }

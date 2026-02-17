@@ -28,28 +28,28 @@ PAGE RegistrationPage {
 
 PAGEACTIONS RegistrationPageActions FOR RegistrationPage {
     # Setters
-    enterFirstName WITH value {
-        FILL firstNameInput WITH value
+    enterFirstName WITH val {
+        FILL firstNameInput WITH val
     }
 
-    enterLastName WITH value {
-        FILL lastNameInput WITH value
+    enterLastName WITH val {
+        FILL lastNameInput WITH val
     }
 
-    enterEmail WITH value {
-        FILL emailInput WITH value
+    enterEmail WITH val {
+        FILL emailInput WITH val
     }
 
-    enterPassword WITH value {
-        FILL passwordInput WITH value
+    enterPassword WITH val {
+        FILL passwordInput WITH val
     }
 
-    enterConfirmPassword WITH value {
-        FILL confirmPasswordInput WITH value
+    enterConfirmPassword WITH val {
+        FILL confirmPasswordInput WITH val
     }
 
-    enterPhone WITH value {
-        FILL phoneInput WITH value
+    enterPhone WITH val {
+        FILL phoneInput WITH val
     }
 
     selectCountry WITH country {
@@ -91,44 +91,16 @@ PAGEACTIONS RegistrationPageActions FOR RegistrationPage {
     }
 
     # Getters
-    isFirstNameErrorVisible RETURNS FLAG {
-        RETURN VISIBLE OF firstNameError
-    }
-
-    isLastNameErrorVisible RETURNS FLAG {
-        RETURN VISIBLE OF lastNameError
-    }
-
-    isEmailErrorVisible RETURNS FLAG {
-        RETURN VISIBLE OF emailError
-    }
-
-    isPasswordErrorVisible RETURNS FLAG {
-        RETURN VISIBLE OF passwordError
-    }
-
-    isConfirmPasswordErrorVisible RETURNS FLAG {
-        RETURN VISIBLE OF confirmPasswordError
-    }
-
-    isTermsErrorVisible RETURNS FLAG {
-        RETURN VISIBLE OF termsError
-    }
-
-    isSuccessMessageVisible RETURNS FLAG {
-        RETURN VISIBLE OF successMessage
-    }
-
     getEmailErrorText RETURNS TEXT {
-        RETURN TEXT OF emailError
+        RETURN emailError
     }
 
     getPasswordErrorText RETURNS TEXT {
-        RETURN TEXT OF passwordError
+        RETURN passwordError
     }
 
     getConfirmPasswordErrorText RETURNS TEXT {
-        RETURN TEXT OF confirmPasswordError
+        RETURN confirmPasswordError
     }
 
     awaitRegistrationPage {
@@ -156,38 +128,27 @@ FEATURE FormValidation {
         PERFORM RegistrationPageActions.clickSubmit
         WAIT 2 SECONDS
 
-        FLAG isSuccess = PERFORM RegistrationPageActions.isSuccessMessageVisible
-        VERIFY isSuccess IS TRUE
+        VERIFY RegistrationPage.successMessage IS VISIBLE
     }
 
     SCENARIO AllFieldsRequired @regression {
         PERFORM RegistrationPageActions.clickSubmit
 
-        FLAG hasFirstNameError = PERFORM RegistrationPageActions.isFirstNameErrorVisible
-        VERIFY hasFirstNameError IS TRUE
-
-        FLAG hasLastNameError = PERFORM RegistrationPageActions.isLastNameErrorVisible
-        VERIFY hasLastNameError IS TRUE
-
-        FLAG hasEmailError = PERFORM RegistrationPageActions.isEmailErrorVisible
-        VERIFY hasEmailError IS TRUE
-
-        FLAG hasPasswordError = PERFORM RegistrationPageActions.isPasswordErrorVisible
-        VERIFY hasPasswordError IS TRUE
-
-        FLAG hasTermsError = PERFORM RegistrationPageActions.isTermsErrorVisible
-        VERIFY hasTermsError IS TRUE
+        VERIFY RegistrationPage.firstNameError IS VISIBLE
+        VERIFY RegistrationPage.lastNameError IS VISIBLE
+        VERIFY RegistrationPage.emailError IS VISIBLE
+        VERIFY RegistrationPage.passwordError IS VISIBLE
+        VERIFY RegistrationPage.termsError IS VISIBLE
     }
 
     SCENARIO InvalidEmailFormat @regression {
         PERFORM RegistrationPageActions.fillBasicInfo WITH "John", "Doe", "invalid-email"
         PERFORM RegistrationPageActions.clickSubmit
 
-        FLAG hasEmailError = PERFORM RegistrationPageActions.isEmailErrorVisible
-        VERIFY hasEmailError IS TRUE
+        VERIFY RegistrationPage.emailError IS VISIBLE
 
-        TEXT errorText = PERFORM RegistrationPageActions.getEmailErrorText
-        VERIFY errorText CONTAINS "valid email"
+        TEXT errorText = RegistrationPageActions.getEmailErrorText
+        VERIFY errorText IS CONTAINS "valid email"
     }
 
     SCENARIO PasswordMismatch @regression {
@@ -195,11 +156,10 @@ FEATURE FormValidation {
         PERFORM RegistrationPageActions.fillPassword WITH "Password123!", "DifferentPassword!"
         PERFORM RegistrationPageActions.clickSubmit
 
-        FLAG hasError = PERFORM RegistrationPageActions.isConfirmPasswordErrorVisible
-        VERIFY hasError IS TRUE
+        VERIFY RegistrationPage.confirmPasswordError IS VISIBLE
 
-        TEXT errorText = PERFORM RegistrationPageActions.getConfirmPasswordErrorText
-        VERIFY errorText CONTAINS "match"
+        TEXT errorText = RegistrationPageActions.getConfirmPasswordErrorText
+        VERIFY errorText IS CONTAINS "match"
     }
 
     SCENARIO PasswordTooWeak @regression {
@@ -207,11 +167,10 @@ FEATURE FormValidation {
         PERFORM RegistrationPageActions.fillPassword WITH "weak", "weak"
         PERFORM RegistrationPageActions.clickSubmit
 
-        FLAG hasError = PERFORM RegistrationPageActions.isPasswordErrorVisible
-        VERIFY hasError IS TRUE
+        VERIFY RegistrationPage.passwordError IS VISIBLE
 
-        TEXT errorText = PERFORM RegistrationPageActions.getPasswordErrorText
-        VERIFY errorText CONTAINS "stronger"
+        TEXT errorText = RegistrationPageActions.getPasswordErrorText
+        VERIFY errorText IS CONTAINS "stronger"
     }
 
     SCENARIO TermsNotAccepted @regression {
@@ -219,8 +178,7 @@ FEATURE FormValidation {
         PERFORM RegistrationPageActions.fillPassword WITH "SecurePass123!", "SecurePass123!"
         PERFORM RegistrationPageActions.clickSubmit
 
-        FLAG hasError = PERFORM RegistrationPageActions.isTermsErrorVisible
-        VERIFY hasError IS TRUE
+        VERIFY RegistrationPage.termsError IS VISIBLE
     }
 
     SCENARIO ClearAndRefill @regression {
@@ -228,14 +186,12 @@ FEATURE FormValidation {
         PERFORM RegistrationPageActions.enterEmail WITH "bad-email"
         PERFORM RegistrationPageActions.clickSubmit
 
-        FLAG hasError = PERFORM RegistrationPageActions.isEmailErrorVisible
-        VERIFY hasError IS TRUE
+        VERIFY RegistrationPage.emailError IS VISIBLE
 
         # Clear and correct
         PERFORM RegistrationPageActions.clearEmail
         PERFORM RegistrationPageActions.enterEmail WITH "good@example.com"
 
-        FLAG noError = PERFORM RegistrationPageActions.isEmailErrorVisible
-        VERIFY noError IS NOT TRUE
+        VERIFY RegistrationPage.emailError IS HIDDEN
     }
 }

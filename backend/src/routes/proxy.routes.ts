@@ -8,9 +8,12 @@
 import { Router, Request, Response } from 'express';
 import axios from 'axios';
 import { JSDOM } from 'jsdom';
+import { authenticateToken } from '../middleware/auth';
 import { logger } from '../utils/logger';
+import { escapeHtml } from '../utils/html';
 
 const router = Router();
+router.use(authenticateToken);
 
 // Store active proxy sessions
 const proxySessions = new Map<string, {
@@ -302,8 +305,8 @@ router.get('/:sessionId/page', async (req: Request, res: Response) => {
             <html>
                 <body style="font-family: system-ui; padding: 40px; background: #1a1a2e; color: white;">
                     <h1>Error Loading Page</h1>
-                    <p>${error.message}</p>
-                    <p>URL: ${session.currentUrl}</p>
+                    <p>${escapeHtml(String(error.message))}</p>
+                    <p>URL: ${escapeHtml(session.currentUrl)}</p>
                 </body>
             </html>
         `);

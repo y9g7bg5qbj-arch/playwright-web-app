@@ -1,32 +1,32 @@
 # Test: Text Variable Declarations
 # Category: Variables - Text
 
-feature TextVariables {
-    scenario "Text variable variations" {
+FEATURE TextVariables {
+    SCENARIO TextVariableVariations {
         # Simple string
-        text username = "testuser"
+        TEXT username = "testuser"
 
         # Email format
-        text email = "user@example.com"
+        TEXT email = "user@example.com"
 
         # Empty string
-        text empty = ""
+        TEXT blank = ""
 
         # String with spaces
-        text fullName = "John Doe"
+        TEXT fullName = "John Doe"
 
         # String with special characters
-        text special = "user+tag@example.com"
+        TEXT special = "user+tag@example.com"
 
         # String with escaped quotes
-        text quoted = "Say \"Hello\""
+        TEXT quoted = "Say \"Hello\""
 
-        # URL
-        text url = "https://example.com/path?param=value"
+        # URL string
+        TEXT siteUrl = "https://example.com/path?param=value"
 
         # Use in action
-        fill "username" with username
-        fill "email" with email
-        log fullName
+        FILL "username" WITH username
+        FILL "email" WITH email
+        LOG fullName
     }
 }

@@ -1,20 +1,13 @@
 # Test: Return Statement Variations
-# Category: PageActions - Return (New Pattern)
+# Category: Page Actions - Return (Inline Pattern)
 
 PAGE ReturnPage {
     FIELD result = ".result"
     FIELD statusText = ".status"
-}
 
-PAGEACTIONS ReturnPageActions FOR ReturnPage {
-    # Return text of element
+    # Return field reference
     getResultText RETURNS TEXT {
-        RETURN TEXT OF result
-    }
-
-    # Return visibility flag
-    isResultVisible RETURNS FLAG {
-        RETURN VISIBLE OF result
+        RETURN result
     }
 
     # Action without return
@@ -22,18 +15,17 @@ PAGEACTIONS ReturnPageActions FOR ReturnPage {
         CLICK result
     }
 
-    # Getter with text return
+    # Getter with field return
     getStatusText RETURNS TEXT {
-        RETURN TEXT OF statusText
+        RETURN statusText
     }
 }
 
 FEATURE ReturnTests {
-    USE ReturnPageActions
+    USE ReturnPage
 
     SCENARIO TestReturnStatements {
-        TEXT resultText = PERFORM ReturnPageActions.getResultText
-        FLAG isVisible = PERFORM ReturnPageActions.isResultVisible
-        VERIFY isVisible IS TRUE
+        TEXT resultText = ReturnPage.getResultText
+        VERIFY ReturnPage.result IS VISIBLE
     }
 }

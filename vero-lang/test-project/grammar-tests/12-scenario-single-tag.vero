@@ -2,7 +2,7 @@
 # Category: Features - Tags
 
 feature SingleTagFeature {
-    scenario "Smoke test" @smoke {
+    scenario SmokeScenario @smoke {
         log "Running smoke test"
     }
 }

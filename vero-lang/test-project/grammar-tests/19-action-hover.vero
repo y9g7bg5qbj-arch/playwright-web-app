@@ -9,7 +9,7 @@ page HoverPage {
 feature HoverActions {
     use HoverPage
 
-    scenario "Hover variations" {
+    scenario HoverVariations {
         # Hover with string
         hover "Menu"
 

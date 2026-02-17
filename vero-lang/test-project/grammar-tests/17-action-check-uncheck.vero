@@ -9,7 +9,7 @@ page FormPage {
 feature CheckUncheckActions {
     use FormPage
 
-    scenario "Check and uncheck" {
+    scenario CheckAndUncheck {
         # Check with string
         check "terms"
 

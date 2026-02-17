@@ -249,7 +249,8 @@ utilityAssignment
 
 // Utility expressions (verb-first English style)
 utilityExpression
-    : trimExpression
+    : utilityExpression THEN utilityExpression  // Direct left recursion for THEN chaining
+    | trimExpression
     | convertExpression
     | extractExpression
     | replaceExpression
@@ -267,7 +268,6 @@ utilityExpression
     | randomExpression
     | todayExpression
     | nowExpression
-    | chainedExpression           // For THEN chaining
     | expression                   // Fallback to regular expression
     ;
 
@@ -351,10 +351,7 @@ randomExpression
     : RANDOM NUMBER FROM expression TO expression
     ;
 
-// Chained expressions with THEN
-chainedExpression
-    : utilityExpression THEN utilityExpression
-    ;
+// chainedExpression removed — chaining is now handled as direct left recursion in utilityExpression
 
 // ==================== ACTIONS ====================
 
@@ -966,6 +963,10 @@ PERCENT     : P E R C E N T ;
 // Utility functions - Generate operations
 GENERATE    : G E N E R A T E ;
 UUID        : U U I D ;
+
+// Additional keywords
+ON          : O N ;
+AS          : A S ;
 
 // Selector types (for PAGE FIELD definitions)
 TESTID      : T E S T I D ;

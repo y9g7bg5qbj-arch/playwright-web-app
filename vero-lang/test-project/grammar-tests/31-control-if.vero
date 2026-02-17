@@ -2,31 +2,31 @@
 # Category: Control Flow - If
 
 page IfPage {
-    field button = "Submit"
-    field error = ".error"
+    field btn = "Submit"
+    field errorMsg = ".error"
 }
 
 feature IfStatements {
     use IfPage
 
-    scenario "If statement variations" {
+    scenario IfStatementVariations {
         # Simple if
-        if button is visible {
-            click button
+        if btn is visible {
+            click btn
         }
 
         # If with page field
-        if IfPage.button is enabled {
-            click IfPage.button
+        if IfPage.btn is enabled {
+            click IfPage.btn
         }
 
         # If with is not
-        if error is not visible {
+        if errorMsg is not visible {
             log "No errors"
         }
 
         # If with is hidden
-        if error is hidden {
+        if errorMsg is hidden {
             log "Error hidden"
         }
     }

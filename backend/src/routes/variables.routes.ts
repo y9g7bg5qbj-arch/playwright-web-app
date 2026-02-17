@@ -7,9 +7,11 @@
 
 import { Router, Request, Response } from 'express';
 import { VariableScope } from '@playwright-web-app/shared';
+import { authenticateToken } from '../middleware/auth';
 import { logger } from '../utils/logger';
 
 const router = Router();
+router.use(authenticateToken);
 
 // In-memory storage for demo (replace with database in production)
 const globalVariables: Record<string, any> = {

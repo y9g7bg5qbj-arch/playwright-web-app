@@ -5,13 +5,12 @@ import { tmpdir } from 'os';
 import { EventEmitter } from 'events';
 import { PageObjectRegistry } from './pageObjectRegistry';
 import { recordingPersistenceService, CreateStepDTO } from './recordingPersistence.service';
-import { generateResilientSelector } from './selectorHealing';
 import { generateVeroAction, generateVeroAssertion } from './veroSyntaxReference';
 import { logger } from '../utils/logger';
-import { ParsedAction, DuplicateWarning, splitMethodChain, extractQuotedValue, chainToModifier, parseChainedSelector, parseLocatorAndAction, parseExpect, parsePlaywrightCode, extractSelector, stripSelectorModifiers, generateFieldName, selectorToElementInfo, selectorToCapturedElement } from './codegenRecorder.parser';
+import { ParsedAction, splitMethodChain, extractQuotedValue, chainToModifier, parseChainedSelector, parseLocatorAndAction, parseExpect, parsePlaywrightCode, extractSelector, generateFieldName } from './codegenRecorder.parser';
 
 // Re-export types and parser functions so existing consumers and tests continue to work
-export type { ParsedAction, DuplicateWarning };
+export type { ParsedAction };
 export {
     splitMethodChain,
     extractQuotedValue,
@@ -21,10 +20,7 @@ export {
     parseExpect,
     parsePlaywrightCode,
     extractSelector,
-    stripSelectorModifiers,
     generateFieldName,
-    selectorToElementInfo,
-    selectorToCapturedElement,
 };
 
 interface CodegenSession {
@@ -59,10 +55,22 @@ export class CodegenRecorderService extends EventEmitter {
     parseExpect = parseExpect;
     parsePlaywrightCode = parsePlaywrightCode;
     extractSelector = extractSelector;
-    stripSelectorModifiers = stripSelectorModifiers;
     generateFieldName = generateFieldName;
-    selectorToElementInfo = selectorToElementInfo;
-    selectorToCapturedElement = selectorToCapturedElement;
+
+    private parseSelectorType(selector?: string): string {
+        if (!selector) return '';
+        const trimmed = selector.trim();
+        const tokenMatch = trimmed.match(/^([A-Za-z_][A-Za-z0-9_-]*)/);
+        const token = tokenMatch ? tokenMatch[1].toLowerCase() : '';
+        if (token === 'testid' || token === 'role' || token === 'label' || token === 'placeholder' ||
+            token === 'text' || token === 'alt' || token === 'title' || token === 'css' || token === 'xpath') {
+            return token;
+        }
+        if (trimmed.startsWith('#') || trimmed.startsWith('.') || trimmed.startsWith('[')) {
+            return 'css';
+        }
+        return token;
+    }
 
     /**
      * Start Playwright codegen for recording
@@ -74,8 +82,7 @@ export class CodegenRecorderService extends EventEmitter {
             veroCode: string,
             pagePath?: string,
             pageCode?: string,
-            fieldCreated?: { pageName: string; fieldName: string },
-            duplicateWarning?: DuplicateWarning
+            fieldCreated?: { pageName: string; fieldName: string }
         ) => void,
         onError: (error: string) => void,
         onComplete?: () => void,
@@ -256,8 +263,7 @@ export class CodegenRecorderService extends EventEmitter {
             veroCode: string,
             pagePath?: string,
             pageCode?: string,
-            fieldCreated?: { pageName: string; fieldName: string },
-            duplicateWarning?: DuplicateWarning
+            fieldCreated?: { pageName: string; fieldName: string }
         ) => void
     ): Promise<void> {
         // Parse all actions from new code
@@ -297,42 +303,24 @@ export class CodegenRecorderService extends EventEmitter {
                     }
                     logger.debug(`[CodegenRecorder] Emitting: ${result.veroCode}`);
 
-                    // Log duplicate warning if present
-                    if (result.duplicateWarning) {
-                        logger.info(`[CodegenRecorder] Duplicate warning: ${result.duplicateWarning.reason}`);
-                        // Emit duplicate detection event
-                        this.emit('duplicate-detected', {
-                            sessionId: session.sessionId,
-                            warning: result.duplicateWarning
-                        });
-                    }
-
                     // Persist step to database if session is tracked
                     if (session.dbSessionId) {
                         try {
-                            // Generate resilient selector with fallbacks
-                            const capturedElement = selectorToCapturedElement(action.selector || '');
-                            const resilientSelector = generateResilientSelector(capturedElement);
-
                             const stepData: CreateStepDTO = {
                                 sessionId: session.dbSessionId,
                                 stepNumber: session.stepCount,
                                 actionType: action.type,
                                 veroCode: result.veroCode,
-                                primarySelector: resilientSelector.primary.selector,
-                                selectorType: resilientSelector.primary.strategy,
-                                fallbackSelectors: resilientSelector.fallbacks.map(f => f.selector),
-                                confidence: resilientSelector.overallConfidence,
-                                isStable: resilientSelector.isReliable,
+                                primarySelector: action.selector || '',
+                                selectorType: this.parseSelectorType(action.selector),
+                                fallbackSelectors: [],
                                 value: action.value,
                                 url: session.url,
                                 pageName: result.fieldCreated?.pageName,
                                 fieldName: result.fieldCreated?.fieldName,
-                                elementTag: capturedElement.tagName,
-                                elementText: capturedElement.innerText,
                             };
                             await recordingPersistenceService.addStep(stepData);
-                            logger.debug(`[CodegenRecorder] Persisted step ${session.stepCount} with ${resilientSelector.fallbacks.length} fallbacks`);
+                            logger.debug(`[CodegenRecorder] Persisted step ${session.stepCount} with strict selector conversion`);
                         } catch (dbError) {
                             logger.warn('[CodegenRecorder] Failed to persist step:', dbError);
                         }
@@ -344,8 +332,7 @@ export class CodegenRecorderService extends EventEmitter {
                         result.veroCode,
                         result.pagePath,
                         result.pageCode,
-                        result.fieldCreated,
-                        result.duplicateWarning
+                        result.fieldCreated
                     );
                 }
                 processedCount++;
@@ -370,7 +357,6 @@ export class CodegenRecorderService extends EventEmitter {
         pagePath?: string;
         pageCode?: string;
         fieldCreated?: { pageName: string; fieldName: string };
-        duplicateWarning?: DuplicateWarning;
     } | null> {
         const registry = session.registry;
 
@@ -437,74 +423,20 @@ export class CodegenRecorderService extends EventEmitter {
             let pagePath: string | undefined;
             let pageCode: string | undefined;
             let fieldCreated: { pageName: string; fieldName: string } | undefined;
-            let duplicateWarning: DuplicateWarning | undefined;
 
             if (!fieldRef) {
+                // Strict conversion: do not optimize selector shape, persist exactly what codegen produced.
+                const fieldName = generateFieldName(action);
+                fieldRef = registry.addField(pageName, fieldName, action.selector);
+                pagePath = await registry.persist(pageName);
+                pageCode = registry.getPageContent(pageName) || undefined;
 
-                // Convert selector to ElementInfo for duplicate detection
-                const elementInfo = selectorToElementInfo(action.selector);
+                fieldCreated = {
+                    pageName: fieldRef.pageName,
+                    fieldName: fieldRef.fieldName
+                };
 
-                // Check for duplicates using fuzzy matching
-                const duplicateCheck = registry.checkForDuplicate(elementInfo, action.selector, pageName);
-
-                if (duplicateCheck.isDuplicate && duplicateCheck.existingRef) {
-                    // Reuse existing field instead of creating duplicate
-                    fieldRef = duplicateCheck.existingRef;
-
-                    duplicateWarning = {
-                        newSelector: action.selector,
-                        existingField: `${duplicateCheck.existingRef.pageName}.${duplicateCheck.existingRef.fieldName}`,
-                        similarity: duplicateCheck.similarity,
-                        matchType: duplicateCheck.matchType,
-                        recommendation: duplicateCheck.recommendation,
-                        reason: duplicateCheck.reason || 'Duplicate detected'
-                    };
-
-                    logger.info(`[CodegenRecorder] Duplicate detected: reusing ${fieldRef.pageName}.${fieldRef.fieldName} (${Math.round(duplicateCheck.similarity * 100)}% match)`);
-                } else if (duplicateCheck.recommendation === 'review' && duplicateCheck.existingRef) {
-                    // Create new field but emit warning for review
-                    const fieldName = generateFieldName(action);
-                    const baseSelector = stripSelectorModifiers(action.selector);
-                    fieldRef = registry.addField(pageName, fieldName, baseSelector);
-                    pagePath = await registry.persist(pageName);
-                    pageCode = registry.getPageContent(pageName) || undefined;
-
-                    fieldCreated = {
-                        pageName: fieldRef.pageName,
-                        fieldName: fieldRef.fieldName
-                    };
-
-                    duplicateWarning = {
-                        newSelector: action.selector,
-                        existingField: `${duplicateCheck.existingRef.pageName}.${duplicateCheck.existingRef.fieldName}`,
-                        similarity: duplicateCheck.similarity,
-                        matchType: duplicateCheck.matchType,
-                        recommendation: duplicateCheck.recommendation,
-                        reason: duplicateCheck.reason || 'Similar field exists - please review'
-                    };
-
-                    logger.info(`[CodegenRecorder] Created field with warning: ${fieldRef.pageName}.${fieldRef.fieldName} (similar to ${duplicateCheck.existingRef.pageName}.${duplicateCheck.existingRef.fieldName})`);
-                } else {
-                    // No duplicate - create new page object field
-                    const fieldName = generateFieldName(action);
-
-                    // Strip modifiers (WITH TEXT, FIRST, etc.) -- store only base selector in page object
-                    const baseSelector = stripSelectorModifiers(action.selector);
-
-                    // Add the field to the page we already got/created above
-                    fieldRef = registry.addField(pageName, fieldName, baseSelector);
-
-                    // Persist to disk
-                    pagePath = await registry.persist(pageName);
-                    pageCode = registry.getPageContent(pageName) || undefined;
-
-                    fieldCreated = {
-                        pageName: fieldRef.pageName,
-                        fieldName: fieldRef.fieldName
-                    };
-
-                    logger.info(`[CodegenRecorder] Created field ${fieldRef.pageName}.${fieldRef.fieldName} = ${action.selector}`);
-                }
+                logger.info(`[CodegenRecorder] Created field ${fieldRef.pageName}.${fieldRef.fieldName} = ${action.selector}`);
             }
 
             // Build Vero action with page object reference using single source of truth
@@ -517,7 +449,7 @@ export class CodegenRecorderService extends EventEmitter {
                 veroCode = generateVeroAction(action.type, ref, action.value);
             }
 
-            return { veroCode, pagePath, pageCode, fieldCreated, duplicateWarning };
+            return { veroCode, pagePath, pageCode, fieldCreated };
         }
 
         return null;

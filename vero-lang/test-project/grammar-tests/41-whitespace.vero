@@ -6,7 +6,7 @@ page MinPage{field f="x"}
 
 # Normal whitespace
 page NormalPage {
-    field button = "Button"
+    field btn = "Button"
 }
 
 # Excessive whitespace
@@ -15,14 +15,14 @@ page NormalPage {
 page SpacedPage {
 
 
-    field     button    =    "Button"
+    field     btn    =    "Button"
 
 
 }
 
 feature    WhitespaceFeature    {
 
-    scenario     "Whitespace test"     {
+    scenario     WhitespaceScenario     {
 
         log      "Message"
 

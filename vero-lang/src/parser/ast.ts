@@ -186,7 +186,22 @@ export type StatementNode =
     | SwitchToNewTabStatement
     | SwitchToTabStatement
     | OpenInNewTabStatement
-    | CloseTabStatement;
+    | CloseTabStatement
+    | AcceptDialogStatement
+    | DismissDialogStatement
+    | SwitchToFrameStatement
+    | SwitchToMainFrameStatement
+    | DownloadStatement
+    | SetCookieStatement
+    | ClearCookiesStatement
+    | SetStorageStatement
+    | GetStorageStatement
+    | ClearStorageStatement
+    | ScrollStatement
+    | WaitForNavigationStatement
+    | WaitForNetworkIdleStatement
+    | WaitForUrlStatement
+    | ClearFieldStatement;
 
 // Action Statements
 
@@ -312,6 +327,103 @@ export interface OpenInNewTabStatement {
 
 export interface CloseTabStatement {
     type: 'CloseTab';
+    line: number;
+}
+
+// Dialog handling
+export interface AcceptDialogStatement {
+    type: 'AcceptDialog';
+    responseText?: ExpressionNode;
+    line: number;
+}
+
+export interface DismissDialogStatement {
+    type: 'DismissDialog';
+    line: number;
+}
+
+// Frame handling
+export interface SwitchToFrameStatement {
+    type: 'SwitchToFrame';
+    selector: SelectorNode;
+    line: number;
+}
+
+export interface SwitchToMainFrameStatement {
+    type: 'SwitchToMainFrame';
+    line: number;
+}
+
+// Download handling
+export interface DownloadStatement {
+    type: 'Download';
+    target: TargetNode;
+    saveAs?: ExpressionNode;
+    line: number;
+}
+
+// Cookie management
+export interface SetCookieStatement {
+    type: 'SetCookie';
+    name: ExpressionNode;
+    value: ExpressionNode;
+    line: number;
+}
+
+export interface ClearCookiesStatement {
+    type: 'ClearCookies';
+    line: number;
+}
+
+// Storage management
+export interface SetStorageStatement {
+    type: 'SetStorage';
+    key: ExpressionNode;
+    value: ExpressionNode;
+    line: number;
+}
+
+export interface GetStorageStatement {
+    type: 'GetStorage';
+    key: ExpressionNode;
+    variable: string;
+    line: number;
+}
+
+export interface ClearStorageStatement {
+    type: 'ClearStorage';
+    line: number;
+}
+
+// Scroll
+export interface ScrollStatement {
+    type: 'Scroll';
+    direction?: 'up' | 'down';
+    target?: TargetNode;
+    line: number;
+}
+
+// Wait for network/navigation
+export interface WaitForNavigationStatement {
+    type: 'WaitForNavigation';
+    line: number;
+}
+
+export interface WaitForNetworkIdleStatement {
+    type: 'WaitForNetworkIdle';
+    line: number;
+}
+
+export interface WaitForUrlStatement {
+    type: 'WaitForUrl';
+    condition: 'contains' | 'equals';
+    value: ExpressionNode;
+    line: number;
+}
+
+export interface ClearFieldStatement {
+    type: 'ClearField';
+    target: TargetNode;
     line: number;
 }
 

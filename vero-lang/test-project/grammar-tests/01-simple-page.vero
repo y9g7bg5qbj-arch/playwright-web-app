@@ -2,5 +2,5 @@
 # Category: Page Objects - Basic
 
 page SimplePage {
-    field button = "Click Me"
+    field btn = "Click Me"
 }

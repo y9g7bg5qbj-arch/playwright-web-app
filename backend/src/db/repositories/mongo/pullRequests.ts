@@ -170,22 +170,22 @@ export interface MongoPullRequestReview {
 
 export const pullRequestReviewRepository = {
   async findById(id: string): Promise<MongoPullRequestReview | null> {
-    return getCollection<MongoPullRequestReview>('pull_request_reviews').findOne({ id });
+    return getCollection<MongoPullRequestReview>(COLLECTIONS.PULL_REQUEST_REVIEWS).findOne({ id });
   },
 
   async findByPullRequestId(pullRequestId: string): Promise<MongoPullRequestReview[]> {
-    return getCollection<MongoPullRequestReview>('pull_request_reviews')
+    return getCollection<MongoPullRequestReview>(COLLECTIONS.PULL_REQUEST_REVIEWS)
       .find({ pullRequestId })
       .sort({ createdAt: -1 })
       .toArray();
   },
 
   async findByPullRequestAndReviewer(pullRequestId: string, reviewerId: string): Promise<MongoPullRequestReview | null> {
-    return getCollection<MongoPullRequestReview>('pull_request_reviews').findOne({ pullRequestId, reviewerId });
+    return getCollection<MongoPullRequestReview>(COLLECTIONS.PULL_REQUEST_REVIEWS).findOne({ pullRequestId, reviewerId });
   },
 
   async countByStatus(pullRequestId: string, status: 'approved' | 'changes_requested' | 'pending'): Promise<number> {
-    return getCollection<MongoPullRequestReview>('pull_request_reviews').countDocuments({ pullRequestId, status });
+    return getCollection<MongoPullRequestReview>(COLLECTIONS.PULL_REQUEST_REVIEWS).countDocuments({ pullRequestId, status });
   },
 
   async create(data: Omit<MongoPullRequestReview, '_id' | 'id' | 'createdAt' | 'updatedAt'>): Promise<MongoPullRequestReview> {
@@ -196,13 +196,13 @@ export const pullRequestReviewRepository = {
       createdAt: now,
       updatedAt: now
     };
-    await getCollection<MongoPullRequestReview>('pull_request_reviews').insertOne(review);
+    await getCollection<MongoPullRequestReview>(COLLECTIONS.PULL_REQUEST_REVIEWS).insertOne(review);
     return review;
   },
 
   async upsert(pullRequestId: string, reviewerId: string, data: Partial<MongoPullRequestReview>): Promise<MongoPullRequestReview> {
     const now = new Date();
-    const result = await getCollection<MongoPullRequestReview>('pull_request_reviews').findOneAndUpdate(
+    const result = await getCollection<MongoPullRequestReview>(COLLECTIONS.PULL_REQUEST_REVIEWS).findOneAndUpdate(
       { pullRequestId, reviewerId },
       {
         $set: { ...data, updatedAt: now },
@@ -214,12 +214,12 @@ export const pullRequestReviewRepository = {
   },
 
   async delete(id: string): Promise<boolean> {
-    const result = await getCollection<MongoPullRequestReview>('pull_request_reviews').deleteOne({ id });
+    const result = await getCollection<MongoPullRequestReview>(COLLECTIONS.PULL_REQUEST_REVIEWS).deleteOne({ id });
     return result.deletedCount > 0;
   },
 
   async deleteByPullRequestId(pullRequestId: string): Promise<number> {
-    const result = await getCollection<MongoPullRequestReview>('pull_request_reviews').deleteMany({ pullRequestId });
+    const result = await getCollection<MongoPullRequestReview>(COLLECTIONS.PULL_REQUEST_REVIEWS).deleteMany({ pullRequestId });
     return result.deletedCount;
   }
 };
@@ -243,18 +243,18 @@ export interface MongoPullRequestComment {
 
 export const pullRequestCommentRepository = {
   async findById(id: string): Promise<MongoPullRequestComment | null> {
-    return getCollection<MongoPullRequestComment>('pull_request_comments').findOne({ id });
+    return getCollection<MongoPullRequestComment>(COLLECTIONS.PULL_REQUEST_COMMENTS).findOne({ id });
   },
 
   async findByPullRequestId(pullRequestId: string): Promise<MongoPullRequestComment[]> {
-    return getCollection<MongoPullRequestComment>('pull_request_comments')
+    return getCollection<MongoPullRequestComment>(COLLECTIONS.PULL_REQUEST_COMMENTS)
       .find({ pullRequestId })
       .sort({ createdAt: 1 })
       .toArray();
   },
 
   async countByPullRequestId(pullRequestId: string): Promise<number> {
-    return getCollection<MongoPullRequestComment>('pull_request_comments').countDocuments({ pullRequestId });
+    return getCollection<MongoPullRequestComment>(COLLECTIONS.PULL_REQUEST_COMMENTS).countDocuments({ pullRequestId });
   },
 
   async create(data: Omit<MongoPullRequestComment, '_id' | 'id' | 'createdAt' | 'updatedAt'>): Promise<MongoPullRequestComment> {
@@ -265,12 +265,12 @@ export const pullRequestCommentRepository = {
       createdAt: now,
       updatedAt: now
     };
-    await getCollection<MongoPullRequestComment>('pull_request_comments').insertOne(comment);
+    await getCollection<MongoPullRequestComment>(COLLECTIONS.PULL_REQUEST_COMMENTS).insertOne(comment);
     return comment;
   },
 
   async update(id: string, data: Partial<MongoPullRequestComment>): Promise<MongoPullRequestComment | null> {
-    const result = await getCollection<MongoPullRequestComment>('pull_request_comments').findOneAndUpdate(
+    const result = await getCollection<MongoPullRequestComment>(COLLECTIONS.PULL_REQUEST_COMMENTS).findOneAndUpdate(
       { id },
       { $set: { ...data, updatedAt: new Date() } },
       { returnDocument: 'after' }
@@ -279,12 +279,12 @@ export const pullRequestCommentRepository = {
   },
 
   async delete(id: string): Promise<boolean> {
-    const result = await getCollection<MongoPullRequestComment>('pull_request_comments').deleteOne({ id });
+    const result = await getCollection<MongoPullRequestComment>(COLLECTIONS.PULL_REQUEST_COMMENTS).deleteOne({ id });
     return result.deletedCount > 0;
   },
 
   async deleteByPullRequestId(pullRequestId: string): Promise<number> {
-    const result = await getCollection<MongoPullRequestComment>('pull_request_comments').deleteMany({ pullRequestId });
+    const result = await getCollection<MongoPullRequestComment>(COLLECTIONS.PULL_REQUEST_COMMENTS).deleteMany({ pullRequestId });
     return result.deletedCount;
   }
 };
@@ -306,14 +306,14 @@ export interface MongoPullRequestFile {
 
 export const pullRequestFileRepository = {
   async findByPullRequestId(pullRequestId: string): Promise<MongoPullRequestFile[]> {
-    return getCollection<MongoPullRequestFile>('pull_request_files')
+    return getCollection<MongoPullRequestFile>(COLLECTIONS.PULL_REQUEST_FILES)
       .find({ pullRequestId })
       .sort({ filePath: 1 })
       .toArray();
   },
 
   async countByPullRequestId(pullRequestId: string): Promise<number> {
-    return getCollection<MongoPullRequestFile>('pull_request_files').countDocuments({ pullRequestId });
+    return getCollection<MongoPullRequestFile>(COLLECTIONS.PULL_REQUEST_FILES).countDocuments({ pullRequestId });
   },
 
   async create(data: Omit<MongoPullRequestFile, '_id' | 'id' | 'createdAt'>): Promise<MongoPullRequestFile> {
@@ -322,7 +322,7 @@ export const pullRequestFileRepository = {
       ...data,
       createdAt: new Date()
     };
-    await getCollection<MongoPullRequestFile>('pull_request_files').insertOne(file);
+    await getCollection<MongoPullRequestFile>(COLLECTIONS.PULL_REQUEST_FILES).insertOne(file);
     return file;
   },
 
@@ -335,13 +335,13 @@ export const pullRequestFileRepository = {
       createdAt: now
     }));
     if (docs.length > 0) {
-      await getCollection<MongoPullRequestFile>('pull_request_files').insertMany(docs);
+      await getCollection<MongoPullRequestFile>(COLLECTIONS.PULL_REQUEST_FILES).insertMany(docs);
     }
     return docs;
   },
 
   async deleteByPullRequestId(pullRequestId: string): Promise<number> {
-    const result = await getCollection<MongoPullRequestFile>('pull_request_files').deleteMany({ pullRequestId });
+    const result = await getCollection<MongoPullRequestFile>(COLLECTIONS.PULL_REQUEST_FILES).deleteMany({ pullRequestId });
     return result.deletedCount;
   }
 };
@@ -363,12 +363,12 @@ export interface MongoProjectSettings {
 
 export const projectSettingsRepository = {
   async findByProjectId(projectId: string): Promise<MongoProjectSettings | null> {
-    return getCollection<MongoProjectSettings>('project_settings').findOne({ projectId });
+    return getCollection<MongoProjectSettings>(COLLECTIONS.PROJECT_SETTINGS).findOne({ projectId });
   },
 
   async upsert(projectId: string, data: Partial<MongoProjectSettings>): Promise<MongoProjectSettings> {
     const now = new Date();
-    const result = await getCollection<MongoProjectSettings>('project_settings').findOneAndUpdate(
+    const result = await getCollection<MongoProjectSettings>(COLLECTIONS.PROJECT_SETTINGS).findOneAndUpdate(
       { projectId },
       {
         $set: { ...data, updatedAt: now },
@@ -380,7 +380,7 @@ export const projectSettingsRepository = {
   },
 
   async delete(projectId: string): Promise<boolean> {
-    const result = await getCollection<MongoProjectSettings>('project_settings').deleteOne({ projectId });
+    const result = await getCollection<MongoProjectSettings>(COLLECTIONS.PROJECT_SETTINGS).deleteOne({ projectId });
     return result.deletedCount > 0;
   }
 };

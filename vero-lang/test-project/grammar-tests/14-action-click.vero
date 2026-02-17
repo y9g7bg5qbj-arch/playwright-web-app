@@ -1,19 +1,17 @@
 # Test: Click Action Variations
-# Category: Actions - Click (Updated to PAGEACTIONS Pattern)
+# Category: Actions - Click (Inline Actions)
 
 PAGE ClickTestPage {
-    FIELD button = "Submit"
-    FIELD link = ".nav-link"
+    FIELD btn = "Submit"
+    FIELD navLink = ".nav-link"
     FIELD primaryButton = ".button-primary"
-}
 
-PAGEACTIONS ClickTestPageActions FOR ClickTestPage {
     clickButton {
-        CLICK button
+        CLICK btn
     }
 
-    clickLink {
-        CLICK link
+    clickNavLink {
+        CLICK navLink
     }
 
     clickPrimaryButton {
@@ -22,7 +20,7 @@ PAGEACTIONS ClickTestPageActions FOR ClickTestPage {
 }
 
 FEATURE ClickActions {
-    USE ClickTestPageActions
+    USE ClickTestPage
 
     SCENARIO ClickVariations {
         # Click with string (direct text)
@@ -31,9 +29,9 @@ FEATURE ClickActions {
         # Click with CSS selector (direct)
         CLICK ".button-primary"
 
-        # Click via PageActions (preferred)
-        PERFORM ClickTestPageActions.clickButton
-        PERFORM ClickTestPageActions.clickLink
-        PERFORM ClickTestPageActions.clickPrimaryButton
+        # Click via Page actions (preferred)
+        PERFORM ClickTestPage.clickButton
+        PERFORM ClickTestPage.clickNavLink
+        PERFORM ClickTestPage.clickPrimaryButton
     }
 }
