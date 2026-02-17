@@ -1,6 +1,8 @@
-import { type ComponentType } from 'react';
+import { type ComponentType, useState, useCallback } from 'react';
 import { PlayCircle, Bug, PanelsTopLeft, Split, Layers } from 'lucide-react';
 import type { RunConfiguration } from '@/store/runConfigStore';
+import { ShardingConfig } from '@/components/Sharding/ShardingConfig';
+import type { ShardingConfig as ShardingConfigType } from '@/types/execution';
 import { runConfigTheme, chipClass, cx } from './theme';
 
 interface ExecutionTabProps {
@@ -35,6 +37,56 @@ const TOGGLE_OPTIONS: ToggleOption[] = [
     icon: PanelsTopLeft,
   },
 ];
+
+function ShardingSection({ config, onChange }: ExecutionTabProps) {
+  const [shardingState, setShardingState] = useState<ShardingConfigType>(() => ({
+    enabled: Boolean(config.shards) && config.target === 'github-actions',
+    strategy: 'round-robin',
+    shardCount: config.shards?.total || 4,
+  }));
+
+  const handleShardingChange = useCallback((updated: ShardingConfigType) => {
+    setShardingState(updated);
+    if (updated.enabled) {
+      onChange('shards', { current: 1, total: updated.shardCount });
+    } else {
+      onChange('shards', undefined);
+    }
+  }, [onChange]);
+
+  if (config.target !== 'github-actions') {
+    return (
+      <section className={runConfigTheme.section}>
+        <div className="mb-3 flex items-center gap-2">
+          <Split className="h-4 w-4 text-brand-secondary" />
+          <p className="text-sm font-semibold text-text-primary">Sharding</p>
+        </div>
+        <p className="text-xs text-text-secondary">
+          Local Vero runs use workers only. Sharding is enabled for GitHub Actions target.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className={runConfigTheme.section}>
+      <ShardingConfig
+        value={shardingState}
+        onChange={handleShardingChange}
+      />
+      {shardingState.enabled && (
+        <div className="mt-3">
+          <p className="text-xs font-medium text-text-secondary">
+            Shard CLI preview:
+          </p>
+          <div className={cx(runConfigTheme.code, 'mt-1')}>
+            --shard=1/{shardingState.shardCount}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
 
 export function ExecutionTab({ config, onChange }: ExecutionTabProps) {
   const sectionTitleClass = 'text-sm font-semibold text-text-primary';
@@ -115,85 +167,7 @@ export function ExecutionTab({ config, onChange }: ExecutionTabProps) {
         </div>
       </section>
 
-      <section className={runConfigTheme.section}>
-        <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Split className="h-4 w-4 text-brand-secondary" />
-            <p className={sectionTitleClass}>Sharding</p>
-          </div>
-
-          {config.target === 'github-actions' && (
-            <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-text-secondary">
-              <input
-                type="checkbox"
-                checked={Boolean(config.shards)}
-                onChange={(event) => {
-                  if (event.target.checked) {
-                    onChange('shards', { current: 1, total: 4 });
-                    return;
-                  }
-                  onChange('shards', undefined);
-                }}
-                className={runConfigTheme.toggle}
-              />
-              Enable sharding
-            </label>
-          )}
-        </div>
-
-        {config.target !== 'github-actions' ? (
-          <p className="text-xs text-text-secondary">
-            Local Vero runs use workers only. Sharding is enabled for GitHub Actions target.
-          </p>
-        ) : config.shards ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <label className={fieldLabelClass}>Current Shard</label>
-              <input
-                type="number"
-                min={1}
-                max={config.shards.total}
-                value={config.shards.current}
-                onChange={(event) =>
-                  onChange('shards', {
-                    ...config.shards!,
-                    current: parseInt(event.target.value, 10) || 1,
-                  })
-                }
-                className={cx(runConfigTheme.input, 'mt-2')}
-              />
-            </div>
-
-            <div>
-              <label className={fieldLabelClass}>Total Shards</label>
-              <input
-                type="number"
-                min={1}
-                max={100}
-                value={config.shards.total}
-                onChange={(event) =>
-                  onChange('shards', {
-                    ...config.shards!,
-                    total: parseInt(event.target.value, 10) || 1,
-                  })
-                }
-                className={cx(runConfigTheme.input, 'mt-2')}
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <p className="text-xs font-medium text-text-secondary">
-                Shard CLI preview:
-              </p>
-              <div className={cx(runConfigTheme.code, 'mt-1')}>
-                --shard={config.shards.current}/{config.shards.total}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <p className="text-xs text-text-secondary">Disable for local single-node runs. Enable for distributed CI jobs.</p>
-        )}
-      </section>
+      <ShardingSection config={config} onChange={onChange} />
 
       <section className={runConfigTheme.section}>
         <p className={sectionTitleClass}>Playwright Project (Optional)</p>

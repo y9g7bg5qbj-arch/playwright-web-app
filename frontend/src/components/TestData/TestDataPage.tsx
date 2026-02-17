@@ -20,6 +20,7 @@ import { ColumnEditorModal } from './ColumnEditorModal';
 import { EnvironmentManager } from './EnvironmentManager';
 import { QuoteGenerationModal } from './QuoteGenerationModal';
 import { QueryGeneratorModal } from './QueryGeneratorModal';
+import { VDQLQueryBuilder } from './VDQLQueryBuilder';
 import { DataStorageSettingsModal } from '@/components/settings/DataStorageSettingsModal';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui';
@@ -66,6 +67,7 @@ export function TestDataPage({ projectId, nestedProjectId, onInsertQuery }: Test
 
     // Canvas v2 local UI state
     const [showAdvancedTools, setShowAdvancedTools] = useState(false);
+    const [showVDQLBuilder, setShowVDQLBuilder] = useState(false);
     const [showQuoteGeneration, setShowQuoteGeneration] = useState(false);
     const [quoteSelectedRowIds, _setQuoteSelectedRowIds] = useState<string[]>([]);
     const [quoteFilteredRowIds, _setQuoteFilteredRowIds] = useState<string[]>([]);
@@ -216,6 +218,7 @@ export function TestDataPage({ projectId, nestedProjectId, onInsertQuery }: Test
                             ops.setShowQualityReport(true);
                         }}
                         onOpenAdvancedTools={() => setShowAdvancedTools(true)}
+                        onOpenVDQLBuilder={ops.selectedSheet ? () => setShowVDQLBuilder(true) : undefined}
                         loadingRows={ops.loadingRows}
                         selectedRowCount={query.selectedRowCount}
                     />
@@ -468,6 +471,28 @@ export function TestDataPage({ projectId, nestedProjectId, onInsertQuery }: Test
                 onClose={() => ops.setShowDataStorageSettings(false)}
                 applicationId={projectId}
             />
+
+            <Modal
+                isOpen={showVDQLBuilder}
+                onClose={() => setShowVDQLBuilder(false)}
+                title="VDQL Script Builder"
+                description={ops.selectedSheet ? `Build VDQL queries for "${ops.selectedSheet.name}"` : 'Select a table first'}
+                size="xl"
+            >
+                {ops.selectedSheet && (
+                    <VDQLQueryBuilder
+                        tableName={ops.selectedSheet.name}
+                        columns={ops.selectedSheet.columns.map(c => ({
+                            name: c.name,
+                            type: c.type === 'string' ? 'text' : c.type,
+                        }))}
+                        onQueryGenerated={() => {}}
+                        onCopyToClipboard={() => {
+                            ops.showSuccess(`Copied VDQL query to clipboard`);
+                        }}
+                    />
+                )}
+            </Modal>
 
             <QueryGeneratorModal
                 isOpen={query.showQueryGeneratorModal}
