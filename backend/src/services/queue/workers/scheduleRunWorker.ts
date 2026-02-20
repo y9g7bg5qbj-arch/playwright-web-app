@@ -568,6 +568,17 @@ async function executeLocally(
   const veroTargets = resolvedTargets.filter((target) => target.filePath.endsWith('.vero'));
   const legacyFiles = resolvedTargets.filter((target) => !target.filePath.endsWith('.vero')).map((target) => target.filePath);
 
+  // Schedules already resolve target files by schedule scope. Avoid re-expanding
+  // to the whole sandbox via run-config selectionScope for each resolved file.
+  if (veroTargets.length > 0 && executionConfig?.selectionScope === 'current-sandbox') {
+    logger.info('[Schedule] Normalizing selectionScope for scheduled Vero run', {
+      scheduleId: schedule.id,
+      runId,
+      originalScope: 'current-sandbox',
+      normalizedScope: 'active-file',
+    });
+  }
+
   const startTime = Date.now();
   let totalPassed = 0;
   let totalFailed = 0;
@@ -621,7 +632,7 @@ async function executeLocally(
           grep: executionConfig?.grep,
           grepInvert: executionConfig?.grepInvert,
           lastFailed: executionConfig?.lastFailed,
-          selectionScope: executionConfig?.selectionScope,
+          selectionScope: 'active-file',
           shard: executionConfig?.shardCount && executionConfig.shardCount > 1
             ? { current: 1, total: executionConfig.shardCount }
             : undefined,

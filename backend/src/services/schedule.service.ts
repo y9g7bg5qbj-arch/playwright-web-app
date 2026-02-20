@@ -237,6 +237,27 @@ export class ScheduleService {
         }
     }
 
+    private normalizeSandboxScopeFolder(scopeSandboxId: string): string | null {
+        const normalized = String(scopeSandboxId || '').trim().replace(/^\/+|\/+$/g, '');
+        if (!normalized || normalized.includes('..')) {
+            return null;
+        }
+
+        if (normalized.startsWith('sandboxes/')) {
+            const segments = normalized.split('/').filter(Boolean);
+            if (segments.length === 2 && segments[0] === 'sandboxes') {
+                return normalized;
+            }
+            return null;
+        }
+
+        if (normalized.includes('/')) {
+            return null;
+        }
+
+        return `sandboxes/${normalized}`;
+    }
+
     private async buildSelectorFromScope(
         projectId: string,
         scopeFolder: ScheduleFolderScope,
@@ -254,20 +275,26 @@ export class ScheduleService {
         }
 
         const sandbox = await sandboxRepository.findById(scopeSandboxId);
-        if (!sandbox) {
-            throw new ValidationError(`Sandbox '${scopeSandboxId}' not found`);
-        }
-        if (sandbox.projectId !== projectId) {
-            throw new ValidationError('Selected sandbox does not belong to selected project');
-        }
-        if (sandbox.status !== 'active') {
-            throw new ValidationError('Selected sandbox is not active');
-        }
-        if (!sandbox.folderPath) {
-            throw new ValidationError('Selected sandbox has no folder path');
+        if (sandbox) {
+            if (sandbox.projectId !== projectId) {
+                throw new ValidationError('Selected sandbox does not belong to selected project');
+            }
+            if (sandbox.status !== 'active') {
+                throw new ValidationError('Selected sandbox is not active');
+            }
+            if (!sandbox.folderPath) {
+                throw new ValidationError('Selected sandbox has no folder path');
+            }
+
+            return { folders: [sandbox.folderPath] };
         }
 
-        return { folders: [sandbox.folderPath] };
+        const normalizedSandboxFolder = this.normalizeSandboxScopeFolder(scopeSandboxId);
+        if (!normalizedSandboxFolder) {
+            throw new ValidationError(`Sandbox '${scopeSandboxId}' not found`);
+        }
+
+        return { folders: [normalizedSandboxFolder] };
     }
 
     private async resolveRunParametersForSchedule(
