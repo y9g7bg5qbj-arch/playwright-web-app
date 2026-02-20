@@ -198,8 +198,4 @@ export const aiSettingsRepository = {
     return result!;
   },
 
-  async delete(userId: string): Promise<boolean> {
-    const result = await getCollection<MongoAISettings>(COLLECTIONS.AI_SETTINGS).deleteOne({ userId });
-    return result.deletedCount > 0;
-  }
 };

@@ -22,13 +22,6 @@ export const copilotSessionRepository = {
       .toArray();
   },
 
-  async findByProjectId(projectId: string): Promise<MongoCopilotSession[]> {
-    return getCollection<MongoCopilotSession>(COLLECTIONS.COPILOT_SESSIONS)
-      .find({ projectId })
-      .sort({ updatedAt: -1 })
-      .toArray();
-  },
-
   async create(data: Omit<MongoCopilotSession, '_id' | 'id' | 'createdAt' | 'updatedAt'>): Promise<MongoCopilotSession> {
     const now = new Date();
     const session: MongoCopilotSession = {
@@ -98,10 +91,6 @@ export const copilotExplorationRepository = {
     return result.deletedCount > 0;
   },
 
-  async deleteBySessionId(sessionId: string): Promise<number> {
-    const result = await getCollection<MongoCopilotExploration>(COLLECTIONS.COPILOT_EXPLORATIONS).deleteMany({ sessionId });
-    return result.deletedCount;
-  }
 };
 
 // ============================================
@@ -150,18 +139,6 @@ export const copilotStagedChangeRepository = {
       { returnDocument: 'after' }
     );
     return result;
-  },
-
-  async updateManyBySessionIdAndStatus(
-    sessionId: string,
-    status: MongoCopilotStagedChange['status'],
-    data: Partial<MongoCopilotStagedChange>
-  ): Promise<number> {
-    const result = await getCollection<MongoCopilotStagedChange>(COLLECTIONS.COPILOT_STAGED_CHANGES).updateMany(
-      { sessionId, status },
-      { $set: { ...data, updatedAt: new Date() } }
-    );
-    return result.modifiedCount;
   },
 
   async delete(id: string): Promise<boolean> {
