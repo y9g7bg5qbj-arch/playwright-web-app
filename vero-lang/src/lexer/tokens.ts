@@ -75,6 +75,7 @@ export enum TokenType {
     INTO = 'INTO',
     SET = 'SET',
     NAVIGATION = 'NAVIGATION',
+    MOCK = 'MOCK',
     NETWORK = 'NETWORK',
     IDLE = 'IDLE',
 
@@ -133,6 +134,19 @@ export enum TokenType {
     REPEAT = 'REPEAT',
     TIMES = 'TIMES',
     FOR = 'FOR',
+    TRY = 'TRY',
+    CATCH = 'CATCH',
+
+    // API Testing
+    API = 'API',
+    POST = 'POST',
+    PUT = 'PUT',
+    DELETE = 'DELETE',
+    PATCH = 'PATCH',
+    RESPONSE = 'RESPONSE',
+    STATUS = 'STATUS',
+    BODY = 'BODY',
+    HEADERS_KW = 'HEADERS_KW',
 
     // Data Query (VDQL)
     LOAD = 'LOAD',

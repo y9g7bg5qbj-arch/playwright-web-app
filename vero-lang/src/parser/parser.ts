@@ -23,7 +23,11 @@ import {
     SwitchToNewTabStatement,
     SwitchToTabStatement,
     OpenInNewTabStatement,
-    CloseTabStatement
+    CloseTabStatement,
+    TryCatchStatement,
+    ApiRequestStatement, HttpMethod,
+    VerifyResponseStatement, ResponseCondition,
+    MockApiStatement
 } from './ast.js';
 
 const UTILITY_KEYWORDS = new Set([
@@ -687,6 +691,11 @@ export class Parser {
 
         // VERIFY keyword for assertions
         if (this.match(TokenType.VERIFY)) {
+            // VERIFY RESPONSE STATUS/BODY/HEADERS
+            if (this.match(TokenType.RESPONSE)) {
+                return this.parseVerifyResponseStatement(line);
+            }
+
             // VERIFY SCREENSHOT [AS "name"] [WITH ...]
             if (this.match(TokenType.SCREENSHOT)) {
                 const { name, options } = this.parseVerifyScreenshotTail();
@@ -1038,6 +1047,22 @@ export class Parser {
         // FOR EACH $item IN $collection { ... }
         if (this.match(TokenType.FOR)) {
             return this.parseForEachStatement(line);
+        }
+
+        // TRY { ... } CATCH { ... }
+        if (this.match(TokenType.TRY)) {
+            return this.parseTryCatchStatement(line);
+        }
+
+        // MOCK API "url" WITH STATUS n [AND BODY "..."]
+        if (this.match(TokenType.MOCK)) {
+            this.consume(TokenType.API, "Expected 'API' after 'MOCK'");
+            return this.parseMockApiStatement(line);
+        }
+
+        // API GET "url" | API POST "url" WITH BODY expression
+        if (this.match(TokenType.API)) {
+            return this.parseApiRequestStatement(line);
         }
 
         // ROW user = Users WHERE state = "CA"
@@ -1444,6 +1469,137 @@ export class Parser {
             statements,
             line
         };
+    }
+
+    // ==================== TRY/CATCH PARSING ====================
+
+    private parseTryCatchStatement(line: number): TryCatchStatement {
+        this.consume(TokenType.LBRACE, "Expected '{' after 'TRY'");
+        const tryStatements = this.parseStatementBlock();
+        this.consume(TokenType.RBRACE, "Expected '}'");
+
+        this.consume(TokenType.CATCH, "Expected 'CATCH' after TRY block");
+        this.consume(TokenType.LBRACE, "Expected '{' after 'CATCH'");
+        const catchStatements = this.parseStatementBlock();
+        this.consume(TokenType.RBRACE, "Expected '}'");
+
+        return { type: 'TryCatch', tryStatements, catchStatements, line };
+    }
+
+    // ==================== API REQUEST PARSING ====================
+
+    private parseApiRequestStatement(line: number): ApiRequestStatement {
+        const method = this.parseHttpMethod();
+        const url = this.parseExpression();
+
+        let body: ExpressionNode | undefined;
+        let headers: ExpressionNode | undefined;
+
+        // WITH BODY expression
+        if (this.match(TokenType.WITH)) {
+            if (this.match(TokenType.BODY)) {
+                body = this.parseExpression();
+            } else if (this.match(TokenType.HEADERS_KW)) {
+                headers = this.parseExpression();
+            } else {
+                this.error("Expected 'BODY' or 'HEADERS' after 'WITH' in API statement");
+            }
+
+            // Optional second WITH clause: WITH HEADERS expression
+            if (this.match(TokenType.WITH)) {
+                if (this.match(TokenType.HEADERS_KW)) {
+                    headers = this.parseExpression();
+                } else if (this.match(TokenType.BODY)) {
+                    body = this.parseExpression();
+                } else {
+                    this.error("Expected 'BODY' or 'HEADERS' after 'WITH' in API statement");
+                }
+            }
+        }
+
+        return { type: 'ApiRequest', method, url, body, headers, line };
+    }
+
+    // ==================== MOCK API PARSING ====================
+
+    private parseMockApiStatement(line: number): MockApiStatement {
+        const url = this.parseExpression();
+
+        this.consume(TokenType.WITH, "Expected 'WITH' after URL in MOCK API statement");
+        this.consume(TokenType.STATUS, "Expected 'STATUS' after 'WITH' in MOCK API statement");
+        const status = this.parseExpression();
+
+        let body: ExpressionNode | undefined;
+
+        // Optional: AND BODY "..."
+        if (this.match(TokenType.AND)) {
+            this.consume(TokenType.BODY, "Expected 'BODY' after 'AND' in MOCK API statement");
+            body = this.parseExpression();
+        }
+
+        return { type: 'MockApi', url, status, body, line };
+    }
+
+    private parseHttpMethod(): HttpMethod {
+        if (this.match(TokenType.GET)) return 'GET';
+        if (this.match(TokenType.POST)) return 'POST';
+        if (this.match(TokenType.PUT)) return 'PUT';
+        if (this.match(TokenType.DELETE)) return 'DELETE';
+        if (this.match(TokenType.PATCH)) return 'PATCH';
+
+        this.error("Expected HTTP method (GET, POST, PUT, DELETE, PATCH)");
+        return 'GET';
+    }
+
+    // ==================== VERIFY RESPONSE PARSING ====================
+
+    private parseVerifyResponseStatement(line: number): VerifyResponseStatement {
+        let condition: ResponseCondition;
+
+        if (this.match(TokenType.STATUS)) {
+            const operator = this.parseResponseOperator();
+            const value = this.parseExpression();
+            condition = { type: 'Status', operator, value };
+        } else if (this.match(TokenType.BODY)) {
+            const operator = this.parseBodyOperator();
+            const value = this.parseExpression();
+            condition = { type: 'Body', operator, value };
+        } else if (this.match(TokenType.HEADERS_KW)) {
+            this.consume(TokenType.CONTAINS, "Expected 'CONTAINS' after 'HEADERS'");
+            const value = this.parseExpression();
+            condition = { type: 'Headers', operator: 'contains', value };
+        } else {
+            this.error("Expected 'STATUS', 'BODY', or 'HEADERS' after 'VERIFY RESPONSE'");
+            condition = { type: 'Status', operator: 'equals', value: { type: 'NumberLiteral', value: 200 } };
+        }
+
+        return { type: 'VerifyResponse', condition, line };
+    }
+
+    private parseResponseOperator(): 'equals' | 'contains' | '>' | '<' | '>=' | '<=' | '==' | '!=' {
+        if (this.match(TokenType.EQUAL)) return 'equals';
+        if (this.match(TokenType.CONTAINS)) return 'contains';
+        if (this.match(TokenType.IS)) return 'equals';
+        // Comparison operators for numeric status codes
+        const tok = this.peek();
+        if (tok.value === '>') { this.advance(); return '>'; }
+        if (tok.value === '<') { this.advance(); return '<'; }
+        if (tok.value === '>=') { this.advance(); return '>='; }
+        if (tok.value === '<=') { this.advance(); return '<='; }
+        if (tok.value === '==') { this.advance(); return '=='; }
+        if (tok.value === '!=') { this.advance(); return '!='; }
+
+        this.error("Expected comparison operator after 'STATUS'");
+        return 'equals';
+    }
+
+    private parseBodyOperator(): 'contains' | 'equals' {
+        if (this.match(TokenType.CONTAINS)) return 'contains';
+        if (this.match(TokenType.EQUAL)) return 'equals';
+        if (this.match(TokenType.IS)) return 'equals';
+
+        this.error("Expected 'CONTAINS' or 'EQUALS' after 'BODY'");
+        return 'contains';
     }
 
     // ==================== ROW/ROWS STATEMENT PARSING ====================

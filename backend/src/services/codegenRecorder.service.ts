@@ -444,7 +444,18 @@ export class CodegenRecorderService extends EventEmitter {
             let veroCode: string;
 
             if (action.type === 'expect') {
-                veroCode = generateVeroAssertion(ref, action.assertionType || 'visible', action.value);
+                veroCode = generateVeroAssertion(ref, action.assertionType || 'visible', action.value, action.isNegative);
+            } else if (action.type === 'drag' && action.destinationSelector) {
+                // Register destination field too
+                const destFieldName = generateFieldName({ ...action, selector: action.destinationSelector, type: 'click' });
+                let destFieldRef = registry.findBySelector(action.destinationSelector, pageName);
+                if (!destFieldRef) {
+                    destFieldRef = registry.addField(pageName, destFieldName, action.destinationSelector);
+                    pagePath = await registry.persist(pageName);
+                    pageCode = registry.getPageContent(pageName) || undefined;
+                }
+                const destRef = `${destFieldRef.pageName}.${destFieldRef.fieldName}`;
+                veroCode = generateVeroAction('drag', ref, destRef);
             } else {
                 veroCode = generateVeroAction(action.type, ref, action.value);
             }

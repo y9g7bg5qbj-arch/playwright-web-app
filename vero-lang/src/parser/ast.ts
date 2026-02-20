@@ -201,7 +201,11 @@ export type StatementNode =
     | WaitForNavigationStatement
     | WaitForNetworkIdleStatement
     | WaitForUrlStatement
-    | ClearFieldStatement;
+    | ClearFieldStatement
+    | TryCatchStatement
+    | ApiRequestStatement
+    | VerifyResponseStatement
+    | MockApiStatement;
 
 // Action Statements
 
@@ -931,6 +935,67 @@ export interface ChainedExpression {
     type: 'Chained';
     first: UtilityExpressionNode;
     second: UtilityExpressionNode;
+}
+
+// ==================== TRY/CATCH ====================
+
+export interface TryCatchStatement {
+    type: 'TryCatch';
+    tryStatements: StatementNode[];
+    catchStatements: StatementNode[];
+    line: number;
+}
+
+// ==================== API TESTING ====================
+
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+
+export interface ApiRequestStatement {
+    type: 'ApiRequest';
+    method: HttpMethod;
+    url: ExpressionNode;
+    body?: ExpressionNode;
+    headers?: ExpressionNode;
+    line: number;
+}
+
+export interface VerifyResponseStatement {
+    type: 'VerifyResponse';
+    condition: ResponseCondition;
+    line: number;
+}
+
+export type ResponseCondition =
+    | ResponseStatusCondition
+    | ResponseBodyCondition
+    | ResponseHeadersCondition;
+
+// ==================== NETWORK MOCKING ====================
+
+export interface MockApiStatement {
+    type: 'MockApi';
+    url: ExpressionNode;
+    status: ExpressionNode;
+    body?: ExpressionNode;
+    line: number;
+}
+
+export interface ResponseStatusCondition {
+    type: 'Status';
+    operator: 'equals' | 'contains' | '>' | '<' | '>=' | '<=' | '==' | '!=';
+    value: ExpressionNode;
+}
+
+export interface ResponseBodyCondition {
+    type: 'Body';
+    operator: 'contains' | 'equals';
+    value: ExpressionNode;
+}
+
+export interface ResponseHeadersCondition {
+    type: 'Headers';
+    operator: 'contains';
+    value: ExpressionNode;
 }
 
 // ==================== ERRORS ====================

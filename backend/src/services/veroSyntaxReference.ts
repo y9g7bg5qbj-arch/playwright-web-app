@@ -232,6 +232,11 @@ export type VeroActionType =
   | 'scroll'
   | 'wait'
   | 'clear'
+  | 'drag'
+  | 'acceptdialog'
+  | 'dismissdialog'
+  | 'switchframe'
+  | 'switchmainframe'
   | 'switchTab' | 'switchtab' | 'switchNewTab' | 'switchnewtab'
   | 'switchToTab' | 'switchtotab'
   | 'openInNewTab' | 'openinnewtab'
@@ -358,6 +363,22 @@ export function generateVeroAction(
     case 'log':
       return `LOG "${escapedValue}"`;
 
+    // Drag
+    case 'drag':
+      return `DRAG ${target} TO ${value || ''}`;
+
+    // Dialog handling
+    case 'acceptdialog':
+      return value ? `ACCEPT DIALOG WITH "${escapedValue}"` : 'ACCEPT DIALOG';
+    case 'dismissdialog':
+      return 'DISMISS DIALOG';
+
+    // Frame handling
+    case 'switchframe':
+      return `SWITCH TO FRAME ${target || `"${escapedValue}"`}`;
+    case 'switchmainframe':
+      return 'SWITCH TO MAIN FRAME';
+
     // Assertions
     case 'verify':
     case 'assert':
@@ -375,56 +396,58 @@ export function generateVeroAction(
 export function generateVeroAssertion(
   target: string,
   type: VeroAssertionType | string,
-  value?: string
+  value?: string,
+  isNegative?: boolean
 ): string {
   const normalizedType = type.toLowerCase();
+  const not = isNegative ? ' NOT' : '';
 
   switch (normalizedType) {
     case 'visible':
-      return `VERIFY ${target} IS VISIBLE`;
+      return `VERIFY ${target} IS${not} VISIBLE`;
     case 'hidden':
-      return `VERIFY ${target} IS HIDDEN`;
+      return `VERIFY ${target} IS${not} HIDDEN`;
     case 'enabled':
-      return `VERIFY ${target} IS ENABLED`;
+      return `VERIFY ${target} IS${not} ENABLED`;
     case 'disabled':
-      return `VERIFY ${target} IS DISABLED`;
+      return `VERIFY ${target} IS${not} DISABLED`;
+    case 'checked':
+      return `VERIFY ${target} IS${not} CHECKED`;
+    case 'empty':
+      return `VERIFY ${target} IS${not} EMPTY`;
+    case 'focused':
+      return `VERIFY ${target} IS${not} FOCUSED`;
     case 'contains':
-      return `VERIFY ${target} CONTAINS "${value || ''}"`;
+      return `VERIFY ${target}${not} CONTAINS "${value || ''}"`;
     case 'hastext':
     case 'has text':
-      return `VERIFY ${target} HAS TEXT "${value || ''}"`;
+      return `VERIFY ${target}${not} HAS TEXT "${value || ''}"`;
     case 'containstext':
     case 'contains text':
-      return `VERIFY ${target} CONTAINS TEXT "${value || ''}"`;
+      return `VERIFY ${target}${not} CONTAINS TEXT "${value || ''}"`;
     case 'hasvalue':
     case 'has value':
     case 'value':
-      return `VERIFY ${target} HAS VALUE "${value || ''}"`;
-    case 'checked':
-      return `VERIFY ${target} IS CHECKED`;
-    case 'empty':
-      return `VERIFY ${target} IS EMPTY`;
-    case 'focused':
-      return `VERIFY ${target} IS FOCUSED`;
+      return `VERIFY ${target}${not} HAS VALUE "${value || ''}"`;
     case 'hascount':
     case 'has count':
-      return `VERIFY ${target} HAS COUNT ${value || '0'}`;
+      return `VERIFY ${target}${not} HAS COUNT ${value || '0'}`;
     case 'hasattribute':
     case 'has attribute': {
       const [attribute, ...rest] = (value || '').split('=');
       const attributeValue = rest.join('=');
       if (attribute && attributeValue) {
-        return `VERIFY ${target} HAS ATTRIBUTE "${attribute}" EQUAL "${attributeValue}"`;
+        return `VERIFY ${target}${not} HAS ATTRIBUTE "${attribute}" EQUAL "${attributeValue}"`;
       }
-      return `VERIFY ${target} HAS ATTRIBUTE "${value || ''}"`;
+      return `VERIFY ${target}${not} HAS ATTRIBUTE "${value || ''}"`;
     }
     case 'hasclass':
     case 'has class':
-      return `VERIFY ${target} HAS CLASS "${value || ''}"`;
+      return `VERIFY ${target}${not} HAS CLASS "${value || ''}"`;
     case 'url':
-      return `VERIFY URL EQUAL "${value || ''}"`;
+      return `VERIFY URL${not} EQUAL "${value || ''}"`;
     case 'title':
-      return `VERIFY TITLE EQUAL "${value || ''}"`;
+      return `VERIFY TITLE${not} EQUAL "${value || ''}"`;
     case 'screenshot':
     case 'visual':
       return `VERIFY SCREENSHOT AS "${value || 'baseline'}" WITH BALANCED`;
@@ -432,7 +455,7 @@ export function generateVeroAssertion(
     case 'matchesscreenshot':
       return `VERIFY ${target} MATCHES SCREENSHOT AS "${value || 'baseline'}" WITH BALANCED`;
     default:
-      return `VERIFY ${target} IS VISIBLE`;
+      return `VERIFY ${target} IS${not} VISIBLE`;
   }
 }
 

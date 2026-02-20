@@ -78,6 +78,7 @@ const KEYWORDS: Record<string, TokenType> = {
     'INTO': TokenType.INTO,
     'SET': TokenType.SET,
     'NAVIGATION': TokenType.NAVIGATION,
+    'MOCK': TokenType.MOCK,
     'NETWORK': TokenType.NETWORK,
     'IDLE': TokenType.IDLE,
 
@@ -136,6 +137,19 @@ const KEYWORDS: Record<string, TokenType> = {
     'REPEAT': TokenType.REPEAT,
     'TIMES': TokenType.TIMES,
     'FOR': TokenType.FOR,
+    'TRY': TokenType.TRY,
+    'CATCH': TokenType.CATCH,
+
+    // API Testing
+    'API': TokenType.API,
+    'POST': TokenType.POST,
+    'PUT': TokenType.PUT,
+    'DELETE': TokenType.DELETE,
+    'PATCH': TokenType.PATCH,
+    'RESPONSE': TokenType.RESPONSE,
+    'STATUS': TokenType.STATUS,
+    'BODY': TokenType.BODY,
+    'HEADERS': TokenType.HEADERS_KW,
 
     // Data Query (VDQL)
     'LOAD': TokenType.LOAD,

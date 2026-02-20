@@ -24,7 +24,10 @@ import {
     SwitchToNewTabStatement,
     SwitchToTabStatement,
     OpenInNewTabStatement,
-    CloseTabStatement
+    CloseTabStatement,
+    // TRY/CATCH and API
+    TryCatchStatement, ApiRequestStatement, VerifyResponseStatement,
+    MockApiStatement
 } from '../parser/ast.js';
 import {
     camelCase, pascalCase, inferTypeFromValue, toReadableTestName, escapeString
@@ -109,6 +112,10 @@ export class Transpiler {
                         break;
                     case 'ForEach':
                         collectFromStatements(stmt.statements);
+                        break;
+                    case 'TryCatch':
+                        collectFromStatements(stmt.tryStatements);
+                        collectFromStatements(stmt.catchStatements);
                         break;
                     case 'Row':
                         this.usedTables.add(stmt.tableRef.tableName);
@@ -547,6 +554,15 @@ export class Transpiler {
         return this.featureHasStatement(feature, stmt => stmt.type === 'UtilityAssignment');
     }
 
+    /**
+     * Check if a feature uses API requests (needs `request` fixture and `__apiResponse` variable)
+     */
+    private usesApiRequests(feature: FeatureNode): boolean {
+        return this.featureHasStatement(feature, stmt =>
+            stmt.type === 'ApiRequest' || stmt.type === 'VerifyResponse'
+        );
+    }
+
     private usesAllureTags(feature: FeatureNode): boolean {
         return feature.scenarios.some(s => s.tags.length > 0);
     }
@@ -569,6 +585,9 @@ export class Transpiler {
 
         // Check if feature uses utility functions
         const hasUtilityFunctions = this.usesUtilityFunctions(feature);
+
+        // Check if feature uses API requests
+        const hasApiRequests = this.usesApiRequests(feature);
 
         // Check if any scenarios have @tags for Allure labels
         const hasAllureTags = this.usesAllureTags(feature);
@@ -656,6 +675,12 @@ export class Transpiler {
                 const varName = this.camelCase(use.name);
                 lines.push(this.line(`let ${varName}: ${use.name};`));
             }
+            lines.push('');
+        }
+
+        // API response variable for API testing
+        if (hasApiRequests) {
+            lines.push(this.line('let __apiResponse: any;'));
             lines.push('');
         }
 
@@ -779,6 +804,7 @@ export class Transpiler {
         const lines: string[] = [];
         const needsContext = this.scenarioNeedsContext(scenario);
         const needsFrame = this.scenarioNeedsFrame(scenario);
+        const needsApiRequest = this.scenarioNeedsApiRequest(scenario);
 
         const tags = scenario.tags.map(t => `@${t}`).join(' ');
         const readableName = this.toReadableTestName(scenario.name);
@@ -800,7 +826,17 @@ export class Transpiler {
             testCall = 'test.fixme';
         }
 
-        const params = needsContext ? '{ page: _page, context }' : '{ page }';
+        // Build destructured params
+        const paramParts: string[] = [];
+        if (needsContext) {
+            paramParts.push('page: _page', 'context');
+        } else {
+            paramParts.push('page');
+        }
+        if (needsApiRequest) {
+            paramParts.push('request');
+        }
+        const params = `{ ${paramParts.join(', ')} }`;
         lines.push(this.line(`${testCall}('${testName}', async (${params}, testInfo) => {`));
         this.indent++;
 
@@ -1161,6 +1197,20 @@ export class Transpiler {
                 }
                 return `await test.step('Wait for URL equals ' + ${urlVal}, async () => { await page.waitForURL(url => url.toString() === ${urlVal}); });`;
             }
+
+            // TRY/CATCH
+            case 'TryCatch':
+                return this.transpileTryCatchStatement(statement, uses, currentPage);
+
+            // API Testing
+            case 'ApiRequest':
+                return this.transpileApiRequestStatement(statement);
+
+            case 'VerifyResponse':
+                return this.transpileVerifyResponseStatement(statement);
+
+            case 'MockApi':
+                return this.transpileMockApiStatement(statement);
 
             default:
                 return `// Unknown statement type`;
@@ -1695,6 +1745,98 @@ export class Transpiler {
         return lines.join('\n');
     }
 
+    // ==================== TRY/CATCH TRANSPILATION ====================
+
+    private transpileTryCatchStatement(statement: TryCatchStatement, uses: string[], currentPage?: string): string {
+        const lines: string[] = [];
+        lines.push('try {');
+        this.indent++;
+
+        for (const stmt of statement.tryStatements) {
+            const code = this.transpileStatement(stmt, uses, currentPage);
+            if (code) lines.push(this.line(code));
+        }
+
+        this.indent--;
+        lines.push(this.line('} catch (__error) {'));
+        this.indent++;
+
+        for (const stmt of statement.catchStatements) {
+            const code = this.transpileStatement(stmt, uses, currentPage);
+            if (code) lines.push(this.line(code));
+        }
+
+        this.indent--;
+        lines.push(this.line('}'));
+
+        return lines.join('\n');
+    }
+
+    // ==================== API REQUEST TRANSPILATION ====================
+
+    private transpileApiRequestStatement(statement: ApiRequestStatement): string {
+        const method = statement.method.toLowerCase();
+        const urlExpr = this.transpileExpression(statement.url);
+
+        const opts: string[] = [];
+        if (statement.body) {
+            const bodyExpr = this.transpileExpression(statement.body);
+            opts.push(`data: ${bodyExpr}`);
+        }
+        if (statement.headers) {
+            const headersExpr = this.transpileExpression(statement.headers);
+            opts.push(`headers: ${headersExpr}`);
+        }
+
+        const optsStr = opts.length > 0 ? `, { ${opts.join(', ')} }` : '';
+        return `await test.step('API ${statement.method} ' + ${urlExpr}, async () => { __apiResponse = await request.${method}(${urlExpr}${optsStr}); });`;
+    }
+
+    private transpileVerifyResponseStatement(statement: VerifyResponseStatement): string {
+        const cond = statement.condition;
+
+        switch (cond.type) {
+            case 'Status': {
+                const val = this.transpileExpression(cond.value);
+                if (cond.operator === 'equals' || cond.operator === '==') {
+                    return `await test.step('Verify response status equals ' + ${val}, async () => { expect(__apiResponse.status()).toBe(${val}); });`;
+                }
+                if (cond.operator === '!=') {
+                    return `await test.step('Verify response status != ' + ${val}, async () => { expect(__apiResponse.status()).not.toBe(${val}); });`;
+                }
+                if (cond.operator === '>' || cond.operator === '<' || cond.operator === '>=' || cond.operator === '<=') {
+                    const opName = cond.operator === '>' ? 'greater than' : cond.operator === '<' ? 'less than' : cond.operator === '>=' ? 'at least' : 'at most';
+                    const expectMethod = cond.operator === '>' ? 'toBeGreaterThan' : cond.operator === '<' ? 'toBeLessThan' : cond.operator === '>=' ? 'toBeGreaterThanOrEqual' : 'toBeLessThanOrEqual';
+                    return `await test.step('Verify response status ${opName} ' + ${val}, async () => { expect(__apiResponse.status()).${expectMethod}(${val}); });`;
+                }
+                return `await test.step('Verify response status', async () => { expect(__apiResponse.status()).toBe(${val}); });`;
+            }
+            case 'Body': {
+                const val = this.transpileExpression(cond.value);
+                if (cond.operator === 'contains') {
+                    return `await test.step('Verify response body contains ' + ${val}, async () => { const __body = await __apiResponse.text(); expect(__body).toContain(${val}); });`;
+                }
+                return `await test.step('Verify response body equals ' + ${val}, async () => { const __body = await __apiResponse.text(); expect(__body).toBe(${val}); });`;
+            }
+            case 'Headers': {
+                const val = this.transpileExpression(cond.value);
+                return `await test.step('Verify response headers contain ' + ${val}, async () => { const __headers = JSON.stringify(__apiResponse.headers()); expect(__headers).toContain(${val}); });`;
+            }
+            default:
+                return `// Unknown response condition type`;
+        }
+    }
+
+    // ==================== MOCK API TRANSPILATION ====================
+
+    private transpileMockApiStatement(statement: MockApiStatement): string {
+        const urlExpr = this.transpileExpression(statement.url);
+        const statusExpr = this.transpileExpression(statement.status);
+        const bodyExpr = statement.body ? this.transpileExpression(statement.body) : `''`;
+
+        return `await test.step('Mock API ' + ${urlExpr}, async () => { await page.route(${urlExpr}, async route => { await route.fulfill({ status: ${statusExpr}, contentType: 'application/json', body: ${bodyExpr} }); }); });`;
+    }
+
     // ==================== ROW/ROWS TRANSPILATION ====================
 
     /**
@@ -2052,6 +2194,9 @@ export class Transpiler {
                 if (stmt.type === 'ForEach') {
                     if (checkStatements(stmt.statements)) return true;
                 }
+                if (stmt.type === 'TryCatch') {
+                    if (checkStatements(stmt.tryStatements) || checkStatements(stmt.catchStatements)) return true;
+                }
             }
             return false;
         };
@@ -2082,6 +2227,11 @@ export class Transpiler {
             if (statement.type === 'ForEach' && this.statementsContainTabOperations(statement.statements)) {
                 return true;
             }
+            if (statement.type === 'TryCatch' &&
+                (this.statementsContainTabOperations(statement.tryStatements) ||
+                 this.statementsContainTabOperations(statement.catchStatements))) {
+                return true;
+            }
         }
         return false;
     }
@@ -2109,12 +2259,33 @@ export class Transpiler {
             if (statement.type === 'ForEach' && this.statementsContainFrameOperations(statement.statements)) {
                 return true;
             }
+            if (statement.type === 'TryCatch' &&
+                (this.statementsContainFrameOperations(statement.tryStatements) ||
+                 this.statementsContainFrameOperations(statement.catchStatements))) {
+                return true;
+            }
         }
         return false;
     }
 
     private scenarioNeedsFrame(scenario: ScenarioNode): boolean {
         return this.statementsContainFrameOperations(scenario.statements);
+    }
+
+    private scenarioNeedsApiRequest(scenario: ScenarioNode): boolean {
+        return this.statementsContainApiOperations(scenario.statements);
+    }
+
+    private statementsContainApiOperations(statements: StatementNode[]): boolean {
+        for (const stmt of statements) {
+            if (stmt.type === 'ApiRequest' || stmt.type === 'VerifyResponse') return true;
+            if (stmt.type === 'TryCatch') {
+                if (this.statementsContainApiOperations(stmt.tryStatements) ||
+                    this.statementsContainApiOperations(stmt.catchStatements)) return true;
+            }
+            if (stmt.type === 'ForEach' && this.statementsContainApiOperations(stmt.statements)) return true;
+        }
+        return false;
     }
 
     private formatMultiline(lines: string[]): string {
