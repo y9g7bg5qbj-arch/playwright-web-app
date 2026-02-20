@@ -42,13 +42,18 @@ const __veroRuntime = {
       throw new Error(\`External action "\${name}" does not export a default function or named export "\${name}"\`);
     }
     const timeout = timeoutMs || actionDef.timeoutMs || ${DEFAULT_TIMEOUT_MS};
-    const result = await Promise.race([
-      fn(ctx, ...args),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(\`External action "\${name}" timed out after \${timeout}ms\`)), timeout)
-      ),
-    ]);
-    return result;
+    let timer: ReturnType<typeof setTimeout>;
+    try {
+      const result = await Promise.race([
+        fn(ctx, ...args),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error(\`External action "\${name}" timed out after \${timeout}ms\`)), timeout);
+        }),
+      ]);
+      return result;
+    } finally {
+      clearTimeout(timer!);
+    }
   },
 };
 // ─── End Vero External Action Runtime ───────────────────────────

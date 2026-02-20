@@ -59,31 +59,33 @@ describe('Environment-Scoped File Operations', () => {
       expect(pagesNode!.children!.some(c => c.name === 'Home.vero')).toBe(true);
     });
 
-    it('hides sandbox internal dirs (data, .sync-base) even when scoped', async () => {
-      const scopedRoot = path.join(tempDir, 'sandboxes', 'test');
-      // Put these at sandboxes/test level — they look like being "in a sandbox"
-      // but since isScopedRoot=true the relativePath starts from the scopedRoot.
-      // The SANDBOX_HIDDEN_DIRS filter applies when `inSandbox` (starts with sandboxes/).
-      // In scoped mode, relativePath doesn't include "sandboxes/" prefix.
-      // So the filtering of data/.sync-base at root happens via the
-      // `inSandbox` check only for non-scoped.  Let's verify they're NOT filtered
-      // in scoped mode since they're at root — actually they are normal dirs.
-      // The actual behavior: scanDirectory with isScopedRoot=true doesn't apply
-      // ROOT_ENV_FOLDERS filter, so data/.sync-base would show unless they only
-      // contain non-.vero files (only .vero and resource files are shown).
-      await mkdir(path.join(scopedRoot, 'data'), { recursive: true });
-      await mkdir(path.join(scopedRoot, '.sync-base'), { recursive: true });
-      await mkdir(path.join(scopedRoot, 'Pages'), { recursive: true });
-      await writeFile(path.join(scopedRoot, 'data', 'seed.json'), '{}');
-      await writeFile(path.join(scopedRoot, '.sync-base', 'base.vero'), 'base');
-      await writeFile(path.join(scopedRoot, 'Pages', 'Home.vero'), 'page');
+    it('hides sandbox internal dirs (data, .sync-base) inside sandbox trees', async () => {
+      // scanDirectory filters SANDBOX_HIDDEN_DIRS when relativePath starts with 'sandboxes/'
+      // So we need to call it from the project root to trigger the inSandbox path
+      const sandboxDir = path.join(tempDir, 'sandboxes', 'test');
+      await mkdir(path.join(sandboxDir, 'data'), { recursive: true });
+      await mkdir(path.join(sandboxDir, '.sync-base'), { recursive: true });
+      await mkdir(path.join(sandboxDir, 'Pages'), { recursive: true });
+      await writeFile(path.join(sandboxDir, 'data', 'seed.json'), '{}');
+      await writeFile(path.join(sandboxDir, '.sync-base', 'base.vero'), 'base');
+      await writeFile(path.join(sandboxDir, 'Pages', 'Home.vero'), 'page');
 
-      const result = await scanDirectory(scopedRoot, '', true);
+      // Also need dev/ so the root has valid ROOT_ENV_FOLDERS entries
+      await mkdir(path.join(tempDir, 'dev', 'Pages'), { recursive: true });
+      await mkdir(path.join(tempDir, 'sandboxes'), { recursive: true });
 
-      const names = result.map(n => n.name);
-      expect(names).toContain('Pages');
-      // data directory may appear but should be empty (no .vero files) or may not show
-      // .sync-base is an internal dir — in scoped mode it's at root level so we should verify
+      const result = await scanDirectory(tempDir, '');
+
+      // Navigate into sandboxes -> test to check hidden dirs
+      const sandboxesNode = result.find(n => n.name === 'sandboxes');
+      expect(sandboxesNode).toBeDefined();
+      const testNode = sandboxesNode!.children?.find(n => n.name === 'test');
+      expect(testNode).toBeDefined();
+
+      const sandboxChildren = testNode!.children?.map(n => n.name) ?? [];
+      expect(sandboxChildren).toContain('Pages');
+      expect(sandboxChildren).not.toContain('data');
+      expect(sandboxChildren).not.toContain('.sync-base');
     });
   });
 

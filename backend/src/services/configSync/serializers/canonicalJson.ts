@@ -5,8 +5,20 @@
  * so that file diffs are minimal and meaningful.
  */
 
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (value !== null && typeof value === 'object') {
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key]);
+    }
+    return sorted;
+  }
+  return value;
+}
+
 export function toCanonicalJson(obj: Record<string, unknown>): string {
-  return JSON.stringify(obj, Object.keys(obj).sort(), 2) + '\n';
+  return JSON.stringify(sortKeysDeep(obj), null, 2) + '\n';
 }
 
 /**
