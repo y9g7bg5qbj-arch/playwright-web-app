@@ -555,7 +555,7 @@ export class Transpiler {
     }
 
     /**
-     * Check if a feature uses API requests (needs `request` fixture and `__apiResponse` variable)
+     * Check if a feature uses API requests (needs `request` fixture and `__vero_apiResponse` variable)
      */
     private usesApiRequests(feature: FeatureNode): boolean {
         return this.featureHasStatement(feature, stmt =>
@@ -680,7 +680,7 @@ export class Transpiler {
 
         // API response variable for API testing
         if (hasApiRequests) {
-            lines.push(this.line('let __apiResponse: any;'));
+            lines.push(this.line('let __vero_apiResponse: any;'));
             lines.push('');
         }
 
@@ -1789,7 +1789,7 @@ export class Transpiler {
         }
 
         const optsStr = opts.length > 0 ? `, { ${opts.join(', ')} }` : '';
-        return `await test.step('API ${statement.method} ' + ${urlExpr}, async () => { __apiResponse = await request.${method}(${urlExpr}${optsStr}); });`;
+        return `await test.step('API ${statement.method} ' + ${urlExpr}, async () => { __vero_apiResponse = await request.${method}(${urlExpr}${optsStr}); });`;
     }
 
     private transpileVerifyResponseStatement(statement: VerifyResponseStatement): string {
@@ -1799,28 +1799,28 @@ export class Transpiler {
             case 'Status': {
                 const val = this.transpileExpression(cond.value);
                 if (cond.operator === 'equals' || cond.operator === '==') {
-                    return `await test.step('Verify response status equals ' + ${val}, async () => { expect(__apiResponse.status()).toBe(${val}); });`;
+                    return `await test.step('Verify response status equals ' + ${val}, async () => { expect(__vero_apiResponse.status()).toBe(${val}); });`;
                 }
                 if (cond.operator === '!=') {
-                    return `await test.step('Verify response status != ' + ${val}, async () => { expect(__apiResponse.status()).not.toBe(${val}); });`;
+                    return `await test.step('Verify response status != ' + ${val}, async () => { expect(__vero_apiResponse.status()).not.toBe(${val}); });`;
                 }
                 if (cond.operator === '>' || cond.operator === '<' || cond.operator === '>=' || cond.operator === '<=') {
                     const opName = cond.operator === '>' ? 'greater than' : cond.operator === '<' ? 'less than' : cond.operator === '>=' ? 'at least' : 'at most';
                     const expectMethod = cond.operator === '>' ? 'toBeGreaterThan' : cond.operator === '<' ? 'toBeLessThan' : cond.operator === '>=' ? 'toBeGreaterThanOrEqual' : 'toBeLessThanOrEqual';
-                    return `await test.step('Verify response status ${opName} ' + ${val}, async () => { expect(__apiResponse.status()).${expectMethod}(${val}); });`;
+                    return `await test.step('Verify response status ${opName} ' + ${val}, async () => { expect(__vero_apiResponse.status()).${expectMethod}(${val}); });`;
                 }
-                return `await test.step('Verify response status', async () => { expect(__apiResponse.status()).toBe(${val}); });`;
+                return `await test.step('Verify response status', async () => { expect(__vero_apiResponse.status()).toBe(${val}); });`;
             }
             case 'Body': {
                 const val = this.transpileExpression(cond.value);
                 if (cond.operator === 'contains') {
-                    return `await test.step('Verify response body contains ' + ${val}, async () => { const __body = await __apiResponse.text(); expect(__body).toContain(${val}); });`;
+                    return `await test.step('Verify response body contains ' + ${val}, async () => { const __body = await __vero_apiResponse.text(); expect(__body).toContain(${val}); });`;
                 }
-                return `await test.step('Verify response body equals ' + ${val}, async () => { const __body = await __apiResponse.text(); expect(__body).toBe(${val}); });`;
+                return `await test.step('Verify response body equals ' + ${val}, async () => { const __body = await __vero_apiResponse.text(); expect(__body).toBe(${val}); });`;
             }
             case 'Headers': {
                 const val = this.transpileExpression(cond.value);
-                return `await test.step('Verify response headers contain ' + ${val}, async () => { const __headers = JSON.stringify(__apiResponse.headers()); expect(__headers).toContain(${val}); });`;
+                return `await test.step('Verify response headers contain ' + ${val}, async () => { const __headers = JSON.stringify(__vero_apiResponse.headers()); expect(__headers).toContain(${val}); });`;
             }
             default:
                 return `// Unknown response condition type`;
@@ -1832,9 +1832,15 @@ export class Transpiler {
     private transpileMockApiStatement(statement: MockApiStatement): string {
         const urlExpr = this.transpileExpression(statement.url);
         const statusExpr = this.transpileExpression(statement.status);
-        const bodyExpr = statement.body ? this.transpileExpression(statement.body) : `''`;
 
-        return `await test.step('Mock API ' + ${urlExpr}, async () => { await page.route(${urlExpr}, async route => { await route.fulfill({ status: ${statusExpr}, contentType: 'application/json', body: ${bodyExpr} }); }); });`;
+        const fulfillOpts: string[] = [`status: ${statusExpr}`];
+        if (statement.body) {
+            const bodyExpr = this.transpileExpression(statement.body);
+            fulfillOpts.push(`contentType: 'application/json'`);
+            fulfillOpts.push(`body: ${bodyExpr}`);
+        }
+
+        return `await test.step('Mock API ' + ${urlExpr}, async () => { await page.route(${urlExpr}, async route => { await route.fulfill({ ${fulfillOpts.join(', ')} }); }); });`;
     }
 
     // ==================== ROW/ROWS TRANSPILATION ====================

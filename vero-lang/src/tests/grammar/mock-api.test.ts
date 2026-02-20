@@ -126,6 +126,12 @@ FEATURE TestFeature {
         assert.ok(output.includes('route.fulfill('), 'Expected route.fulfill() call');
         assert.ok(output.includes('status: 200'), 'Expected status: 200');
         assert.ok(output.includes("'https://api.example.com/users'"), 'Expected URL string');
+        // No body → route.fulfill only has status, no contentType or body
+        assert.ok(!output.includes("contentType: 'application/json'"), 'Should NOT include JSON contentType when no body');
+        // Verify the fulfill call only has status
+        const fulfillMatch = output.match(/route\.fulfill\(\{([^}]+)\}\)/);
+        assert.ok(fulfillMatch, 'Expected route.fulfill({...}) call');
+        assert.ok(!fulfillMatch![1].includes('body'), 'Should NOT include body in fulfill when no body provided');
     });
 
     it('should transpile MOCK API with body to route.fulfill() with body', () => {

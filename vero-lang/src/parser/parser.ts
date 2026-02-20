@@ -1580,7 +1580,9 @@ export class Parser {
         if (this.match(TokenType.EQUAL)) return 'equals';
         if (this.match(TokenType.CONTAINS)) return 'contains';
         if (this.match(TokenType.IS)) return 'equals';
-        // Comparison operators for numeric status codes
+        // Comparison operators for numeric status codes.
+        // These don't have dedicated TokenTypes — we match on the raw token value.
+        // If the lexer changes how operators are tokenized, this needs updating.
         const tok = this.peek();
         if (tok.value === '>') { this.advance(); return '>'; }
         if (tok.value === '<') { this.advance(); return '<'; }

@@ -365,7 +365,7 @@ export function generateVeroAction(
 
     // Drag
     case 'drag':
-      return `DRAG ${target} TO ${value || ''}`;
+      return value ? `DRAG ${target} TO ${value}` : `DRAG ${target}`;
 
     // Dialog handling
     case 'acceptdialog':

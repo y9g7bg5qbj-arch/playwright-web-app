@@ -131,11 +131,21 @@ function unwrapCallChain(node: CallExpression): ChainSegment[] {
             });
         }
         // Handle property access on a CallExpression: expect(...).not.toBeVisible()
-        // Here current is MemberExpression(CallExpression(expect,...), not)
+        //
+        // AST shape for `expect(loc).not.toBeVisible()`:
+        //   CallExpr(.toBeVisible)
+        //     callee: MemberExpr(.toBeVisible)
+        //       object: MemberExpr(.not)           ← current lands here
+        //         object: CallExpr(expect(loc))
+        //         property: "not"
+        //       property: "toBeVisible"
+        //
+        // The main while-loop above processed `toBeVisible` and walked to the
+        // MemberExpr(.not). Since .not is a property access (not a call), the
+        // loop exited. We now prepend "not" as a no-args segment and recursively
+        // unwrap the inner CallExpr(expect(loc)) to get the remaining segments.
         if (mem.object.type === 'CallExpression' && mem.property.type === 'Identifier') {
-            // Prepend the property (e.g. 'not') as a no-args segment
             segments.unshift({ method: (mem.property as Identifier).name, args: [] });
-            // Continue unwrapping the inner CallExpression
             const innerSegments = unwrapCallChain(mem.object as unknown as CallExpression);
             segments.unshift(...innerSegments);
         }
@@ -191,6 +201,15 @@ function identName(node: Expression | undefined): string | undefined {
 // Locator Conversion
 // ──────────────────────────────────────────────
 
+/** Maps simple getBy* Playwright methods to their Vero selector keywords */
+const SIMPLE_LOCATOR_MAP: Record<string, string> = {
+    getByLabel: 'label',
+    getByTestId: 'testid',
+    getByPlaceholder: 'placeholder',
+    getByAltText: 'alt',
+    getByTitle: 'title',
+};
+
 interface LocatorResult {
     base?: string;
     modifier?: string;
@@ -233,17 +252,10 @@ function segmentToLocator(seg: ChainSegment, isFirstLocator: boolean, pageVars: 
     }
 
     // Simple getBy* methods
-    const simpleMap: Record<string, string> = {
-        getByLabel: 'label',
-        getByTestId: 'testid',
-        getByPlaceholder: 'placeholder',
-        getByAltText: 'alt',
-        getByTitle: 'title',
-    };
-    if (simpleMap[method]) {
+    if (SIMPLE_LOCATOR_MAP[method]) {
         const val = extractStringFromNode(args[0] as Expression);
         if (!val) return null;
-        return { base: `${simpleMap[method]} "${val}"` };
+        return { base: `${SIMPLE_LOCATOR_MAP[method]} "${val}"` };
     }
 
     // locator(css)
@@ -526,14 +538,23 @@ function parseExpectFromAST(node: CallExpression, pageVars: Set<string>, origina
 // Safe acorn parse helpers
 // ──────────────────────────────────────────────
 
+// Shared acorn options — hoisted to avoid re-creating per call
+const ACORN_PROGRAM_OPTS: acorn.Options = {
+    ecmaVersion: 'latest',
+    sourceType: 'module',
+    allowAwaitOutsideFunction: true,
+    allowReturnOutsideFunction: true,
+};
+
+const ACORN_EXPR_OPTS: acorn.Options = {
+    ecmaVersion: 'latest',
+    sourceType: 'module',
+    allowAwaitOutsideFunction: true,
+};
+
 function tryParseProgram(code: string): acorn.Node | null {
     try {
-        return acorn.parse(code, {
-            ecmaVersion: 'latest',
-            sourceType: 'module',
-            allowAwaitOutsideFunction: true,
-            allowReturnOutsideFunction: true,
-        });
+        return acorn.parse(code, ACORN_PROGRAM_OPTS);
     } catch {
         return null;
     }
@@ -541,14 +562,22 @@ function tryParseProgram(code: string): acorn.Node | null {
 
 function tryParseExpression(code: string): acorn.Node | null {
     try {
-        return acorn.parseExpressionAt(code, 0, {
-            ecmaVersion: 'latest',
-            sourceType: 'module',
-            allowAwaitOutsideFunction: true,
-        });
+        return acorn.parseExpressionAt(code, 0, ACORN_EXPR_OPTS);
     } catch {
         return null;
     }
+}
+
+/** Quick check if a line could be a Playwright statement worth parsing */
+function isCandidate(line: string): boolean {
+    // Only parse lines that look like Playwright statements:
+    // - await ... (actions, assertions)
+    // - const ... (variable declarations: popup promises, tab switches, newPage)
+    // - identifier = ... (assignment: page = context.pages()[N])
+    // Skip test wrappers, brackets, imports, etc.
+    return line.startsWith('await ') ||
+        line.startsWith('const ') ||
+        /^\w+\s*=\s*/.test(line);
 }
 
 // ──────────────────────────────────────────────
@@ -584,7 +613,11 @@ export function parsePlaywrightCode(code: string): ParsedAction[] {
         const isCommentedLine = trimmed.startsWith('//');
         const codeLine = isCommentedLine ? trimmed.replace(/^\/\/\s*/, '') : trimmed;
 
-        // Try to parse this line as a statement
+        // Skip lines that can't be Playwright statements (brackets, test wrappers, etc.)
+        if (!isCandidate(codeLine)) continue;
+
+        // Parse this line as a statement (per-line parsing is necessary because
+        // commented lines `// await ...` must be detected and handled individually)
         const ast = tryParseProgram(codeLine);
         if (!ast) continue;
 
@@ -702,20 +735,20 @@ function isExpectCall(node: CallExpression): boolean {
     // Walk up the callee chain: expect(...).toXxx() means
     // CallExpression(MemberExpression(CallExpression(expect, ...), toXxx), ...)
     // Also handles: expect(...).not.toXxx() where .not is a MemberExpression
-    let current: any = node;
+    let current: Expression = node as unknown as Expression;
     while (current) {
         if (current.type === 'CallExpression') {
-            const callee = current.callee;
-            if (callee.type === 'Identifier' && callee.name === 'expect') return true;
+            const callee = (current as unknown as CallExpression).callee;
+            if (callee.type === 'Identifier' && (callee as Identifier).name === 'expect') return true;
             if (callee.type === 'MemberExpression') {
-                current = callee.object;
+                current = (callee as MemberExpression).object as Expression;
                 continue;
             }
             break;
         }
         if (current.type === 'MemberExpression') {
             // Handle .not property access: expect(...).not
-            current = current.object;
+            current = (current as unknown as MemberExpression).object as Expression;
             continue;
         }
         break;
@@ -761,7 +794,7 @@ export function splitMethodChain(chain: string): string[] {
     }
 
     const segments: string[] = [];
-    collectChainSegments(ast as any, wrapped, segments);
+    collectChainSegments(ast as unknown as AcornNode, wrapped, segments);
 
     // The first segment will be '_obj_' — remove it
     if (segments.length > 0 && segments[0] === '_obj_') {
@@ -771,14 +804,27 @@ export function splitMethodChain(chain: string): string[] {
     return segments.length > 0 ? segments : fallbackSplitMethodChain(chain);
 }
 
-function collectChainSegments(node: any, source: string, segments: string[]): void {
+// Acorn nodes extend estree with `start`/`end` character offsets into the source.
+// We use those offsets to slice segments from the raw source string, so we define
+// a minimal interface rather than casting through `any`.
+interface AcornNode {
+    type: string;
+    start: number;
+    end: number;
+    callee?: AcornNode;
+    object?: AcornNode;
+    property?: AcornNode & { name?: string };
+    name?: string;
+}
+
+function collectChainSegments(node: AcornNode, source: string, segments: string[]): void {
     if (node.type === 'CallExpression') {
-        const callee = node.callee;
+        const callee = node.callee!;
         if (callee.type === 'MemberExpression') {
             // Recurse into the object (left side)
-            collectChainSegments(callee.object, source, segments);
+            collectChainSegments(callee.object!, source, segments);
             // This segment is from callee.property.start to node.end
-            const propStart = callee.property.start;
+            const propStart = callee.property!.start;
             const segStr = source.slice(propStart, node.end);
             segments.push(segStr);
         } else if (callee.type === 'Identifier') {
@@ -786,12 +832,12 @@ function collectChainSegments(node: any, source: string, segments: string[]): vo
             segments.push(source.slice(callee.start, node.end));
         }
     } else if (node.type === 'MemberExpression') {
-        collectChainSegments(node.object, source, segments);
-        if (node.property.type === 'Identifier') {
-            segments.push(node.property.name);
+        collectChainSegments(node.object!, source, segments);
+        if (node.property?.type === 'Identifier') {
+            segments.push(node.property.name!);
         }
     } else if (node.type === 'Identifier') {
-        segments.push(node.name);
+        segments.push(node.name!);
     }
 }
 
