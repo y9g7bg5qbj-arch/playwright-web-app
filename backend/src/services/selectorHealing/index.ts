@@ -6,5 +6,4 @@
  */
 
 export * from './types';
-export * from './selectorGenerator';
 export * from './selectorValidator';

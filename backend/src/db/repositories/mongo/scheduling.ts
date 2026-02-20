@@ -200,10 +200,6 @@ export const scheduleTestResultRepository = {
     return result;
   },
 
-  async deleteByRunId(runId: string): Promise<number> {
-    const result = await getCollection<MongoScheduleTestResult>(COLLECTIONS.SCHEDULE_TEST_RESULTS).deleteMany({ runId });
-    return result.deletedCount;
-  }
 };
 
 // ============================================

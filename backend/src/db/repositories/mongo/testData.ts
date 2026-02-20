@@ -87,10 +87,6 @@ export const testDataSheetRepository = {
     return getCollection<MongoTestDataSheet>(COLLECTIONS.TEST_DATA_SHEETS).findOne(filter);
   },
 
-  async findByProjectId(projectId: string): Promise<MongoTestDataSheet[]> {
-    return getCollection<MongoTestDataSheet>(COLLECTIONS.TEST_DATA_SHEETS).find({ projectId }).toArray();
-  },
-
   async findByProjectIdAndName(projectId: string, name: string): Promise<MongoTestDataSheet | null> {
     return getCollection<MongoTestDataSheet>(COLLECTIONS.TEST_DATA_SHEETS).findOne({ projectId, name });
   },
@@ -115,15 +111,6 @@ export const testDataSheetRepository = {
       { returnDocument: 'after' }
     );
     return result;
-  },
-
-  async incrementVersion(sheetId: string): Promise<number> {
-    const result = await getCollection<MongoTestDataSheet>(COLLECTIONS.TEST_DATA_SHEETS).findOneAndUpdate(
-      { id: sheetId },
-      { $inc: { version: 1 }, $set: { updatedAt: new Date() } },
-      { returnDocument: 'after' }
-    );
-    return result?.version ?? 0;
   },
 
   async delete(id: string): Promise<boolean> {
@@ -161,20 +148,6 @@ export const testDataRowRepository = {
     return row;
   },
 
-  async createMany(data: Array<Omit<MongoTestDataRow, '_id' | 'id' | 'createdAt' | 'updatedAt'>>): Promise<MongoTestDataRow[]> {
-    const now = new Date();
-    const rows: MongoTestDataRow[] = data.map(d => ({
-      id: uuidv4(),
-      ...d,
-      createdAt: now,
-      updatedAt: now
-    }));
-    if (rows.length > 0) {
-      await getCollection<MongoTestDataRow>(COLLECTIONS.TEST_DATA_ROWS).insertMany(rows);
-    }
-    return rows;
-  },
-
   async update(id: string, data: Partial<MongoTestDataRow>): Promise<MongoTestDataRow | null> {
     const result = await getCollection<MongoTestDataRow>(COLLECTIONS.TEST_DATA_ROWS).findOneAndUpdate(
       { id },
@@ -182,14 +155,6 @@ export const testDataRowRepository = {
       { returnDocument: 'after' }
     );
     return result;
-  },
-
-  async updateMany(filter: Partial<MongoTestDataRow>, data: Partial<MongoTestDataRow>): Promise<number> {
-    const result = await getCollection<MongoTestDataRow>(COLLECTIONS.TEST_DATA_ROWS).updateMany(
-      filter,
-      { $set: { ...data, updatedAt: new Date() } }
-    );
-    return result.modifiedCount;
   },
 
   async delete(id: string): Promise<boolean> {
@@ -238,10 +203,6 @@ export const testDataSavedViewRepository = {
 
   async findBySheetId(sheetId: string): Promise<MongoTestDataSavedView[]> {
     return getCollection<MongoTestDataSavedView>(COLLECTIONS.TEST_DATA_SAVED_VIEWS).find({ sheetId }).toArray();
-  },
-
-  async findBySheetIdAndName(sheetId: string, name: string): Promise<MongoTestDataSavedView | null> {
-    return getCollection<MongoTestDataSavedView>(COLLECTIONS.TEST_DATA_SAVED_VIEWS).findOne({ sheetId, name });
   },
 
   async create(data: Omit<MongoTestDataSavedView, '_id' | 'id' | 'createdAt' | 'updatedAt'>): Promise<MongoTestDataSavedView> {
