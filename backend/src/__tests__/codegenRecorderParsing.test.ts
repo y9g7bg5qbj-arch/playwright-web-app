@@ -20,15 +20,7 @@ vi.mock('../services/recordingPersistence.service', () => ({
     CreateStepDTO: {},
 }));
 
-vi.mock('../services/selectorHealing', () => ({
-    generateResilientSelector: vi.fn(() => ({
-        primary: { selector: '', strategy: 'testid' },
-        fallbacks: [],
-        overallConfidence: 1,
-        isReliable: true,
-    })),
-    CapturedElement: {},
-}));
+vi.mock('../services/selectorHealing', () => ({}));
 
 import { CodegenRecorderService } from '../services/codegenRecorder.service';
 import { generateVeroAction, generateVeroAssertion } from '../services/veroSyntaxReference';

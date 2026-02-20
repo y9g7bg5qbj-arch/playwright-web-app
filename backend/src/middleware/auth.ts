@@ -41,22 +41,3 @@ export const authenticateToken = (
     }
   }
 };
-
-export const optionalAuth = (
-  req: AuthRequest,
-  _res: Response,
-  next: NextFunction
-) => {
-  try {
-    const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.split(' ')[1];
-
-    if (token) {
-      const decoded = jwt.verify(token, config.jwt.secret) as { userId: string };
-      req.userId = decoded.userId;
-    }
-    next();
-  } catch (error) {
-    next();
-  }
-};

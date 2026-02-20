@@ -60,10 +60,6 @@ export const executionRepository = {
       .toArray();
   },
 
-  async countAll(): Promise<number> {
-    return getCollection<MongoExecution>(COLLECTIONS.EXECUTIONS).countDocuments({});
-  },
-
   async findByMatrixParentId(parentId: string): Promise<MongoExecution[]> {
     return getCollection<MongoExecution>(COLLECTIONS.EXECUTIONS)
       .find({ matrixParentId: parentId })

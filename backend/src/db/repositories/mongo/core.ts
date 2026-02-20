@@ -31,20 +31,6 @@ export const userRepository = {
     return user;
   },
 
-  async update(id: string, data: Partial<MongoUser>): Promise<MongoUser | null> {
-    const result = await getCollection<MongoUser>(COLLECTIONS.USERS).findOneAndUpdate(
-      { id },
-      { $set: { ...data, updatedAt: new Date() } },
-      { returnDocument: 'after' }
-    );
-    return result;
-  },
-
-  async delete(id: string): Promise<boolean> {
-    const result = await getCollection<MongoUser>(COLLECTIONS.USERS).deleteOne({ id });
-    return result.deletedCount > 0;
-  },
-
   async findAll(): Promise<MongoUser[]> {
     return getCollection<MongoUser>(COLLECTIONS.USERS).find({}).toArray();
   }
@@ -178,11 +164,6 @@ export const workflowRepository = {
       { returnDocument: 'after' }
     );
     return result;
-  },
-
-  async delete(id: string): Promise<boolean> {
-    const result = await getCollection<MongoWorkflow>(COLLECTIONS.WORKFLOWS).deleteOne({ id });
-    return result.deletedCount > 0;
   },
 
   async findByUserIdAndName(userId: string, name: string): Promise<MongoWorkflow | null> {

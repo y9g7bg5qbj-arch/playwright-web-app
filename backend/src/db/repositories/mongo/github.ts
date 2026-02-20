@@ -76,10 +76,6 @@ export const githubRepositoryConfigRepository = {
     return getCollection<MongoGitHubRepositoryConfig>(COLLECTIONS.GITHUB_REPOSITORY_CONFIGS).findOne({ workflowId, isActive: true });
   },
 
-  async findByWorkflowAndRepo(workflowId: string, repoFullName: string): Promise<MongoGitHubRepositoryConfig | null> {
-    return getCollection<MongoGitHubRepositoryConfig>(COLLECTIONS.GITHUB_REPOSITORY_CONFIGS).findOne({ workflowId, repoFullName });
-  },
-
   async upsert(workflowId: string, repoFullName: string, data: Partial<MongoGitHubRepositoryConfig>): Promise<MongoGitHubRepositoryConfig> {
     const now = new Date();
     const result = await getCollection<MongoGitHubRepositoryConfig>(COLLECTIONS.GITHUB_REPOSITORY_CONFIGS).findOneAndUpdate(
