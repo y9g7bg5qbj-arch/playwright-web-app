@@ -814,4 +814,179 @@ describe('Vero generation for new types', () => {
     it('generates VERIFY TITLE EQUAL', () => {
         expect(generateVeroAssertion('', 'title', 'My Page')).toBe('VERIFY TITLE EQUAL "My Page"');
     });
+
+    it('generates DRAG', () => {
+        expect(generateVeroAction('drag', 'Page.source', 'Page.dest')).toBe('DRAG Page.source TO Page.dest');
+    });
+
+    it('generates ACCEPT DIALOG', () => {
+        expect(generateVeroAction('acceptdialog')).toBe('ACCEPT DIALOG');
+    });
+
+    it('generates ACCEPT DIALOG with text', () => {
+        expect(generateVeroAction('acceptdialog', undefined, 'yes')).toBe('ACCEPT DIALOG WITH "yes"');
+    });
+
+    it('generates DISMISS DIALOG', () => {
+        expect(generateVeroAction('dismissdialog')).toBe('DISMISS DIALOG');
+    });
+
+    it('generates SWITCH TO FRAME', () => {
+        expect(generateVeroAction('switchframe', 'Page.iframe')).toBe('SWITCH TO FRAME Page.iframe');
+    });
+
+    it('generates SWITCH TO MAIN FRAME', () => {
+        expect(generateVeroAction('switchmainframe')).toBe('SWITCH TO MAIN FRAME');
+    });
+
+    // Negative assertions
+    it('generates VERIFY IS NOT VISIBLE', () => {
+        expect(generateVeroAssertion('Page.field', 'visible', undefined, true)).toBe('VERIFY Page.field IS NOT VISIBLE');
+    });
+
+    it('generates VERIFY IS NOT CHECKED', () => {
+        expect(generateVeroAssertion('Page.field', 'checked', undefined, true)).toBe('VERIFY Page.field IS NOT CHECKED');
+    });
+
+    it('generates VERIFY NOT CONTAINS TEXT', () => {
+        expect(generateVeroAssertion('Page.field', 'containsText', 'hello', true)).toBe('VERIFY Page.field NOT CONTAINS TEXT "hello"');
+    });
+
+    it('generates VERIFY NOT HAS TEXT', () => {
+        expect(generateVeroAssertion('Page.field', 'hasText', 'Welcome', true)).toBe('VERIFY Page.field NOT HAS TEXT "Welcome"');
+    });
+
+    it('generates VERIFY URL NOT EQUAL', () => {
+        expect(generateVeroAssertion('', 'url', 'http://example.com', true)).toBe('VERIFY URL NOT EQUAL "http://example.com"');
+    });
+});
+
+// ──────────────────────────────────────────────
+// Negative assertions (.not) parsing
+// ──────────────────────────────────────────────
+
+describe('parseExpect with .not', () => {
+    it('parses .not.toBeVisible()', () => {
+        const result = service.parseExpect(
+            "await expect(page.getByRole('button')).not.toBeVisible();",
+            'page'
+        );
+        expect(result).toMatchObject({
+            type: 'expect',
+            selector: 'role "button"',
+            assertionType: 'visible',
+            isNegative: true,
+        });
+    });
+
+    it('parses .not.toContainText()', () => {
+        const result = service.parseExpect(
+            "await expect(page.getByRole('heading')).not.toContainText('Error');",
+            'page'
+        );
+        expect(result).toMatchObject({
+            type: 'expect',
+            selector: 'role "heading"',
+            assertionType: 'containsText',
+            value: 'Error',
+            isNegative: true,
+        });
+    });
+
+    it('parses .not.toBeChecked()', () => {
+        const result = service.parseExpect(
+            "await expect(page.getByRole('checkbox')).not.toBeChecked();",
+            'page'
+        );
+        expect(result).toMatchObject({
+            type: 'expect',
+            selector: 'role "checkbox"',
+            assertionType: 'checked',
+            isNegative: true,
+        });
+    });
+
+    it('parses page-level .not.toHaveURL()', () => {
+        const result = service.parseExpect(
+            "await expect(page).not.toHaveURL('http://example.com/login');",
+            'page'
+        );
+        expect(result).toMatchObject({
+            type: 'expect',
+            assertionType: 'url',
+            value: 'http://example.com/login',
+            isNegative: true,
+        });
+    });
+
+    it('does not set isNegative for normal assertions', () => {
+        const result = service.parseExpect(
+            "await expect(page.getByRole('button')).toBeVisible();",
+            'page'
+        );
+        expect(result).toMatchObject({
+            type: 'expect',
+            selector: 'role "button"',
+            assertionType: 'visible',
+        });
+        expect(result!.isNegative).toBeUndefined();
+    });
+
+    it('parses .not assertions in full parsePlaywrightCode', () => {
+        const code = `
+test('test', async ({ page }) => {
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'Submit' })).not.toBeDisabled();
+});
+`;
+        const actions = service.parsePlaywrightCode(code);
+        expect(actions).toHaveLength(2);
+        expect(actions[0]).toMatchObject({ type: 'expect', assertionType: 'visible', isNegative: true });
+        expect(actions[1]).toMatchObject({ type: 'expect', assertionType: 'disabled', isNegative: true });
+    });
+});
+
+// ──────────────────────────────────────────────
+// dragTo parsing
+// ──────────────────────────────────────────────
+
+describe('dragTo parsing', () => {
+    it('parses dragTo with destination locator', () => {
+        const result = service.parseLocatorAndAction(
+            "await page.getByRole('listitem', { name: 'Item 1' }).dragTo(page.getByRole('listitem', { name: 'Item 3' }));",
+            'page'
+        );
+        expect(result).toMatchObject({
+            type: 'drag',
+            selector: 'role "listitem" name "Item 1"',
+            destinationSelector: 'role "listitem" name "Item 3"',
+        });
+    });
+
+    it('parses dragTo in full code block', () => {
+        const code = `
+test('test', async ({ page }) => {
+  await page.getByTestId('source').dragTo(page.getByTestId('target'));
+});
+`;
+        const actions = service.parsePlaywrightCode(code);
+        expect(actions).toHaveLength(1);
+        expect(actions[0]).toMatchObject({
+            type: 'drag',
+            selector: 'testid "source"',
+            destinationSelector: 'testid "target"',
+        });
+    });
+
+    it('parses dragTo with chained locator destination', () => {
+        const result = service.parseLocatorAndAction(
+            "await page.getByRole('button').first().dragTo(page.getByRole('region').last());",
+            'page'
+        );
+        expect(result).toMatchObject({
+            type: 'drag',
+            selector: 'role "button" FIRST',
+            destinationSelector: 'role "region" LAST',
+        });
+    });
 });
