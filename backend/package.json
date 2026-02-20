@@ -21,6 +21,8 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@octokit/rest": "^22.0.1",
     "@playwright-web-app/shared": "file:../shared",
     "@playwright/test": "^1.57.0",
     "@types/jsdom": "^27.0.0",

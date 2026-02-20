@@ -4,7 +4,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
-import { VERO_PROJECT_PATH, confineToBase } from './veroProjectPath.utils';
+import { VERO_PROJECT_PATH, confineToBase, resolveProjectPath } from './veroProjectPath.utils';
 import { shouldWriteLegacyDockerSpec } from './veroRunExecution.utils';
 import { applicationRepository, executionRepository, projectRepository } from '../db/repositories/mongo';
 import { getOrCreateVeroTestFlow } from '../services/testFlow.utils';
@@ -174,10 +174,21 @@ executionRouter.post('/debug', authenticateToken, async (req: AuthRequest, res: 
         const userId = (req as AuthRequest).userId!;
         const executionScope = await resolveExecutionScope(applicationId, projectId);
 
+        // Resolve project-aware base path early — needed for both file reads
+        // and USE-statement resolution. Falls back to VERO_PROJECT_PATH when
+        // no projectId is available, with a warning for diagnostics.
+        let resolvedBase: string;
+        if (executionScope.projectId || executionScope.applicationId) {
+            resolvedBase = await resolveProjectPath(undefined, executionScope.runtimeProjectId);
+        } else {
+            logger.warn('[debug:prepare] No projectId in request — falling back to VERO_PROJECT_PATH');
+            resolvedBase = VERO_PROJECT_PATH;
+        }
+
         // Get Vero content - either from request or read from file
         let veroContent = content;
         if (!veroContent && filePath) {
-            veroContent = await readFile(confineToBase(VERO_PROJECT_PATH, filePath), 'utf-8');
+            veroContent = await readFile(confineToBase(resolvedBase, filePath), 'utf-8');
         }
 
         if (!veroContent) {
@@ -213,10 +224,18 @@ executionRouter.post('/debug', authenticateToken, async (req: AuthRequest, res: 
         // Extract USE statements and load referenced pages/pageActions
         const useMatches = veroContent.match(/USE\s+(\w+)/gi) || [];
         const pageNames = useMatches.map((m: string) => m.replace(/USE\s+/i, '').trim());
-        const confinedFilePath = filePath ? confineToBase(VERO_PROJECT_PATH, filePath) : undefined;
-        const projectRoot = confinedFilePath ? detectProjectRoot(confinedFilePath, VERO_PROJECT_PATH) : VERO_PROJECT_PATH;
+        const confinedFilePath = filePath ? confineToBase(resolvedBase, filePath) : undefined;
+        const projectRoot = confinedFilePath ? detectProjectRoot(confinedFilePath, resolvedBase) : resolvedBase;
         const referencedContent = await loadReferencedPages(pageNames, projectRoot);
-        const combinedContent = referencedContent + veroContent;
+
+        // IMPORTANT: active file goes first so its AST line numbers match
+        // the editor's breakpoint line numbers (no offset from prepended content).
+        const combinedContent = referencedContent
+            ? veroContent + '\n\n' + referencedContent
+            : veroContent;
+
+        const normalizedBreakpoints = Array.isArray(breakpoints) ? breakpoints : [];
+        logger.info('[debug:prepare]', { filePath, breakpointCount: normalizedBreakpoints.length, hasRefs: referencedContent.length > 0 });
 
         // Transpile Vero to Playwright with debug mode
         const { transpileVero } = await import('../services/veroTranspiler');

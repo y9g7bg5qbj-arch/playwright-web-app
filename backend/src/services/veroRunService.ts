@@ -821,8 +821,13 @@ interface ResolveRunSelectionScopeInput {
     hasScenarioNamesSelection: boolean;
 }
 
-function resolveRunSelectionScope(input: ResolveRunSelectionScopeInput): VeroSelectionScope {
+export function resolveRunSelectionScope(input: ResolveRunSelectionScopeInput): VeroSelectionScope {
     if (input.scenarioName?.trim() || input.hasScenarioNamesSelection) {
+        return 'active-file';
+    }
+    // Schedules resolve and iterate concrete file targets in the worker.
+    // Always execute each scheduled target as active-file to avoid sandbox fan-out.
+    if (input.triggeredBy === 'schedule') {
         return 'active-file';
     }
     if (input.requestedScope === 'active-file' || input.requestedScope === 'current-sandbox') {

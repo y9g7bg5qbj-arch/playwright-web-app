@@ -130,6 +130,7 @@ export const COLLECTIONS = {
 
   // Collaboration
   SANDBOXES: 'sandboxes',
+  SANDBOX_FILES: 'sandbox_files',
   PULL_REQUESTS: 'pull_requests',
   PULL_REQUEST_REVIEWS: 'pull_request_reviews',
   PULL_REQUEST_COMMENTS: 'pull_request_comments',
@@ -555,11 +556,25 @@ export interface MongoPullRequest {
   projectId: string;
   targetBranch: string;
   status: 'draft' | 'open' | 'approved' | 'merged' | 'closed';
+  githubPrNumber?: number;
   createdAt: Date;
   updatedAt: Date;
   mergedAt?: Date;
   mergedById?: string;
   closedAt?: Date;
+}
+
+// Sandbox file content (for stateless GitHub push)
+export interface MongoSandboxFile {
+  _id?: string;
+  id: string;
+  sandboxId: string;
+  projectId: string;
+  filePath: string;
+  content: string;
+  isDeleted: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 // ScheduledTest model
