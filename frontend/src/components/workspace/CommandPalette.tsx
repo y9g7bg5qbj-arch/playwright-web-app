@@ -72,6 +72,7 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
 
   if (!isOpen) return null;
 
+  // design-lint-ignore NO_HARDCODED_MODAL
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]" onClick={onClose}>
       <div

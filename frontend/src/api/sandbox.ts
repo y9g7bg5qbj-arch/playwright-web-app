@@ -77,10 +77,7 @@ interface SandboxResponse {
 }
 
 interface SyncResponse {
-  success: boolean;
-  conflicts?: string[];
   sandbox?: Sandbox;
-  message?: string;
 }
 
 export const sandboxApi = {
@@ -136,8 +133,7 @@ export const sandboxApi = {
   async sync(sandboxId: string): Promise<SyncResult> {
     const response = await apiClient.post<SyncResponse>(`/sandboxes/${sandboxId}/sync`);
     return {
-      success: response.success,
-      conflicts: response.conflicts,
+      success: true,
       sandbox: response.sandbox,
     };
   },

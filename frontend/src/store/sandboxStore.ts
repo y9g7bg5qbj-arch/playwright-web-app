@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { sandboxApi, type Sandbox, type CreateSandboxInput, type SyncResult } from '@/api/sandbox';
+import { sandboxApi, type Sandbox, type CreateSandboxInput, type SyncResult, type ConflictFile, type SyncWithDetailsResult } from '@/api/sandbox';
 import {
   pullRequestApi,
   type PullRequest,
@@ -17,6 +17,23 @@ import {
 
 // Active environment type
 export type ActiveEnvironment = 'dev' | 'master' | { sandboxId: string };
+
+/**
+ * Resolve the folder path for an active environment.
+ * Returns the folder name to pass as the `folder` query param to vero file APIs.
+ */
+export function getEnvironmentFolder(
+  activeEnvironment: ActiveEnvironment,
+  sandboxes: Sandbox[]
+): string | undefined {
+  if (activeEnvironment === 'dev') return 'dev';
+  if (activeEnvironment === 'master') return 'master';
+  if (typeof activeEnvironment === 'object' && 'sandboxId' in activeEnvironment) {
+    const sandbox = sandboxes.find(s => s.id === activeEnvironment.sandboxId);
+    return sandbox?.folderPath;
+  }
+  return undefined;
+}
 
 interface SandboxState {
   // Current environment context
@@ -46,6 +63,14 @@ interface SandboxState {
   syncInProgress: boolean;
   syncConflicts: string[] | null;
 
+  // Detailed sync conflict state (for merge conflict modal)
+  syncConflictsDetailed: ConflictFile[] | null;
+  syncConflictSandbox: Sandbox | null;
+
+  // PR navigation
+  selectedPullRequestId: string | null;
+  setSelectedPullRequestId: (id: string | null) => void;
+
   // Environment Actions
   setActiveEnvironment: (env: ActiveEnvironment) => void;
   getActiveEnvironmentLabel: () => string;
@@ -57,6 +82,9 @@ interface SandboxState {
   deleteSandbox: (sandboxId: string, force?: boolean) => Promise<void>;
   archiveSandbox: (sandboxId: string) => Promise<void>;
   syncSandbox: (sandboxId: string) => Promise<SyncResult>;
+  syncSandboxWithDetails: (sandboxId: string) => Promise<SyncWithDetailsResult>;
+  setSyncConflictsDetailed: (conflicts: ConflictFile[] | null, sandbox?: Sandbox | null) => void;
+  clearSyncConflictState: () => void;
   setCurrentSandbox: (sandbox: Sandbox | null) => void;
 
   // Pull Request Actions
@@ -107,6 +135,36 @@ function saveActiveEnvironment(env: ActiveEnvironment): void {
   localStorage.setItem(ACTIVE_ENV_KEY, JSON.stringify(env));
 }
 
+function resolveSandboxEnvironmentState(
+  activeEnvironment: ActiveEnvironment,
+  sandboxes: Sandbox[]
+): { activeEnvironment: ActiveEnvironment; currentSandbox: Sandbox | null; changed: boolean } {
+  if (typeof activeEnvironment === 'object' && 'sandboxId' in activeEnvironment) {
+    const activeSandbox = sandboxes.find(
+      sandbox => sandbox.id === activeEnvironment.sandboxId && sandbox.status === 'active'
+    );
+    if (activeSandbox) {
+      return {
+        activeEnvironment,
+        currentSandbox: activeSandbox,
+        changed: false,
+      };
+    }
+
+    return {
+      activeEnvironment: 'dev',
+      currentSandbox: null,
+      changed: true,
+    };
+  }
+
+  return {
+    activeEnvironment,
+    currentSandbox: null,
+    changed: false,
+  };
+}
+
 export const useSandboxStore = create<SandboxState>((set, get) => ({
   activeEnvironment: loadActiveEnvironment(),
   sandboxes: [],
@@ -123,6 +181,11 @@ export const useSandboxStore = create<SandboxState>((set, get) => ({
   error: null,
   syncInProgress: false,
   syncConflicts: null,
+  syncConflictsDetailed: null,
+  syncConflictSandbox: null,
+  selectedPullRequestId: null,
+
+  setSelectedPullRequestId: (id) => set({ selectedPullRequestId: id }),
 
   // Environment Actions
   setActiveEnvironment: (env) => {
@@ -153,7 +216,18 @@ export const useSandboxStore = create<SandboxState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const sandboxes = await sandboxApi.listByProject(projectId);
-      set({ sandboxes, isLoading: false });
+      set(state => {
+        const nextEnvironmentState = resolveSandboxEnvironmentState(state.activeEnvironment, sandboxes);
+        if (nextEnvironmentState.changed) {
+          saveActiveEnvironment(nextEnvironmentState.activeEnvironment);
+        }
+        return {
+          sandboxes,
+          currentSandbox: nextEnvironmentState.currentSandbox,
+          activeEnvironment: nextEnvironmentState.activeEnvironment,
+          isLoading: false,
+        };
+      });
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : 'Failed to fetch sandboxes',
@@ -166,7 +240,18 @@ export const useSandboxStore = create<SandboxState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const sandboxes = await sandboxApi.listMySandboxes(projectId);
-      set({ sandboxes, isLoading: false });
+      set(state => {
+        const nextEnvironmentState = resolveSandboxEnvironmentState(state.activeEnvironment, sandboxes);
+        if (nextEnvironmentState.changed) {
+          saveActiveEnvironment(nextEnvironmentState.activeEnvironment);
+        }
+        return {
+          sandboxes,
+          currentSandbox: nextEnvironmentState.currentSandbox,
+          activeEnvironment: nextEnvironmentState.activeEnvironment,
+          isLoading: false,
+        };
+      });
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : 'Failed to fetch sandboxes',
@@ -217,6 +302,7 @@ export const useSandboxStore = create<SandboxState>((set, get) => ({
 
         return {
           sandboxes: newSandboxes,
+          currentSandbox: state.currentSandbox?.id === sandboxId ? null : state.currentSandbox,
           isLoading: false,
         };
       });
@@ -233,11 +319,22 @@ export const useSandboxStore = create<SandboxState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const sandbox = await sandboxApi.archive(sandboxId);
-      set(state => ({
-        sandboxes: state.sandboxes.map(s => s.id === sandboxId ? sandbox : s),
-        currentSandbox: state.currentSandbox?.id === sandboxId ? sandbox : state.currentSandbox,
-        isLoading: false,
-      }));
+      set(state => {
+        const archivedActiveSandbox =
+          (typeof state.activeEnvironment === 'object' && state.activeEnvironment.sandboxId === sandboxId)
+          || state.currentSandbox?.id === sandboxId;
+
+        if (archivedActiveSandbox) {
+          saveActiveEnvironment('dev');
+        }
+
+        return {
+          sandboxes: state.sandboxes.map(s => s.id === sandboxId ? sandbox : s),
+          currentSandbox: archivedActiveSandbox ? null : state.currentSandbox,
+          activeEnvironment: archivedActiveSandbox ? 'dev' as ActiveEnvironment : state.activeEnvironment,
+          isLoading: false,
+        };
+      });
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : 'Failed to archive sandbox',
@@ -271,6 +368,46 @@ export const useSandboxStore = create<SandboxState>((set, get) => ({
       });
       throw error;
     }
+  },
+
+  syncSandboxWithDetails: async (sandboxId) => {
+    set({ syncInProgress: true, syncConflictsDetailed: null, syncConflictSandbox: null, error: null });
+    try {
+      const result = await sandboxApi.syncWithDetails(sandboxId);
+      if (result.hasConflicts && result.conflicts) {
+        const sandbox = get().sandboxes.find(s => s.id === sandboxId) || null;
+        set({
+          syncConflictsDetailed: result.conflicts,
+          syncConflictSandbox: sandbox,
+          syncInProgress: false,
+        });
+      } else if (result.sandbox) {
+        set(state => ({
+          sandboxes: state.sandboxes.map(s => s.id === sandboxId ? result.sandbox! : s),
+          currentSandbox: state.currentSandbox?.id === sandboxId ? result.sandbox! : state.currentSandbox,
+          syncConflictsDetailed: null,
+          syncConflictSandbox: null,
+          syncInProgress: false,
+        }));
+      } else {
+        set({ syncInProgress: false });
+      }
+      return result;
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Failed to sync sandbox',
+        syncInProgress: false,
+      });
+      throw error;
+    }
+  },
+
+  setSyncConflictsDetailed: (conflicts, sandbox = null) => {
+    set({ syncConflictsDetailed: conflicts, syncConflictSandbox: sandbox ?? null });
+  },
+
+  clearSyncConflictState: () => {
+    set({ syncConflictsDetailed: null, syncConflictSandbox: null });
   },
 
   setCurrentSandbox: (sandbox) => {

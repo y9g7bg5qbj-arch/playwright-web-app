@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { schedulesApi } from '@/api/schedules';
-import type { Schedule as UISchedule } from '@/components/workspace/SchedulePanel';
+import type { Schedule as UISchedule } from '@/store/schedule.types';
 import type {
   Schedule as BackendSchedule,
 } from '@playwright-web-app/shared';

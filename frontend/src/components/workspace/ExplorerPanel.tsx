@@ -33,7 +33,6 @@ export interface NestedProject {
 }
 
 export interface ExplorerPanelProps {
-  applicationName?: string;
   projects?: NestedProject[];
   error?: string | null;
   isLoading?: boolean;
@@ -44,6 +43,7 @@ export interface ExplorerPanelProps {
   activeFileContent?: string | null;
   activeFileName?: string | null;
   onFileSelect: (file: FileNode, projectId?: string) => void;
+  onDirectorySelect?: (directory: FileNode, projectId?: string) => void;
   onFolderToggle?: (path: string) => void;
   onProjectSelect?: (projectId: string) => void;
   onProjectExpand?: (projectId: string) => void;
@@ -53,12 +53,11 @@ export interface ExplorerPanelProps {
   onNavigateToLine?: (line: number) => void;
   onFileContextMenu?: (file: FileNode, projectId: string | undefined, x: number, y: number) => void;
   onCreateSandbox?: (projectId: string) => void;
-  onSyncSandbox?: (sandboxName: string, projectId: string) => void;
+  onSyncSandbox?: (sandboxFolderName: string, projectId: string) => void;
   onRetry?: () => void;
 }
 
 export function ExplorerPanel({
-  applicationName = 'VERO-PROJECT',
   projects = [],
   error = null,
   isLoading = false,
@@ -69,6 +68,7 @@ export function ExplorerPanel({
   activeFileContent,
   activeFileName,
   onFileSelect,
+  onDirectorySelect,
   onFolderToggle: externalFolderToggle,
   onProjectSelect,
   onProjectExpand,
@@ -84,7 +84,6 @@ export function ExplorerPanel({
   const [internalExpandedFolders, setInternalExpandedFolders] = useState<Set<string>>(
     new Set(['proj:default', 'data', 'features'])
   );
-  const [applicationExpanded, setApplicationExpanded] = useState(true);
 
   // Use external state if provided, otherwise use internal state
   const expandedFolders = externalExpandedFolders || internalExpandedFolders;
@@ -280,7 +279,10 @@ export function ExplorerPanel({
                   ? selectedFolderRowClass
                   : folderVisual.rowClassName}
               `}
-              onClick={() => toggleFolder(nodePath)}
+              onClick={() => {
+                toggleFolder(nodePath);
+                onDirectorySelect?.(node, projectId);
+              }}
               style={{ paddingLeft: `${paddingLeft}px`, paddingRight: '6px' }}
             >
               <ChevronRight
@@ -449,99 +451,78 @@ export function ExplorerPanel({
     <div className="relative flex h-full w-full shrink-0 flex-col overflow-hidden border-r border-border-default bg-dark-bg">
       {/* Header */}
       <PanelHeader
-        title="Project"
+        title="Projects"
         actions={
-          <IconButton
-            icon={<MoreHorizontal size={14} />}
-            size="sm"
-            variant="ghost"
-            tooltip="More options"
-          />
+          <div className="flex items-center gap-0.5">
+            {onCreateProject && (
+              <IconButton
+                icon={<Plus size={12} />}
+                size="sm"
+                variant="ghost"
+                tooltip="New Project"
+                onClick={onCreateProject}
+              />
+            )}
+            <IconButton
+              icon={<MoreHorizontal size={14} />}
+              size="sm"
+              variant="ghost"
+              tooltip="More options"
+            />
+          </div>
         }
         className="relative z-10"
       />
 
       {/* File Tree */}
       <div className="custom-scrollbar relative z-10 min-h-0 flex-1 overflow-y-auto px-2 py-2">
-        {/* Application Header */}
-        <button
-          onClick={() => setApplicationExpanded(!applicationExpanded)}
-          className="sticky top-0 z-10 flex w-full items-center rounded-sm px-2 py-1 text-xxs font-medium tracking-wide text-text-primary transition-all duration-fast hover:bg-white/[0.05]"
-        >
-          <ChevronRight
-            size={12}
-            className={`mr-0.5 text-text-muted transition-transform duration-fast ${applicationExpanded ? 'rotate-90' : ''}`}
-          />
-          <Folder size={14} className="mr-1 text-status-warning" />
-          <span className="truncate">{applicationName}</span>
-          <span className="ml-auto text-3xs text-text-muted">
-            {projects.length}
-          </span>
-        </button>
-
         {/* Projects List */}
-        {applicationExpanded && (
-          <div className="mt-1 p-1">
-            <div className="group flex items-center justify-between px-1 py-1 text-text-secondary">
-              <span className="text-4xs font-semibold uppercase tracking-[0.12em]">Folders</span>
-              {onCreateProject && (
-                <IconButton
-                  icon={<Plus size={12} />}
-                  size="sm"
-                  variant="ghost"
-                  tooltip="New Project"
-                  onClick={onCreateProject}
-                  className="opacity-0 transition-opacity duration-fast group-hover:opacity-100"
+        <div className="p-1">
+          {projects.length > 0 ? (
+            <div className="mt-1 space-y-0.5">
+              {projects.map(renderProject)}
+            </div>
+          ) : (
+            <div>
+              {isLoading ? (
+                <EmptyState
+                  title="Loading projects..."
+                  compact
+                />
+              ) : error ? (
+                <EmptyState
+                  title="Unable to load projects"
+                  message={error}
+                  compact
+                  className="[&>p:first-of-type]:text-status-danger"
+                  action={onRetry ? (
+                    <button
+                      onClick={onRetry}
+                      className="inline-flex items-center rounded-md border border-border-default bg-dark-elevated px-2.5 py-1 text-xs font-medium text-text-primary transition-colors hover:border-border-emphasis"
+                    >
+                      <RefreshCw size={14} className="mr-1" />
+                      Retry
+                    </button>
+                  ) : undefined}
+                />
+              ) : (
+                <EmptyState
+                  title="No projects found"
+                  compact
+                  action={onCreateProject ? (
+                    <button
+                      onClick={onCreateProject}
+                      className="inline-flex items-center rounded-md border border-border-default bg-dark-elevated px-2.5 py-1 text-xs font-medium text-text-primary transition-colors hover:border-border-emphasis"
+                    >
+                      <Plus size={14} className="mr-1" />
+                      Create Project
+                    </button>
+                  ) : undefined}
                 />
               )}
             </div>
-
-            {projects.length > 0 ? (
-              <div className="mt-1 space-y-0.5">
-                {projects.map(renderProject)}
-              </div>
-            ) : (
-              <div>
-                {isLoading ? (
-                  <EmptyState
-                    title="Loading projects..."
-                    compact
-                  />
-                ) : error ? (
-                  <EmptyState
-                    title="Unable to load projects"
-                    message={error}
-                    compact
-                    className="[&>p:first-of-type]:text-status-danger"
-                    action={onRetry ? (
-                      <button
-                        onClick={onRetry}
-                        className="inline-flex items-center rounded-md border border-border-default bg-dark-elevated px-2.5 py-1 text-xs font-medium text-text-primary transition-colors hover:border-border-emphasis"
-                      >
-                        <RefreshCw size={14} className="mr-1" />
-                        Retry
-                      </button>
-                    ) : undefined}
-                  />
-                ) : (
-                  <EmptyState
-                    title="No projects found"
-                    compact
-                    action={onCreateProject ? (
-                      <button
-                        onClick={onCreateProject}
-                        className="inline-flex items-center rounded-md border border-border-default bg-dark-elevated px-2.5 py-1 text-xs font-medium text-text-primary transition-colors hover:border-border-emphasis"
-                      >
-                        <Plus size={14} className="mr-1" />
-                        Create Project
-                      </button>
-                    ) : undefined}
-                  />
-                )}
-              </div>
-            )}
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Outline Panel */}

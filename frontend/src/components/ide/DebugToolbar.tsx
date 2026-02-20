@@ -1,12 +1,10 @@
 import {
   Play,
   Bug,
-  Pause,
   Square,
   RotateCw,
   Circle,
   CircleSlash,
-  MousePointer2,
 } from 'lucide-react';
 import { IconButton, Toolbar, ToolbarGroup, ToolbarDivider } from '@/components/ui';
 
@@ -31,16 +29,6 @@ function StepIntoIcon({ className }: { className?: string }) {
   );
 }
 
-function StepOutIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="8" cy="13" r="1.5" fill="currentColor" stroke="none" />
-      <line x1="8" y1="10" x2="8" y2="1" />
-      <polyline points="6,3 8,1 10,3" fill="none" />
-    </svg>
-  );
-}
-
 /**
  * Debug execution state
  */
@@ -58,15 +46,12 @@ interface DebugToolbarProps {
   isRunning: boolean;
   debugState: DebugState;
   breakpointsMuted?: boolean;
-  onPause: () => void;
   onResume: () => void;
   onStepOver: () => void;
   onStepInto: () => void;
-  onStepOut: () => void;
   onStop: () => void;
   onRestart: () => void;
   onToggleMuteBreakpoints?: () => void;
-  onOpenInspector?: () => void;
   className?: string;
 }
 
@@ -74,21 +59,18 @@ interface DebugToolbarProps {
  * IntelliJ IDEA-style Debug toolbar
  *
  * Layout:
- * [⏸ Pause] [⏹ Stop] [↻ Restart]  |  [→ Step Over] [↓ Into] [↑ Out]  |  [⊘ Mute] [🔍 Inspector]
+ * [▶ Resume] [⏹ Stop] [↻ Restart]  |  [→ Step Over] [↓ Into]  |  [⊘ Mute]
  */
 export function DebugToolbar({
   isRunning,
   debugState,
   breakpointsMuted = false,
-  onPause,
   onResume,
   onStepOver,
   onStepInto,
-  onStepOut,
   onStop,
   onRestart,
   onToggleMuteBreakpoints,
-  onOpenInspector,
   className = '',
 }: DebugToolbarProps) {
   const { isDebugging, isPaused, currentLine, breakpoints } = debugState;
@@ -102,20 +84,14 @@ export function DebugToolbar({
           <ToolbarDivider />
 
           <ToolbarGroup>
-            {/* Resume/Pause */}
+            {/* Resume (only when paused) */}
             {isDebugging && (
-              isPaused ? (
+              isPaused && (
                 <IconButton
                   icon={<Play className="w-4 h-4" />}
                   active
                   tooltip="Resume (F9)"
                   onClick={onResume}
-                />
-              ) : (
-                <IconButton
-                  icon={<Pause className="w-4 h-4" />}
-                  tooltip="Pause"
-                  onClick={onPause}
                 />
               )
             )}
@@ -157,13 +133,6 @@ export function DebugToolbar({
               tooltip="Step Into (F11)"
               onClick={onStepInto}
             />
-
-            <IconButton
-              icon={<StepOutIcon className="w-4 h-4" />}
-              disabled={!isPaused}
-              tooltip="Step Out (Shift+F11)"
-              onClick={onStepOut}
-            />
           </ToolbarGroup>
         </>
       )}
@@ -178,18 +147,6 @@ export function DebugToolbar({
             active={breakpointsMuted}
             tooltip={breakpointsMuted ? 'Unmute Breakpoints' : 'Mute All Breakpoints'}
             onClick={onToggleMuteBreakpoints}
-          />
-        </>
-      )}
-
-      {/* Playwright Inspector - when debugging */}
-      {isDebugging && (
-        <>
-          <ToolbarDivider />
-          <IconButton
-            icon={<MousePointer2 className="w-4 h-4" />}
-            tooltip="Open Playwright Inspector (pick elements, test selectors)"
-            onClick={onOpenInspector}
           />
         </>
       )}

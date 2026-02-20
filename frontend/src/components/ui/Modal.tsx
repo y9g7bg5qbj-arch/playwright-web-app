@@ -67,7 +67,7 @@ export const Modal: React.FC<ModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Overlay */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
+        className="absolute inset-0 bg-black/60 animate-fade-in"
         onClick={closeOnOverlayClick ? onClose : undefined}
       />
 
@@ -75,7 +75,7 @@ export const Modal: React.FC<ModalProps> = ({
       <div
         className={`
           relative w-full ${sizeClasses[size]}
-          bg-dark-card border border-border-default rounded
+          bg-dark-card border border-border-default rounded-md shadow-xl
           animate-slide-up
         `}
         role="dialog"
@@ -153,7 +153,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   const confirmButtonClass = {
     danger: 'bg-status-danger hover:brightness-110',
     warning: 'bg-status-warning hover:brightness-110',
-    default: 'btn-primary-gradient hover:brightness-110',
+    default: 'bg-brand-primary hover:brightness-110',
   };
 
   return (

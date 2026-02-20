@@ -17,6 +17,7 @@ interface AppConfig {
         dataTables: boolean;
         googleSheetsIntegration: boolean;
         databaseConnector: boolean;
+        failureTranslation: boolean;
     };
 }
 
@@ -28,6 +29,7 @@ const defaultConfig: AppConfig = {
         dataTables: true,
         googleSheetsIntegration: false,
         databaseConnector: false,
+        failureTranslation: false,
     },
 };
 

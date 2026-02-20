@@ -161,10 +161,10 @@ const SplitDiffView: React.FC<{ hunks: DiffHunk[] }> = ({ hunks }) => {
         if (line.type === 'context') {
           rows.push({ left: line, right: line });
           i++;
-        } else if (line.type === 'deletion') {
+        } else if (line.type === 'delete') {
           // Look ahead for corresponding addition
           let j = i + 1;
-          while (j < hunk.lines.length && hunk.lines[j].type === 'deletion') {
+          while (j < hunk.lines.length && hunk.lines[j].type === 'delete') {
             j++;
           }
 
@@ -173,7 +173,7 @@ const SplitDiffView: React.FC<{ hunks: DiffHunk[] }> = ({ hunks }) => {
 
           // Collect corresponding additions
           let k = j;
-          while (k < hunk.lines.length && hunk.lines[k].type === 'addition') {
+          while (k < hunk.lines.length && hunk.lines[k].type === 'add') {
             k++;
           }
           const additions = hunk.lines.slice(j, k);
@@ -188,7 +188,7 @@ const SplitDiffView: React.FC<{ hunks: DiffHunk[] }> = ({ hunks }) => {
           }
 
           i = k;
-        } else if (line.type === 'addition') {
+        } else if (line.type === 'add') {
           // Addition without deletion
           rows.push({ left: null, right: line });
           i++;
@@ -249,25 +249,25 @@ interface DiffLineRowProps {
 
 const DiffLineRow: React.FC<DiffLineRowProps> = ({ line, unified = true, side }) => {
   const getBgColor = () => {
-    if (line.type === 'addition') return 'bg-status-success/10';
-    if (line.type === 'deletion') return 'bg-status-danger/10';
+    if (line.type === 'add') return 'bg-status-success/10';
+    if (line.type === 'delete') return 'bg-status-danger/10';
     return '';
   };
 
   const getTextColor = () => {
-    if (line.type === 'addition') return 'text-status-success';
-    if (line.type === 'deletion') return 'text-status-danger';
+    if (line.type === 'add') return 'text-status-success';
+    if (line.type === 'delete') return 'text-status-danger';
     return 'text-text-secondary';
   };
 
   const getPrefix = () => {
-    if (line.type === 'addition') return '+';
-    if (line.type === 'deletion') return '-';
+    if (line.type === 'add') return '+';
+    if (line.type === 'delete') return '-';
     return ' ';
   };
 
   const lineNumber = unified
-    ? (line.type === 'deletion' ? line.oldLineNumber : line.newLineNumber)
+    ? (line.type === 'delete' ? line.oldLineNumber : line.newLineNumber)
     : (side === 'left' ? line.oldLineNumber : line.newLineNumber);
 
   if (unified) {

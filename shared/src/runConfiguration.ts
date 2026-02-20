@@ -526,6 +526,9 @@ export interface RunConfiguration {
   parameterSetId?: string;
   parameterOverrides?: Record<string, string | number | boolean>;
 
+  // Auth profile (Phase A — cached browser auth state)
+  authProfileId?: string;
+
   // GitHub Actions specific
   githubRepository?: string;    // 'owner/repo' for GitHub Actions target
   githubWorkflowPath?: string;  // Path to workflow file
@@ -639,6 +642,9 @@ export interface RunConfigurationCreate {
   // Run parameters linkage
   parameterSetId?: string;
   parameterOverrides?: Record<string, string | number | boolean>;
+
+  // Auth Profile (cached browser auth state)
+  authProfileId?: string;
 
   // GitHub Actions specific
   githubRepository?: string;

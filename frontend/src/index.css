@@ -15,48 +15,48 @@
      Personality: Cold precision, high density, flight console / trading terminal
      ========================================================================== */
 
-  /* Backgrounds - Darker, more contrast, subtle layering */
-  --bg-canvas: #0d0e12;
-  --bg-primary: #14151a;
-  --bg-secondary: #1c1d24;
-  --bg-elevated: #24262e;
-  --bg-overlay: rgba(13, 14, 18, 0.90);
+  /* Backgrounds - IntelliJ New UI: flat & recessed */
+  --bg-canvas: #1E1F22;
+  --bg-primary: #2B2D30;
+  --bg-secondary: #2B2D30;
+  --bg-elevated: #393B40;
+  --bg-shell: #2B2D30;
+  --bg-overlay: rgba(30, 31, 34, 0.92);
 
-  /* Brand Identity - Blueprint blue */
-  --brand-primary: #3574f0;
-  --brand-secondary: #58a6ff;
-  --brand-gradient: linear-gradient(180deg, #3574f0 0%, #2c5fd9 100%);
+  /* Brand Identity - IntelliJ blue */
+  --brand-primary: #3574F0;
+  --brand-secondary: #5A95F5;
   --brand-primary-depth: #2c5fd9;
-  --brand-hover: #4582f5;
+  --brand-hover: #4682FA;
 
   /* Accent Colors */
   --accent-purple: #a371f7;
   --accent-teal: #3fb4c0;
   --accent-orange: #e57f49;
 
-  /* Text Colors */
-  --text-primary: #e6edf3;
-  --text-secondary: #8b949e;
-  --text-muted: #6e7681;
+  /* Text Colors - IntelliJ tones */
+  --text-primary: #DFE1E5;
+  --text-secondary: #A8ADBD;
+  --text-muted: #6F737A;
   --text-inverted: #ffffff;
 
-  /* Borders - Whisper-quiet, rgba-based for subtlety */
-  --border-subtle: rgba(255, 255, 255, 0.04);
-  --border-default: rgba(255, 255, 255, 0.08);
-  --border-emphasis: rgba(255, 255, 255, 0.12);
-  --border-active: #3574f0;
+  /* Borders - IntelliJ solid 1px borders */
+  --border-subtle: #313335;
+  --border-default: #393B40;
+  --border-emphasis: #43454A;
+  --border-active: #3574F0;
 
-  /* Status Colors - Terminal aesthetic */
-  --status-success: #3fb950;
-  --status-warning: #d29922;
-  --status-danger: #f85149;
-  --status-info: #58a6ff;
+  /* Status Colors - IntelliJ palette */
+  --status-success: #59A869;
+  --status-warning: #E9B44C;
+  --status-danger: #DB5860;
+  --status-info: #5A95F5;
 
   /* Status Backgrounds */
-  --bg-success: rgba(63, 185, 80, 0.15);
-  --bg-warning: rgba(210, 153, 34, 0.15);
-  --bg-danger: rgba(248, 81, 73, 0.15);
-  --bg-info: rgba(88, 166, 255, 0.15);
+  --bg-success: rgba(89, 168, 105, 0.15);
+  --bg-warning: rgba(233, 180, 76, 0.15);
+  --bg-danger: rgba(219, 88, 96, 0.15);
+  --bg-info: rgba(90, 149, 245, 0.15);
 
   /* --- Typography --- */
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
@@ -70,17 +70,16 @@
 
   /* --- Animation - Faster for responsive feel --- */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
   --duration-fast: 100ms;
   --duration-normal: 150ms;
 
   /* Interactive States */
-  --bg-selected: rgba(53, 116, 240, 0.14);
-  --bg-selected-muted: rgba(53, 116, 240, 0.08);
+  --bg-selected: rgba(53, 116, 240, 0.18);
+  --bg-selected-muted: rgba(53, 116, 240, 0.10);
   --bg-hover: rgba(255, 255, 255, 0.06);
   --bg-disabled: rgba(255, 255, 255, 0.03);
   --border-selected: rgba(53, 116, 240, 0.55);
-  --border-disabled: rgba(255, 255, 255, 0.06);
+  --border-disabled: #393B40;
   --text-disabled: rgba(255, 255, 255, 0.25);
   --text-on-selected: #d7ebff;
   --text-link: var(--brand-secondary);
@@ -145,18 +144,6 @@
   --shard-10: #14b8a6;
   --shard-11: #f43f5e;
   --shard-12: #f59e0b;
-
-  /* Legacy token aliases to keep older screens rendering safely while migrating */
-  --dark-bg: var(--bg-canvas);
-  --dark-header: var(--bg-primary);
-  --dark-card: var(--bg-secondary);
-  --dark-elevated: var(--bg-elevated);
-  --dark-hover: var(--bg-elevated);
-  --dark-elem-hover: rgba(255, 255, 255, 0.08);
-  --dark-elem-active: rgba(255, 255, 255, 0.12);
-  --border-hover: var(--border-emphasis);
-  --shadow-xl: 0 14px 34px rgba(0, 0, 0, 0.38);
-  --shadow-2xl: 0 22px 42px rgba(0, 0, 0, 0.45);
 }
 
 /* ==========================================================================
@@ -220,11 +207,11 @@ pre,
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #424242;
+  background: #47494E;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4f4f4f;
+  background: #55575C;
 }
 
 ::-webkit-scrollbar-corner {
@@ -236,129 +223,19 @@ pre,
    ========================================================================== */
 
 @layer utilities {
-
-  .glass {
-    background-color: var(--bg-secondary);
-    border: 1px solid var(--border-default);
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
 
-  .glass-panel {
-    background-color: var(--bg-secondary);
-    border: 1px solid var(--border-default);
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-  }
-
-  /* Standard Text Gradient removed for professional look, keeping simple highlight */
-  .text-gradient {
-    color: var(--brand-primary);
-    background: none;
-    -webkit-text-fill-color: initial;
-  }
-
-  .focus-ring {
-    @apply outline-none ring-2 ring-brand-primary/40 ring-offset-2 ring-offset-[#111216];
-  }
-
-  .ide-shell {
-    @apply bg-dark-canvas text-text-primary;
-  }
-
-  .ide-surface {
-    @apply bg-dark-bg border border-border-default;
-  }
-
-  .ide-panel {
-    @apply bg-dark-card border border-border-default;
-  }
-
-  .ide-panel-muted {
-    @apply bg-dark-elevated border border-border-muted;
-  }
-
-  .ide-toolbar {
-    @apply bg-dark-bg border-b border-border-default;
-  }
-
-  .ide-subtle {
-    @apply text-text-muted;
-  }
-
-  .ide-hover {
-    @apply transition-colors duration-fast hover:bg-white/[0.05];
-  }
-
-  .ide-rail {
-    @apply bg-dark-canvas border-r border-border-default flex flex-col items-center py-3 gap-1;
-  }
-
-  .ide-panel-header {
-    @apply h-8 px-3 flex items-center justify-between border-b border-border-default bg-dark-bg shrink-0;
-  }
-
-  .ide-section-label {
-    @apply text-3xs font-semibold text-text-muted uppercase tracking-wider;
-  }
-
-  .ide-empty-state {
-    @apply flex flex-col items-center justify-center py-12 text-center text-text-muted;
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 }
 
 /* ==========================================================================
-   Component Overrides (The "Creative" Part)
+   Component Overrides
    ========================================================================== */
-
-/* Buttons - Precision & Density */
-.btn {
-  @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 font-medium text-xs;
-  border-radius: var(--radius-default);
-  letter-spacing: 0;
-  transition: all var(--duration-fast) var(--ease-out);
-}
-
-.btn-primary {
-  background: linear-gradient(180deg, var(--brand-primary) 0%, #2c5fd9 100%);
-  color: white;
-  border: none;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
-}
-
-.btn-primary:hover:not(:disabled) {
-  filter: brightness(1.1);
-}
-
-.btn-primary:active:not(:disabled) {
-  filter: brightness(0.95);
-}
-
-/* Primary button gradient class for Tailwind usage */
-.btn-primary-gradient {
-  background: linear-gradient(180deg, var(--brand-primary) 0%, #2c5fd9 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
-}
-
-.btn-secondary {
-  background: var(--bg-elevated);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-default);
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: var(--bg-elevated);
-  border-color: var(--border-emphasis);
-  color: var(--text-primary);
-}
-
-.btn-ghost {
-  background: transparent;
-  color: var(--text-muted);
-  border: none;
-}
-
-.btn-ghost:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-primary);
-}
 
 /* Inputs - Inset precision feel */
 input[type="text"],
@@ -381,108 +258,9 @@ select:focus {
   box-shadow: 0 0 0 2px rgba(53, 116, 240, 0.15);
 }
 
-/* Cards - Borders-only depth, no shadows */
-.card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-default);
-  transition: border-color var(--duration-fast) var(--ease-out);
-}
-
-.card:hover {
-  border-color: var(--border-emphasis);
-}
-
-/* Activity Bar - Tighter, precision feel */
-.activity-bar-item {
-  position: relative;
-  opacity: 0.6;
-  border-left: 2px solid transparent;
-  transition: all var(--duration-fast) var(--ease-out);
-}
-
-.activity-bar-item:hover {
-  opacity: 1;
-  background-color: rgba(255, 255, 255, 0.03);
-}
-
-.activity-bar-item.active {
-  opacity: 1;
-  background-color: rgba(53, 116, 240, 0.08);
-  border-left-color: var(--brand-primary);
-}
-
-/* File Tree - Subtle selection, tighter rows */
-.file-tree-item:hover {
-  background-color: rgba(255, 255, 255, 0.03);
-}
-
-.file-tree-item.selected {
-  background-color: rgba(53, 116, 240, 0.12);
-  color: var(--text-primary);
-  border-radius: var(--radius-sm);
-}
-
-/* Monaco Editor - Matching precision palette */
-.monaco-editor-background {
-  background-color: var(--bg-primary) !important;
-}
-
-.monaco-editor .margin {
-  background-color: var(--bg-primary) !important;
-  border-right: 1px solid var(--border-subtle) !important;
-}
-
-.monaco-editor .current-line {
-  background-color: rgba(255, 255, 255, 0.02) !important;
-  border: none !important;
-}
-
-.monaco-editor .selected-text {
-  background-color: rgba(53, 116, 240, 0.15) !important;
-}
-
 /* ==========================================================================
-   SIGNATURE ELEMENTS - Unique to Vero IDE
+   Animations
    ========================================================================== */
-
-/* Execution Trace Line - Glowing indicator when running/debugging */
-.execution-line,
-.vero-execution-line {
-  background: linear-gradient(90deg,
-    rgba(63, 185, 80, 0.15) 0%,
-    transparent 100%
-  ) !important;
-  border-left: 2px solid var(--status-success) !important;
-  box-shadow: 0 0 8px rgba(63, 185, 80, 0.3);
-}
-
-/* Recording Indicator - Pulsing red dot */
-.recording-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.recording-indicator::before {
-  content: '';
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--status-danger);
-  animation: pulse-recording 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse-recording {
-  0%, 100% {
-    opacity: 1;
-    box-shadow: 0 0 0 0 rgba(248, 81, 73, 0.4);
-  }
-  50% {
-    opacity: 0.8;
-    box-shadow: 0 0 0 8px rgba(248, 81, 73, 0);
-  }
-}
 
 @keyframes toast-slide-in {
   from {
@@ -495,39 +273,9 @@ select:focus {
   }
 }
 
-/* Test Status Pills - Terminal aesthetic */
-.test-passed,
-.status-passed {
-  background: rgba(63, 185, 80, 0.15);
-  color: #3fb950;
-  border: 1px solid rgba(63, 185, 80, 0.2);
-}
-
-.test-failed,
-.status-failed {
-  background: rgba(248, 81, 73, 0.15);
-  color: #f85149;
-  border: 1px solid rgba(248, 81, 73, 0.2);
-}
-
-.test-running,
-.status-running {
-  background: rgba(88, 166, 255, 0.15);
-  color: #58a6ff;
-  border: 1px solid rgba(88, 166, 255, 0.2);
-}
-
-.test-pending,
-.status-pending {
-  background: rgba(210, 153, 34, 0.15);
-  color: #d29922;
-  border: 1px solid rgba(210, 153, 34, 0.2);
-}
-
 /* Focus States - Thin, offset ring */
 .focus-visible:focus,
 [data-focus-visible]:focus {
   outline: none;
   box-shadow: 0 0 0 2px var(--bg-canvas), 0 0 0 4px rgba(53, 116, 240, 0.4);
 }
-

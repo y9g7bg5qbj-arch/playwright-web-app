@@ -13,6 +13,7 @@ export default {
           elevated: 'var(--bg-elevated)',
           canvas: 'var(--bg-canvas)',
           overlay: 'var(--bg-overlay)',
+          shell: 'var(--bg-shell)',
         },
         brand: {
           primary: 'var(--brand-primary)',

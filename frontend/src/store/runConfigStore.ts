@@ -106,6 +106,9 @@ export interface RunConfiguration {
   parameterSetId?: string;
   parameterOverrides?: Record<string, string | number | boolean>;
 
+  // Auth Profile (cached browser auth state)
+  authProfileId?: string;
+
   // Metadata
   lastUsedAt?: string;
   createdAt: string;
@@ -445,6 +448,7 @@ export const useRunConfigStore = create<RunConfigState>()(
           });
         } catch (err) {
           console.warn('[RunConfig] Failed to load from API, using cached configs:', err);
+          const errorMessage = err instanceof Error ? err.message : 'Failed to load configurations from server';
           set((state) => {
             const scopedConfigs = state.configurations.filter(
               (c) =>
@@ -459,7 +463,7 @@ export const useRunConfigStore = create<RunConfigState>()(
               configurations: [...preservedForOtherScopes, ...scopedConfigs],
               activeConfigId: hasActive ? state.activeConfigId : scopedConfigs[0]?.id || null,
               isLoading: false,
-              syncError: 'Failed to load configurations from server',
+              syncError: `Failed to load configurations from server: ${errorMessage}`,
             };
           });
         }

@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { NestedProject } from './ExplorerPanel.js';
 import { sandboxApi, type ConflictFile } from '@/api/sandbox';
+import { useToastStore } from '@/store/useToastStore';
 
 export interface UseProjectNavigationParams {
   currentProjectId: string | undefined;
@@ -41,7 +42,7 @@ export interface UseProjectNavigationReturn {
   handleDeleteProject: (projectId: string) => Promise<void>;
   handleCreateSandbox: (projectId: string) => void;
   handleSandboxCreated: () => void;
-  handleSyncSandbox: (sandboxName: string, projectId: string) => Promise<void>;
+  handleSyncSandbox: (sandboxFolderName: string, projectId: string) => Promise<void>;
   handleResolveMergeConflicts: (resolutions: Record<string, string>) => Promise<void>;
 }
 
@@ -100,7 +101,7 @@ export function useProjectNavigation({
   const handleProjectExpand = (projectId: string) => {
     // Find the project from store and load its files if not already loaded
     const project = nestedProjects.find(p => p.id === projectId);
-    if (project && !project.files) {
+    if (project && (!project.files || project.files.length === 0)) {
       loadProjectFiles(projectId, project.veroPath);
     }
   };
@@ -122,6 +123,8 @@ export function useProjectNavigation({
       const project = await createNestedProject(currentProjectId, { name: name.trim() });
       // Refresh nested projects
       await fetchNestedProjects(currentProjectId);
+      // Immediately load file tree for the new project so scaffold folders render right away.
+      await loadProjectFiles(project.id);
       addConsoleOutput(`Project "${project.name}" created successfully.`);
       // Expand the new project in the file tree
       setExpandedFolders(prev => {
@@ -185,7 +188,7 @@ export function useProjectNavigation({
   };
 
   // Sync sandbox handler - triggers three-way merge if conflicts exist
-  const handleSyncSandbox = async (sandboxName: string, projectId: string) => {
+  const handleSyncSandbox = async (sandboxFolderName: string, projectId: string) => {
     if (!projectId || projectId.trim() === '') {
       addConsoleOutput('Error: Cannot sync sandbox - project ID is missing. Please expand a project first.');
       return;
@@ -196,7 +199,7 @@ export function useProjectNavigation({
       return;
     }
 
-    addConsoleOutput(`Syncing sandbox "${sandboxName}"...`);
+    addConsoleOutput(`Syncing sandbox "${sandboxFolderName}"...`);
 
     try {
       const project = nestedProjects.find(p => p.id === projectId);
@@ -206,10 +209,11 @@ export function useProjectNavigation({
       }
 
       const sandboxes = await sandboxApi.listByProject(projectId);
-      const sandbox = sandboxes.find(s => s.name === sandboxName || s.folderPath?.includes(sandboxName));
+      const expectedPath = `sandboxes/${sandboxFolderName}`;
+      const sandbox = sandboxes.find(s => s.folderPath === expectedPath);
 
       if (!sandbox) {
-        addConsoleOutput(`Error: Sandbox "${sandboxName}" not found. It may not be registered in the database.`);
+        addConsoleOutput(`Error: Sandbox "${sandboxFolderName}" not found. It may not be registered in the database.`);
         return;
       }
 
@@ -230,7 +234,7 @@ export function useProjectNavigation({
         setShowMergeConflictModal(true);
       } else {
         // No conflicts, sync completed successfully
-        addConsoleOutput(`Sandbox "${sandboxName}" synced successfully with no conflicts!`);
+        addConsoleOutput(`Sandbox "${sandbox.name}" synced successfully with no conflicts!`);
         // Refresh the project files
         if (project.veroPath) {
           loadProjectFiles(projectId, project.veroPath);
@@ -245,6 +249,7 @@ export function useProjectNavigation({
   // Handle merge conflict resolution
   const handleResolveMergeConflicts = async (resolutions: Record<string, string>) => {
     if (!mergeSandboxId) return;
+    const addToast = useToastStore.getState().addToast;
 
     try {
       addConsoleOutput(`Applying conflict resolutions...`);
@@ -253,6 +258,7 @@ export function useProjectNavigation({
 
       if (result.success) {
         addConsoleOutput(`Resolved conflicts and updated ${result.updatedFiles.length} file(s)`);
+        addToast({ message: `Resolved conflicts and updated ${result.updatedFiles.length} file(s)`, variant: 'success' });
         setShowMergeConflictModal(false);
         setMergeConflicts([]);
         setMergeSandboxId(null);
@@ -267,10 +273,12 @@ export function useProjectNavigation({
         }
       } else {
         addConsoleOutput(`Failed to resolve conflicts`);
+        addToast({ message: 'Failed to resolve conflicts', variant: 'error' });
       }
     } catch (error) {
       console.error('Failed to resolve conflicts:', error);
       addConsoleOutput(`Error resolving conflicts: ${error instanceof Error ? error.message : String(error)}`);
+      addToast({ message: `Failed to resolve conflicts: ${error instanceof Error ? error.message : 'Unknown error'}`, variant: 'error' });
     }
   };
 

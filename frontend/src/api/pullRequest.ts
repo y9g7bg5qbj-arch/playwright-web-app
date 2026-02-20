@@ -76,7 +76,7 @@ export interface DiffHunk {
 }
 
 export interface DiffLine {
-  type: 'context' | 'addition' | 'deletion';
+  type: 'context' | 'add' | 'delete';
   content: string;
   oldLineNumber: number | null;
   newLineNumber: number | null;
@@ -177,7 +177,7 @@ export const pullRequestApi = {
 
   // Update PR title/description
   async update(prId: string, input: UpdatePullRequestInput): Promise<PullRequest> {
-    const response = await apiClient.put<PRResponse>(`/pull-requests/${prId}`, input);
+    const response = await apiClient.patch<PRResponse>(`/pull-requests/${prId}`, input);
     return response.pullRequest;
   },
 
@@ -243,7 +243,8 @@ export const pullRequestApi = {
 
   // Check if PR can be merged
   async canMerge(prId: string): Promise<CanMergeResult> {
-    return apiClient.get<CanMergeResult>(`/pull-requests/${prId}/can-merge`);
+    const response = await apiClient.get<{ canMerge: boolean; reason?: string }>(`/pull-requests/${prId}/can-merge`);
+    return { canMerge: response.canMerge, reasons: response.reason ? [response.reason] : [] };
   },
 
   // Merge a PR

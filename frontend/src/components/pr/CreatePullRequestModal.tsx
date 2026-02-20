@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
-import { GitPullRequest, GitBranch, Box } from 'lucide-react';
-import { Modal } from '@/components/ui/Modal';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Box, GitBranch, GitPullRequest } from 'lucide-react';
+import { Button, Input, Modal, Select, cardSelectClass, cn } from '@/components/ui';
 import { useSandboxStore } from '@/store/sandboxStore';
 import type { Sandbox } from '@/api/sandbox';
 
 interface CreatePullRequestModalProps {
   isOpen: boolean;
   onClose: () => void;
-  sandbox: Sandbox;
+  sandbox?: Sandbox | null;
+  sandboxes?: Sandbox[];
+  initialSandboxId?: string;
   onSuccess?: () => void;
 }
 
@@ -15,17 +17,60 @@ export const CreatePullRequestModal: React.FC<CreatePullRequestModalProps> = ({
   isOpen,
   onClose,
   sandbox,
+  sandboxes,
+  initialSandboxId,
   onSuccess,
 }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [targetBranch, setTargetBranch] = useState<'dev' | 'master'>('dev');
   const [error, setError] = useState<string | null>(null);
+  const [selectedSandboxId, setSelectedSandboxId] = useState<string>(
+    sandbox?.id || initialSandboxId || ''
+  );
 
   const { createPullRequest, isLoading } = useSandboxStore();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const availableSandboxes = useMemo(() => {
+    if (sandbox) {
+      return [sandbox];
+    }
+    return (sandboxes || []).filter((item) => item.status === 'active');
+  }, [sandbox, sandboxes]);
+
+  const selectedSandbox = useMemo(
+    () => availableSandboxes.find((item) => item.id === selectedSandboxId) || null,
+    [availableSandboxes, selectedSandboxId]
+  );
+
+  const sandboxOptions = useMemo(
+    () =>
+      availableSandboxes.length > 0
+        ? availableSandboxes.map((item) => ({ value: item.id, label: item.name }))
+        : [{ value: '', label: 'No active sandboxes available', disabled: true }],
+    [availableSandboxes]
+  );
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    if (selectedSandboxId && availableSandboxes.some((item) => item.id === selectedSandboxId)) {
+      return;
+    }
+
+    const preferredId = sandbox?.id || initialSandboxId;
+    const nextSandboxId =
+      preferredId && availableSandboxes.some((item) => item.id === preferredId)
+        ? preferredId
+        : availableSandboxes[0]?.id || '';
+
+    setSelectedSandboxId(nextSandboxId);
+  }, [isOpen, availableSandboxes, selectedSandboxId, sandbox?.id, initialSandboxId]);
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     setError(null);
 
     if (!title.trim()) {
@@ -33,8 +78,13 @@ export const CreatePullRequestModal: React.FC<CreatePullRequestModalProps> = ({
       return;
     }
 
+    if (!selectedSandbox) {
+      setError('Please select a sandbox');
+      return;
+    }
+
     try {
-      await createPullRequest(sandbox.id, {
+      await createPullRequest(selectedSandbox.id, {
         title: title.trim(),
         description: description.trim() || undefined,
         targetBranch,
@@ -51,6 +101,14 @@ export const CreatePullRequestModal: React.FC<CreatePullRequestModalProps> = ({
     setDescription('');
     setTargetBranch('dev');
     setError(null);
+
+    const preferredId = sandbox?.id || initialSandboxId;
+    const nextSandboxId =
+      preferredId && availableSandboxes.some((item) => item.id === preferredId)
+        ? preferredId
+        : availableSandboxes[0]?.id || '';
+
+    setSelectedSandboxId(nextSandboxId);
     onClose();
   };
 
@@ -59,140 +117,147 @@ export const CreatePullRequestModal: React.FC<CreatePullRequestModalProps> = ({
       isOpen={isOpen}
       onClose={handleClose}
       title="Create Pull Request"
+      description="Open a pull request from a sandbox into a target branch."
       size="lg"
       footer={
         <>
-          <button
+          <Button
+            type="button"
+            variant="secondary"
+            size="md"
             onClick={handleClose}
-            className="px-4 py-2 text-sm font-medium text-text-primary bg-dark-elevated border border-border-default rounded-md hover:bg-dark-card transition-colors"
             disabled={isLoading}
           >
             Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            className="px-4 py-2 text-sm font-medium text-white bg-accent-blue hover:bg-brand-primary rounded-md transition-colors disabled:opacity-50"
-            disabled={isLoading || !title.trim()}
+          </Button>
+          <Button
+            type="submit"
+            form="create-pr-form"
+            variant="action"
+            size="md"
+            disabled={isLoading || !title.trim() || !selectedSandbox}
           >
             {isLoading ? 'Creating...' : 'Create Pull Request'}
-          </button>
+          </Button>
         </>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Branch info */}
-        <div className="flex items-center gap-3 p-3 bg-dark-elevated border border-border-default rounded-lg">
-          <div className="flex items-center gap-2">
-            <Box className="w-4 h-4 text-accent-purple" />
-            <span className="text-sm font-medium text-accent-purple">{sandbox.name}</span>
+      <form id="create-pr-form" onSubmit={handleSubmit} className="space-y-4">
+        {!sandbox && (
+          <div>
+            <Select
+              id="pr-sandbox"
+              label="Source Sandbox"
+              value={selectedSandboxId}
+              onChange={(event) => setSelectedSandboxId(event.target.value)}
+              options={sandboxOptions}
+              disabled={availableSandboxes.length === 0}
+            />
+            {availableSandboxes.length === 0 && (
+              <p className="mt-1 text-xs text-text-muted">
+                Create and populate a sandbox before opening a pull request.
+              </p>
+            )}
           </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-border-default bg-dark-elevated/35 px-3 py-2 text-xs">
+          <span className="inline-flex items-center gap-1.5 text-text-secondary">
+            <Box className="h-3.5 w-3.5 text-accent-purple" />
+            <span className="font-medium text-text-primary">
+              {selectedSandbox?.name || 'Select sandbox'}
+            </span>
+          </span>
           <span className="text-text-muted">→</span>
-          <div className="flex items-center gap-2">
-            <GitBranch className="w-4 h-4 text-status-info" />
-            <span className="text-sm font-medium text-status-info">{targetBranch}</span>
-          </div>
+          <span className="inline-flex items-center gap-1.5 text-text-secondary">
+            <GitBranch className="h-3.5 w-3.5 text-status-info" />
+            <span className="font-medium text-text-primary">{targetBranch}</span>
+          </span>
         </div>
 
-        {/* Title field */}
-        <div>
-          <label htmlFor="pr-title" className="block text-sm font-medium text-text-primary mb-1">
-            Title
-          </label>
-          <input
-            id="pr-title"
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Brief description of your changes"
-            className="w-full px-3 py-2 bg-dark-elevated border border-border-default rounded-md text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-transparent"
-            maxLength={200}
-            autoFocus
-          />
-        </div>
+        <Input
+          id="pr-title"
+          label="Title"
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="Brief description of your changes"
+          maxLength={200}
+          autoFocus
+        />
 
-        {/* Description field */}
         <div>
-          <label htmlFor="pr-description" className="block text-sm font-medium text-text-primary mb-1">
+          <label htmlFor="pr-description" className="mb-1 block text-xs font-medium text-text-secondary">
             Description <span className="text-text-muted">(optional)</span>
           </label>
           <textarea
             id="pr-description"
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(event) => setDescription(event.target.value)}
             placeholder="Detailed explanation of what changed and why"
             rows={4}
-            className="w-full px-3 py-2 bg-dark-elevated border border-border-default rounded-md text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-transparent resize-none"
+            className="w-full resize-none rounded border border-border-default bg-dark-canvas px-3 py-2 text-sm text-text-primary placeholder:text-text-muted outline-none transition-colors focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/15"
             maxLength={2000}
           />
           <p className="mt-1 text-xs text-text-muted">
-            Describe the changes you've made. What was the problem? What's the solution?
+            Describe the changes you made and why they are needed.
           </p>
         </div>
 
-        {/* Target branch selection */}
         <div>
-          <label className="block text-sm font-medium text-text-primary mb-2">
-            Target Branch
-          </label>
-          <div className="flex gap-3">
+          <p className="mb-2 text-xs font-medium text-text-secondary">Target Branch</p>
+          <div className="grid gap-2 sm:grid-cols-2">
             <button
               type="button"
               onClick={() => setTargetBranch('dev')}
-              className={`
-                flex-1 flex items-center gap-3 p-3 rounded-lg border transition-colors
-                ${targetBranch === 'dev'
-                  ? 'border-status-info bg-status-info/10'
-                  : 'border-border-default hover:border-border-emphasis bg-dark-elevated'
-                }
-              `}
+              className={cn(cardSelectClass(targetBranch === 'dev'), 'w-full items-start gap-2')}
             >
-              <GitBranch className={`w-5 h-5 ${targetBranch === 'dev' ? 'text-status-info' : 'text-text-muted'}`} />
-              <div className="text-left">
-                <div className={`font-medium ${targetBranch === 'dev' ? 'text-status-info' : 'text-text-primary'}`}>
-                  Development
-                </div>
-                <div className="text-xs text-text-muted">Integration branch (recommended)</div>
+              <GitBranch
+                className={cn(
+                  'mt-0.5 h-4 w-4',
+                  targetBranch === 'dev' ? 'text-status-info' : 'text-text-muted'
+                )}
+              />
+              <div>
+                <p className="text-sm font-medium text-text-primary">Development</p>
+                <p className="text-xs text-text-muted">Integration branch (recommended)</p>
               </div>
             </button>
 
             <button
               type="button"
               onClick={() => setTargetBranch('master')}
-              className={`
-                flex-1 flex items-center gap-3 p-3 rounded-lg border transition-colors
-                ${targetBranch === 'master'
-                  ? 'border-status-success bg-status-success/10'
-                  : 'border-border-default hover:border-border-emphasis bg-dark-elevated'
-                }
-              `}
+              className={cn(cardSelectClass(targetBranch === 'master'), 'w-full items-start gap-2')}
             >
-              <GitBranch className={`w-5 h-5 ${targetBranch === 'master' ? 'text-status-success' : 'text-text-muted'}`} />
-              <div className="text-left">
-                <div className={`font-medium ${targetBranch === 'master' ? 'text-status-success' : 'text-text-primary'}`}>
-                  Production
-                </div>
-                <div className="text-xs text-text-muted">Stable release branch</div>
+              <GitBranch
+                className={cn(
+                  'mt-0.5 h-4 w-4',
+                  targetBranch === 'master' ? 'text-status-success' : 'text-text-muted'
+                )}
+              />
+              <div>
+                <p className="text-sm font-medium text-text-primary">Production</p>
+                <p className="text-xs text-text-muted">Stable release branch</p>
               </div>
             </button>
           </div>
         </div>
 
-        {/* Info banner */}
-        <div className="flex items-start gap-3 p-3 bg-status-warning/10 border border-status-warning/20 rounded-lg">
-          <GitPullRequest className="w-5 h-5 text-status-warning mt-0.5" />
-          <div className="text-sm">
-            <p className="text-status-warning font-medium">What happens next?</p>
-            <p className="text-text-muted mt-1">
-              After creating this PR, team members can review your changes.
-              Once approved, a senior member can merge the changes into {targetBranch}.
-            </p>
+        <div className="rounded-md border border-status-info/30 bg-status-info/10 px-3 py-2 text-xs">
+          <div className="flex items-start gap-2">
+            <GitPullRequest className="mt-0.5 h-4 w-4 shrink-0 text-status-info" />
+            <div>
+              <p className="font-medium text-status-info">What happens next?</p>
+              <p className="mt-1 text-text-secondary">
+                Team members can review this pull request and a senior member can merge changes
+                into {targetBranch} when it is approved.
+              </p>
+            </div>
           </div>
         </div>
 
-        {/* Error message */}
         {error && (
-          <div className="p-3 bg-status-danger/10 border border-status-danger/20 rounded-md">
-            <p className="text-sm text-status-danger">{error}</p>
+          <div className="rounded-md border border-status-danger/30 bg-status-danger/10 px-3 py-2 text-xs text-status-danger">
+            {error}
           </div>
         )}
       </form>

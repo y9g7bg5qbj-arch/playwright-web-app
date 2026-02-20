@@ -23,9 +23,9 @@ export function ProblemsPanel({ problems, isOpen, onClose, onNavigate }: Problem
 
   const getIcon = (severity: Problem['severity']) => {
     switch (severity) {
-      case 'error': return <AlertCircle size={14} className="text-red-400 shrink-0" />;
-      case 'warning': return <AlertTriangle size={14} className="text-yellow-400 shrink-0" />;
-      case 'info': return <Info size={14} className="text-blue-400 shrink-0" />;
+      case 'error': return <AlertCircle size={14} className="text-status-danger shrink-0" />;
+      case 'warning': return <AlertTriangle size={14} className="text-status-warning shrink-0" />;
+      case 'info': return <Info size={14} className="text-status-info shrink-0" />;
     }
   };
 
@@ -37,12 +37,12 @@ export function ProblemsPanel({ problems, isOpen, onClose, onNavigate }: Problem
             Problems
           </span>
           {errors > 0 && (
-            <span className="flex items-center gap-1 text-red-400">
+            <span className="flex items-center gap-1 text-status-danger">
               <AlertCircle size={12} /> {errors}
             </span>
           )}
           {warnings > 0 && (
-            <span className="flex items-center gap-1 text-yellow-400">
+            <span className="flex items-center gap-1 text-status-warning">
               <AlertTriangle size={12} /> {warnings}
             </span>
           )}

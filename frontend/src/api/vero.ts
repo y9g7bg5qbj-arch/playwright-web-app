@@ -89,6 +89,15 @@ export interface VeroRunScenario {
   status: string;
   duration: number;
   error?: string;
+  failure?: {
+    category: string;
+    userMessage: string;
+    dslFile: string;
+    dslLine: number;
+    dslText: string;
+    errorCode: string;
+    retryable: boolean;
+  };
   steps: Array<{
     stepNumber: number;
     action: string;
@@ -342,22 +351,6 @@ export const veroApi = {
     });
   },
 
-  /**
-   * Run Vero file in debug mode
-   */
-  async debugTest(
-    options: {
-      filePath?: string;
-      content?: string;
-      breakpoints?: number[];
-    }
-  ): Promise<{ executionId: string; testFlowId: string; generatedCode: string }> {
-    return request('/vero/debug', {
-      method: 'POST',
-      body: JSON.stringify(options),
-    });
-  },
-
   // ============================================
   // VALIDATION
   // ============================================
@@ -416,6 +409,7 @@ export const veroApi = {
 
   /**
    * Start a recording session
+   * @deprecated Use the canonical `/api/codegen/start` endpoint instead.
    */
   async startRecording(url: string = 'https://example.com'): Promise<{ sessionId: string }> {
     return request('/vero/recording/start', {
@@ -426,6 +420,7 @@ export const veroApi = {
 
   /**
    * Get recording code
+   * @deprecated Use codegen websocket events (`codegen:action`, `codegen:stopped`) plus `/api/codegen/session/:sessionId`.
    */
   async getRecordingCode(sessionId: string): Promise<{
     code: string;
@@ -438,6 +433,7 @@ export const veroApi = {
 
   /**
    * Pause/resume recording
+   * @deprecated Legacy recorder control endpoint. Prefer canonical `/api/codegen/*` flow.
    */
   async pauseRecording(sessionId: string): Promise<{ isPaused: boolean }> {
     return request('/vero/recording/pause', {
@@ -448,6 +444,7 @@ export const veroApi = {
 
   /**
    * Stop recording and get the generated code
+   * @deprecated Use the canonical `/api/codegen/stop/:sessionId` endpoint instead.
    */
   async stopRecording(sessionId: string): Promise<{
     code: string;

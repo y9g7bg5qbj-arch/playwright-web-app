@@ -1,33 +1,13 @@
-import { useState, useEffect, useCallback, useRef, type MutableRefObject } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { FileNode } from './ExplorerPanel.js';
 import { convertApiFilesToFileNodes } from './workspaceFileUtils.js';
+import { useSandboxStore, getEnvironmentFolder } from '@/store/sandboxStore';
+import type { OpenTab, FileContextMenuState } from './workspace.types.js';
+
+// Re-export shared types so existing imports from this module keep working.
+export type { OpenTab, FileContextMenuState } from './workspace.types.js';
 
 const API_BASE = '/api';
-
-export interface OpenTab {
-  id: string;
-  path: string;
-  name: string;
-  content: string;
-  hasChanges: boolean;
-  type?: 'file' | 'compare' | 'image' | 'binary';
-  contentType?: string;
-  isBinary?: boolean;
-  // Compare-specific fields
-  compareSource?: string;
-  compareTarget?: string;
-  projectId?: string;
-}
-
-export interface FileContextMenuState {
-  x: number;
-  y: number;
-  filePath: string;
-  fileName: string;
-  projectId?: string;
-  relativePath?: string;
-  veroPath?: string;
-}
 
 /** Minimal project shape from store — avoids depending on the fully-derived NestedProject. */
 interface StoreProject {
@@ -48,10 +28,9 @@ export interface UseFileManagementParams {
 }
 
 export interface UseFileManagementReturn {
+  // ─── Read-only state ────────────────────────────────────────
   openTabs: OpenTab[];
-  setOpenTabs: React.Dispatch<React.SetStateAction<OpenTab[]>>;
   activeTabId: string | null;
-  setActiveTabId: (id: string | null) => void;
   activeTab: OpenTab | undefined;
   selectedFile: string | null;
   expandedFolders: Set<string>;
@@ -60,9 +39,23 @@ export interface UseFileManagementReturn {
   setProjectFiles: React.Dispatch<React.SetStateAction<Record<string, FileNode[]>>>;
   contextMenu: FileContextMenuState | null;
   setContextMenu: (menu: FileContextMenuState | null) => void;
-  activeTabIdRef: MutableRefObject<string | null>;
+
+  // ─── Action API (single-writer tab mutations) ───────────────
+  activateTab: (id: string | null) => void;
+  resetTabsForEnvironmentSwitch: () => Promise<void>;
+  openCompareTab: (input: { filePath: string; source: string; target: string; projectId?: string }) => string;
+  applyCompareChanges: (input: { compareTabId: string; content: string }) => void;
+  mutateTabContent: (tabId: string, updater: (prev: string) => string, options?: { markDirty?: boolean }) => void;
+  getTabById: (tabId: string) => OpenTab | undefined;
+  getActiveTabId: () => string | null;
+
+  // ─── File operations ────────────────────────────────────────
   loadFileContent: (filePath: string, projectId?: string) => Promise<void>;
-  saveFileContent: (content: string) => Promise<void>;
+  saveFileContent: (
+    content: string,
+    options?: { tabId?: string; silent?: boolean; reason?: 'manual' | 'autosave' },
+  ) => Promise<void>;
+  flushAutoSave: (tabId?: string) => Promise<void>;
   updateTabContent: (tabId: string, content: string) => void;
   closeTab: (tabId: string) => void;
   handleFileSelect: (file: FileNode, projectId?: string) => void;
@@ -87,15 +80,43 @@ export function useFileManagement({
   getAuthHeaders,
   currentProject,
 }: UseFileManagementParams): UseFileManagementReturn {
+  const AUTO_SAVE_DELAY_MS = 800;
   const [openTabs, setOpenTabs] = useState<OpenTab[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [activeTabId, setActiveTabIdState] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['proj:default', 'data', 'features', 'pages']));
   const [projectFiles, setProjectFiles] = useState<Record<string, FileNode[]>>({});
   const [contextMenu, setContextMenu] = useState<FileContextMenuState | null>(null);
 
+  const openTabsRef = useRef<OpenTab[]>([]);
   const activeTabIdRef = useRef<string | null>(null);
+  const autoSaveTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const tabVersionRef = useRef<Record<string, number>>({});
+  const saveSequenceRef = useRef<Record<string, number>>({});
+
+  // Environment folder scoping
+  const activeEnvironment = useSandboxStore(s => s.activeEnvironment);
+  const sandboxes = useSandboxStore(s => s.sandboxes);
+  const currentFolder = getEnvironmentFolder(activeEnvironment, sandboxes);
 
   // Keep ref in sync with state for use in callbacks
+  useEffect(() => {
+    openTabsRef.current = openTabs;
+
+    const openTabIds = new Set(openTabs.map((tab) => tab.id));
+
+    for (const tabId of Object.keys(autoSaveTimeoutsRef.current)) {
+      if (openTabIds.has(tabId)) continue;
+      clearTimeout(autoSaveTimeoutsRef.current[tabId]);
+      delete autoSaveTimeoutsRef.current[tabId];
+    }
+
+    for (const tabId of Object.keys(tabVersionRef.current)) {
+      if (openTabIds.has(tabId)) continue;
+      delete tabVersionRef.current[tabId];
+      delete saveSequenceRef.current[tabId];
+    }
+  }, [openTabs]);
+
   useEffect(() => {
     activeTabIdRef.current = activeTabId;
   }, [activeTabId]);
@@ -157,6 +178,43 @@ export function useFileManagement({
       .join('/');
   }, []);
 
+  const normalizeRelativePath = useCallback((path: string) => (
+    path.replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase()
+  ), []);
+
+  const isAbsolutePath = useCallback((path: string) => (
+    path.startsWith('/') || /^[a-z]:\//i.test(path)
+  ), []);
+
+  const hasEnvironmentRootPrefix = useCallback((path: string) => {
+    const normalizedPath = normalizeRelativePath(path);
+    return (
+      normalizedPath === 'dev' ||
+      normalizedPath === 'master' ||
+      normalizedPath === 'sandboxes' ||
+      normalizedPath.startsWith('dev/') ||
+      normalizedPath.startsWith('master/') ||
+      normalizedPath.startsWith('sandboxes/')
+    );
+  }, [normalizeRelativePath]);
+
+  const shouldUseFolderScope = useCallback((path: string) => {
+    if (!currentFolder) {
+      return false;
+    }
+
+    const normalizedPath = path.replace(/\\/g, '/');
+    if (isAbsolutePath(normalizedPath)) {
+      return false;
+    }
+
+    return !hasEnvironmentRootPrefix(normalizedPath);
+  }, [currentFolder, hasEnvironmentRootPrefix, isAbsolutePath]);
+
+  const isEditableFileTab = useCallback((tab?: OpenTab) => {
+    return Boolean(tab && (tab.type === undefined || tab.type === 'file'));
+  }, []);
+
   // Derived state for compatibility
   const activeTab = openTabs.find(tab => tab.id === activeTabId);
   const selectedFile = (() => {
@@ -178,6 +236,7 @@ export function useFileManagement({
       if (veroPath) {
         params.set('veroPath', veroPath);
       }
+      // Keep tree unscoped so users can switch environments/sandboxes from Explorer folders.
 
       const response = await fetch(`${API_BASE}/vero/files?${params.toString()}`, {
         headers: getAuthHeaders(),
@@ -225,12 +284,18 @@ export function useFileManagement({
 
     try {
       const encodedPath = encodePathSegments(relativePath);
+      const folderParam = shouldUseFolderScope(relativePath) && currentFolder
+        ? `&folder=${encodeURIComponent(currentFolder)}`
+        : '';
       let apiUrl: string;
       if (project?.veroPath && encodedPath) {
-        apiUrl = `${API_BASE}/vero/files/${encodedPath}?veroPath=${encodeURIComponent(project.veroPath)}`;
+        apiUrl = `${API_BASE}/vero/files/${encodedPath}?veroPath=${encodeURIComponent(project.veroPath)}${folderParam}`;
       } else {
         const fallbackPath = encodePathSegments(filePath);
-        apiUrl = `${API_BASE}/vero/files/${fallbackPath}`;
+        const fallbackFolderParam = shouldUseFolderScope(filePath) && currentFolder
+          ? `?folder=${encodeURIComponent(currentFolder)}`
+          : '';
+        apiUrl = `${API_BASE}/vero/files/${fallbackPath}${fallbackFolderParam}`;
       }
 
       const response = await fetch(apiUrl, {
@@ -268,71 +333,175 @@ export function useFileManagement({
     }
   };
 
-  // Update tab content (for editor changes)
-  const updateTabContent = (tabId: string, content: string) => {
-    setOpenTabs(prev => prev.map(tab =>
-      tab.id === tabId
-        ? { ...tab, content, hasChanges: true }
-        : tab
-    ));
-  };
+  const clearAutoSaveTimeout = useCallback((tabId: string) => {
+    const pending = autoSaveTimeoutsRef.current[tabId];
+    if (!pending) return;
+    clearTimeout(pending);
+    delete autoSaveTimeoutsRef.current[tabId];
+  }, []);
 
-  // Close a tab
-  const closeTab = (tabId: string) => {
-    setOpenTabs(prev => {
-      const newTabs = prev.filter(tab => tab.id !== tabId);
-      if (activeTabId === tabId && newTabs.length > 0) {
-        const closedIndex = prev.findIndex(tab => tab.id === tabId);
-        const newActiveIndex = Math.min(closedIndex, newTabs.length - 1);
-        setActiveTabId(newTabs[newActiveIndex].id);
-      } else if (newTabs.length === 0) {
-        setActiveTabId(null);
+  // API: Save file content (tab addressable with backward compatibility).
+  const saveFileContent = useCallback(
+    async (
+      content: string,
+      options?: { tabId?: string; silent?: boolean; reason?: 'manual' | 'autosave' },
+    ) => {
+      const targetTabId = options?.tabId ?? activeTabIdRef.current;
+      if (!targetTabId) return;
+
+      const tabSnapshot = openTabsRef.current.find((tab) => tab.id === targetTabId);
+      if (!tabSnapshot) return;
+
+      if (!isEditableFileTab(tabSnapshot)) {
+        if (!options?.silent && (tabSnapshot.type === 'image' || tabSnapshot.type === 'binary')) {
+          addConsoleOutput(`Resource files are read-only in editor: ${tabSnapshot.name}`);
+        }
+        return;
       }
-      return newTabs;
-    });
-  };
 
-  // API: Save file content
-  const saveFileContent = async (content: string) => {
-    if (!activeTab) return;
-    if (activeTab.type === 'image' || activeTab.type === 'binary') {
-      addConsoleOutput(`Resource files are read-only in editor: ${activeTab.name}`);
+      clearAutoSaveTimeout(targetTabId);
+
+      const saveSequence = (saveSequenceRef.current[targetTabId] ?? 0) + 1;
+      saveSequenceRef.current[targetTabId] = saveSequence;
+      const versionAtSaveStart = tabVersionRef.current[targetTabId] ?? 0;
+
+      try {
+        const project = resolveProjectForPath(tabSnapshot.path, tabSnapshot.projectId || selectedProjectId);
+        const relativePath = toRelativePath(tabSnapshot.path, project);
+        const encodedPath = encodePathSegments(relativePath);
+        const saveFolderParam = shouldUseFolderScope(relativePath) && currentFolder
+          ? `&folder=${encodeURIComponent(currentFolder)}`
+          : '';
+
+        let apiUrl: string;
+        if (project?.veroPath && encodedPath) {
+          apiUrl = `${API_BASE}/vero/files/${encodedPath}?veroPath=${encodeURIComponent(project.veroPath)}${saveFolderParam}`;
+        } else {
+          const fallbackSaveFolderParam = shouldUseFolderScope(tabSnapshot.path) && currentFolder
+            ? `?folder=${encodeURIComponent(currentFolder)}`
+            : '';
+          apiUrl = `${API_BASE}/vero/files/${encodePathSegments(tabSnapshot.path)}${fallbackSaveFolderParam}`;
+        }
+
+        const response = await fetch(apiUrl, {
+          method: 'PUT',
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+          credentials: 'include',
+          body: JSON.stringify({ content }),
+        });
+        const data = await response.json();
+
+        // Ignore stale responses from slower requests.
+        if (saveSequenceRef.current[targetTabId] !== saveSequence) {
+          return;
+        }
+
+        if (data.success) {
+          const currentVersion = tabVersionRef.current[targetTabId] ?? 0;
+          const canMarkClean = currentVersion === versionAtSaveStart;
+
+          if (canMarkClean) {
+            setOpenTabs((prev) => prev.map((tab) => (
+              tab.id === targetTabId
+                ? { ...tab, hasChanges: false }
+                : tab
+            )));
+          }
+
+          if (!options?.silent && options?.reason !== 'autosave') {
+            addConsoleOutput(`File saved: ${tabSnapshot.name}`);
+          }
+        } else {
+          addConsoleOutput(`Error: Failed to save ${tabSnapshot.name}: ${data.error || 'Unknown error'}`);
+        }
+      } catch (error) {
+        addConsoleOutput(`Error: Failed to save ${tabSnapshot.name}: ${error instanceof Error ? error.message : 'Backend unavailable'}`);
+      }
+    },
+    [
+      addConsoleOutput,
+      clearAutoSaveTimeout,
+      currentFolder,
+      encodePathSegments,
+      getAuthHeaders,
+      isEditableFileTab,
+      resolveProjectForPath,
+      selectedProjectId,
+      shouldUseFolderScope,
+      toRelativePath,
+    ],
+  );
+
+  const flushAutoSave = useCallback(async (tabId?: string) => {
+    const tabIdsToFlush = tabId
+      ? [tabId]
+      : Object.keys(autoSaveTimeoutsRef.current);
+
+    await Promise.all(tabIdsToFlush.map(async (id) => {
+      const pending = autoSaveTimeoutsRef.current[id];
+      if (pending) {
+        clearTimeout(pending);
+        delete autoSaveTimeoutsRef.current[id];
+      }
+
+      const tab = openTabsRef.current.find((entry) => entry.id === id);
+      if (!tab || !tab.hasChanges || !isEditableFileTab(tab)) return;
+      await saveFileContent(tab.content, { tabId: id, silent: true, reason: 'autosave' });
+    }));
+  }, [isEditableFileTab, saveFileContent]);
+
+  const scheduleAutoSave = useCallback((tabId: string, content: string) => {
+    clearAutoSaveTimeout(tabId);
+    autoSaveTimeoutsRef.current[tabId] = setTimeout(() => {
+      void saveFileContent(content, { tabId, silent: true, reason: 'autosave' });
+    }, AUTO_SAVE_DELAY_MS);
+  }, [AUTO_SAVE_DELAY_MS, clearAutoSaveTimeout, saveFileContent]);
+
+  const setActiveTabId = useCallback((id: string | null) => {
+    const previousTabId = activeTabIdRef.current;
+    if (previousTabId && previousTabId !== id) {
+      void flushAutoSave(previousTabId);
+    }
+    setActiveTabIdState(id);
+  }, [flushAutoSave]);
+
+  // Update tab content (for editor changes)
+  const updateTabContent = useCallback((tabId: string, content: string) => {
+    const targetTab = openTabsRef.current.find((tab) => tab.id === tabId);
+    if (!targetTab || !isEditableFileTab(targetTab)) {
+      setOpenTabs((prev) => prev.map((tab) => (
+        tab.id === tabId ? { ...tab, content } : tab
+      )));
       return;
     }
 
-    try {
-      const project = resolveProjectForPath(activeTab.path, activeTab.projectId || selectedProjectId);
-      const relativePath = toRelativePath(activeTab.path, project);
-      const encodedPath = encodePathSegments(relativePath);
+    tabVersionRef.current[tabId] = (tabVersionRef.current[tabId] ?? 0) + 1;
+    setOpenTabs((prev) => prev.map((tab) => (
+      tab.id === tabId ? { ...tab, content, hasChanges: true } : tab
+    )));
+    scheduleAutoSave(tabId, content);
+  }, [isEditableFileTab, scheduleAutoSave]);
 
-      let apiUrl: string;
-      if (project?.veroPath && encodedPath) {
-        apiUrl = `${API_BASE}/vero/files/${encodedPath}?veroPath=${encodeURIComponent(project.veroPath)}`;
-      } else {
-        apiUrl = `${API_BASE}/vero/files/${encodePathSegments(activeTab.path)}`;
-      }
-
-      const response = await fetch(apiUrl, {
-        method: 'PUT',
-        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
-        credentials: 'include',
-        body: JSON.stringify({ content }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        setOpenTabs(prev => prev.map(tab =>
-          tab.id === activeTab.id
-            ? { ...tab, content, hasChanges: false }
-            : tab
-        ));
-        addConsoleOutput(`File saved: ${activeTab.name}`);
-      } else {
-        addConsoleOutput(`Error: Failed to save ${activeTab.name}: ${data.error || 'Unknown error'}`);
-      }
-    } catch (error) {
-      addConsoleOutput(`Error: Failed to save ${activeTab.name}: ${error instanceof Error ? error.message : 'Backend unavailable'}`);
+  // Close a tab
+  const closeTab = useCallback((tabId: string) => {
+    const tabToClose = openTabsRef.current.find((tab) => tab.id === tabId);
+    if (tabToClose && tabToClose.hasChanges && isEditableFileTab(tabToClose)) {
+      void saveFileContent(tabToClose.content, { tabId, silent: true, reason: 'autosave' });
     }
-  };
+    clearAutoSaveTimeout(tabId);
+
+    setOpenTabs((prev) => {
+      const newTabs = prev.filter((tab) => tab.id !== tabId);
+      if (activeTabIdRef.current === tabId && newTabs.length > 0) {
+        const closedIndex = prev.findIndex((tab) => tab.id === tabId);
+        const newActiveIndex = Math.min(closedIndex, newTabs.length - 1);
+        setActiveTabIdState(newTabs[newActiveIndex].id);
+      } else if (newTabs.length === 0) {
+        setActiveTabIdState(null);
+      }
+      return newTabs;
+    });
+  }, [clearAutoSaveTimeout, isEditableFileTab, saveFileContent]);
 
   const handleFileSelect = (file: FileNode, projectId?: string) => {
     if (file.type === 'file') {
@@ -365,6 +534,9 @@ export function useFileManagement({
       const relativePath = contextMenu.relativePath || fileName;
       const params = new URLSearchParams();
       if (contextMenu.veroPath) params.set('veroPath', contextMenu.veroPath);
+      if (shouldUseFolderScope(relativePath) && currentFolder) {
+        params.set('folder', currentFolder);
+      }
 
       const response = await fetch(`${API_BASE}/vero/files/${encodePathSegments(relativePath)}?${params}`, {
         method: 'DELETE',
@@ -412,12 +584,20 @@ export function useFileManagement({
       const pathParts = relativePath.split('/');
       pathParts[pathParts.length - 1] = newName;
       const newRelativePath = pathParts.join('/');
+      const folderScope = shouldUseFolderScope(relativePath) && currentFolder
+        ? currentFolder
+        : undefined;
 
       const response = await fetch(`${API_BASE}/vero/files/rename`, {
         method: 'POST',
         headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         credentials: 'include',
-        body: JSON.stringify({ oldPath: relativePath, newPath: newRelativePath, veroPath: contextMenu.veroPath }),
+        body: JSON.stringify({
+          oldPath: relativePath,
+          newPath: newRelativePath,
+          veroPath: contextMenu.veroPath,
+          ...(folderScope ? { folder: folderScope } : {}),
+        }),
       });
       const data = await response.json();
 
@@ -470,7 +650,10 @@ export function useFileManagement({
     }
 
     const relativePath = `${folderPath}/${finalFileName}`;
-    const apiUrl = `${API_BASE}/vero/files/${relativePath}?veroPath=${encodeURIComponent(project.veroPath)}`;
+    const createFolderParam = shouldUseFolderScope(relativePath) && currentFolder
+      ? `&folder=${encodeURIComponent(currentFolder)}`
+      : '';
+    const apiUrl = `${API_BASE}/vero/files/${relativePath}?veroPath=${encodeURIComponent(project.veroPath)}${createFolderParam}`;
 
     try {
       const response = await fetch(apiUrl, {
@@ -523,27 +706,140 @@ export function useFileManagement({
     });
   };
 
+  useEffect(() => {
+    return () => {
+      const pendingTabIds = Object.keys(autoSaveTimeoutsRef.current);
+      for (const tabId of pendingTabIds) {
+        clearTimeout(autoSaveTimeoutsRef.current[tabId]);
+      }
+      autoSaveTimeoutsRef.current = {};
+
+      for (const tab of openTabsRef.current) {
+        if (!tab.hasChanges || !isEditableFileTab(tab)) continue;
+        void saveFileContent(tab.content, { tabId: tab.id, silent: true, reason: 'autosave' });
+      }
+    };
+  }, [isEditableFileTab, saveFileContent]);
+
   // Keyboard shortcuts (Ctrl+S to save)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
-        const currentTab = openTabs.find(t => t.id === activeTabIdRef.current);
-        if (currentTab && currentTab.type !== 'compare') {
-          saveFileContent(currentTab.content);
+        const currentTab = openTabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
+        if (currentTab && isEditableFileTab(currentTab)) {
+          void saveFileContent(currentTab.content, { tabId: currentTab.id, reason: 'manual' });
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [openTabs]);
+  }, [isEditableFileTab, saveFileContent]);
+
+  // ─── Action API ──────────────────────────────────────────────
+
+  /** Activate a tab by ID. Flushes autosave on the previous tab. Wraps setActiveTabId. */
+  const activateTab = useCallback((id: string | null) => {
+    setActiveTabId(id);
+  }, [setActiveTabId]);
+
+  /** Flush pending saves, then clear all open tabs and active selection (used by environment switching). */
+  const resetTabsForEnvironmentSwitch = useCallback(async () => {
+    await flushAutoSave();
+    setOpenTabs([]);
+    setActiveTabIdState(null);
+  }, [flushAutoSave]);
+
+  /** Open a compare tab and return its ID. */
+  const openCompareTab = useCallback((input: { filePath: string; source: string; target: string; projectId?: string }): string => {
+    const fileName = input.filePath.split('/').pop() || 'Compare';
+    const tabId = `compare-${Date.now()}`;
+    const newTab: OpenTab = {
+      id: tabId,
+      path: input.filePath,
+      name: `${fileName} (${input.source} ↔ ${input.target})`,
+      content: '',
+      hasChanges: false,
+      type: 'compare',
+      compareSource: input.source,
+      compareTarget: input.target,
+      projectId: input.projectId,
+    };
+    setOpenTabs(prev => [...prev, newTab]);
+    setActiveTabId(tabId);
+    return tabId;
+  }, [setActiveTabId]);
+
+  /** Apply content from a compare tab into an existing or new file tab. */
+  const applyCompareChanges = useCallback((input: { compareTabId: string; content: string }) => {
+    const tab = openTabsRef.current.find(t => t.id === input.compareTabId);
+    if (!tab) return;
+
+    const existingFileTab = openTabsRef.current.find(t => t.path === tab.path && t.type !== 'compare');
+    if (existingFileTab) {
+      setOpenTabs(prev => prev.map(t =>
+        t.id === existingFileTab.id
+          ? { ...t, content: input.content, hasChanges: true }
+          : t
+      ));
+      setActiveTabId(existingFileTab.id);
+    } else {
+      const fileName = tab.path.split('/').pop() || 'Untitled';
+      const newTabId = `tab-${Date.now()}`;
+      const newTab: OpenTab = {
+        id: newTabId,
+        path: tab.path,
+        name: fileName,
+        content: input.content,
+        hasChanges: true,
+        type: 'file',
+        projectId: tab.projectId,
+      };
+      setOpenTabs(prev => [...prev, newTab]);
+      setActiveTabId(newTabId);
+    }
+  }, [setActiveTabId]);
+
+  /** Functional update on a specific tab's content. Bumps version and schedules autosave when markDirty is set. */
+  const mutateTabContent = useCallback((tabId: string, updater: (prev: string) => string, options?: { markDirty?: boolean }) => {
+    const dirty = options?.markDirty ?? false;
+
+    // Read current content from ref to compute the new value for autosave scheduling.
+    const currentTab = openTabsRef.current.find(tab => tab.id === tabId);
+    let newContent: string | undefined;
+
+    setOpenTabs(prev => prev.map(tab => {
+      if (tab.id !== tabId) return tab;
+      newContent = updater(tab.content);
+      return {
+        ...tab,
+        content: newContent,
+        hasChanges: dirty || tab.hasChanges,
+      };
+    }));
+
+    if (dirty && currentTab && isEditableFileTab(currentTab)) {
+      tabVersionRef.current[tabId] = (tabVersionRef.current[tabId] ?? 0) + 1;
+      // newContent was assigned inside setOpenTabs; fall back to current if somehow missed.
+      const contentForSave = newContent ?? currentTab.content;
+      scheduleAutoSave(tabId, contentForSave);
+    }
+  }, [isEditableFileTab, scheduleAutoSave]);
+
+  /** Read-only accessor: get a tab by ID (snapshot from ref). */
+  const getTabById = useCallback((tabId: string): OpenTab | undefined => {
+    return openTabsRef.current.find(tab => tab.id === tabId);
+  }, []);
+
+  /** Read-only accessor: current active tab ID. */
+  const getActiveTabId = useCallback((): string | null => {
+    return activeTabIdRef.current;
+  }, []);
 
   return {
     openTabs,
-    setOpenTabs,
     activeTabId,
-    setActiveTabId,
     activeTab,
     selectedFile,
     expandedFolders,
@@ -552,9 +848,16 @@ export function useFileManagement({
     setProjectFiles,
     contextMenu,
     setContextMenu,
-    activeTabIdRef,
+    activateTab,
+    resetTabsForEnvironmentSwitch,
+    openCompareTab,
+    applyCompareChanges,
+    mutateTabContent,
+    getTabById,
+    getActiveTabId,
     loadFileContent,
     saveFileContent,
+    flushAutoSave,
     updateTabContent,
     closeTab,
     handleFileSelect,

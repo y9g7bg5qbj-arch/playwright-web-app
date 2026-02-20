@@ -13,9 +13,9 @@ import { cn } from '@/lib/utils';
 export const surfaceClasses = {
   canvas: 'bg-dark-canvas',
   primary: 'bg-dark-bg',
-  card: 'bg-dark-card border border-border-default',
-  elevated: 'bg-dark-elevated border border-border-default',
-  overlay: 'bg-dark-overlay backdrop-blur-sm',
+  card: 'bg-dark-card border border-border-default rounded',
+  elevated: 'bg-dark-elevated border border-border-default rounded',
+  overlay: 'bg-dark-overlay',
 } as const;
 
 // ── Toolbar Classes ──────────────────────────────────────────────
@@ -73,7 +73,7 @@ export type StatusTone = keyof typeof statusToneClasses;
 
 // ── Input Classes ────────────────────────────────────────────────
 export const inputClasses = {
-  base: 'w-full rounded border border-border-default bg-dark-canvas px-3 py-1.5 text-sm text-text-primary placeholder-text-muted outline-none transition-colors duration-fast focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/15 disabled:opacity-50 disabled:cursor-not-allowed',
+  base: 'w-full rounded border border-border-default bg-dark-canvas px-2.5 py-1 text-sm text-text-primary placeholder-text-muted outline-none transition-colors duration-fast focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 disabled:opacity-50 disabled:cursor-not-allowed',
   label: 'block text-xs font-medium text-text-secondary mb-1',
   error: 'mt-1 text-xs text-status-danger',
   hint: 'mt-1 text-xs text-text-muted',
@@ -106,15 +106,15 @@ export const cardSelectClass = (active: boolean): string =>
 
 // ── Section Classes ──────────────────────────────────────────────
 export const sectionClasses = {
-  default: 'rounded-lg border border-border-default bg-dark-card p-4 shadow-sm',
-  muted: 'rounded-lg border border-border-default bg-dark-elevated/45 p-4',
+  default: 'rounded-md border border-border-default bg-dark-card p-3',
+  muted: 'rounded-md border border-border-default bg-dark-elevated/45 p-3',
   label: 'text-xs font-semibold uppercase tracking-wide text-text-secondary',
   helper: 'text-xs text-text-muted',
 } as const;
 
 // ── Panel Header Classes ─────────────────────────────────────────
 export const panelHeaderClasses = {
-  root: 'h-8 px-3 flex items-center justify-between border-b border-border-default bg-dark-bg shrink-0',
+  root: 'h-[34px] px-3 flex items-center justify-between border-b border-border-default bg-dark-bg shrink-0',
   title: 'text-3xs font-semibold text-text-muted uppercase tracking-wider',
   actions: 'flex items-center gap-0.5',
 } as const;
