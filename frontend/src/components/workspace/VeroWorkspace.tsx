@@ -678,7 +678,11 @@ export function VeroWorkspace() {
             )}
             {activeView === 'prs' && (
               activeNestedProjectId ? (
-                <PullRequestsPanel projectId={activeNestedProjectId} />
+                <PullRequestsPanel
+                  projectId={activeNestedProjectId}
+                  nestedProjects={nestedProjects}
+                  onSelectProject={setSelectedProjectId}
+                />
               ) : (
                 <EmptyState
                   icon={<span className="material-symbols-outlined text-2xl">account_tree</span>}

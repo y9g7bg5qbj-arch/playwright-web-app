@@ -9,7 +9,7 @@ import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import type { Dirent } from 'fs';
 import { AppError } from '../utils/errors';
-import { findDiffHunks, type ConflictFile } from '../utils/diff';
+import { findDiffHunks, type ConflictFile } from '../utils/conflictDiff';
 import { logger } from '../utils/logger';
 import { sandboxRepository, pullRequestRepository, userRepository, projectRepository, applicationRepository } from '../db/repositories/mongo';
 

@@ -10,6 +10,7 @@ export * from './testData';
 export * from './testExecution';
 export * from './scheduling';
 export * from './pullRequests';
+export * from './sandboxFiles';
 export * from './github';
 export * from './recording';
 export * from './copilot';
@@ -25,6 +26,7 @@ import { testFlowRepository, testDataSheetRepository, testDataRowRepository, tes
 import { executionRepository, executionLogRepository, executionStepRepository, executionEnvironmentRepository, runConfigurationRepository } from './testExecution';
 import { scheduleRepository, scheduleRunRepository, scheduleTestResultRepository, scheduledTestRepository, scheduledTestRunRepository, scheduleNotificationRepository, notificationHistoryRepository } from './scheduling';
 import { sandboxRepository, pullRequestRepository, pullRequestReviewRepository, pullRequestCommentRepository, pullRequestFileRepository, projectSettingsRepository } from './pullRequests';
+import { sandboxFileRepository } from './sandboxFiles';
 import { githubIntegrationRepository, githubRepositoryConfigRepository, githubWorkflowRunRepository, githubWorkflowJobRepository } from './github';
 import { recordingSessionRepository, recordingStepRepository, agentRepository } from './recording';
 import { copilotSessionRepository, copilotExplorationRepository, copilotStagedChangeRepository, copilotLearnedSelectorRepository } from './copilot';
@@ -59,6 +61,7 @@ export const mongoRepositories = {
   pullRequestComment: pullRequestCommentRepository,
   pullRequestFile: pullRequestFileRepository,
   projectSettings: projectSettingsRepository,
+  sandboxFile: sandboxFileRepository,
   githubIntegration: githubIntegrationRepository,
   githubRepositoryConfig: githubRepositoryConfigRepository,
   githubWorkflowRun: githubWorkflowRunRepository,
