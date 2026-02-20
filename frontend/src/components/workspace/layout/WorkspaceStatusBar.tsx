@@ -1,3 +1,4 @@
+import React from 'react';
 import { FileBarChart2 } from 'lucide-react';
 import { Toolbar, ToolbarGroup } from '@/components/ui';
 
@@ -14,7 +15,7 @@ export interface WorkspaceStatusBarProps {
   onViewReport: () => void;
 }
 
-export function WorkspaceStatusBar({
+export const WorkspaceStatusBar = React.memo(function WorkspaceStatusBar({
   showConsole,
   onToggleConsole,
   showProblems,
@@ -27,7 +28,7 @@ export function WorkspaceStatusBar({
   onViewReport,
 }: WorkspaceStatusBarProps) {
   return (
-    <Toolbar position="bottom" size="sm" className="h-6 px-1 bg-dark-card">
+    <Toolbar position="bottom" className="h-6 px-1 bg-dark-card">
       <ToolbarGroup>
         <button
           onClick={onToggleConsole}
@@ -77,4 +78,4 @@ export function WorkspaceStatusBar({
       </ToolbarGroup>
     </Toolbar>
   );
-}
+});

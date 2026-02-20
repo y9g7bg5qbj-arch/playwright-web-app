@@ -902,9 +902,9 @@ export function VeroWorkspace() {
       {/* Bottom Status Bar */}
       <WorkspaceStatusBar
         showConsole={showConsole}
-        onToggleConsole={() => setShowConsole(!showConsole)}
+        onToggleConsole={() => setShowConsole(prev => !prev)}
         showProblems={showProblems}
-        onToggleProblems={() => setShowProblems(!showProblems)}
+        onToggleProblems={() => setShowProblems(prev => !prev)}
         problemCount={problems.length}
         isRunning={testExecution.isRunning}
         activeTabName={activeTab?.name}

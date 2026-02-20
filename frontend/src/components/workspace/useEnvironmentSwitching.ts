@@ -36,6 +36,17 @@ export function useEnvironmentSwitching({
   const prevEnvironmentRef = useRef(activeEnvironment);
   const fetchSequenceRef = useRef(0);
 
+  // Keep refs in sync so the env-switch effect always reads fresh values
+  // without needing them in the dependency array (which would over-fire).
+  const currentProjectsRef = useRef(currentProjects);
+  useEffect(() => { currentProjectsRef.current = currentProjects; }, [currentProjects]);
+
+  const loadProjectFilesRef = useRef(loadProjectFiles);
+  useEffect(() => { loadProjectFilesRef.current = loadProjectFiles; }, [loadProjectFiles]);
+
+  const resetTabsRef = useRef(resetTabsForEnvironmentSwitch);
+  useEffect(() => { resetTabsRef.current = resetTabsForEnvironmentSwitch; }, [resetTabsForEnvironmentSwitch]);
+
   // Prefetch sandboxes when active project changes
   useEffect(() => {
     if (!activeNestedProjectId) return;
@@ -48,15 +59,19 @@ export function useEnvironmentSwitching({
     prevEnvironmentRef.current = activeEnvironment;
 
     // Flush pending saves before clearing tabs, then reload file trees.
-    void resetTabsForEnvironmentSwitch().then(() => {
-      if (currentProjects) {
-        for (const p of currentProjects) {
-          if (p.veroPath) {
-            loadProjectFiles(p.id, p.veroPath);
-          }
-        }
-      }
-    });
+    void resetTabsRef.current()
+      .then(() => {
+        const projects = currentProjectsRef.current;
+        if (!projects) return;
+        return Promise.all(
+          projects
+            .filter(p => p.veroPath)
+            .map(p => loadProjectFilesRef.current(p.id, p.veroPath)),
+        );
+      })
+      .catch(err => {
+        console.error('[useEnvironmentSwitching] env-switch reload failed:', err);
+      });
   }, [activeEnvironment]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Utilities ─────────────────────────────────────────────

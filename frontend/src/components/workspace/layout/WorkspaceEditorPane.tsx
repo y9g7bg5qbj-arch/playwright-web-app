@@ -1,3 +1,4 @@
+import React from 'react';
 import type { OpenTab } from '../workspace.types';
 import { CompareTab } from '../CompareTab';
 import { VeroEditor, type VeroEditorHandle } from '../../vero/VeroEditor';
@@ -28,7 +29,7 @@ export interface WorkspaceEditorPaneProps {
   failureLines?: Array<{ line: number; category: string; userMessage: string }>;
 }
 
-export function WorkspaceEditorPane({
+export const WorkspaceEditorPane = React.memo(function WorkspaceEditorPane({
   activeTab,
   editorRef,
   currentProjectId,
@@ -92,6 +93,8 @@ export function WorkspaceEditorPane({
     );
   }
 
+  const matchingProject = nestedProjects.find(p => p.veroPath && activeTab.path.startsWith(p.veroPath));
+
   return (
     <VeroEditor
       ref={editorRef}
@@ -103,9 +106,9 @@ export function WorkspaceEditorPane({
       onGutterContextMenu={onGutterContextMenu}
       showErrorPanel={true}
       token={null}
-      veroPath={nestedProjects.find(p => activeTab.path.startsWith(p.veroPath || ''))?.veroPath}
+      veroPath={matchingProject?.veroPath}
       filePath={activeTab.path}
-      projectId={nestedProjects.find(p => activeTab.path.startsWith(p.veroPath || ''))?.id}
+      projectId={matchingProject?.id}
       applicationId={currentProjectId}
       onNavigateToDefinition={onNavigateToDefinition}
       onInsertDataQuery={onInsertDataQuery}
@@ -118,4 +121,4 @@ export function WorkspaceEditorPane({
       failureLines={failureLines}
     />
   );
-}
+});

@@ -8,6 +8,7 @@ import type { OpenTab, FileContextMenuState } from './workspace.types.js';
 export type { OpenTab, FileContextMenuState } from './workspace.types.js';
 
 const API_BASE = '/api';
+const AUTO_SAVE_DELAY_MS = 800;
 
 /** Minimal project shape from store — avoids depending on the fully-derived NestedProject. */
 interface StoreProject {
@@ -80,7 +81,6 @@ export function useFileManagement({
   getAuthHeaders,
   currentProject,
 }: UseFileManagementParams): UseFileManagementReturn {
-  const AUTO_SAVE_DELAY_MS = 800;
   const [openTabs, setOpenTabs] = useState<OpenTab[]>([]);
   const [activeTabId, setActiveTabIdState] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['proj:default', 'data', 'features', 'pages']));
@@ -455,7 +455,7 @@ export function useFileManagement({
     autoSaveTimeoutsRef.current[tabId] = setTimeout(() => {
       void saveFileContent(content, { tabId, silent: true, reason: 'autosave' });
     }, AUTO_SAVE_DELAY_MS);
-  }, [AUTO_SAVE_DELAY_MS, clearAutoSaveTimeout, saveFileContent]);
+  }, [clearAutoSaveTimeout, saveFileContent]);
 
   const setActiveTabId = useCallback((id: string | null) => {
     const previousTabId = activeTabIdRef.current;
@@ -482,25 +482,35 @@ export function useFileManagement({
     scheduleAutoSave(tabId, content);
   }, [isEditableFileTab, scheduleAutoSave]);
 
-  // Close a tab
+  // Close a tab — flush pending save before removing to prevent data loss.
   const closeTab = useCallback((tabId: string) => {
-    const tabToClose = openTabsRef.current.find((tab) => tab.id === tabId);
-    if (tabToClose && tabToClose.hasChanges && isEditableFileTab(tabToClose)) {
-      void saveFileContent(tabToClose.content, { tabId, silent: true, reason: 'autosave' });
-    }
     clearAutoSaveTimeout(tabId);
 
-    setOpenTabs((prev) => {
-      const newTabs = prev.filter((tab) => tab.id !== tabId);
-      if (activeTabIdRef.current === tabId && newTabs.length > 0) {
-        const closedIndex = prev.findIndex((tab) => tab.id === tabId);
-        const newActiveIndex = Math.min(closedIndex, newTabs.length - 1);
-        setActiveTabIdState(newTabs[newActiveIndex].id);
-      } else if (newTabs.length === 0) {
-        setActiveTabIdState(null);
-      }
-      return newTabs;
-    });
+    const tabToClose = openTabsRef.current.find((tab) => tab.id === tabId);
+    const needsSave = tabToClose && tabToClose.hasChanges && isEditableFileTab(tabToClose);
+
+    const removeTab = () => {
+      setOpenTabs((prev) => {
+        const newTabs = prev.filter((tab) => tab.id !== tabId);
+        if (activeTabIdRef.current === tabId && newTabs.length > 0) {
+          const closedIndex = prev.findIndex((tab) => tab.id === tabId);
+          const newActiveIndex = Math.min(closedIndex, newTabs.length - 1);
+          setActiveTabIdState(newTabs[newActiveIndex].id);
+        } else if (newTabs.length === 0) {
+          setActiveTabIdState(null);
+        }
+        return newTabs;
+      });
+    };
+
+    if (needsSave) {
+      // Await save completion before removing the tab so version/sequence refs
+      // are still intact when the response arrives.
+      void saveFileContent(tabToClose.content, { tabId, silent: true, reason: 'autosave' })
+        .finally(removeTab);
+    } else {
+      removeTab();
+    }
   }, [clearAutoSaveTimeout, isEditableFileTab, saveFileContent]);
 
   const handleFileSelect = (file: FileNode, projectId?: string) => {
@@ -747,6 +757,10 @@ export function useFileManagement({
   /** Flush pending saves, then clear all open tabs and active selection (used by environment switching). */
   const resetTabsForEnvironmentSwitch = useCallback(async () => {
     await flushAutoSave();
+    // Clear refs synchronously to prevent any concurrent path from seeing stale tabs
+    // between this point and the next render cycle's useEffect.
+    openTabsRef.current = [];
+    activeTabIdRef.current = null;
     setOpenTabs([]);
     setActiveTabIdState(null);
   }, [flushAutoSave]);
@@ -778,12 +792,18 @@ export function useFileManagement({
 
     const existingFileTab = openTabsRef.current.find(t => t.path === tab.path && t.type !== 'compare');
     if (existingFileTab) {
+      // Bump version before setState so any in-flight save sees the new version
+      // and does NOT incorrectly mark the tab clean.
+      tabVersionRef.current[existingFileTab.id] = (tabVersionRef.current[existingFileTab.id] ?? 0) + 1;
       setOpenTabs(prev => prev.map(t =>
         t.id === existingFileTab.id
           ? { ...t, content: input.content, hasChanges: true }
           : t
       ));
       setActiveTabId(existingFileTab.id);
+      if (isEditableFileTab(existingFileTab)) {
+        scheduleAutoSave(existingFileTab.id, input.content);
+      }
     } else {
       const fileName = tab.path.split('/').pop() || 'Untitled';
       const newTabId = `tab-${Date.now()}`;
@@ -798,32 +818,32 @@ export function useFileManagement({
       };
       setOpenTabs(prev => [...prev, newTab]);
       setActiveTabId(newTabId);
+      tabVersionRef.current[newTabId] = 1;
+      scheduleAutoSave(newTabId, input.content);
     }
-  }, [setActiveTabId]);
+  }, [isEditableFileTab, scheduleAutoSave, setActiveTabId]);
 
   /** Functional update on a specific tab's content. Bumps version and schedules autosave when markDirty is set. */
   const mutateTabContent = useCallback((tabId: string, updater: (prev: string) => string, options?: { markDirty?: boolean }) => {
     const dirty = options?.markDirty ?? false;
 
-    // Read current content from ref to compute the new value for autosave scheduling.
+    // Compute new content from the ref (pure — no side-effects inside setState).
     const currentTab = openTabsRef.current.find(tab => tab.id === tabId);
-    let newContent: string | undefined;
+    if (!currentTab) return;
 
-    setOpenTabs(prev => prev.map(tab => {
-      if (tab.id !== tabId) return tab;
-      newContent = updater(tab.content);
-      return {
-        ...tab,
-        content: newContent,
-        hasChanges: dirty || tab.hasChanges,
-      };
-    }));
+    const newContent = updater(currentTab.content);
 
-    if (dirty && currentTab && isEditableFileTab(currentTab)) {
+    // Bump version BEFORE setState (same order as updateTabContent).
+    if (dirty && isEditableFileTab(currentTab)) {
       tabVersionRef.current[tabId] = (tabVersionRef.current[tabId] ?? 0) + 1;
-      // newContent was assigned inside setOpenTabs; fall back to current if somehow missed.
-      const contentForSave = newContent ?? currentTab.content;
-      scheduleAutoSave(tabId, contentForSave);
+    }
+
+    setOpenTabs(prev => prev.map(tab =>
+      tab.id !== tabId ? tab : { ...tab, content: newContent, hasChanges: dirty || tab.hasChanges }
+    ));
+
+    if (dirty && isEditableFileTab(currentTab)) {
+      scheduleAutoSave(tabId, newContent);
     }
   }, [isEditableFileTab, scheduleAutoSave]);
 

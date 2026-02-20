@@ -1,3 +1,4 @@
+import React from 'react';
 import type { OpenTab } from '../workspace.types';
 import { IconButton } from '@/components/ui';
 
@@ -8,16 +9,20 @@ export interface WorkspaceEditorTabsProps {
   onClose: (tabId: string) => void;
 }
 
-export function WorkspaceEditorTabs({ tabs, activeTabId, onActivate, onClose }: WorkspaceEditorTabsProps) {
+export const WorkspaceEditorTabs = React.memo(function WorkspaceEditorTabs({ tabs, activeTabId, onActivate, onClose }: WorkspaceEditorTabsProps) {
   return (
-    <div className="h-[38px] flex items-center border-b border-border-default bg-dark-shell px-1.5">
+    <div className="h-[38px] flex items-center border-b border-border-default bg-dark-shell px-1.5" role="tablist">
       <div className="flex items-center gap-1 overflow-x-auto no-scrollbar min-w-0 flex-1">
         {tabs.map(tab => {
           const isActiveTab = activeTabId === tab.id;
           return (
             <div
               key={tab.id}
+              role="tab"
+              tabIndex={0}
+              aria-selected={isActiveTab}
               onClick={() => onActivate(tab.id)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onActivate(tab.id); } }}
               className={`group flex items-center gap-1.5 px-2.5 h-7 cursor-pointer text-sm min-w-0 max-w-[220px] rounded-full border transition-colors ${
                 isActiveTab
                   ? 'bg-dark-elevated text-text-primary border-brand-primary/60'
@@ -59,4 +64,4 @@ export function WorkspaceEditorTabs({ tabs, activeTabId, onActivate, onClose }: 
       </div>
     </div>
   );
-}
+});
