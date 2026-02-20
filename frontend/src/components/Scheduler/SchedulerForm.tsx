@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Calendar, RefreshCw, Sliders } from 'lucide-react';
 import { schedulesApi, type SchedulePreset } from '@/api/schedules';
 import { nestedProjectsApi } from '@/api/projects';
-import { sandboxApi, type Sandbox } from '@/api/sandbox';
+import { sandboxApi } from '@/api/sandbox';
+import { veroApi, type VeroFileNode } from '@/api/vero';
 import type { Project, Schedule, ScheduleFolderScope } from '@playwright-web-app/shared';
 import { DEFAULT_CONFIG, useRunConfigStore } from '@/store/runConfigStore';
 import { CRON_PRESETS } from './schedulerUtils';
@@ -58,6 +59,62 @@ function inferLegacyScope(schedule?: Schedule): {
   return { legacyCustomScope: true };
 }
 
+interface SandboxOption {
+  id: string;
+  name: string;
+  folderPath: string;
+  source: 'database' | 'filesystem';
+}
+
+function normalizeSandboxFolderPath(value?: string): string | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = String(value).trim().replace(/^\/+|\/+$/g, '');
+  if (!normalized) {
+    return null;
+  }
+  if (normalized.startsWith('sandboxes/')) {
+    const segments = normalized.split('/').filter(Boolean);
+    if (segments.length === 2 && segments[0] === 'sandboxes') {
+      return normalized;
+    }
+    return null;
+  }
+  if (normalized.includes('/')) {
+    return null;
+  }
+  return `sandboxes/${normalized}`;
+}
+
+function collectFilesystemSandboxes(fileTree: VeroFileNode[]): SandboxOption[] {
+  const sandboxesNode = fileTree.find(
+    (node) => node.type === 'directory' && node.path.replace(/^\/+|\/+$/g, '') === 'sandboxes'
+  );
+  if (!sandboxesNode?.children || !Array.isArray(sandboxesNode.children)) {
+    return [];
+  }
+
+  const sandboxes: SandboxOption[] = [];
+  for (const child of sandboxesNode.children) {
+    if (child.type !== 'directory') {
+      continue;
+    }
+    const folderPath = normalizeSandboxFolderPath(child.path || child.name);
+    if (!folderPath) {
+      continue;
+    }
+    sandboxes.push({
+      id: folderPath,
+      name: child.name || folderPath.replace(/^sandboxes\//, ''),
+      folderPath,
+      source: 'filesystem',
+    });
+  }
+
+  return sandboxes.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export const ScheduleForm: React.FC<ScheduleFormProps> = ({
   schedule,
   workflowId,
@@ -90,7 +147,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
   const [legacyScopeUnknown, setLegacyScopeUnknown] = useState<boolean>(inferredLegacyScope.legacyCustomScope);
 
   const [projects, setProjects] = useState<Project[]>([]);
-  const [sandboxes, setSandboxes] = useState<Sandbox[]>([]);
+  const [sandboxes, setSandboxes] = useState<SandboxOption[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
   const [isLoadingSandboxes, setIsLoadingSandboxes] = useState(false);
 
@@ -228,11 +285,36 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
     }
 
     setIsLoadingSandboxes(true);
-    sandboxApi
-      .listByProject(projectId)
-      .then((items) => {
+    Promise.all([
+      sandboxApi.listByProject(projectId).catch(() => []),
+      veroApi.listFiles(projectId).catch(() => []),
+    ])
+      .then(([items, fileTree]) => {
         if (!cancelled) {
-          setSandboxes((items || []).filter((sandbox) => sandbox.status === 'active'));
+          const mergedByFolder = new Map<string, SandboxOption>();
+
+          (items || [])
+            .filter((sandbox) => sandbox.status === 'active')
+            .forEach((sandbox) => {
+              if (!sandbox.folderPath) {
+                return;
+              }
+              mergedByFolder.set(sandbox.folderPath, {
+                id: sandbox.id,
+                name: sandbox.name,
+                folderPath: sandbox.folderPath,
+                source: 'database',
+              });
+            });
+
+          collectFilesystemSandboxes(Array.isArray(fileTree) ? fileTree : []).forEach((sandbox) => {
+            if (!mergedByFolder.has(sandbox.folderPath)) {
+              mergedByFolder.set(sandbox.folderPath, sandbox);
+            }
+          });
+
+          const merged = Array.from(mergedByFolder.values()).sort((a, b) => a.name.localeCompare(b.name));
+          setSandboxes(merged);
         }
       })
       .catch(() => {
@@ -250,6 +332,20 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
       cancelled = true;
     };
   }, [projectId, scopeFolder]);
+
+  useEffect(() => {
+    if (scopeFolder !== 'sandboxes' || !scopeSandboxId || sandboxes.length === 0) {
+      return;
+    }
+    const normalizedScopeFolderPath = normalizeSandboxFolderPath(scopeSandboxId);
+    if (!normalizedScopeFolderPath) {
+      return;
+    }
+    const matchedSandbox = sandboxes.find((sandbox) => sandbox.folderPath === normalizedScopeFolderPath);
+    if (matchedSandbox && matchedSandbox.id !== scopeSandboxId) {
+      setScopeSandboxId(matchedSandbox.id);
+    }
+  }, [scopeFolder, scopeSandboxId, sandboxes]);
 
   useEffect(() => {
     if (
@@ -465,7 +561,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
           >
             <option value="">Select sandbox...</option>
             {sandboxes.map((sandbox) => (
-              <option key={sandbox.id} value={sandbox.id}>
+              <option key={`${sandbox.source}:${sandbox.id}`} value={sandbox.id}>
                 {sandbox.name}
               </option>
             ))}

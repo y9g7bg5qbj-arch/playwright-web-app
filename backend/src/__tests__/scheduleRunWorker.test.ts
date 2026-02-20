@@ -298,6 +298,51 @@ describe('scheduleRunWorker environment propagation', () => {
     );
   });
 
+  it('normalizes linked run-config selectionScope to active-file for scheduled .vero runs', async () => {
+    mocks.resolveTestFilesMock.mockResolvedValue(['/tests/Login.vero']);
+    mocks.executeVeroRunMock.mockResolvedValue({
+      status: 'passed',
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      durationMs: 700,
+      exitCode: 0,
+      generatedCode: '',
+      output: '',
+    });
+
+    mocks.scheduleRepositoryMock.findById.mockResolvedValue({
+      id: 'schedule-1',
+      userId: 'user-1',
+      name: 'Nightly Login',
+      projectId: 'proj-1',
+      executionTarget: 'local',
+      runConfigurationId: 'config-1',
+      testSelector: JSON.stringify({ patterns: ['Login.vero'] }),
+      cronExpression: '0 2 * * *',
+      timezone: 'UTC',
+    });
+
+    mocks.runConfigurationRepositoryMock.findById.mockResolvedValue({
+      id: 'config-1',
+      name: 'Current Sandbox Config',
+      target: 'local',
+      browser: 'chromium',
+      headless: true,
+      workers: 2,
+      retries: 0,
+      timeout: 30000,
+      selectionScope: 'current-sandbox',
+      runtimeConfig: JSON.stringify({}),
+    });
+
+    await processScheduleRunJob(buildJob() as any);
+
+    expect(mocks.executeVeroRunMock).toHaveBeenCalledTimes(1);
+    const runInput = mocks.executeVeroRunMock.mock.calls[0][0];
+    expect(runInput.config.selectionScope).toBe('active-file');
+  });
+
   it('passes scenario-level tag selection into executeVeroRun for .vero targets', async () => {
     mocks.resolveTestFilesMock.mockResolvedValue([
       { filePath: '/tests/Login.vero', scenarioNames: ['Smoke Login', 'Smoke Logout'] },
