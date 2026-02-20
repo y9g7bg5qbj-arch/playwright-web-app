@@ -32,10 +32,22 @@ export interface UseTestExecutionParams {
   setActiveView: (view: ActivityView) => void;
   fetchExecutions: () => Promise<void>;
   debugState: { isDebugging: boolean; breakpoints: Set<number> };
-  startDebug: (filePath: string, content: string, executionId: string, scenarioName?: string, projectId?: string) => void;
+  startDebug: (
+    testFlowId: string,
+    code: string,
+    executionId: string,
+    projectId?: string,
+    socketOverride?: Socket | null
+  ) => void;
   stopDebug: () => void;
   getAuthHeaders: (extraHeaders?: Record<string, string>) => Record<string, string>;
   setDebugExecutionId: (id: string | null) => void;
+}
+
+export interface FailureLine {
+  line: number;
+  category: string;
+  userMessage: string;
 }
 
 export interface UseTestExecutionReturn {
@@ -45,6 +57,7 @@ export interface UseTestExecutionReturn {
   setShowDebugConsole: (show: boolean) => void;
   lastCompletedExecutionId: string | null;
   setLastCompletedExecutionId: (id: string | null) => void;
+  failureLines: FailureLine[];
   runTests: (configId?: string) => Promise<void>;
   debugTests: (configId?: string) => Promise<void>;
   handleStopDebug: () => void;
@@ -74,6 +87,7 @@ export function useTestExecution({
   const [isRunning, setIsRunning] = useState(false);
   const [showDebugConsole, setShowDebugConsole] = useState(false);
   const [lastCompletedExecutionId, setLastCompletedExecutionId] = useState<string | null>(null);
+  const [failureLines, setFailureLines] = useState<FailureLine[]>([]);
 
   const isRunnableVeroTab = (tab: OpenTab | undefined): tab is OpenTab => {
     if (!tab) return false;
@@ -180,6 +194,27 @@ export function useTestExecution({
     return { owner: segments[0], repo: segments[1] };
   };
 
+  type DebugPreparationResponse = {
+    success?: boolean;
+    executionId?: string;
+    testFlowId?: string;
+    generatedCode?: string;
+    error?: string;
+  };
+
+  const ensureDebugSocket = (): Socket => {
+    if (socketRef.current) return socketRef.current;
+
+    const debugToken = localStorage.getItem('auth_token');
+    const socket = io(window.location.origin, {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      auth: { token: debugToken },
+    });
+    socketRef.current = socket;
+    return socket;
+  };
+
   const resolveExecutionScopeMetadata = (): {
     applicationId?: string;
     projectId?: string;
@@ -196,6 +231,38 @@ export function useTestExecution({
       applicationId,
       projectId,
       projectName: nestedProjectName || (projectId ? projectId : 'Unassigned'),
+    };
+  };
+
+  const prepareDebugSession = async (
+    tab: OpenTab
+  ): Promise<{ executionId: string; testFlowId: string; generatedCode: string }> => {
+    const scopeMetadata = resolveExecutionScopeMetadata();
+    const response = await fetch(`${API_BASE}/vero/debug`, {
+      method: 'POST',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      credentials: 'include',
+      body: JSON.stringify({
+        content: tab.content,
+        filePath: toRelativeVeroPath(tab.path),
+        breakpoints: Array.from(debugState.breakpoints).sort((a, b) => a - b),
+        applicationId: scopeMetadata.applicationId,
+        projectId: scopeMetadata.projectId,
+      }),
+    });
+
+    const data = await response.json() as DebugPreparationResponse;
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || 'Failed to prepare debug session');
+    }
+    if (!data.executionId || !data.testFlowId || !data.generatedCode) {
+      throw new Error('Debug preparation did not return execution metadata');
+    }
+
+    return {
+      executionId: data.executionId,
+      testFlowId: data.testFlowId,
+      generatedCode: data.generatedCode,
     };
   };
 
@@ -316,6 +383,7 @@ export function useTestExecution({
     tab: OpenTab,
     scenarioName?: string
   ): Promise<void> => {
+    setFailureLines([]);
     const tempExecutionId = `temp-${Date.now()}`;
     const startedAt = new Date().toISOString();
     const flowName = scenarioName ? `${tab.name} - ${scenarioName}` : tab.name;
@@ -426,8 +494,11 @@ export function useTestExecution({
           for (const scenario of data.scenarios) {
             if (scenario.status === 'failed') {
               addConsoleOutput(`  Scenario "${scenario.name}": FAILED`);
-              // Show scenario-level error
-              if (scenario.error) {
+              // Prefer classified failure over raw error
+              if (scenario.failure) {
+                addConsoleOutput(`  [${scenario.failure.category}] ${scenario.failure.userMessage}`);
+                addConsoleOutput(`    at ${scenario.failure.dslFile}:${scenario.failure.dslLine} — ${scenario.failure.dslText}`);
+              } else if (scenario.error) {
                 addConsoleOutput(`  [ERROR] ${humanizePlaywrightError(scenario.error)}`);
               }
               // Show step-level errors
@@ -437,6 +508,16 @@ export function useTestExecution({
               }
             }
           }
+
+          // Derive failureLines from scenario failures
+          const newFailureLines: FailureLine[] = data.scenarios
+            .filter(s => s.failure)
+            .map(s => ({
+              line: s.failure!.dslLine,
+              category: s.failure!.category,
+              userMessage: s.failure!.userMessage,
+            }));
+          setFailureLines(newFailureLines);
         } else if (data.error) {
           // Fallback: show raw error if no structured scenarios
           addConsoleOutput(`  ${humanizePlaywrightError(data.error)}`);
@@ -554,31 +635,25 @@ export function useTestExecution({
       return;
     }
 
-    const newExecutionId = `debug-${Date.now()}`;
-    setDebugExecutionId(newExecutionId);
     setShowDebugConsole(true);
-
-    // Connect to WebSocket if not already connected
-    if (!socketRef.current) {
-      const debugToken = localStorage.getItem('auth_token');
-      const socket = io(window.location.origin, {
-        path: '/socket.io',
-        transports: ['websocket', 'polling'],
-        auth: { token: debugToken },
-      });
-      socketRef.current = socket;
-    }
+    const socket = ensureDebugSocket();
 
     addConsoleOutput(`Starting debug session for ${activeTab.name} with ${config.name || 'Default'}...`);
 
-    // Start the debug session via the hook
-    startDebug(
-      activeTab.path,
-      activeTab.content,
-      newExecutionId,
-      undefined,
-      currentRunConfigProjectId || currentProjectId
-    );
+    try {
+      const prepared = await prepareDebugSession(activeTab);
+      setDebugExecutionId(prepared.executionId);
+      startDebug(
+        prepared.testFlowId,
+        prepared.generatedCode,
+        prepared.executionId,
+        currentRunConfigProjectId || currentProjectId,
+        socket
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      addConsoleOutput(`Failed to start debug session: ${message}`);
+    }
   };
 
   // Stop debug session
@@ -592,21 +667,24 @@ export function useTestExecution({
   const handleRestartDebug = async () => {
     if (!activeTab) return;
     stopDebug(); // Send stop to backend for current session
-
-    // Skip null state — go directly to new execution ID to avoid
-    // a window where socket listeners are detached
-    const newExecutionId = `debug-${Date.now()}`;
-    setDebugExecutionId(newExecutionId);
     setShowDebugConsole(true);
+    const socket = ensureDebugSocket();
 
     addConsoleOutput(`Restarting debug session for ${activeTab.name}...`);
-    startDebug(
-      activeTab.path,
-      activeTab.content,
-      newExecutionId,
-      undefined,
-      currentRunConfigProjectId || currentProjectId
-    );
+    try {
+      const prepared = await prepareDebugSession(activeTab);
+      setDebugExecutionId(prepared.executionId);
+      startDebug(
+        prepared.testFlowId,
+        prepared.generatedCode,
+        prepared.executionId,
+        currentRunConfigProjectId || currentProjectId,
+        socket
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      addConsoleOutput(`Failed to restart debug session: ${message}`);
+    }
   };
 
   // Run a specific scenario by name (triggered from editor play button)
@@ -666,28 +744,24 @@ export function useTestExecution({
       return;
     }
 
-    const newExecutionId = `debug-${Date.now()}`;
-    setDebugExecutionId(newExecutionId);
     setShowDebugConsole(true);
-
-    if (!socketRef.current) {
-      const debugToken = localStorage.getItem('auth_token');
-      const socket = io(window.location.origin, {
-        path: '/socket.io',
-        transports: ['websocket', 'polling'],
-        auth: { token: debugToken },
-      });
-      socketRef.current = socket;
-    }
+    const socket = ensureDebugSocket();
 
     addConsoleOutput(`Starting debug for scenario "${scenarioName}" in ${activeTab.name}...`);
-    startDebug(
-      activeTab.path,
-      activeTab.content,
-      newExecutionId,
-      scenarioName,
-      currentRunConfigProjectId || currentProjectId
-    );
+    try {
+      const prepared = await prepareDebugSession(activeTab);
+      setDebugExecutionId(prepared.executionId);
+      startDebug(
+        prepared.testFlowId,
+        prepared.generatedCode,
+        prepared.executionId,
+        currentRunConfigProjectId || currentProjectId,
+        socket
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      addConsoleOutput(`Failed to debug scenario "${scenarioName}": ${message}`);
+    }
   };
 
   return {
@@ -697,6 +771,7 @@ export function useTestExecution({
     setShowDebugConsole,
     lastCompletedExecutionId,
     setLastCompletedExecutionId,
+    failureLines,
     runTests,
     debugTests,
     handleStopDebug,

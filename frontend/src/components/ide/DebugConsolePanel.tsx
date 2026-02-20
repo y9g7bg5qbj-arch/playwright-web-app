@@ -13,27 +13,22 @@ import {
   Variable,
   ChevronRight,
   ChevronDown,
-  Eye,
-  Plus,
   Layers,
 } from 'lucide-react';
-import type { ConsoleEntry, DebugVariable, WatchExpression, DebugFrame } from '@/hooks/useDebugger';
+import type { ConsoleEntry, DebugVariable, DebugFrame } from '@/hooks/useDebugger';
 import { IconButton, Toolbar, ToolbarGroup, Tabs, TabsList, TabsTrigger } from '@/components/ui';
 
-type DebugTab = 'execution' | 'output' | 'variables' | 'watches' | 'callstack' | 'problems';
+type DebugTab = 'execution' | 'output' | 'variables' | 'callstack' | 'problems';
 
 interface DebugConsolePanelProps {
   entries: ConsoleEntry[];
   variables: DebugVariable[];
-  watches?: WatchExpression[];
   callStack?: DebugFrame[];
   problems?: string[];
   isMinimized?: boolean;
   onToggleMinimize?: () => void;
   onClearConsole?: () => void;
   onGoToLine?: (line: number) => void;
-  onAddWatch?: (expression: string) => void;
-  onRemoveWatch?: (watchId: string) => void;
 }
 
 /**
@@ -143,20 +138,15 @@ function VariableValue({ value }: { value: any }) {
 export function DebugConsolePanel({
   entries,
   variables,
-  watches = [],
   callStack = [],
   problems = [],
   isMinimized = false,
   onToggleMinimize,
   onClearConsole,
   onGoToLine,
-  onAddWatch,
-  onRemoveWatch,
 }: DebugConsolePanelProps) {
   const [activeTab, setActiveTab] = useState<DebugTab>('execution');
-  const [watchInput, setWatchInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
-  const watchInputRef = useRef<HTMLInputElement>(null);
 
   // Auto-scroll to bottom when new entries are added
   useEffect(() => {
@@ -195,7 +185,6 @@ export function DebugConsolePanel({
               <TabsTrigger value="execution" icon={<Play className="w-3 h-3" />}>Execution</TabsTrigger>
               <TabsTrigger value="output" icon={<Terminal className="w-3 h-3" />}>Output</TabsTrigger>
               <TabsTrigger value="variables" icon={<Variable className="w-3 h-3" />} count={variables.length || undefined}>Variables</TabsTrigger>
-              <TabsTrigger value="watches" icon={<Eye className="w-3 h-3" />} count={watches.length || undefined}>Watches</TabsTrigger>
               <TabsTrigger value="callstack" icon={<Layers className="w-3 h-3" />} count={callStack.length || undefined}>Stack</TabsTrigger>
               <TabsTrigger value="problems" icon={<AlertCircle className="w-3 h-3" />} count={problems.length || undefined}>Problems</TabsTrigger>
             </TabsList>
@@ -334,94 +323,6 @@ export function DebugConsolePanel({
                         <VariableValue value={v.value} />
                       </td>
                       <td className="px-2 py-1 text-text-muted">{v.type}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'watches' && (
-          <div className="p-3">
-            {/* Add watch input */}
-            <div className="flex items-center gap-2 mb-3">
-              <input
-                ref={watchInputRef}
-                type="text"
-                value={watchInput}
-                onChange={(e) => setWatchInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && watchInput.trim()) {
-                    onAddWatch?.(watchInput);
-                    setWatchInput('');
-                  }
-                }}
-                placeholder="Add expression to watch..."
-                className="flex-1 bg-dark-canvas border border-border-default rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/15 transition-colors duration-fast"
-              />
-              <IconButton
-                icon={<Plus className="w-4 h-4" />}
-                size="sm"
-                tooltip="Add Watch"
-                disabled={!watchInput.trim()}
-                onClick={() => {
-                  if (watchInput.trim()) {
-                    onAddWatch?.(watchInput);
-                    setWatchInput('');
-                    watchInputRef.current?.focus();
-                  }
-                }}
-              />
-            </div>
-
-            {/* Watch list */}
-            {watches.length === 0 ? (
-              <div className="text-text-muted italic">
-                Add expressions above to watch their values during debugging.
-              </div>
-            ) : (
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border-default">
-                    <th className="text-left px-2 py-1 text-text-muted font-medium w-8"></th>
-                    <th className="text-left px-2 py-1 text-text-muted font-medium">
-                      Expression
-                    </th>
-                    <th className="text-left px-2 py-1 text-text-muted font-medium">
-                      Value
-                    </th>
-                    <th className="text-left px-2 py-1 text-text-muted font-medium">
-                      Type
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {watches.map((watch) => (
-                    <tr key={watch.id} className="hover:bg-white/[0.03] group">
-                      <td className="px-2 py-1">
-                        <IconButton
-                          icon={<X className="w-3 h-3" />}
-                          size="sm"
-                          tone="danger"
-                          tooltip="Remove Watch"
-                          onClick={() => onRemoveWatch?.(watch.id)}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity duration-fast"
-                        />
-                      </td>
-                      <td className="px-2 py-1 text-accent-cyan">{watch.expression}</td>
-                      <td className="px-2 py-1">
-                        {watch.error ? (
-                          <span className="text-status-danger">{watch.error}</span>
-                        ) : watch.value !== undefined ? (
-                          <VariableValue value={watch.value} />
-                        ) : (
-                          <span className="text-text-muted italic">not evaluated</span>
-                        )}
-                      </td>
-                      <td className="px-2 py-1 text-text-muted">
-                        {watch.error ? 'error' : watch.type || '-'}
-                      </td>
                     </tr>
                   ))}
                 </tbody>

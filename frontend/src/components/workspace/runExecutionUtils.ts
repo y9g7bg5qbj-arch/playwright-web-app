@@ -223,6 +223,7 @@ export function buildLocalRunConfig(config: ConfigLike) {
     visualMaxDiffPixels: toOptionalNonNegativeInteger(config.visualMaxDiffPixels),
     visualMaxDiffPixelRatio: toOptionalRatio(config.visualMaxDiffPixelRatio),
     visualUpdateSnapshots: config.visualUpdateSnapshots === true,
+    authProfileId: typeof config.authProfileId === 'string' ? config.authProfileId : undefined,
     shard: runTarget === 'github-actions'
       && config.shards
       && typeof config.shards === 'object'

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   ArrowRight,
   ChevronDown,
@@ -11,10 +11,13 @@ import {
 import { Tooltip } from '@/components/ui';
 import {
   compareApi,
+  sandboxApi,
+  type Sandbox,
   type CompareEnvironment,
   type FileComparisonResult,
   type FileDiffLine,
 } from '@/api/sandbox';
+import { useSandboxStore } from '@/store/sandboxStore';
 
 export interface CompareTabProps {
   projectId: string;
@@ -34,34 +37,115 @@ export function CompareTab({
   onApplyChanges,
 }: CompareTabProps) {
   const [environments, setEnvironments] = useState<CompareEnvironment[]>([]);
+  const [projectSandboxes, setProjectSandboxes] = useState<Sandbox[]>([]);
   const [source, setSource] = useState(initialSource);
   const [target, setTarget] = useState(initialTarget || '');
   const [comparison, setComparison] = useState<FileComparisonResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentHunkIndex, setCurrentHunkIndex] = useState(0);
+  const sandboxes = useSandboxStore(s => s.sandboxes);
+
+  const mergedEnvironments = useMemo<CompareEnvironment[]>(() => {
+    const envMap = new Map<string, CompareEnvironment>();
+
+    for (const env of environments) {
+      envMap.set(env.id, env);
+    }
+
+    if (!envMap.has('master')) {
+      envMap.set('master', { id: 'master', name: 'Production', type: 'branch', branch: 'master' });
+    }
+    if (!envMap.has('dev')) {
+      envMap.set('dev', { id: 'dev', name: 'Development', type: 'branch', branch: 'dev' });
+    }
+
+    const sandboxSources = [...projectSandboxes, ...sandboxes];
+    for (const sandbox of sandboxSources) {
+      if (sandbox.status !== 'active') continue;
+      const envId = `sandbox:${sandbox.id}`;
+      if (!envMap.has(envId)) {
+        envMap.set(envId, {
+          id: envId,
+          name: sandbox.name,
+          type: 'sandbox',
+          branch: sandbox.folderPath,
+          owner: sandbox.ownerName || sandbox.ownerEmail || sandbox.ownerId,
+        });
+      }
+    }
+
+    const values = Array.from(envMap.values());
+    return values.sort((a, b) => {
+      const rank = (env: CompareEnvironment) => {
+        if (env.id === 'master') return 0;
+        if (env.id === 'dev') return 1;
+        return 2;
+      };
+      const rankDiff = rank(a) - rank(b);
+      if (rankDiff !== 0) return rankDiff;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    });
+  }, [environments, projectSandboxes, sandboxes]);
+
+  const normalizeEnvironmentId = useMemo(() => {
+    return (envId: string): string => {
+      if (mergedEnvironments.some(env => env.id === envId)) {
+        return envId;
+      }
+      const sandboxNameMatch = envId.match(/^sandbox-name:(.+)$/);
+      if (sandboxNameMatch) {
+        const wantedName = sandboxNameMatch[1].toLowerCase();
+        const matched = mergedEnvironments.find(
+          env => env.type === 'sandbox' && env.name.toLowerCase() === wantedName
+        );
+        if (matched) {
+          return matched.id;
+        }
+      }
+      return envId;
+    };
+  }, [mergedEnvironments]);
 
   // Fetch environments on mount
   useEffect(() => {
     const fetchEnvironments = async () => {
       try {
-        const envs = await compareApi.getEnvironments(projectId);
+        const [envs, sandboxesForProject] = await Promise.all([
+          compareApi.getEnvironments(projectId),
+          sandboxApi.listByProject(projectId).catch(() => [] as Sandbox[]),
+        ]);
         setEnvironments(envs);
-
-        // Set default target if not provided
-        if (!initialTarget && envs.length > 1) {
-          // Find a different environment than source
-          const defaultTarget = envs.find(e => e.id !== initialSource);
-          if (defaultTarget) {
-            setTarget(defaultTarget.id);
-          }
-        }
+        setProjectSandboxes(sandboxesForProject);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load environments');
       }
     };
     fetchEnvironments();
   }, [projectId, initialSource, initialTarget]);
+
+  // Normalize source/target whenever environments are refreshed.
+  useEffect(() => {
+    if (mergedEnvironments.length === 0) return;
+
+    const normalizedSource = normalizeEnvironmentId(source);
+    const sourceInList = mergedEnvironments.some(env => env.id === normalizedSource);
+    const nextSource = sourceInList ? normalizedSource : (mergedEnvironments[0]?.id || normalizedSource);
+    if (nextSource !== source) {
+      setSource(nextSource);
+      return;
+    }
+
+    const normalizedTarget = normalizeEnvironmentId(target);
+    const targetInList = mergedEnvironments.some(env => env.id === normalizedTarget);
+    let nextTarget = targetInList ? normalizedTarget : '';
+    if (!nextTarget || nextTarget === nextSource) {
+      nextTarget = mergedEnvironments.find(env => env.id !== nextSource)?.id || '';
+    }
+    if (nextTarget !== target) {
+      setTarget(nextTarget);
+    }
+  }, [mergedEnvironments, normalizeEnvironmentId, source, target]);
 
   // Fetch comparison when source/target change
   useEffect(() => {
@@ -97,7 +181,7 @@ export function CompareTab({
   };
 
   const getEnvironmentName = (envId: string) => {
-    const env = environments.find(e => e.id === envId);
+    const env = mergedEnvironments.find(e => e.id === envId);
     return env?.name || envId;
   };
 
@@ -136,7 +220,7 @@ export function CompareTab({
               onChange={(e) => setSource(e.target.value)}
               className={`px-2 py-1 text-sm bg-dark-elevated border border-border-default rounded ${getEnvironmentColor(source)}`}
             >
-              {environments.map(env => (
+              {mergedEnvironments.map(env => (
                 <option key={env.id} value={env.id}>{env.name}</option>
               ))}
             </select>
@@ -161,7 +245,7 @@ export function CompareTab({
               onChange={(e) => setTarget(e.target.value)}
               className={`px-2 py-1 text-sm bg-dark-elevated border border-border-default rounded ${getEnvironmentColor(target)}`}
             >
-              {environments.map(env => (
+              {mergedEnvironments.map(env => (
                 <option key={env.id} value={env.id}>{env.name}</option>
               ))}
             </select>

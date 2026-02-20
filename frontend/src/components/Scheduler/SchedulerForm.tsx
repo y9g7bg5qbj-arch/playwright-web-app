@@ -115,6 +115,11 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
     },
     [runConfigurations, workflowId, projectId]
   );
+  const hasSelectedRunConfiguration = useMemo(
+    () => availableRunConfigurations.some((config) => config.id === runConfigurationId),
+    [availableRunConfigurations, runConfigurationId]
+  );
+  const effectiveRunConfigurationId = hasSelectedRunConfiguration ? runConfigurationId : '';
 
   useEffect(() => {
     let cancelled = false;
@@ -154,6 +159,25 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
   }, [defaultProjectId, schedule?.projectId]);
 
   useEffect(() => {
+    if (isLoadingProjects || projects.length === 0 || !projectId) {
+      return;
+    }
+    if (projects.some((project) => project.id === projectId)) {
+      return;
+    }
+
+    const fallbackProjectId = projects.some((project) => project.id === defaultProjectId)
+      ? defaultProjectId || ''
+      : projects[0]?.id || '';
+    if (!fallbackProjectId) {
+      return;
+    }
+
+    setProjectId(fallbackProjectId);
+    setScopeSandboxId('');
+  }, [defaultProjectId, isLoadingProjects, projectId, projects]);
+
+  useEffect(() => {
     if (!cronExpression) return;
 
     const validateCron = async () => {
@@ -178,10 +202,19 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
   }, [cronExpression, timezone]);
 
   useEffect(() => {
-    if (workflowId && projectId) {
-      void loadConfigurations(workflowId, projectId);
+    if (!workflowId || !projectId) {
+      return;
     }
-  }, [workflowId, projectId, loadConfigurations]);
+    if (applicationId) {
+      if (isLoadingProjects) {
+        return;
+      }
+      if (projects.length === 0 || !projects.some((project) => project.id === projectId)) {
+        return;
+      }
+    }
+    void loadConfigurations(workflowId, projectId);
+  }, [workflowId, projectId, applicationId, isLoadingProjects, projects, loadConfigurations]);
 
   useEffect(() => {
     let cancelled = false;
@@ -321,7 +354,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
       return;
     }
 
-    if (!runConfigurationId) {
+    if (!runConfigurationId || !hasSelectedRunConfiguration) {
       setFormError('Run configuration is required.');
       return;
     }
@@ -459,7 +492,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
           </span>
         </label>
         <select
-          value={runConfigurationId}
+          value={effectiveRunConfigurationId}
           onChange={(e) => {
             setRunConfigurationId(e.target.value);
             if (e.target.value) {
@@ -513,7 +546,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
           </div>
         )}
 
-        {submitAttempted && !runConfigurationId && (
+        {submitAttempted && !hasSelectedRunConfiguration && (
           <p className="text-xs text-status-danger mt-1">Select a run configuration to save this schedule.</p>
         )}
         {!workflowId && (
@@ -668,7 +701,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
             !projectId ||
             !scopeFolder ||
             (scopeFolder === 'sandboxes' && !scopeSandboxId) ||
-            !runConfigurationId
+            !hasSelectedRunConfiguration
           }
           className="px-4 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
         >

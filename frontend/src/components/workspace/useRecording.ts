@@ -1,7 +1,7 @@
 import { useState, useRef, type MutableRefObject } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type { NestedProject } from './ExplorerPanel.js';
-import type { OpenTab } from './useFileManagement.js';
+import type { OpenTab } from './workspace.types.js';
 
 const API_BASE = '/api';
 
@@ -15,14 +15,28 @@ function toPascalCase(str: string): string {
     .join('');
 }
 
+/** Extract unique page names referenced as PageName.fieldName in Vero lines. */
+function extractPageNames(veroLines: string[]): string[] {
+  const names = new Set<string>();
+  for (const line of veroLines) {
+    // Match PascalCase identifiers followed by .fieldName (e.g., LoginPage.emailInput)
+    const matches = line.matchAll(/\b([A-Z][a-zA-Z0-9]+)\.\w+/g);
+    for (const m of matches) {
+      names.add(m[1]);
+    }
+  }
+  return [...names];
+}
+
 export interface UseRecordingParams {
   socketRef: MutableRefObject<Socket | null>;
-  activeTabIdRef: MutableRefObject<string | null>;
   activeTab: OpenTab | undefined;
   selectedProjectId: string | null;
   nestedProjects: NestedProject[];
   currentProjectId: string | undefined;
-  setOpenTabs: React.Dispatch<React.SetStateAction<OpenTab[]>>;
+  getActiveTabId: () => string | null;
+  getTabById: (tabId: string) => OpenTab | undefined;
+  mutateTabContent: (tabId: string, updater: (prev: string) => string, options?: { markDirty?: boolean }) => void;
   addConsoleOutput: (message: string) => void;
   setShowConsole: (show: boolean) => void;
   loadProjectFiles: (projectId: string, veroPath?: string) => Promise<void>;
@@ -43,14 +57,51 @@ export interface UseRecordingReturn {
   stopRecording: () => Promise<void>;
 }
 
+interface CodegenStartResponse {
+  success: boolean;
+  sessionId?: string;
+  error?: string;
+}
+
+interface CodegenStopResponse {
+  success: boolean;
+  scenarioName?: string;
+  veroLines?: string[];
+}
+
+interface CodegenActionEvent {
+  veroCode: string;
+  pagePath?: string;
+  fieldCreated?: unknown;
+  duplicateWarning?: {
+    newSelector: string;
+    existingField: string;
+    similarity: number;
+    recommendation: string;
+    reason: string;
+  };
+}
+
+interface CodegenErrorEvent {
+  sessionId: string;
+  error: string;
+}
+
+interface CodegenStoppedEvent {
+  sessionId: string;
+  veroLines: string[];
+  scenarioName: string;
+}
+
 export function useRecording({
   socketRef,
-  activeTabIdRef,
   activeTab,
   selectedProjectId,
   nestedProjects,
   currentProjectId,
-  setOpenTabs,
+  getActiveTabId,
+  getTabById,
+  mutateTabContent,
   addConsoleOutput,
   setShowConsole,
   loadProjectFiles,
@@ -72,15 +123,37 @@ export function useRecording({
     const stepsIndented = veroLines.map(line => `    ${line}`).join('\n');
     const veroScenario = `  scenario ${toPascalCase(scenarioName)} {\n${stepsIndented}\n  }`;
 
-    // Use functional update to get current tabs
-    // Prefer the tab that was active when recording started for deterministic insertion
-    setOpenTabs(tabs => {
-      const targetTabId = recordingTargetTabIdRef.current || activeTabIdRef.current;
-      const currentActiveTab = tabs.find(tab => tab.id === targetTabId);
+    // Extract page names referenced in the recorded lines (e.g., LoginPage from LoginPage.emailInput)
+    const referencedPages = extractPageNames(veroLines);
 
-      // If we have an active .vero file, insert the scenario inside the feature block
-      if (currentActiveTab && currentActiveTab.name.endsWith('.vero')) {
-        let content = currentActiveTab.content;
+    // Prefer the tab that was active when recording started for deterministic insertion
+    const targetTabId = recordingTargetTabIdRef.current || getActiveTabId();
+    const currentActiveTab = targetTabId ? getTabById(targetTabId) : undefined;
+
+    // If we have an active .vero file, insert the scenario inside the feature block
+    if (currentActiveTab && currentActiveTab.name.endsWith('.vero') && targetTabId) {
+      mutateTabContent(targetTabId, (prevContent) => {
+        let content = prevContent;
+
+        // Add missing USE statements for referenced pages inside the feature block
+        if (referencedPages.length > 0) {
+          const existingUses = new Set(
+            (content.match(/USE\s+(\w+)/gi) || []).map(m => m.replace(/USE\s+/i, '').trim())
+          );
+          const missingPages = referencedPages.filter(p => !existingUses.has(p));
+
+          if (missingPages.length > 0) {
+            const useStatements = missingPages.map(p => `    USE ${p}`).join('\n');
+
+            // Insert USE statements after the feature opening brace
+            // Match: feature Name { (with optional annotations before it)
+            const featureOpenMatch = content.match(/(feature\s+\w+\s*\{)([ \t]*\n?)/i);
+            if (featureOpenMatch) {
+              const insertPos = content.indexOf(featureOpenMatch[0]) + featureOpenMatch[0].length;
+              content = content.slice(0, insertPos) + '\n' + useStatements + '\n' + content.slice(insertPos);
+            }
+          }
+        }
 
         // Try to find closing brace of feature block (handles both `}` and `end feature`)
         // Insert the scenario before the closing brace/end-feature keyword
@@ -92,20 +165,19 @@ export function useRecording({
           content = content + '\n\n' + veroScenario + '\n';
         }
 
-        addConsoleOutput(`Scenario "${scenarioName}" added to ${currentActiveTab.name}`);
-        return tabs.map(tab =>
-          tab.id === targetTabId
-            ? { ...tab, content, hasChanges: true }
-            : tab
-        );
-      } else {
-        // No .vero file open - log to console
-        const newFileContent = `feature RecordedTests {\n\n${veroScenario}\n\n}`;
-        addConsoleOutput('No .vero file open. Recorded scenario:');
-        addConsoleOutput(newFileContent);
-        return tabs;
-      }
-    });
+        return content;
+      }, { markDirty: true });
+
+      addConsoleOutput(`Scenario "${scenarioName}" added to ${currentActiveTab.name}`);
+    } else {
+      // No .vero file open - log to console with USE statements included
+      const useBlock = referencedPages.length > 0
+        ? referencedPages.map(p => `    USE ${p}`).join('\n') + '\n\n'
+        : '';
+      const newFileContent = `feature RecordedTests {\n${useBlock}\n${veroScenario}\n\n}`;
+      addConsoleOutput('No .vero file open. Recorded scenario:');
+      addConsoleOutput(newFileContent);
+    }
   }
 
   function cleanupRecordingState(): void {
@@ -119,6 +191,19 @@ export function useRecording({
     }
   }
 
+  function deriveSandboxPath(): string | undefined {
+    if (activeTab?.path) {
+      const match = activeTab.path.match(/^(.+?)\/(Features|Pages|PageActions)\//);
+      if (match) return match[1];
+    }
+    // Fallback: use the project's dev root (never project root).
+    const projId = activeTab?.projectId || selectedProjectId;
+    if (projId) {
+      return toDevRootPath(nestedProjects.find(p => p.id === projId)?.veroPath);
+    }
+    return undefined;
+  }
+
   async function startRecording(scenarioName: string, url: string): Promise<void> {
     setShowRecordingModal(false);
     setIsRecording(true);
@@ -126,28 +211,13 @@ export function useRecording({
     explicitStopRef.current = false;
 
     // Capture the active tab at recording start for deterministic insertion
-    recordingTargetTabIdRef.current = activeTabIdRef.current;
+    recordingTargetTabIdRef.current = getActiveTabId();
 
     addConsoleOutput(`Starting recording: ${scenarioName}`);
     addConsoleOutput(`URL: ${url}`);
 
     try {
-      // Derive sandbox path from the active file's location.
-      // The path before /Features/, /Pages/, or /PageActions/ is the sandbox (or project) root.
-      const deriveSandboxPath = (): string | undefined => {
-        if (activeTab?.path) {
-          const match = activeTab.path.match(/^(.+?)\/(Features|Pages|PageActions)\//);
-          if (match) return match[1];
-        }
-        // Fallback: use the project's dev root (never project root).
-        const projId = activeTab?.projectId || selectedProjectId;
-        if (projId) {
-          return toDevRootPath(nestedProjects.find(p => p.id === projId)?.veroPath);
-        }
-        return undefined;
-      };
-
-      // Start recording via HTTP — server generates the session ID
+      // Canonical recording path is /api/codegen/* (legacy /api/vero/recording/* is deprecated).
       const response = await fetch(`${API_BASE}/codegen/start`, {
         method: 'POST',
         headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
@@ -159,13 +229,16 @@ export function useRecording({
         }),
       });
 
-      const data = await response.json();
+      const data = await response.json() as CodegenStartResponse;
       if (!data.success) {
         throw new Error(data.error || 'Failed to start recording');
       }
 
       // Use server-generated session ID
       const sessionId = data.sessionId;
+      if (!sessionId) {
+        throw new Error('Failed to start recording: missing session ID');
+      }
       setRecordingSessionId(sessionId);
 
       // Connect to WebSocket for real-time updates (after we have the session ID)
@@ -187,18 +260,7 @@ export function useRecording({
       const recProjId = activeTab?.projectId || selectedProjectId;
       const recProject = nestedProjects.find(p => p.id === recProjId);
       let fileRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-      socket.on('codegen:action', (data: {
-        veroCode: string;
-        pagePath?: string;
-        fieldCreated?: unknown;
-        duplicateWarning?: {
-          newSelector: string;
-          existingField: string;
-          similarity: number;
-          recommendation: string;
-          reason: string;
-        };
-      }) => {
+      socket.on('codegen:action', (data: CodegenActionEvent) => {
         addConsoleOutput(`  Recording: ${data.veroCode}`);
 
         // Surface duplicate selector warnings from backend
@@ -219,13 +281,13 @@ export function useRecording({
         }, 1000);
       });
 
-      socket.on('codegen:error', (data: { sessionId: string; error: string }) => {
+      socket.on('codegen:error', (data: CodegenErrorEvent) => {
         console.error('[Recording] Error:', data.error);
         addConsoleOutput(`Recording error: ${data.error}`);
       });
 
       // Handle browser-close completion (only if stop was not explicitly called)
-      socket.on('codegen:stopped', (data: { sessionId: string; veroLines: string[]; scenarioName: string }) => {
+      socket.on('codegen:stopped', (data: CodegenStoppedEvent) => {
         if (explicitStopRef.current) {
           // Already handled by stopRecording() via HTTP response
           return;
@@ -261,11 +323,12 @@ export function useRecording({
 
     try {
       addConsoleOutput('Stopping recording...');
+      // Canonical recording path is /api/codegen/* (legacy /api/vero/recording/* is deprecated).
       const response = await fetch(`${API_BASE}/codegen/stop/${recordingSessionId}`, {
         method: 'POST',
         headers: getAuthHeaders(),
       });
-      const data = await response.json();
+      const data = await response.json() as CodegenStopResponse;
       if (data.success) {
         addConsoleOutput('Recording stopped');
         // Insert using HTTP response data (avoids race with socket disconnect)

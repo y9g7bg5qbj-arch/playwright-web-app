@@ -2,19 +2,6 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Socket } from 'socket.io-client';
 
 /**
- * Debug step information
- */
-export interface DebugStep {
-  line: number;
-  action: string;
-  target?: string;
-  status: 'pending' | 'running' | 'success' | 'failure' | 'paused';
-  duration?: number;
-  error?: string;
-  timestamp: Date;
-}
-
-/**
  * Debug variable
  */
 export interface DebugVariable {
@@ -34,28 +21,6 @@ export interface ConsoleEntry {
   message: string;
   duration?: number;
   status?: 'running' | 'success' | 'failure' | 'paused';
-}
-
-/**
- * Breakpoint with optional condition
- */
-export interface Breakpoint {
-  line: number;
-  condition?: string;  // JavaScript expression that must be true to pause
-  hitCount?: number;   // Number of times the breakpoint has been hit
-  logMessage?: string; // Log message instead of pausing (tracepoint)
-  enabled: boolean;
-}
-
-/**
- * Watch expression with evaluated value
- */
-export interface WatchExpression {
-  id: string;
-  expression: string;
-  value?: any;
-  type?: string;
-  error?: string;
 }
 
 /**
@@ -89,23 +54,20 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
   const [isPaused, setIsPaused] = useState(false);
   const [currentLine, setCurrentLine] = useState<number | null>(null);
   const [breakpoints, setBreakpoints] = useState<Set<number>>(new Set());
-  const [breakpointConditions, setBreakpointConditions] = useState<Map<number, Breakpoint>>(new Map());
   const [breakpointsMuted, setBreakpointsMuted] = useState(false);
 
   // Execution data
-  const [_steps, setSteps] = useState<DebugStep[]>([]);
   const [variables, setVariables] = useState<DebugVariable[]>([]);
   const [consoleEntries, setConsoleEntries] = useState<ConsoleEntry[]>([]);
-
-  // Watch expressions
-  const [watches, setWatches] = useState<WatchExpression[]>([]);
-  const watchIdCounter = useRef(0);
 
   // Call stack
   const [callStack, setCallStack] = useState<DebugFrame[]>([]);
 
   // Ref to track if component is mounted
   const isMounted = useRef(true);
+  // Track active execution independently so we don't miss early events
+  const activeExecutionIdRef = useRef<string | null>(executionId);
+  activeExecutionIdRef.current = executionId;
 
   // Cleanup on unmount
   useEffect(() => {
@@ -117,7 +79,7 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
 
   // Setup socket listeners
   useEffect(() => {
-    if (!socket || !executionId) return;
+    if (!socket) return;
 
     // Step before event
     const handleStepBefore = (data: {
@@ -126,16 +88,9 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
       action: string;
       target?: string;
     }) => {
-      if (data.executionId !== executionId || !isMounted.current) return;
+      if (data.executionId !== activeExecutionIdRef.current || !isMounted.current) return;
 
       setCurrentLine(data.line);
-      setSteps(prev => [...prev, {
-        line: data.line,
-        action: data.action,
-        target: data.target,
-        status: 'running',
-        timestamp: new Date(),
-      }]);
 
       // Update call stack - add current action as the top frame
       setCallStack(prev => {
@@ -171,18 +126,7 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
       duration?: number;
       error?: string;
     }) => {
-      if (data.executionId !== executionId || !isMounted.current) return;
-
-      setSteps(prev => prev.map(step =>
-        step.line === data.line && step.status === 'running'
-          ? {
-              ...step,
-              status: data.success ? 'success' : 'failure',
-              duration: data.duration,
-              error: data.error,
-            }
-          : step
-      ));
+      if (data.executionId !== activeExecutionIdRef.current || !isMounted.current) return;
 
       // Update last console entry
       setConsoleEntries(prev => {
@@ -202,17 +146,10 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
 
     // Paused event
     const handlePaused = (data: { executionId: string; line: number }) => {
-      if (data.executionId !== executionId || !isMounted.current) return;
+      if (data.executionId !== activeExecutionIdRef.current || !isMounted.current) return;
 
       setIsPaused(true);
       setCurrentLine(data.line);
-
-      // Update step status
-      setSteps(prev => prev.map(step =>
-        step.line === data.line && step.status === 'running'
-          ? { ...step, status: 'paused' }
-          : step
-      ));
 
       addConsoleEntry({
         type: 'info',
@@ -224,7 +161,7 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
 
     // Resumed event
     const handleResumed = (data: { executionId: string }) => {
-      if (data.executionId !== executionId || !isMounted.current) return;
+      if (data.executionId !== activeExecutionIdRef.current || !isMounted.current) return;
       setIsPaused(false);
     };
 
@@ -234,7 +171,7 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
       name: string;
       value: any;
     }) => {
-      if (data.executionId !== executionId || !isMounted.current) return;
+      if (data.executionId !== activeExecutionIdRef.current || !isMounted.current) return;
 
       const type = typeof data.value;
       setVariables(prev => {
@@ -254,33 +191,12 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
       message: string;
       level: 'info' | 'warn' | 'error';
     }) => {
-      if (data.executionId !== executionId || !isMounted.current) return;
+      if (data.executionId !== activeExecutionIdRef.current || !isMounted.current) return;
 
       addConsoleEntry({
         type: data.level === 'warn' ? 'warning' : data.level,
         message: data.message,
       });
-    };
-
-    // Watch expression evaluated event
-    const handleEvaluated = (data: {
-      executionId: string;
-      watchId: string;
-      value?: any;
-      error?: string;
-    }) => {
-      if (data.executionId !== executionId || !isMounted.current) return;
-
-      setWatches(prev => prev.map(watch =>
-        watch.id === data.watchId
-          ? {
-              ...watch,
-              value: data.value,
-              type: data.error ? undefined : typeof data.value,
-              error: data.error,
-            }
-          : watch
-      ));
     };
 
     // Complete event
@@ -289,7 +205,7 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
       exitCode: number;
       duration: number;
     }) => {
-      if (data.executionId !== executionId || !isMounted.current) return;
+      if (data.executionId !== activeExecutionIdRef.current || !isMounted.current) return;
 
       setIsDebugging(false);
       setIsPaused(false);
@@ -303,7 +219,7 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
 
     // Stopped event
     const handleStopped = (data: { executionId: string }) => {
-      if (data.executionId !== executionId || !isMounted.current) return;
+      if (data.executionId !== activeExecutionIdRef.current || !isMounted.current) return;
 
       setIsDebugging(false);
       setIsPaused(false);
@@ -322,7 +238,6 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
     socket.on('debug:resumed', handleResumed);
     socket.on('debug:variable', handleVariable);
     socket.on('debug:log', handleDebugLog);
-    socket.on('debug:evaluated', handleEvaluated);
     socket.on('debug:complete', handleComplete);
     socket.on('debug:stopped', handleStopped);
 
@@ -333,112 +248,74 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
       socket.off('debug:resumed', handleResumed);
       socket.off('debug:variable', handleVariable);
       socket.off('debug:log', handleDebugLog);
-      socket.off('debug:evaluated', handleEvaluated);
       socket.off('debug:complete', handleComplete);
       socket.off('debug:stopped', handleStopped);
     };
-  }, [socket, executionId]);
+  }, [socket]);
 
   // Helper to add console entry
   const addConsoleEntry = useCallback((entry: Omit<ConsoleEntry, 'timestamp'>) => {
     setConsoleEntries(prev => [...prev, { ...entry, timestamp: new Date() }]);
   }, []);
 
-  // Helper to serialize breakpoints with conditions for socket emission
-  const serializeBreakpoints = (
-    bpSet: Set<number>,
-    conditionsMap: Map<number, Breakpoint>
-  ) => Array.from(bpSet).map(line => ({
-    line,
-    condition: conditionsMap.get(line)?.condition,
-    logMessage: conditionsMap.get(line)?.logMessage,
-  }));
+  // Backend currently accepts line numbers only.
+  const serializeBreakpointLines = (bpSet: Set<number>) =>
+    Array.from(bpSet)
+      .filter((line) => Number.isFinite(line))
+      .sort((a, b) => a - b);
 
   // Toggle breakpoint
   const toggleBreakpoint = useCallback((line: number) => {
     setBreakpoints(prev => {
       const next = new Set(prev);
-      let nextConditions = breakpointConditions;
-
-      if (next.has(line)) {
-        next.delete(line);
-        // Compute updated conditions synchronously to avoid stale closure
-        nextConditions = new Map(breakpointConditions);
-        nextConditions.delete(line);
-        setBreakpointConditions(nextConditions);
-      } else {
-        next.add(line);
-      }
+      if (next.has(line)) next.delete(line);
+      else next.add(line);
 
       // If debugging, send update to server with correct conditions
-      if (socket && executionId && isDebugging && !breakpointsMuted) {
+      const activeExecutionId = activeExecutionIdRef.current;
+      if (socket && activeExecutionId && isDebugging && !breakpointsMuted) {
         socket.emit('debug:set-breakpoints', {
-          executionId,
-          breakpoints: serializeBreakpoints(next, nextConditions),
+          executionId: activeExecutionId,
+          breakpoints: serializeBreakpointLines(next),
         });
       }
 
       return next;
     });
-  }, [socket, executionId, isDebugging, breakpointsMuted, breakpointConditions]);
+  }, [socket, isDebugging, breakpointsMuted]);
 
   // Toggle mute all breakpoints
   const toggleMuteBreakpoints = useCallback(() => {
     setBreakpointsMuted(prev => {
       const newMuted = !prev;
       // If debugging, send the updated breakpoints (empty when muted)
-      if (socket && executionId && isDebugging) {
+      const activeExecutionId = activeExecutionIdRef.current;
+      if (socket && activeExecutionId && isDebugging) {
         socket.emit('debug:set-breakpoints', {
-          executionId,
-          breakpoints: newMuted ? [] : serializeBreakpoints(breakpoints, breakpointConditions),
+          executionId: activeExecutionId,
+          breakpoints: newMuted ? [] : serializeBreakpointLines(breakpoints),
         });
       }
       return newMuted;
     });
-  }, [socket, executionId, isDebugging, breakpoints, breakpointConditions]);
-
-  // Add a watch expression
-  const addWatch = useCallback((expression: string) => {
-    if (!expression.trim()) return;
-
-    const id = `watch-${++watchIdCounter.current}`;
-    const newWatch: WatchExpression = {
-      id,
-      expression: expression.trim(),
-    };
-
-    setWatches(prev => [...prev, newWatch]);
-
-    // If paused, immediately evaluate the new watch
-    if (socket && executionId && isPaused) {
-      socket.emit('debug:evaluate', {
-        executionId,
-        watchId: id,
-        expression: expression.trim(),
-      });
-    }
-  }, [socket, executionId, isPaused]);
-
-  // Remove a watch expression
-  const removeWatch = useCallback((watchId: string) => {
-    setWatches(prev => prev.filter(w => w.id !== watchId));
-  }, []);
+  }, [socket, isDebugging, breakpoints]);
 
   // Start debug session
   const startDebug = useCallback((
     testFlowId: string,
     code: string,
     newExecutionId: string,
-    scenarioName?: string,
-    projectId?: string
+    projectId?: string,
+    socketOverride?: Socket | null
   ) => {
-    if (!socket) return;
+    const activeSocket = socketOverride ?? socket;
+    if (!activeSocket) return;
+    activeExecutionIdRef.current = newExecutionId;
 
     // Reset state
     setIsDebugging(true);
     setIsPaused(false);
     setCurrentLine(null);
-    setSteps([]);
     setVariables([]);
     setConsoleEntries([]);
     // Initialize call stack with test execution frame
@@ -457,28 +334,25 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
     });
 
     // Send debug start with conditions (empty breakpoints if muted)
-    socket.emit('debug:start', {
+    activeSocket.emit('debug:start', {
       executionId: newExecutionId,
       testFlowId,
       code,
-      breakpoints: breakpointsMuted ? [] : serializeBreakpoints(breakpoints, breakpointConditions),
-      scenarioName,
+      breakpoints: breakpointsMuted ? [] : serializeBreakpointLines(breakpoints),
       projectId,
     });
-  }, [socket, breakpoints, breakpointsMuted, breakpointConditions, addConsoleEntry]);
+  }, [socket, breakpoints, breakpointsMuted, addConsoleEntry]);
 
   // Helper: emit a debug command with the current executionId
   const emitDebugCommand = useCallback((event: string) => {
-    if (!socket || !executionId) return;
-    socket.emit(event, { executionId });
-  }, [socket, executionId]);
+    const activeExecutionId = activeExecutionIdRef.current;
+    if (!socket || !activeExecutionId) return;
+    socket.emit(event, { executionId: activeExecutionId });
+  }, [socket]);
 
   const resume = useCallback(() => emitDebugCommand('debug:resume'), [emitDebugCommand]);
   const stepOver = useCallback(() => emitDebugCommand('debug:step-over'), [emitDebugCommand]);
   const stepInto = useCallback(() => emitDebugCommand('debug:step-into'), [emitDebugCommand]);
-  const stepOut = useCallback(() => emitDebugCommand('debug:step-out'), [emitDebugCommand]);
-  const pause = useCallback(() => emitDebugCommand('debug:pause'), [emitDebugCommand]);
-  const openInspector = useCallback(() => emitDebugCommand('debug:inspect'), [emitDebugCommand]);
   const stopDebug = useCallback(() => emitDebugCommand('debug:stop'), [emitDebugCommand]);
 
   // Clear console
@@ -497,22 +371,16 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
     breakpointsMuted,
     variables,
     consoleEntries,
-    watches,
     callStack,
 
     // Actions
     toggleBreakpoint,
     toggleMuteBreakpoints,
-    addWatch,
-    removeWatch,
     startDebug,
     resume,
-    pause,
     stepOver,
     stepInto,
-    stepOut,
     stopDebug,
-    openInspector,
     clearConsole,
   };
 }

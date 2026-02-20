@@ -130,3 +130,30 @@ export * from './runConfiguration';
 
 // Run Parameters types
 export * from './runParameters';
+
+// Auth Profile types (Phase A)
+export type {
+    AuthProfile,
+    AuthProfileStatus,
+    AuthProfileCreate,
+} from './types';
+
+// Failure Translation types (Phase B)
+export type {
+    LineMapEntry,
+    VeroFailureInfo,
+} from './types';
+
+// Custom Actions types (Phase C)
+export type {
+    CustomActionParam,
+    CustomActionReturnType,
+    CustomActionDefinition,
+    CustomActionsManifest,
+} from './types';
+
+// Config Sync types (Phase D)
+export type {
+    ConfigSyncStatus,
+    ConfigSyncState,
+} from './types';

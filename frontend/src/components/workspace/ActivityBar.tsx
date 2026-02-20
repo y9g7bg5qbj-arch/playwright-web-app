@@ -5,6 +5,7 @@ import {
   Table2,
   Bot,
   ListTree,
+  GitPullRequest,
   Settings,
   User
 } from 'lucide-react';
@@ -17,7 +18,7 @@ export type ActivityView =
   | 'schedules'
   | 'testdata'
   | 'ai-test-generator'
-  | 'trace'
+  | 'prs'
   | 'settings';
 
 export interface ActivityBarProps {
@@ -66,11 +67,17 @@ const ACTIVITIES: ActivityItem[] = [
     label: 'AI Studio',
     description: 'Generate tests with AI',
   },
+  {
+    id: 'prs',
+    icon: GitPullRequest,
+    label: 'Pull Requests',
+    description: 'Review and merge changes',
+  },
 ];
 
 export function ActivityBar({ activeView, onViewChange, executionBadge, onOpenScenarioBrowser, scenarioCount }: ActivityBarProps): JSX.Element {
   return (
-    <aside className="w-12 border-r border-border-muted bg-dark-bg flex flex-col items-center py-3 gap-1 z-20 shrink-0 select-none">
+    <aside className="w-[42px] border-r border-border-default bg-dark-bg flex flex-col items-center py-2 gap-0.5 z-20 shrink-0 select-none">
       {ACTIVITIES.map((activity) => {
         const isActive = activeView === activity.id;
         const showBadge = activity.id === 'executions' && executionBadge !== undefined && executionBadge > 0;
@@ -82,28 +89,28 @@ export function ActivityBar({ activeView, onViewChange, executionBadge, onOpenSc
               onClick={() => onViewChange(activity.id)}
               className={cn(
                 'relative group flex items-center justify-center',
-                'w-9 h-9 rounded-md transition-all duration-fast ease-out',
+                'w-[34px] h-[34px] rounded transition-colors duration-fast',
                 isActive
-                  ? 'bg-dark-elevated text-white'
-                  : 'text-text-secondary hover:text-white hover:bg-dark-elevated'
+                  ? 'text-text-primary'
+                  : 'text-text-muted hover:text-text-primary hover:bg-white/[0.05]'
               )}
               aria-label={activity.label}
             >
-              {/* Active Indicator (Left Bar) */}
+              {/* Active Indicator — 3px left stripe */}
               {isActive && (
                 <div
-                  className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 rounded-r-sm bg-brand-primary"
+                  className="absolute left-[-4px] top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r bg-brand-primary"
                 />
               )}
 
               <Icon
-                size={17}
+                size={18}
                 className="transition-colors"
-                strokeWidth={isActive ? 2 : 1.75}
+                strokeWidth={isActive ? 2 : 1.5}
               />
 
               {showBadge && (
-                <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 flex items-center justify-center rounded bg-status-danger text-white text-4xs font-bold px-0.5">
+                <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 flex items-center justify-center rounded-sm bg-status-danger text-white text-4xs font-bold px-0.5">
                   {executionBadge > 9 ? '9+' : executionBadge}
                 </span>
               )}
@@ -112,20 +119,20 @@ export function ActivityBar({ activeView, onViewChange, executionBadge, onOpenSc
         );
       })}
 
-      <div className="w-5 h-px bg-border-muted my-1.5" />
+      <div className="w-5 h-px bg-border-default my-1" />
 
       {/* Scenario Browser */}
       {onOpenScenarioBrowser && (
         <Tooltip content="Scenario Browser" showDelayMs={0} hideDelayMs={0}>
           <button
             onClick={onOpenScenarioBrowser}
-            className="relative group flex items-center justify-center w-9 h-9 rounded-md text-text-secondary hover:text-white hover:bg-dark-elevated transition-all duration-fast ease-out"
+            className="relative group flex items-center justify-center w-[34px] h-[34px] rounded text-text-muted hover:text-text-primary hover:bg-white/[0.05] transition-colors duration-fast"
             aria-label="Scenario Browser"
           >
-            <ListTree size={17} strokeWidth={1.75} className="transition-colors" />
+            <ListTree size={18} strokeWidth={1.5} className="transition-colors" />
 
             {scenarioCount !== undefined && scenarioCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 flex items-center justify-center rounded bg-status-info text-white text-4xs font-bold px-0.5">
+              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 flex items-center justify-center rounded-sm bg-status-info text-white text-4xs font-bold px-0.5">
                 {scenarioCount > 9 ? '9+' : scenarioCount}
               </span>
             )}
@@ -134,15 +141,15 @@ export function ActivityBar({ activeView, onViewChange, executionBadge, onOpenSc
       )}
 
       {/* Bottom Section */}
-      <div className="mt-auto flex flex-col gap-1 mb-1.5">
-        <div className="w-5 h-px bg-border-muted mx-auto" />
+      <div className="mt-auto flex flex-col gap-0.5 mb-1">
+        <div className="w-5 h-px bg-border-default mx-auto mb-0.5" />
 
         {/* Profile */}
         <IconButton
-          icon={<User size={17} strokeWidth={1.75} />}
+          icon={<User size={18} strokeWidth={1.5} />}
           variant="ghost"
           tooltip="Account"
-          className="w-9 h-9"
+          className="w-[34px] h-[34px]"
         />
 
         {/* Settings */}
@@ -151,16 +158,21 @@ export function ActivityBar({ activeView, onViewChange, executionBadge, onOpenSc
             onClick={() => onViewChange('settings')}
             className={cn(
               'relative group flex items-center justify-center',
-              'w-9 h-9 rounded-md transition-all duration-fast ease-out',
+              'w-[34px] h-[34px] rounded transition-colors duration-fast',
               activeView === 'settings'
-                ? 'bg-dark-elevated text-white'
-                : 'text-text-secondary hover:text-white hover:bg-dark-elevated'
+                ? 'text-text-primary'
+                : 'text-text-muted hover:text-text-primary hover:bg-white/[0.05]'
             )}
             aria-label="Settings"
           >
+            {activeView === 'settings' && (
+              <div
+                className="absolute left-[-4px] top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r bg-brand-primary"
+              />
+            )}
             <Settings
-              size={17}
-              strokeWidth={activeView === 'settings' ? 2 : 1.75}
+              size={18}
+              strokeWidth={activeView === 'settings' ? 2 : 1.5}
               className="transition-colors"
             />
           </button>

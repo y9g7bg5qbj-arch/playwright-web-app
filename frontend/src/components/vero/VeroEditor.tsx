@@ -22,7 +22,7 @@ interface VeroEditorProps {
     onStartRecording?: (scenarioName: string) => void;
     isRecording?: boolean;
     readOnly?: boolean;
-    theme?: 'vero-camel' | 'vero-light';
+    theme?: 'vero-camel' | 'vero-light' | 'vero-intellij-dark';
     // Debug props
     breakpoints?: Set<number>;
     onToggleBreakpoint?: (line: number) => void;
@@ -46,6 +46,12 @@ interface VeroEditorProps {
     onNavigateToDefinition?: (filePath: string, line: number, column: number) => void;
     // Callback to open the Data Query builder modal (Ctrl+D)
     onInsertDataQuery?: () => void;
+    // Failure translation line highlights (Phase B)
+    failureLines?: Array<{
+        line: number;
+        category: string;
+        userMessage: string;
+    }>;
 }
 
 export interface VeroEditorHandle {
@@ -81,7 +87,7 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
     onStartRecording,
     isRecording = false,
     readOnly = false,
-    theme = 'vero-camel',
+    theme = 'vero-intellij-dark',
     // Debug props
     breakpoints = new Set(),
     onToggleBreakpoint,
@@ -98,6 +104,7 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
     applicationId = null,
     onNavigateToDefinition,
     onInsertDataQuery,
+    failureLines = [],
 }, ref) {
     const [code, setCode] = useState(initialValue);
     const [codeItems, setCodeItems] = useState<VeroCodeItem[]>([]);
@@ -107,6 +114,7 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
     const debugDecorationsRef = useRef<string[]>([]);
     const errorDecorationsRef = useRef<string[]>([]);
     const inlineValueDecorationsRef = useRef<string[]>([]);
+    const failureDecorationsRef = useRef<string[]>([]);
     const editorOpenerDisposableRef = useRef<{ dispose: () => void } | null>(null);
     const projectIdRef = useRef(projectId);
     useEffect(() => { projectIdRef.current = projectId; }, [projectId]);
@@ -466,7 +474,9 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
                     } else if (item.type === 'feature') {
                         onRunFeature?.(item.name);
                     }
+                    return;
                 }
+
             }
 
             // Line number click = toggle breakpoint
@@ -526,6 +536,29 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
 
         debugDecorationsRef.current = editor.deltaDecorations(debugDecorationsRef.current, debugDecorations);
     }, [breakpoints, debugCurrentLine, isDebugging]);
+
+    // Failure line decorations (Phase B)
+    useEffect(() => {
+        const editor = editorRef.current;
+        const monaco = monacoRef.current;
+        if (!editor || !monaco) return;
+
+        const failureDecorations: monacoEditor.editor.IModelDeltaDecoration[] = failureLines.map((f) => ({
+            range: new monaco.Range(f.line, 1, f.line, 1),
+            options: {
+                isWholeLine: true,
+                className: 'vero-failure-line',
+                glyphMarginClassName: 'vero-failure-glyph',
+                glyphMarginHoverMessage: { value: `**${f.category}**: ${f.userMessage}` },
+                overviewRuler: {
+                    color: '#f44336',
+                    position: monaco.editor.OverviewRulerLane.Right,
+                },
+            },
+        }));
+
+        failureDecorationsRef.current = editor.deltaDecorations(failureDecorationsRef.current, failureDecorations);
+    }, [failureLines]);
 
     // Inline variable values when debugging and paused
     useEffect(() => {
@@ -725,27 +758,36 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
           background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24'%3E%3Cpolygon points='12 2 22 22 2 22' fill='%23d29922'/%3E%3Ctext x='12' y='19' text-anchor='middle' font-size='12' font-weight='bold' fill='white'%3E!%3C/text%3E%3C/svg%3E") center center no-repeat;
         }
 
+        /* Failure line highlight (runtime test failure) */
+        .vero-failure-line {
+          background-color: rgba(244, 67, 54, 0.15) !important;
+          border-left: 3px solid #f44336 !important;
+        }
+        .vero-failure-glyph {
+          background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%23f44336'/%3E%3Ctext x='12' y='16' text-anchor='middle' font-size='14' font-weight='bold' fill='white'%3E✕%3C/text%3E%3C/svg%3E") center center no-repeat;
+        }
+
         /* Inline debug values (shown after code on same line) */
         .vero-inline-value {
-          color: #6e7681;
+          color: #6F737A;
           font-style: italic;
           font-size: 0.9em;
-          background-color: rgba(88, 166, 255, 0.1);
+          background-color: rgba(90, 149, 245, 0.1);
           padding: 0 4px;
           border-radius: 2px;
           margin-left: 8px;
-          border: 1px solid rgba(88, 166, 255, 0.15);
+          border: 1px solid rgba(90, 149, 245, 0.15);
         }
 
         /* Monaco editor refinements */
         .monaco-editor .line-numbers {
-          color: #6e7681 !important;
+          color: #4B4D53 !important;
         }
         .monaco-editor .margin {
-          background-color: #14151a !important;
+          background-color: #1E1F22 !important;
         }
         .monaco-editor .current-line ~ .line-numbers {
-          color: #e6edf3 !important;
+          color: #A9B0B7 !important;
         }
       `}</style>
         </div>

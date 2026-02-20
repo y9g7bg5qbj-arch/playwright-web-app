@@ -10,18 +10,18 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 const variantClasses = {
-  primary: 'btn-primary-gradient text-white hover:brightness-110 active:brightness-95',
-  action: 'bg-brand-primary text-white border border-border-active shadow-sm hover:bg-brand-hover active:bg-brand-primary-depth active:shadow-none',
-  secondary: 'bg-dark-elevated text-text-secondary border border-border-default hover:border-border-emphasis hover:text-text-primary',
+  primary: 'bg-brand-primary text-white hover:bg-brand-hover active:bg-brand-primary-depth',
+  action: 'bg-brand-primary text-white border border-brand-primary hover:bg-brand-hover active:bg-brand-primary-depth',
+  secondary: 'bg-dark-elevated text-text-secondary border border-border-emphasis hover:brightness-110 hover:text-text-primary',
   danger: 'bg-status-danger text-white hover:brightness-110',
   success: 'bg-status-success text-white hover:brightness-110',
-  ghost: 'bg-transparent text-text-muted hover:text-text-primary hover:bg-white/[0.04]',
+  ghost: 'bg-transparent text-text-muted hover:text-text-primary hover:bg-white/[0.05]',
 };
 
 const sizeClasses = {
-  sm: 'px-2.5 py-1 text-xs gap-1',
-  md: 'px-3 py-1.5 text-xs gap-1.5',
-  lg: 'px-4 py-2 text-sm gap-2',
+  sm: 'h-6 px-2 text-xs gap-1',
+  md: 'h-7 px-3 text-xs gap-1.5',
+  lg: 'h-8 px-4 text-sm gap-2',
 };
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -44,9 +44,9 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         className={`
           inline-flex items-center justify-center rounded font-medium
-          transition-all duration-fast ease-out cursor-pointer
+          transition-colors duration-fast cursor-pointer
           disabled:opacity-50 disabled:cursor-not-allowed
-          focus:outline-none focus:ring-2 focus:ring-brand-primary/40 focus:ring-offset-1 focus:ring-offset-dark-canvas
+          focus:outline-none focus:ring-1 focus:ring-brand-primary/40
           ${variantClasses[variant]}
           ${sizeClasses[size]}
           ${className}

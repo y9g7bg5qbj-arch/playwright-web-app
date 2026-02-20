@@ -293,10 +293,6 @@ export type ClientToServerEvents = {
   'debug:step-over': (data: { executionId: string }) => void;
   'debug:step-into': (data: { executionId: string }) => void;
   'debug:stop': (data: { executionId: string }) => void;
-  'debug:evaluate': (data: { executionId: string; watchId: string; expression: string }) => void;
-  'debug:pause': (data: { executionId: string }) => void;
-  'debug:inspect': (data: { executionId: string }) => void;
-  'debug:step-out': (data: { executionId: string }) => void;
 };
 
 export type ServerToClientEvents = {
@@ -348,7 +344,6 @@ export type ServerToClientEvents = {
   'debug:complete': (data: { executionId: string; exitCode: number; duration: number }) => void;
   'debug:resumed': (data: { executionId: string }) => void;
   'debug:stopped': (data: { executionId: string }) => void;
-  'debug:evaluated': (data: { executionId: string; watchId: string; value?: unknown; error?: string }) => void;
 };
 
 // WebSocket Event Types - Agent
@@ -608,3 +603,103 @@ export const SCHEDULE_PRESETS: SchedulePreset[] = [
   { label: 'Every weekday at 8 AM', cronExpression: '0 8 * * 1-5', description: 'Business hours only' },
   { label: 'Every 30 minutes', cronExpression: '*/30 * * * *', description: 'Frequent validation' },
 ];
+
+// ============================================
+// AUTH PROFILE TYPES (Phase A)
+// ============================================
+
+export type AuthProfileStatus = 'ready' | 'refreshing' | 'expired' | 'error';
+
+export interface AuthProfile {
+  id: string;
+  applicationId: string;
+  projectId: string;
+  name: string;
+  description?: string;
+  loginScriptPath: string;
+  storageStatePath?: string;
+  status: AuthProfileStatus;
+  lastRefreshedAt?: Date;
+  errorMessage?: string;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AuthProfileCreate {
+  applicationId: string;
+  projectId: string;
+  name: string;
+  description?: string;
+  loginScriptPath: string;
+}
+
+// ============================================
+// FAILURE TRANSLATION TYPES (Phase B)
+// ============================================
+
+export interface LineMapEntry {
+  generatedLine: number;
+  dslFile: string;
+  dslLine: number;
+  dslText: string;
+}
+
+export interface VeroFailureInfo {
+  category: string;
+  userMessage: string;
+  dslFile: string;
+  dslLine: number;
+  dslText: string;
+  errorCode: string;
+  retryable: boolean;
+  rawError?: string;
+  tracePath?: string;
+}
+
+// ============================================
+// CUSTOM ACTIONS TYPES (Phase C)
+// ============================================
+
+export interface CustomActionParam {
+  name: string;
+  type: 'string' | 'number' | 'boolean';
+  required?: boolean;
+  description?: string;
+}
+
+export type CustomActionReturnType = 'FLAG' | 'TEXT' | 'NUMBER' | 'LIST';
+
+export interface CustomActionDefinition {
+  name: string;
+  description: string;
+  params: CustomActionParam[];
+  returns?: CustomActionReturnType;
+  sourceFile: string;
+  timeoutMs?: number;
+}
+
+export interface CustomActionsManifest {
+  actions: CustomActionDefinition[];
+}
+
+// ============================================
+// CONFIG SYNC TYPES (Phase D)
+// ============================================
+
+export type ConfigSyncStatus = 'synced' | 'drifted' | 'conflict' | 'error';
+
+export interface ConfigSyncState {
+  id: string;
+  projectId: string;
+  lastSyncedAt: Date;
+  fileHashes: Record<string, string>;
+  status: ConfigSyncStatus;
+  lastConflictAt?: Date;
+  conflictLog: Array<{
+    file: string;
+    timestamp: Date;
+    resolution: 'file-wins' | 'db-wins';
+    details?: string;
+  }>;
+}

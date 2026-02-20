@@ -70,11 +70,12 @@ export function QuickOpenDialog({ isOpen, onClose, files, onSelect }: QuickOpenD
   if (!isOpen) return null;
 
   const getFileIcon = (name: string) => {
-    if (name.endsWith('.vero')) return <FileText size={14} className="text-purple-400" />;
-    if (name.endsWith('.page')) return <FileText size={14} className="text-blue-400" />;
+    if (name.endsWith('.vero')) return <FileText size={14} className="text-accent-purple" />;
+    if (name.endsWith('.page')) return <FileText size={14} className="text-status-info" />;
     return <FileText size={14} className="text-text-tertiary" />;
   };
 
+  // design-lint-ignore NO_HARDCODED_MODAL
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]" onClick={onClose}>
       <div

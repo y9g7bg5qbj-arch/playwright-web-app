@@ -1,75 +1,94 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  GitPullRequest,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  GitMerge,
   AlertCircle,
+  CheckCircle2,
+  Clock,
   FileText,
-  MessageSquare,
-  User,
   Filter,
+  GitPullRequest,
+  Loader2,
+  MessageSquare,
+  Plus,
+  User,
 } from 'lucide-react';
+import {
+  Badge,
+  Button,
+  EmptyState,
+  PanelHeader,
+  Select,
+  cn,
+  type SelectOption,
+} from '@/components/ui';
 import { useSandboxStore } from '@/store/sandboxStore';
 import type { PullRequest } from '@/api/pullRequest';
+import { CreatePullRequestModal } from './CreatePullRequestModal';
+import {
+  getPullRequestStatusTheme,
+  prUiClasses,
+  pullRequestStatusOptions,
+} from './prTheme';
 
 interface PullRequestListProps {
   projectId: string;
   onSelectPR?: (pr: PullRequest) => void;
 }
 
-const statusConfig = {
-  draft: {
-    icon: FileText,
-    color: 'text-text-muted',
-    bgColor: 'bg-dark-elevated/10',
-    label: 'Draft',
-  },
-  open: {
-    icon: GitPullRequest,
-    color: 'text-status-success',
-    bgColor: 'bg-status-success/10',
-    label: 'Open',
-  },
-  approved: {
-    icon: CheckCircle2,
-    color: 'text-status-info',
-    bgColor: 'bg-status-info/10',
-    label: 'Approved',
-  },
-  merged: {
-    icon: GitMerge,
-    color: 'text-accent-purple',
-    bgColor: 'bg-accent-purple/10',
-    label: 'Merged',
-  },
-  closed: {
-    icon: XCircle,
-    color: 'text-status-danger',
-    bgColor: 'bg-status-danger/10',
-    label: 'Closed',
-  },
-};
+const statusFilterOptions: SelectOption[] = [...pullRequestStatusOptions];
 
 export const PullRequestList: React.FC<PullRequestListProps> = ({
   projectId,
   onSelectPR,
 }) => {
-  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [showCreatePRModal, setShowCreatePRModal] = useState(false);
+  const [createPRSandboxId, setCreatePRSandboxId] = useState<string>('');
 
   const {
     pullRequests,
+    sandboxes,
     fetchPullRequests,
+    fetchSandboxes,
+    activeEnvironment,
+    selectedPullRequestId,
     isLoading,
     error,
   } = useSandboxStore();
 
   useEffect(() => {
     if (projectId) {
-      fetchPullRequests(projectId, statusFilter);
+      fetchPullRequests(projectId, statusFilter || undefined);
     }
   }, [projectId, statusFilter, fetchPullRequests]);
+
+  useEffect(() => {
+    if (projectId) {
+      fetchSandboxes(projectId);
+    }
+  }, [projectId, fetchSandboxes]);
+
+  const activeSandboxes = useMemo(
+    () => sandboxes.filter((sandbox) => sandbox.status === 'active'),
+    [sandboxes]
+  );
+  const canCreatePR = activeSandboxes.length > 0;
+
+  const handleOpenCreatePR = () => {
+    if (!canCreatePR) {
+      return;
+    }
+
+    const preferredSandboxId =
+      typeof activeEnvironment === 'object' && 'sandboxId' in activeEnvironment
+        ? activeEnvironment.sandboxId
+        : activeSandboxes[0].id;
+    const fallbackSandboxId = activeSandboxes.some((sandbox) => sandbox.id === preferredSandboxId)
+      ? preferredSandboxId
+      : activeSandboxes[0].id;
+
+    setCreatePRSandboxId(fallbackSandboxId);
+    setShowCreatePRModal(true);
+  };
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -86,145 +105,184 @@ export const PullRequestList: React.FC<PullRequestListProps> = ({
 
   if (isLoading && pullRequests.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent-blue"></div>
+      <div className="flex h-full items-center justify-center text-text-muted">
+        <div className="flex items-center gap-2 text-xs">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading pull requests...
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border-default">
-        <div className="flex items-center gap-2">
-          <GitPullRequest className="w-5 h-5 text-status-warning" />
-          <h2 className="text-lg font-semibold text-text-primary">Pull Requests</h2>
-          <span className="px-2 py-0.5 text-xs font-medium bg-dark-elevated text-text-muted rounded-full">
-            {pullRequests.length}
-          </span>
-        </div>
+    <div className="flex h-full flex-col bg-dark-bg">
+      <PanelHeader
+        icon={<GitPullRequest className="h-4 w-4 text-brand-secondary" />}
+        title="Pull Requests"
+        meta={<Badge variant="default" size="sm">{pullRequests.length}</Badge>}
+        actions={
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              onClick={handleOpenCreatePR}
+              disabled={!canCreatePR}
+              size="md"
+              variant="action"
+              leftIcon={<Plus className="h-3.5 w-3.5" />}
+              title={canCreatePR ? 'Create a new pull request' : 'Create an active sandbox first'}
+              className="whitespace-nowrap"
+            >
+              Create Pull Request
+            </Button>
 
-        {/* Status filter */}
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-text-muted" />
-          <select
-            value={statusFilter || ''}
-            onChange={(e) => setStatusFilter(e.target.value || undefined)}
-            className="px-2 py-1 text-sm bg-dark-elevated border border-border-default rounded-md text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-blue"
-          >
-            <option value="">All</option>
-            <option value="draft">Draft</option>
-            <option value="open">Open</option>
-            <option value="approved">Approved</option>
-            <option value="merged">Merged</option>
-            <option value="closed">Closed</option>
-          </select>
-        </div>
-      </div>
+            <div className="flex items-center gap-1 text-text-muted">
+              <Filter className="h-3.5 w-3.5" />
+              <div className="w-[120px]">
+                <Select
+                  aria-label="Filter pull requests by status"
+                  options={statusFilterOptions}
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  className="h-7 border-border-default bg-dark-canvas py-1 pl-2 pr-7 text-xs"
+                />
+              </div>
+            </div>
+          </div>
+        }
+        className="h-11 px-3"
+      />
 
-      {/* Error state */}
       {error && (
-        <div className="m-4 p-3 bg-status-danger/10 border border-status-danger/20 rounded-md flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 text-status-danger" />
-          <p className="text-sm text-status-danger">{error}</p>
+        <div className="mx-3 mt-3 rounded-md border border-status-danger/30 bg-status-danger/10 px-3 py-2 text-xs text-status-danger">
+          <div className="flex items-center gap-1.5">
+            <AlertCircle className="h-3.5 w-3.5" />
+            {error}
+          </div>
         </div>
       )}
 
-      {/* PR List */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {pullRequests.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-text-muted">
-            <GitPullRequest className="w-12 h-12 mb-3 opacity-50" />
-            <p className="text-lg font-medium">No Pull Requests</p>
-            <p className="text-sm">Create a PR from a sandbox to get started</p>
+          <div className="p-3">
+            <EmptyState
+              icon={<GitPullRequest className="h-5 w-5" />}
+              title="No pull requests"
+              message="Use Create Pull Request in this panel to get started."
+              action={
+                <Button
+                  type="button"
+                  onClick={handleOpenCreatePR}
+                  disabled={!canCreatePR}
+                  size="md"
+                  variant="action"
+                  leftIcon={<Plus className="h-3.5 w-3.5" />}
+                  title={canCreatePR ? 'Create a new pull request' : 'Create an active sandbox first'}
+                >
+                  Create Pull Request
+                </Button>
+              }
+              className="py-16"
+            />
+            {!canCreatePR && (
+              <p className="mt-2 text-center text-xs text-text-muted">
+                Create an active sandbox first in Explorer.
+              </p>
+            )}
           </div>
         ) : (
-          <div className="divide-y divide-border-default">
+          <div>
             {pullRequests.map((pr) => {
-              const status = statusConfig[pr.status];
+              const status = getPullRequestStatusTheme(pr.status);
               const StatusIcon = status.icon;
+              const isSelected = selectedPullRequestId === pr.id;
 
               return (
-                <div
+                <button
                   key={pr.id}
+                  type="button"
                   onClick={() => onSelectPR?.(pr)}
-                  className="px-4 py-3 hover:bg-dark-elevated cursor-pointer transition-colors"
+                  className={cn(
+                    prUiClasses.listRowBase,
+                    isSelected ? prUiClasses.listRowSelected : prUiClasses.listRowIdle
+                  )}
                 >
                   <div className="flex items-start gap-3">
-                    {/* Status icon */}
-                    <div className={`p-1.5 rounded ${status.bgColor}`}>
-                      <StatusIcon className={`w-4 h-4 ${status.color}`} />
+                    <div
+                      className={cn(
+                        'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded border',
+                        status.surfaceClassName,
+                        status.borderClassName
+                      )}
+                    >
+                      <StatusIcon className={cn('h-3.5 w-3.5', status.iconClassName)} />
                     </div>
 
-                    {/* PR info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-text-primary hover:text-accent-blue">
-                          {pr.title}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={prUiClasses.listTitle}>{pr.title}</span>
+                        <span className="text-xxs text-text-muted">#{pr.number}</span>
+                        <Badge variant={status.badgeVariant} size="sm">{status.label}</Badge>
+                      </div>
+
+                      <div className={cn(prUiClasses.metaRow, 'mt-1')}>
+                        <span className={prUiClasses.metaItem}>
+                          <User className="h-3 w-3" />
+                          {pr.authorName || pr.authorEmail}
                         </span>
-                        <span className="text-xs text-text-muted">
-                          #{pr.number}
+                        <span className={prUiClasses.metaItem}>
+                          <GitPullRequest className="h-3 w-3" />
+                          {pr.sandboxName} → {pr.targetBranch}
+                        </span>
+                        <span className={prUiClasses.metaItem}>
+                          <Clock className="h-3 w-3" />
+                          {formatDate(pr.createdAt)}
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-4 mt-1 text-xs text-text-muted">
-                        {/* Author */}
-                        <div className="flex items-center gap-1">
-                          <User className="w-3 h-3" />
-                          <span>{pr.authorName || pr.authorEmail}</span>
-                        </div>
-
-                        {/* Sandbox */}
-                        <div className="flex items-center gap-1">
-                          <GitPullRequest className="w-3 h-3" />
-                          <span>{pr.sandboxName} → {pr.targetBranch}</span>
-                        </div>
-
-                        {/* Time */}
-                        <div className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          <span>{formatDate(pr.createdAt)}</span>
-                        </div>
-                      </div>
-
-                      {/* Description preview */}
                       {pr.description && (
-                        <p className="mt-1 text-sm text-text-muted line-clamp-1">
-                          {pr.description}
-                        </p>
+                        <p className={prUiClasses.listDescription}>{pr.description}</p>
                       )}
                     </div>
 
-                    {/* Stats */}
-                    <div className="flex items-center gap-3 text-xs text-text-muted">
-                      {/* Files changed */}
-                      <div className="flex items-center gap-1" title="Files changed">
-                        <FileText className="w-3.5 h-3.5" />
-                        <span>{pr.fileCount}</span>
-                      </div>
-
-                      {/* Comments */}
-                      <div className="flex items-center gap-1" title="Comments">
-                        <MessageSquare className="w-3.5 h-3.5" />
-                        <span>{pr.commentCount}</span>
-                      </div>
-
-                      {/* Approvals */}
-                      <div
-                        className={`flex items-center gap-1 ${pr.approvalCount > 0 ? 'text-status-success' : ''}`}
+                    <div className="ml-2 flex shrink-0 items-center gap-2">
+                      <span className={prUiClasses.listStat} title="Files changed">
+                        <FileText className="h-3.5 w-3.5" />
+                        {pr.fileCount}
+                      </span>
+                      <span className={prUiClasses.listStat} title="Comments">
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        {pr.commentCount}
+                      </span>
+                      <span
+                        className={cn(
+                          prUiClasses.listStat,
+                          pr.approvalCount > 0 && 'text-status-success'
+                        )}
                         title="Approvals"
                       >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>{pr.approvalCount}</span>
-                      </div>
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        {pr.approvalCount}
+                      </span>
                     </div>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
         )}
       </div>
+
+      <CreatePullRequestModal
+        isOpen={showCreatePRModal}
+        onClose={() => setShowCreatePRModal(false)}
+        sandboxes={activeSandboxes}
+        initialSandboxId={createPRSandboxId}
+        onSuccess={() => {
+          setShowCreatePRModal(false);
+          fetchPullRequests(projectId, statusFilter || undefined);
+          fetchSandboxes(projectId);
+        }}
+      />
     </div>
   );
 };

@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { type Socket } from 'socket.io-client';
 
 import { ActivityBar, type ActivityView } from './ActivityBar.js';
-import { CompareTab } from './CompareTab.js';
 import { CompareWithModal } from './CompareWithModal.js';
 import { ConsolePanel } from './ConsolePanel.js';
 import { EnvironmentManager } from './EnvironmentManager.js';
@@ -19,17 +18,19 @@ import { DebugToolbar } from '../ide/DebugToolbar.js';
 import { DebugConsolePanel } from '../ide/DebugConsolePanel.js';
 import { useDebugger } from '@/hooks/useDebugger';
 import { TestDataPage } from '../TestData/TestDataPage.js';
-import { TraceViewerPanel } from '../TraceViewer/TraceViewerPanel.js';
-import { VeroEditor, type VeroEditorHandle } from '../vero/VeroEditor.js';
+import { type VeroEditorHandle } from '../vero/VeroEditor.js';
 import { GutterContextMenu } from '../vero/GutterContextMenu.js';
 import { useProjectStore } from '@/store/projectStore';
+import { useSandboxStore } from '@/store/sandboxStore';
+import { sandboxApi } from '@/api/sandbox';
+import { useToastStore } from '@/store/useToastStore';
+import { PullRequestsPanel } from '@/components/pr/PullRequestsPanel';
 import { useRunConfigStore } from '@/store/runConfigStore';
 import { useGitHubExecutionStore } from '@/store/useGitHubExecutionStore';
 import { CreateSandboxModal } from '@/components/sandbox/CreateSandboxModal';
-import { SandboxSwitcher } from '@/components/sandbox/SandboxSwitcher';
 import { MergeConflictModal } from './MergeConflictModal';
-import { IconButton, PanelHeader, EmptyState, Toolbar, ToolbarGroup } from '@/components/ui';
-import { Bot, Database, FileBarChart2, Play, Bug, FileText, Terminal, Settings, FilePlus, Folder } from 'lucide-react';
+import { IconButton, PanelHeader, EmptyState } from '@/components/ui';
+import { Bot, FileBarChart2, Play, Bug, FileText, Terminal, Settings, FilePlus, Folder } from 'lucide-react';
 import { DataQueryModal } from '../ide/DataQueryModal';
 import { DataPanel } from '../ide/DataPanel';
 import { VDQLReferencePanel } from '../ide/VDQLReferencePanel';
@@ -38,16 +39,21 @@ import { useTestDataRegistry } from '@/hooks/useTestDataRegistry';
 import { CommandPalette, type PaletteCommand } from './CommandPalette';
 import { QuickOpenDialog } from './QuickOpenDialog';
 import { ProblemsPanel, type Problem } from './ProblemsPanel';
+import { RightToolRail } from './RightToolRail';
+import { WorkspaceEditorTabs } from './layout/WorkspaceEditorTabs';
+import { WorkspaceEditorPane } from './layout/WorkspaceEditorPane';
+import { WorkspaceStatusBar } from './layout/WorkspaceStatusBar';
 
-import { useFileManagement, type OpenTab } from './useFileManagement.js';
+import { useFileManagement } from './useFileManagement.js';
 import { useRecording } from './useRecording.js';
 import { useTestExecution } from './useTestExecution.js';
 import { useScenarioBrowser } from './useScenarioBrowser.js';
 import { useProjectNavigation } from './useProjectNavigation.js';
+import { useEnvironmentSwitching } from './useEnvironmentSwitching.js';
 
 const API_BASE = '/api';
 
-const FULL_PAGE_VIEWS: ActivityView[] = ['executions', 'schedules', 'testdata', 'ai-test-generator', 'trace'];
+const FULL_PAGE_VIEWS: ActivityView[] = ['executions', 'schedules', 'testdata', 'ai-test-generator', 'prs'];
 
 export function VeroWorkspace() {
   // ─── View state ───────────────────────────────────────────────
@@ -116,6 +122,11 @@ export function VeroWorkspace() {
     currentProject: currentProject || undefined,
   });
 
+  // ─── Environment context ─────────────────────────────────────
+  const syncConflictsDetailed = useSandboxStore(s => s.syncConflictsDetailed);
+  const syncConflictSandbox = useSandboxStore(s => s.syncConflictSandbox);
+  const clearSyncConflictState = useSandboxStore(s => s.clearSyncConflictState);
+
   // Convert nested projects from store format to ExplorerPanel format
   const nestedProjects: NestedProject[] = (currentProject?.projects || []).map(p => ({
     id: p.id,
@@ -123,24 +134,42 @@ export function VeroWorkspace() {
     veroPath: p.veroPath,
     files: fileManagement.projectFiles[p.id],
   }));
-  const selectedRunConfigProjectId =
-    selectedProjectId ||
-    fileManagement.activeTab?.projectId ||
-    currentProject?.projects?.[0]?.id ||
-    applications[0]?.projects?.[0]?.id;
-  const runConfigScopeApplication =
-    (selectedRunConfigProjectId
-      ? applications.find((app) => app.projects?.some((project) => project.id === selectedRunConfigProjectId))
-      : undefined) ||
-    currentProject ||
-    applications[0];
+  const currentApplicationProjectIds = useMemo(
+    () => new Set((currentProject?.projects || []).map((project) => project.id)),
+    [currentProject?.projects]
+  );
+  const scopedSelectedProjectId =
+    selectedProjectId && currentApplicationProjectIds.has(selectedProjectId)
+      ? selectedProjectId
+      : null;
+  const activeNestedProjectId = scopedSelectedProjectId || currentProject?.projects?.[0]?.id || null;
+  const activeTabProjectId = fileManagement.activeTab?.projectId;
+  const scopedActiveTabProjectId =
+    activeTabProjectId && currentApplicationProjectIds.has(activeTabProjectId)
+      ? activeTabProjectId
+      : undefined;
   const currentRunConfigProjectId =
-    selectedRunConfigProjectId ||
-    runConfigScopeApplication?.projects?.[0]?.id;
+    scopedSelectedProjectId ||
+    scopedActiveTabProjectId ||
+    currentProject?.projects?.[0]?.id;
   const currentWorkflowId =
-    runConfigScopeApplication?.workflows?.[0]?.id ||
     currentProject?.workflows?.[0]?.id ||
-    applications.find((app) => app.id === currentProject?.id)?.workflows?.[0]?.id;
+    applications.find((app) => app.id === currentProject?.id)?.workflows?.[0]?.id ||
+    applications[0]?.workflows?.[0]?.id;
+
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    if (currentApplicationProjectIds.has(selectedProjectId)) return;
+    setSelectedProjectId(null);
+  }, [currentApplicationProjectIds, selectedProjectId]);
+
+  const { handleExplorerDirectorySelect, resolveCompareSourceEnvironment } = useEnvironmentSwitching({
+    currentProjects: currentProject?.projects,
+    activeNestedProjectId,
+    resetTabsForEnvironmentSwitch: fileManagement.resetTabsForEnvironmentSwitch,
+    loadProjectFiles: fileManagement.loadProjectFiles,
+    setSelectedProjectId,
+  });
 
   // ─── Debug state (needs debugExecutionId before testExecution) ─
   const [debugExecutionId, setDebugExecutionId] = useState<string | null>(null);
@@ -150,20 +179,14 @@ export function VeroWorkspace() {
     breakpointsMuted,
     consoleEntries,
     variables,
-    watches,
     callStack,
     toggleBreakpoint,
     toggleMuteBreakpoints,
-    addWatch,
-    removeWatch,
     startDebug,
     resume,
-    pause,
     stepOver,
     stepInto,
-    stepOut,
     stopDebug,
-    openInspector,
     clearConsole,
   } = useDebugger(socketRef.current, debugExecutionId);
 
@@ -223,12 +246,13 @@ export function VeroWorkspace() {
   // ─── Recording hook ───────────────────────────────────────────
   const recording = useRecording({
     socketRef,
-    activeTabIdRef: fileManagement.activeTabIdRef,
     activeTab: fileManagement.activeTab,
     selectedProjectId,
     nestedProjects,
     currentProjectId: currentProject?.id,
-    setOpenTabs: fileManagement.setOpenTabs,
+    getActiveTabId: fileManagement.getActiveTabId,
+    getTabById: fileManagement.getTabById,
+    mutateTabContent: fileManagement.mutateTabContent,
     addConsoleOutput,
     setShowConsole,
     loadProjectFiles: fileManagement.loadProjectFiles,
@@ -265,10 +289,9 @@ export function VeroWorkspace() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showQuickOpen, setShowQuickOpen] = useState(false);
   const [showProblems, setShowProblems] = useState(false);
+  const [isRightToolPanelOpen, setIsRightToolPanelOpen] = useState(false);
   const [problems, setProblems] = useState<Problem[]>([]);
-  const [selectedTraceUrl, setSelectedTraceUrl] = useState<string | null>(null);
-  const [selectedTraceName, setSelectedTraceName] = useState<string>('');
-  const [compareModal, setCompareModal] = useState<{ filePath: string; projectId?: string } | null>(null);
+  const [compareModal, setCompareModal] = useState<{ filePath: string; projectId?: string; sourceEnvironment: string } | null>(null);
   const [gutterMenu, setGutterMenu] = useState<{ x: number; y: number; itemType: 'scenario' | 'feature'; itemName: string } | null>(null);
 
   const { setModalOpen: setRunConfigModalOpen, getActiveConfig, loadConfigurations } = useRunConfigStore();
@@ -320,7 +343,7 @@ export function VeroWorkspace() {
     }
 
     if (existingTab) {
-      fileManagement.setActiveTabId(existingTab.id);
+      fileManagement.activateTab(existingTab.id);
     } else {
       await fileManagement.loadFileContent(scenario.filePath, scenario.projectId);
     }
@@ -335,7 +358,25 @@ export function VeroWorkspace() {
 
   const handleOpenCompareWith = (filePath: string) => {
     const nestedProjectId = fileManagement.contextMenu?.projectId || selectedProjectId;
-    const projectId = nestedProjectId || currentProject?.id;
+    const projectIdFromPath = (currentProject?.projects || []).find(
+      (project) => project.veroPath && filePath.startsWith(`${project.veroPath}/`)
+    )?.id;
+    const idLikePattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const normalizedFilePath = filePath.replace(/\\/g, '/');
+    const pathParts = normalizedFilePath.split('/').filter(Boolean);
+    const veroProjectsIdx = pathParts.lastIndexOf('vero-projects');
+    const projectIdFromAbsolutePath = (
+      veroProjectsIdx >= 0 && pathParts.length > veroProjectsIdx + 2
+        ? pathParts[veroProjectsIdx + 2]
+        : undefined
+    );
+    const projectId = nestedProjectId
+      || projectIdFromPath
+      || (projectIdFromAbsolutePath && idLikePattern.test(projectIdFromAbsolutePath) ? projectIdFromAbsolutePath : undefined)
+      || currentProject?.projects?.[0]?.id;
+
+    const relativePath = fileManagement.contextMenu?.relativePath?.replace(/\\/g, '/');
+    const sourceEnvironment = resolveCompareSourceEnvironment(relativePath, normalizedFilePath);
 
     if (!projectId) {
       addConsoleOutput('Error: No project selected. Please select a project first.');
@@ -343,63 +384,30 @@ export function VeroWorkspace() {
       return;
     }
 
-    setCompareModal({ filePath, projectId });
+    setCompareModal({ filePath, projectId, sourceEnvironment });
     fileManagement.setContextMenu(null);
   };
 
   const handleCompare = (source: string, target: string) => {
     if (!compareModal) return;
 
-    const fileName = compareModal.filePath.split('/').pop() || 'Compare';
-    const tabId = `compare-${Date.now()}`;
-
-    const newTab: OpenTab = {
-      id: tabId,
-      path: compareModal.filePath,
-      name: `${fileName} (${source} ↔ ${target})`,
-      content: '',
-      hasChanges: false,
-      type: 'compare',
-      compareSource: source,
-      compareTarget: target,
+    fileManagement.openCompareTab({
+      filePath: compareModal.filePath,
+      source,
+      target,
       projectId: compareModal.projectId,
-    };
-
-    fileManagement.setOpenTabs(prev => [...prev, newTab]);
-    fileManagement.setActiveTabId(tabId);
+    });
+    const fileName = compareModal.filePath.split('/').pop() || 'Compare';
     setCompareModal(null);
     addConsoleOutput(`Comparing ${fileName}: ${source} vs ${target}`);
   };
 
   const handleApplyCompareChanges = (tabId: string, content: string) => {
     const tab = fileManagement.openTabs.find(t => t.id === tabId);
-    if (!tab) return;
-
-    const existingFileTab = fileManagement.openTabs.find(t => t.path === tab.path && t.type !== 'compare');
-
-    if (existingFileTab) {
-      fileManagement.setOpenTabs(prev => prev.map(t =>
-        t.id === existingFileTab.id
-          ? { ...t, content, hasChanges: true }
-          : t
-      ));
-      fileManagement.setActiveTabId(existingFileTab.id);
-      addConsoleOutput(`Applied changes to ${tab.name.split(' (')[0]}`);
-    } else {
-      const fileName = tab.path.split('/').pop() || 'Untitled';
-      const newTabId = `tab-${Date.now()}`;
-      const newTab: OpenTab = {
-        id: newTabId,
-        path: tab.path,
-        name: fileName,
-        content,
-        hasChanges: true,
-        type: 'file',
-        projectId: tab.projectId,
-      };
-      fileManagement.setOpenTabs(prev => [...prev, newTab]);
-      fileManagement.setActiveTabId(newTabId);
-      addConsoleOutput(`Created file tab with applied changes: ${fileName}`);
+    fileManagement.applyCompareChanges({ compareTabId: tabId, content });
+    if (tab) {
+      const fileName = tab.name.split(' (')[0];
+      addConsoleOutput(`Applied changes to ${fileName}`);
     }
   };
 
@@ -461,7 +469,7 @@ export function VeroWorkspace() {
     },
     {
       id: 'record-scenario', label: 'Record Scenario',
-      icon: <span className="w-3.5 h-3.5 rounded-full border-2 border-red-400 inline-block" />, category: 'Recording',
+      icon: <span className="w-3.5 h-3.5 rounded-full border-2 border-status-danger inline-block" />, category: 'Recording',
       action: () => recording.handleRecordClick(),
     },
     {
@@ -533,6 +541,13 @@ export function VeroWorkspace() {
 
   const isFullPageView = FULL_PAGE_VIEWS.includes(activeView);
   const { activeTab, openTabs, activeTabId } = fileManagement;
+  const isEditableActiveTab = Boolean(activeTab && (activeTab.type === undefined || activeTab.type === 'file'));
+  const showRightToolRail = activeView === 'explorer' && !isFullPageView && isEditableActiveTab;
+
+  useEffect(() => {
+    if (showRightToolRail) return;
+    setIsRightToolPanelOpen(false);
+  }, [showRightToolRail]);
 
   // ─── Sync Monaco diagnostics to Problems panel ────────────────
   useEffect(() => {
@@ -661,25 +676,17 @@ export function VeroWorkspace() {
                 onClose={() => handleViewChange('explorer')}
               />
             )}
-            {activeView === 'trace' && selectedTraceUrl && (
-              <TraceViewerPanel
-                traceUrl={selectedTraceUrl}
-                testId="selected-test"
-                testName={selectedTraceName}
-                onClose={() => {
-                  setSelectedTraceUrl(null);
-                  setSelectedTraceName('');
-                  handleViewChange('executions');
-                }}
-              />
-            )}
-            {activeView === 'trace' && !selectedTraceUrl && (
-              <EmptyState
-                icon={<span className="material-symbols-outlined text-2xl">bug_report</span>}
-                title="No trace selected"
-                message="Run a test with tracing enabled to view traces"
-                className="flex-1"
-              />
+            {activeView === 'prs' && (
+              activeNestedProjectId ? (
+                <PullRequestsPanel projectId={activeNestedProjectId} />
+              ) : (
+                <EmptyState
+                  icon={<span className="material-symbols-outlined text-2xl">account_tree</span>}
+                  title="No nested project selected"
+                  message="Create or select a project to view and create pull requests."
+                  className="flex-1"
+                />
+              )
             )}
           </div>
         ) : (
@@ -688,13 +695,7 @@ export function VeroWorkspace() {
             <aside className="w-[280px] flex flex-col bg-dark-card shrink-0">
               {activeView === 'explorer' && (
                 <>
-                  {currentProject?.id && (
-                    <div className="px-3 py-2 border-b border-border-default">
-                      <SandboxSwitcher projectId={currentProject.id} />
-                    </div>
-                  )}
                   <ExplorerPanel
-                    applicationName={currentProject?.name || 'VERO-PROJECT'}
                     projects={nestedProjects}
                     error={projectLoadError}
                     isLoading={isProjectsLoading}
@@ -705,6 +706,7 @@ export function VeroWorkspace() {
                     activeFileContent={activeTab?.content || null}
                     activeFileName={activeTab?.name || null}
                     onFileSelect={fileManagement.handleFileSelect}
+                    onDirectorySelect={handleExplorerDirectorySelect}
                     onFolderToggle={fileManagement.handleFolderToggle}
                     onProjectSelect={projectNavigation.handleProjectSelect}
                     onProjectExpand={projectNavigation.handleProjectExpand}
@@ -718,18 +720,6 @@ export function VeroWorkspace() {
                       addConsoleOutput(`Navigate to line ${line}`);
                     }}
                     onFileContextMenu={fileManagement.handleFileContextMenu}
-                  />
-                  <DataPanel
-                    projectId={currentProject?.id}
-                    onBuildQuery={() => {
-                      setShowDataQueryModal(true);
-                    }}
-                    onInsertColumnRef={(ref) => {
-                      editorRef.current?.insertText(ref, 'cursor');
-                    }}
-                  />
-                  <VDQLReferencePanel
-                    onInsertSnippet={handleInsertSnippet}
                   />
                 </>
               )}
@@ -757,195 +747,151 @@ export function VeroWorkspace() {
             </aside>
 
             {/* Editor Area */}
-            <main className="flex-1 flex flex-col overflow-hidden bg-dark-canvas">
-              {openTabs.length > 0 ? (
-                <div className="flex-1 flex flex-col">
-                  {/* Tab Bar */}
-                  <div className="h-10 flex items-center justify-between border-b border-border-default bg-dark-card">
-                    <div className="flex items-center overflow-x-auto flex-1">
-                      {openTabs.map(tab => (
-                        <div
-                          key={tab.id}
-                          onClick={() => fileManagement.setActiveTabId(tab.id)}
-                          className={`flex items-center gap-2 px-3 py-2 cursor-pointer text-sm border-r border-border-default min-w-0 group ${activeTabId === tab.id
-                            ? 'bg-dark-canvas text-white'
-                            : 'bg-dark-card text-text-secondary hover:text-white hover:bg-dark-elevated'
-                            }`}
-                        >
-                          <span className={`material-symbols-outlined text-sm ${tab.type === 'compare'
-                            ? (activeTabId === tab.id ? 'text-accent-purple' : 'text-text-secondary')
-                            : (activeTabId === tab.id ? 'text-brand-primary' : 'text-text-secondary')
-                            }`}>
-                            {tab.type === 'compare'
-                              ? 'compare'
-                              : tab.type === 'image'
-                                ? 'image'
-                                : tab.type === 'binary'
-                                  ? 'draft'
-                                  : 'description'}
-                          </span>
-                          <span className="truncate max-w-[120px]">{tab.name}</span>
-                          {tab.hasChanges && (
-                            <span className="w-2 h-2 bg-brand-secondary rounded-full flex-shrink-0" />
-                          )}
-                          <IconButton
-                            icon={<span className="material-symbols-outlined text-sm">close</span>}
-                            size="sm"
-                            tooltip="Close tab"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              fileManagement.closeTab(tab.id);
-                            }}
-                            className="ml-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                    {activeTab && (activeTab.type === undefined || activeTab.type === 'file') && (
-                      <div className="flex items-center gap-1 mx-2 flex-shrink-0">
-                        <IconButton
-                          icon={<Database className="w-3.5 h-3.5" />}
-                          size="sm"
-                          tooltip="Insert Data Query (Ctrl+D)"
-                          onClick={handleInsertDataQuery}
+            <main className="flex-1 flex overflow-hidden bg-dark-canvas">
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                {openTabs.length > 0 ? (
+                  <div className="flex-1 flex flex-col min-h-0">
+                    <WorkspaceEditorTabs
+                      tabs={openTabs}
+                      activeTabId={activeTabId}
+                      onActivate={fileManagement.activateTab}
+                      onClose={fileManagement.closeTab}
+                    />
+
+                    {/* Debug controls */}
+                    {(testExecution.isRunning || debugState.isDebugging || debugState.breakpoints.size > 0) && (
+                      <DebugToolbar
+                        isRunning={testExecution.isRunning}
+                        debugState={debugState}
+                        breakpointsMuted={breakpointsMuted}
+                        onResume={resume}
+                        onStepOver={stepOver}
+                        onStepInto={stepInto}
+                        onStop={testExecution.handleStopDebug}
+                        onRestart={testExecution.handleRestartDebug}
+                        onToggleMuteBreakpoints={toggleMuteBreakpoints}
+                      />
+                    )}
+
+                    {/* Editor or Compare View */}
+                    <div className="flex-1 flex flex-col min-h-0">
+                      {activeTab ? (
+                        <WorkspaceEditorPane
+                          activeTab={activeTab}
+                          editorRef={editorRef}
+                          currentProjectId={currentProject?.id}
+                          nestedProjects={nestedProjects}
+                          onTabContentChange={fileManagement.updateTabContent}
+                          onCloseTab={fileManagement.closeTab}
+                          onApplyCompareChanges={handleApplyCompareChanges}
+                          onRunScenario={testExecution.handleRunScenario}
+                          onRunFeature={testExecution.handleRunFeature}
+                          onGutterContextMenu={(info) => setGutterMenu(info)}
+                          onNavigateToDefinition={handleNavigateToDefinition}
+                          onInsertDataQuery={handleInsertDataQuery}
+                          breakpoints={debugState.breakpoints}
+                          onToggleBreakpoint={toggleBreakpoint}
+                          debugCurrentLine={debugState.currentLine}
+                          isDebugging={debugState.isDebugging}
+                          isRecording={recording.isRecording}
+                          failureLines={testExecution.failureLines}
+                          onStartRecording={(scenarioName) => {
+                            recording.setPrefilledScenarioName(scenarioName);
+                            recording.setShowRecordingModal(true);
+                          }}
                         />
-                        <button
-                          onClick={() => fileManagement.saveFileContent(activeTab.content)}
-                          className="px-3 py-1 text-xs bg-status-success hover:bg-status-success/90 text-white rounded transition-colors flex items-center gap-1"
-                        >
-                          <span className="material-symbols-outlined text-sm">save</span>
-                          Save
-                        </button>
+                      ) : null}
+                    </div>
+
+                    {/* Debug Console Panel */}
+                    {(debugState.isDebugging || testExecution.showDebugConsole) && (
+                      <DebugConsolePanel
+                        entries={consoleEntries}
+                        variables={variables}
+                        callStack={callStack}
+                        problems={[]}
+                        isMinimized={!testExecution.showDebugConsole}
+                        onToggleMinimize={() => testExecution.setShowDebugConsole(!testExecution.showDebugConsole)}
+                        onClearConsole={clearConsole}
+                        onGoToLine={(line) => editorRef.current?.goToLine(line)}
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center">
+                    {projectLoadError ? (
+                      <div className="text-center max-w-lg px-6">
+                        <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-status-danger/15 border border-status-danger/40 flex items-center justify-center">
+                          <span className="material-symbols-outlined text-status-danger text-2xl">error</span>
+                        </div>
+                        <h2 className="text-xl font-semibold text-text-primary mb-2">Backend unavailable</h2>
+                        <p className="text-text-secondary text-sm break-words">
+                          {projectLoadError}
+                        </p>
+                        <p className="text-text-secondary text-xs mt-3">
+                          Start the backend and reload to see your latest application and scheduler changes.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="text-center">
+                        <div className="w-14 h-14 mx-auto mb-4 rounded-lg bg-brand-primary flex items-center justify-center">
+                          <span className="text-white font-bold text-xl">V</span>
+                        </div>
+                        <h2 className="text-lg font-semibold text-text-primary mb-1.5">Welcome to Vero IDE</h2>
+                        <p className="text-text-secondary text-sm max-w-md">
+                          Select a file from the Explorer to start editing,<br />
+                          or create a new test scenario.
+                        </p>
                       </div>
                     )}
                   </div>
+                )}
+              </div>
 
-                  {/* Debug controls */}
-                  {(testExecution.isRunning || debugState.isDebugging || debugState.breakpoints.size > 0) && (
-                    <DebugToolbar
-                      isRunning={testExecution.isRunning}
-                      debugState={debugState}
-                      breakpointsMuted={breakpointsMuted}
-                      onPause={pause}
-                      onResume={resume}
-                      onStepOver={stepOver}
-                      onStepInto={stepInto}
-                      onStepOut={stepOut}
-                      onStop={testExecution.handleStopDebug}
-                      onRestart={testExecution.handleRestartDebug}
-                      onToggleMuteBreakpoints={toggleMuteBreakpoints}
-                      onOpenInspector={openInspector}
-                    />
-                  )}
+              {showRightToolRail && (
+                <>
+                  <RightToolRail
+                    isOpen={isRightToolPanelOpen}
+                    onToggle={() => setIsRightToolPanelOpen((prev) => !prev)}
+                  />
 
-                  {/* Editor or Compare View */}
-                  <div className="flex-1 flex flex-col min-h-0">
-                    {activeTab && activeTab.type === 'compare' ? (
-                      <CompareTab
-                        key={activeTab.id}
-                        projectId={activeTab.projectId || currentProject?.id || ''}
-                        filePath={activeTab.path}
-                        initialSource={activeTab.compareSource}
-                        initialTarget={activeTab.compareTarget}
-                        onClose={() => fileManagement.closeTab(activeTab.id)}
-                        onApplyChanges={(content) => handleApplyCompareChanges(activeTab.id, content)}
-                      />
-                    ) : activeTab && activeTab.type === 'image' ? (
-                      <div className="flex-1 overflow-auto p-4 bg-dark-canvas">
-                        <div className="text-xs text-text-secondary mb-2">{activeTab.path}</div>
-                        <div className="rounded border border-border-default bg-dark-card p-2 inline-block">
-                          <img
-                            src={activeTab.content}
-                            alt={activeTab.name}
-                            className="max-w-full h-auto block"
+                  {isRightToolPanelOpen && (
+                    <aside className="w-[320px] border-l border-border-default bg-dark-shell flex flex-col shrink-0">
+                      <PanelHeader
+                        title="Data Tools"
+                        className="h-9 px-3"
+                        actions={(
+                          <IconButton
+                            icon={<span className="material-symbols-outlined text-sm">close</span>}
+                            size="sm"
+                            tooltip="Close data tools"
+                            onClick={() => setIsRightToolPanelOpen(false)}
                           />
-                        </div>
-                      </div>
-                    ) : activeTab && activeTab.type === 'binary' ? (
-                      <div className="flex-1 flex items-center justify-center p-6">
-                        <div className="max-w-xl text-center">
-                          <h3 className="text-text-primary font-medium mb-2">Binary file preview unavailable</h3>
-                          <p className="text-sm text-text-secondary break-all">{activeTab.path}</p>
-                          {activeTab.contentType && (
-                            <p className="text-xs text-text-muted mt-2">Content type: {activeTab.contentType}</p>
-                          )}
-                        </div>
-                      </div>
-                    ) : activeTab ? (
-                      <VeroEditor
-                        ref={editorRef}
-                        key={activeTab.id}
-                        initialValue={activeTab.content}
-                        onChange={(value) => value && fileManagement.updateTabContent(activeTab.id, value)}
-                        onRunScenario={testExecution.handleRunScenario}
-                        onRunFeature={testExecution.handleRunFeature}
-                        onGutterContextMenu={(info) => setGutterMenu(info)}
-                        showErrorPanel={true}
-                        token={null}
-                        veroPath={nestedProjects.find(p => activeTab.path.startsWith(p.veroPath || ''))?.veroPath}
-                        filePath={activeTab.path}
-                        projectId={nestedProjects.find(p => activeTab.path.startsWith(p.veroPath || ''))?.id}
-                        applicationId={currentProject?.id}
-                        onNavigateToDefinition={handleNavigateToDefinition}
-                        onInsertDataQuery={handleInsertDataQuery}
-                        breakpoints={debugState.breakpoints}
-                        onToggleBreakpoint={toggleBreakpoint}
-                        debugCurrentLine={debugState.currentLine}
-                        isDebugging={debugState.isDebugging}
-                        isRecording={recording.isRecording}
-                        onStartRecording={(scenarioName) => {
-                          recording.setPrefilledScenarioName(scenarioName);
-                          recording.setShowRecordingModal(true);
-                        }}
+                        )}
                       />
-                    ) : null}
-                  </div>
-
-                  {/* Debug Console Panel */}
-                  {(debugState.isDebugging || testExecution.showDebugConsole) && (
-                    <DebugConsolePanel
-                      entries={consoleEntries}
-                      variables={variables}
-                      watches={watches}
-                      callStack={callStack}
-                      problems={[]}
-                      isMinimized={!testExecution.showDebugConsole}
-                      onToggleMinimize={() => testExecution.setShowDebugConsole(!testExecution.showDebugConsole)}
-                      onClearConsole={clearConsole}
-                      onGoToLine={(line) => editorRef.current?.goToLine(line)}
-                      onAddWatch={addWatch}
-                      onRemoveWatch={removeWatch}
-                    />
-                  )}
-                </div>
-              ) : (
-                <div className="flex-1 flex items-center justify-center">
-                  {projectLoadError ? (
-                    <div className="text-center max-w-lg px-6">
-                      <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-status-danger/15 border border-status-danger/40 flex items-center justify-center">
-                        <span className="material-symbols-outlined text-status-danger text-2xl">error</span>
+                      <div className="px-3 py-2 border-b border-border-default bg-dark-shell">
+                        <button
+                          onClick={handleInsertDataQuery}
+                          className="w-full h-7 rounded border border-border-default bg-dark-canvas text-xs text-text-primary hover:bg-dark-elevated transition-colors"
+                        >
+                          Insert Data Query (Ctrl+D)
+                        </button>
                       </div>
-                      <h2 className="text-xl font-semibold text-text-primary mb-2">Backend unavailable</h2>
-                      <p className="text-text-secondary text-sm break-words">
-                        {projectLoadError}
-                      </p>
-                      <p className="text-text-secondary text-xs mt-3">
-                        Start the backend and reload to see your latest application and scheduler changes.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="text-center">
-                      <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-gradient-to-br from-brand-primary to-accent-purple flex items-center justify-center">
-                        <span className="text-white font-bold text-2xl">V</span>
+                      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+                        <DataPanel
+                          projectId={currentProject?.id}
+                          onBuildQuery={() => {
+                            setShowDataQueryModal(true);
+                          }}
+                          onInsertColumnRef={(ref) => {
+                            editorRef.current?.insertText(ref, 'cursor');
+                          }}
+                        />
+                        <VDQLReferencePanel onInsertSnippet={handleInsertSnippet} />
                       </div>
-                      <h2 className="text-xl font-semibold text-text-primary mb-2">Welcome to Vero IDE</h2>
-                      <p className="text-text-secondary text-sm max-w-md">
-                        Select a file from the Explorer to start editing,<br />
-                        or create a new test scenario.
-                      </p>
-                    </div>
+                    </aside>
                   )}
-                </div>
+                </>
               )}
             </main>
 
@@ -954,63 +900,26 @@ export function VeroWorkspace() {
       </div>
 
       {/* Bottom Status Bar */}
-      <Toolbar position="bottom" size="sm" className="h-6 px-1 bg-dark-card">
-        <ToolbarGroup>
-          <button
-            onClick={() => setShowConsole(!showConsole)}
-            className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors ${showConsole
-              ? 'bg-status-success text-white'
-              : 'text-text-secondary hover:text-white hover:bg-dark-elevated'
-              }`}
-            title="Toggle Terminal"
-          >
-            <span className="material-symbols-outlined text-base">terminal</span>
-            <span>Terminal</span>
-          </button>
-          <button
-            onClick={() => setShowProblems(!showProblems)}
-            className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors ${showProblems
-              ? 'bg-status-warning text-white'
-              : 'text-text-secondary hover:text-white hover:bg-dark-elevated'
-              }`}
-            title="Toggle Problems (Ctrl+Shift+M)"
-          >
-            <span className="material-symbols-outlined text-base">error</span>
-            <span>Problems{problems.length > 0 ? ` (${problems.length})` : ''}</span>
-          </button>
-        </ToolbarGroup>
-
-        <div className="flex-1" />
-
-        <ToolbarGroup className="gap-3 text-xs text-text-secondary">
-          {testExecution.lastCompletedExecutionId && !testExecution.isRunning && activeView !== 'executions' && (
-            <button
-              onClick={() => {
-                setTargetExecutionId(testExecution.lastCompletedExecutionId);
-                handleViewChange('executions');
-                testExecution.setLastCompletedExecutionId(null);
-              }}
-              className="flex items-center gap-1.5 px-2 py-0.5 rounded text-3xs font-medium text-status-info bg-status-info/12 border border-status-info/30 hover:bg-status-info/20 transition-colors"
-            >
-              <FileBarChart2 className="h-3 w-3" />
-              View Report
-            </button>
-          )}
-          {testExecution.isRunning && (
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 bg-status-success rounded-full animate-pulse" />
-              Running
-            </span>
-          )}
-          {activeTab && (
-            <span className="truncate max-w-[200px]">{activeTab.name}</span>
-          )}
-        </ToolbarGroup>
-      </Toolbar>
+      <WorkspaceStatusBar
+        showConsole={showConsole}
+        onToggleConsole={() => setShowConsole(prev => !prev)}
+        showProblems={showProblems}
+        onToggleProblems={() => setShowProblems(prev => !prev)}
+        problemCount={problems.length}
+        isRunning={testExecution.isRunning}
+        activeTabName={activeTab?.name}
+        lastCompletedExecutionId={testExecution.lastCompletedExecutionId}
+        activeView={activeView}
+        onViewReport={() => {
+          setTargetExecutionId(testExecution.lastCompletedExecutionId);
+          handleViewChange('executions');
+          testExecution.setLastCompletedExecutionId(null);
+        }}
+      />
 
       {/* Overlay Panels */}
       {showConsole && (
-        <div className="fixed left-[48px] right-0 bottom-6 h-[200px] bg-dark-canvas border-t border-border-default z-30 shadow-xl">
+        <div className="fixed left-[42px] right-0 bottom-6 h-[200px] bg-dark-canvas border-t border-border-default z-30 shadow-xl">
           <ConsolePanel
             output={consoleOutput}
             onClear={() => setConsoleOutput([])}
@@ -1020,7 +929,7 @@ export function VeroWorkspace() {
       )}
 
       {showProblems && (
-        <div className="fixed left-[48px] right-0 bottom-6 z-30 shadow-xl">
+        <div className="fixed left-[42px] right-0 bottom-6 z-30 shadow-xl">
           <ProblemsPanel
             problems={problems}
             isOpen={showProblems}
@@ -1145,7 +1054,7 @@ export function VeroWorkspace() {
           isOpen={true}
           projectId={compareModal.projectId}
           filePath={compareModal.filePath}
-          currentEnvironment="dev"
+          currentEnvironment={compareModal.sourceEnvironment}
           onClose={() => setCompareModal(null)}
           onCompare={handleCompare}
         />
@@ -1162,6 +1071,34 @@ export function VeroWorkspace() {
           projectNavigation.setMergeSandboxId(null);
         }}
         onResolve={projectNavigation.handleResolveMergeConflicts}
+      />
+
+      {/* Store-driven merge conflict modal (from syncSandboxWithDetails) */}
+      <MergeConflictModal
+        isOpen={!!syncConflictsDetailed && syncConflictsDetailed.length > 0}
+        sandboxName={syncConflictSandbox?.name || 'Sandbox'}
+        sourceBranch={syncConflictSandbox?.sourceBranch || 'dev'}
+        conflicts={syncConflictsDetailed || []}
+        onClose={clearSyncConflictState}
+        onResolve={async (resolutions) => {
+          if (!syncConflictSandbox) return;
+          const addToast = useToastStore.getState().addToast;
+          try {
+            const result = await sandboxApi.resolveConflicts(syncConflictSandbox.id, resolutions, true);
+            if (result.success) {
+              addToast({ message: `Resolved conflicts and updated ${result.updatedFiles.length} file(s)`, variant: 'success' });
+              clearSyncConflictState();
+              // Reload file trees
+              if (currentProject?.projects) {
+                for (const p of currentProject.projects) {
+                  if (p.veroPath) fileManagement.loadProjectFiles(p.id, p.veroPath);
+                }
+              }
+            }
+          } catch (error) {
+            addToast({ message: `Failed to resolve conflicts: ${error instanceof Error ? error.message : 'Unknown error'}`, variant: 'error' });
+          }
+        }}
       />
     </div>
   );

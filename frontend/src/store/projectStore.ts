@@ -213,10 +213,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const nestedProjects = await nestedProjectsApi.getAll(applicationId);
-      set(state => ({
-        projects: updateAppNestedProjects(state.projects, applicationId, () => nestedProjects),
-        isLoading: false
-      }));
+      set(state => {
+        const updatedProjects = updateAppNestedProjects(
+          state.projects,
+          applicationId,
+          () => nestedProjects
+        );
+        const refreshedCurrentProject = state.currentProject?.id === applicationId
+          ? (updatedProjects.find((app) => app.id === applicationId) || state.currentProject)
+          : state.currentProject;
+
+        return {
+          projects: updatedProjects,
+          currentProject: refreshedCurrentProject,
+          isLoading: false,
+        };
+      });
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : 'Failed to fetch nested projects',
@@ -227,32 +239,64 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   createNestedProject: async (applicationId, data) => {
     const project = await nestedProjectsApi.create(applicationId, data);
-    set(state => ({
-      projects: updateAppNestedProjects(state.projects, applicationId, projects => [...projects, project]),
-      currentNestedProject: project
-    }));
+    set(state => {
+      const updatedProjects = updateAppNestedProjects(
+        state.projects,
+        applicationId,
+        projects => [...projects, project]
+      );
+      const refreshedCurrentProject = state.currentProject?.id === applicationId
+        ? (updatedProjects.find((app) => app.id === applicationId) || state.currentProject)
+        : state.currentProject;
+
+      return {
+        projects: updatedProjects,
+        currentProject: refreshedCurrentProject,
+        currentNestedProject: project,
+      };
+    });
     return project;
   },
 
   updateNestedProject: async (applicationId, projectId, data) => {
     const project = await nestedProjectsApi.update(applicationId, projectId, data);
-    set(state => ({
-      projects: updateAppNestedProjects(state.projects, applicationId, projects =>
-        projects.map(p => p.id === projectId ? project : p)
-      ),
-      currentNestedProject: state.currentNestedProject?.id === projectId ? project : state.currentNestedProject
-    }));
+    set(state => {
+      const updatedProjects = updateAppNestedProjects(
+        state.projects,
+        applicationId,
+        projects => projects.map(p => p.id === projectId ? project : p)
+      );
+      const refreshedCurrentProject = state.currentProject?.id === applicationId
+        ? (updatedProjects.find((app) => app.id === applicationId) || state.currentProject)
+        : state.currentProject;
+
+      return {
+        projects: updatedProjects,
+        currentProject: refreshedCurrentProject,
+        currentNestedProject: state.currentNestedProject?.id === projectId ? project : state.currentNestedProject,
+      };
+    });
     return project;
   },
 
   deleteNestedProject: async (applicationId, projectId) => {
     await nestedProjectsApi.delete(applicationId, projectId);
-    set(state => ({
-      projects: updateAppNestedProjects(state.projects, applicationId, projects =>
-        projects.filter(p => p.id !== projectId)
-      ),
-      currentNestedProject: state.currentNestedProject?.id === projectId ? null : state.currentNestedProject
-    }));
+    set(state => {
+      const updatedProjects = updateAppNestedProjects(
+        state.projects,
+        applicationId,
+        projects => projects.filter(p => p.id !== projectId)
+      );
+      const refreshedCurrentProject = state.currentProject?.id === applicationId
+        ? (updatedProjects.find((app) => app.id === applicationId) || state.currentProject)
+        : state.currentProject;
+
+      return {
+        projects: updatedProjects,
+        currentProject: refreshedCurrentProject,
+        currentNestedProject: state.currentNestedProject?.id === projectId ? null : state.currentNestedProject,
+      };
+    });
   },
 
   duplicateNestedProject: async (applicationId: string, projectId: string, newName: string) => {
@@ -260,10 +304,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       name: newName,
       duplicateFromId: projectId
     });
-    set(state => ({
-      projects: updateAppNestedProjects(state.projects, applicationId, projects => [...projects, project]),
-      currentNestedProject: project
-    }));
+    set(state => {
+      const updatedProjects = updateAppNestedProjects(
+        state.projects,
+        applicationId,
+        projects => [...projects, project]
+      );
+      const refreshedCurrentProject = state.currentProject?.id === applicationId
+        ? (updatedProjects.find((app) => app.id === applicationId) || state.currentProject)
+        : state.currentProject;
+
+      return {
+        projects: updatedProjects,
+        currentProject: refreshedCurrentProject,
+        currentNestedProject: project,
+      };
+    });
     return project;
   },
 }));

@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { GitBranch, Box, GitCompare } from 'lucide-react';
 import { Modal, Button } from '@/components/ui';
-import { compareApi, type CompareEnvironment } from '@/api/sandbox';
+import { compareApi, sandboxApi, type CompareEnvironment, type Sandbox } from '@/api/sandbox';
+import { useSandboxStore } from '@/store/sandboxStore';
 
 export interface CompareWithModalProps {
   isOpen: boolean;
@@ -24,6 +25,87 @@ export function CompareWithModal({
   const [selectedTarget, setSelectedTarget] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [projectSandboxes, setProjectSandboxes] = useState<Sandbox[]>([]);
+  const sandboxes = useSandboxStore(s => s.sandboxes);
+
+  const mergedEnvironments = useMemo<CompareEnvironment[]>(() => {
+    const envMap = new Map<string, CompareEnvironment>();
+
+    // Start with backend-provided environments for this project.
+    for (const env of environments) {
+      envMap.set(env.id, env);
+    }
+
+    // Ensure branch entries are always present.
+    if (!envMap.has('master')) {
+      envMap.set('master', {
+        id: 'master',
+        name: 'Production',
+        type: 'branch',
+        branch: 'master',
+      });
+    }
+    if (!envMap.has('dev')) {
+      envMap.set('dev', {
+        id: 'dev',
+        name: 'Development',
+        type: 'branch',
+        branch: 'dev',
+      });
+    }
+
+    // Add active sandbox options from project fetch + store fallback.
+    const sandboxSources = [...projectSandboxes, ...sandboxes];
+    for (const sandbox of sandboxSources) {
+      if (sandbox.status !== 'active') continue;
+      const envId = `sandbox:${sandbox.id}`;
+      if (!envMap.has(envId)) {
+        envMap.set(envId, {
+          id: envId,
+          name: sandbox.name,
+          type: 'sandbox',
+          branch: sandbox.folderPath,
+          owner: sandbox.ownerName || sandbox.ownerEmail || sandbox.ownerId,
+        });
+      }
+    }
+
+    const values = Array.from(envMap.values());
+    return values.sort((a, b) => {
+      const rank = (env: CompareEnvironment) => {
+        if (env.id === 'master') return 0;
+        if (env.id === 'dev') return 1;
+        return 2;
+      };
+      const rankDiff = rank(a) - rank(b);
+      if (rankDiff !== 0) return rankDiff;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    });
+  }, [environments, projectSandboxes, sandboxes]);
+
+  const resolvedSourceEnvironment = useMemo(() => {
+    if (mergedEnvironments.some(env => env.id === currentEnvironment)) {
+      return currentEnvironment;
+    }
+
+    const sandboxNameMatch = currentEnvironment.match(/^sandbox-name:(.+)$/);
+    if (sandboxNameMatch) {
+      const targetName = sandboxNameMatch[1].toLowerCase();
+      const matched = mergedEnvironments.find(env =>
+        env.type === 'sandbox' && env.name.toLowerCase() === targetName
+      );
+      if (matched) {
+        return matched.id;
+      }
+    }
+
+    return currentEnvironment;
+  }, [currentEnvironment, mergedEnvironments]);
+
+  const targetOptions = useMemo(
+    () => mergedEnvironments.filter(env => env.id !== resolvedSourceEnvironment),
+    [mergedEnvironments, resolvedSourceEnvironment]
+  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -32,14 +114,12 @@ export function CompareWithModal({
       setIsLoading(true);
       setError(null);
       try {
-        const envs = await compareApi.getEnvironments(projectId);
+        const [envs, projectSandboxes] = await Promise.all([
+          compareApi.getEnvironments(projectId),
+          sandboxApi.listByProject(projectId).catch(() => [] as Sandbox[]),
+        ]);
         setEnvironments(envs);
-
-        // Auto-select first environment that's different from current
-        const defaultTarget = envs.find(e => e.id !== currentEnvironment);
-        if (defaultTarget) {
-          setSelectedTarget(defaultTarget.id);
-        }
+        setProjectSandboxes(projectSandboxes);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load environments');
       } finally {
@@ -49,6 +129,17 @@ export function CompareWithModal({
 
     fetchEnvironments();
   }, [isOpen, projectId, currentEnvironment]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    setSelectedTarget((prev) => {
+      if (prev && targetOptions.some(env => env.id === prev)) {
+        return prev;
+      }
+      return targetOptions[0]?.id || '';
+    });
+  }, [isOpen, targetOptions]);
 
   const getEnvironmentIcon = (env: CompareEnvironment) => {
     if (env.type === 'branch') {
@@ -65,7 +156,7 @@ export function CompareWithModal({
 
   const handleCompare = () => {
     if (selectedTarget) {
-      onCompare(currentEnvironment, selectedTarget);
+      onCompare(resolvedSourceEnvironment, selectedTarget);
       onClose();
     }
   };
@@ -108,16 +199,16 @@ export function CompareWithModal({
           Current (Source)
         </label>
         <div className={`px-3 py-2 border rounded text-sm flex items-center gap-2 ${
-          currentEnvironment === 'master' ? 'text-status-success border-status-success/30 bg-status-success/10' :
-          currentEnvironment === 'dev' ? 'text-status-info border-status-info/30 bg-status-info/10' :
+          resolvedSourceEnvironment === 'master' ? 'text-status-success border-status-success/30 bg-status-success/10' :
+          resolvedSourceEnvironment === 'dev' ? 'text-status-info border-status-info/30 bg-status-info/10' :
           'text-accent-purple border-accent-purple/30 bg-accent-purple/10'
         }`}>
-          {currentEnvironment === 'master' || currentEnvironment === 'dev' ? (
+          {resolvedSourceEnvironment === 'master' || resolvedSourceEnvironment === 'dev' ? (
             <GitBranch className="w-4 h-4" />
           ) : (
             <Box className="w-4 h-4" />
           )}
-          {environments.find(e => e.id === currentEnvironment)?.name || currentEnvironment}
+          {mergedEnvironments.find(e => e.id === resolvedSourceEnvironment)?.name || resolvedSourceEnvironment}
         </div>
       </div>
 
@@ -133,11 +224,13 @@ export function CompareWithModal({
           </div>
         ) : error ? (
           <div className="text-center py-4 text-status-danger">{error}</div>
+        ) : targetOptions.length === 0 ? (
+          <div className="text-center py-4 text-text-secondary">
+            No other environments available for comparison.
+          </div>
         ) : (
           <div className="space-y-2 max-h-[200px] overflow-y-auto">
-            {environments
-              .filter(env => env.id !== currentEnvironment)
-              .map(env => (
+            {targetOptions.map(env => (
                 <button
                   key={env.id}
                   onClick={() => setSelectedTarget(env.id)}
