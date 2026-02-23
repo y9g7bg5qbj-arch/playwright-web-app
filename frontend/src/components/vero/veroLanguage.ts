@@ -140,7 +140,7 @@ export function registerVeroLanguage(monaco: Monaco): void {
                 [/\b(verify)(\s+)(title)\b/i,
                     ['keyword.assertion', '', 'keyword.assertion']],
 
-                [/\b(page|feature|scenario|field|use)\b/i, 'keyword.structure'],
+                [/\b(page|feature|scenario|field)\b/i, 'keyword.structure'],
                 [/\b(before|after|all|each)\b/i, 'keyword.hook'],
                 [/\b(if|else|repeat|times)\b/i, 'keyword.control'],
                 [/\b(with|and|to|in|returns|return|then|as|into)\b/i, 'keyword.operator'],
@@ -281,10 +281,23 @@ export interface TestDataSheetDefinition {
     columns: { name: string; type: string }[];
 }
 
+// Rich page field data for slash builder dropdowns
+export interface PageFieldData {
+    name: string;
+    filePath: string;
+    fields: { name: string; selectorType: string; selectorValue: string }[];
+    actions: { name: string; parameters: string[] }[];
+}
+
 // Registries are populated externally when project files are loaded.
 // Completion providers read from these to offer contextual suggestions.
 const globalPageRegistry = new Map<string, VeroPageDefinition>();
 const testDataRegistry = new Map<string, TestDataSheetDefinition>();
+const pageFieldRegistry = new Map<string, PageFieldData>();
+
+// Subscriber pattern for pageFieldRegistry (used by useSyncExternalStore)
+let pageFieldListeners = new Set<() => void>();
+let pageFieldSnapshot: PageFieldData[] = [];
 
 export function getRegisteredPages(): VeroPageDefinition[] {
     return Array.from(globalPageRegistry.values());
@@ -303,6 +316,37 @@ export function registerTestDataSheets(sheets: TestDataSheetDefinition[]): void 
     for (const sheet of sheets) {
         testDataRegistry.set(sheet.name, sheet);
     }
+}
+
+/**
+ * Populate the page field registry with rich page/field/action data from the API.
+ * Called by usePageFieldRegistry when the project loads.
+ */
+export function registerPageFields(pages: PageFieldData[]): void {
+    pageFieldRegistry.clear();
+    for (const page of pages) {
+        pageFieldRegistry.set(page.name, page);
+    }
+    // Update snapshot and notify subscribers
+    pageFieldSnapshot = Array.from(pageFieldRegistry.values());
+    for (const listener of pageFieldListeners) {
+        listener();
+    }
+}
+
+export function getPageFields(): PageFieldData[] {
+    return Array.from(pageFieldRegistry.values());
+}
+
+/** Subscribe to page field registry changes (for useSyncExternalStore). */
+export function subscribePageFields(callback: () => void): () => void {
+    pageFieldListeners.add(callback);
+    return () => { pageFieldListeners.delete(callback); };
+}
+
+/** Get a stable snapshot of page fields (for useSyncExternalStore). */
+export function getPageFieldsSnapshot(): PageFieldData[] {
+    return pageFieldSnapshot;
 }
 
 // =============================================================================
@@ -325,6 +369,9 @@ interface CompletionSuggestion {
     insertTextRules?: number;
     detail?: string;
     documentation?: string;
+    sortText?: string;
+    filterText?: string;
+    preselect?: boolean;
 }
 
 function createSnippet(
@@ -361,6 +408,178 @@ function createConstant(monaco: Monaco, label: string, detail: string, documenta
         detail,
         documentation,
     };
+}
+
+interface StepTemplateDefinition {
+    label: string;
+    detail: string;
+    insertText: string;
+    documentation: string;
+    keywords: string[];
+    showOnBlankLine?: boolean;
+}
+
+const GUIDED_STEP_TEMPLATES: StepTemplateDefinition[] = [
+    {
+        label: 'OPEN URL',
+        detail: 'OPEN "<url>"',
+        insertText: 'OPEN "${1:https://example.com}"',
+        documentation: 'Navigate to a URL.',
+        keywords: ['OPEN', 'NAVIGATE'],
+        showOnBlankLine: true,
+    },
+    {
+        label: 'CLICK target',
+        detail: 'CLICK PageName.fieldName',
+        insertText: 'CLICK ${1:LoginPage.submitButton}',
+        documentation: 'Click a page field or selector.',
+        keywords: ['CLICK'],
+        showOnBlankLine: true,
+    },
+    {
+        label: 'FILL target WITH value',
+        detail: 'FILL PageName.fieldName WITH "text"',
+        insertText: 'FILL ${1:LoginPage.emailInput} WITH "${2:test@example.com}"',
+        documentation: 'Type text into an input.',
+        keywords: ['FILL', 'TYPE', 'INPUT'],
+        showOnBlankLine: true,
+    },
+    {
+        label: 'WAIT FOR target',
+        detail: 'WAIT FOR PageName.fieldName',
+        insertText: 'WAIT FOR ${1:LoginPage.successBanner}',
+        documentation: 'Wait for an element/field to be ready.',
+        keywords: ['WAIT'],
+        showOnBlankLine: true,
+    },
+    {
+        label: 'VERIFY target IS VISIBLE',
+        detail: 'VERIFY PageName.fieldName IS VISIBLE',
+        insertText: 'VERIFY ${1:LoginPage.successBanner} IS VISIBLE',
+        documentation: 'Assert the element is visible.',
+        keywords: ['VERIFY', 'ASSERT'],
+        showOnBlankLine: true,
+    },
+    {
+        label: 'VERIFY URL CONTAINS',
+        detail: 'VERIFY URL CONTAINS "/path"',
+        insertText: 'VERIFY URL CONTAINS "${1:/dashboard}"',
+        documentation: 'Assert current URL contains a value.',
+        keywords: ['VERIFY', 'URL', 'ASSERT'],
+        showOnBlankLine: true,
+    },
+    {
+        label: 'IF condition block',
+        detail: 'IF <condition> { ... }',
+        insertText: 'IF ${1:LoginPage.errorBanner IS VISIBLE} {\n    ${2:LOG "Error banner is visible"}\n}',
+        documentation: 'Run steps only when the condition is true.',
+        keywords: ['IF', 'CONDITION'],
+        showOnBlankLine: true,
+    },
+    {
+        label: 'REPEAT times block',
+        detail: 'REPEAT 3 TIMES { ... }',
+        insertText: 'REPEAT ${1:3} TIMES {\n    ${2:CLICK LoginPage.retryButton}\n}',
+        documentation: 'Repeat the same step block.',
+        keywords: ['REPEAT', 'LOOP'],
+        showOnBlankLine: true,
+    },
+    {
+        label: 'SELECT option FROM target',
+        detail: 'SELECT "Option" FROM PageName.fieldName',
+        insertText: 'SELECT "${1:United States}" FROM ${2:ProfilePage.countrySelect}',
+        documentation: 'Select an option in a dropdown/select element.',
+        keywords: ['SELECT', 'DROPDOWN'],
+    },
+    {
+        label: 'CHECK target',
+        detail: 'CHECK PageName.fieldName',
+        insertText: 'CHECK ${1:CheckoutPage.termsCheckbox}',
+        documentation: 'Check a checkbox or toggle.',
+        keywords: ['CHECK'],
+    },
+    {
+        label: 'UNCHECK target',
+        detail: 'UNCHECK PageName.fieldName',
+        insertText: 'UNCHECK ${1:CheckoutPage.newsletterCheckbox}',
+        documentation: 'Uncheck a checkbox or toggle.',
+        keywords: ['UNCHECK'],
+    },
+    {
+        label: 'PRESS key',
+        detail: 'PRESS "Enter"',
+        insertText: 'PRESS "${1:Enter}"',
+        documentation: 'Send a keyboard key.',
+        keywords: ['PRESS', 'KEY'],
+    },
+    {
+        label: 'TAKE SCREENSHOT',
+        detail: 'TAKE SCREENSHOT "name"',
+        insertText: 'TAKE SCREENSHOT "${1:checkpoint-name}"',
+        documentation: 'Capture a screenshot artifact.',
+        keywords: ['SCREENSHOT', 'TAKE'],
+    },
+    {
+        label: 'PERFORM page action',
+        detail: 'PERFORM PageActions.actionName WITH args',
+        insertText: 'PERFORM ${1:LoginActions.login} WITH "${2:user@example.com}", "${3:password}"',
+        documentation: 'Call a reusable page action method.',
+        keywords: ['PERFORM', 'ACTION'],
+    },
+    {
+        label: 'UPLOAD file TO target',
+        detail: 'UPLOAD "path" TO PageName.fieldName',
+        insertText: 'UPLOAD "${1:/tmp/sample.pdf}" TO ${2:UploadPage.fileInput}',
+        documentation: 'Upload one or more files.',
+        keywords: ['UPLOAD', 'FILE'],
+    },
+    {
+        label: 'SWITCH TO NEW TAB',
+        detail: 'SWITCH TO NEW TAB',
+        insertText: 'SWITCH TO NEW TAB',
+        documentation: 'Switch focus to the newest browser tab.',
+        keywords: ['SWITCH', 'TAB'],
+    },
+    {
+        label: 'SWITCH TO TAB index',
+        detail: 'SWITCH TO TAB 2',
+        insertText: 'SWITCH TO TAB ${1:2}',
+        documentation: 'Switch to a tab by 1-based index.',
+        keywords: ['SWITCH', 'TAB'],
+    },
+    {
+        label: 'CLOSE TAB',
+        detail: 'CLOSE TAB',
+        insertText: 'CLOSE TAB',
+        documentation: 'Close the current tab.',
+        keywords: ['CLOSE', 'TAB'],
+    },
+];
+
+function createStepTemplateSuggestion(monaco: Monaco, template: StepTemplateDefinition, index: number): CompletionSuggestion {
+    return {
+        label: template.label,
+        kind: monaco.languages.CompletionItemKind.Snippet,
+        insertText: template.insertText,
+        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+        detail: template.detail,
+        documentation: template.documentation,
+        sortText: `00${String(index).padStart(3, '0')}`,
+        filterText: [template.label, ...template.keywords].join(' '),
+        preselect: index === 0,
+    };
+}
+
+function getGuidedStepSuggestions(monaco: Monaco, keywordPrefix?: string): CompletionSuggestion[] {
+    const normalizedPrefix = keywordPrefix?.toUpperCase();
+    const suggestions = GUIDED_STEP_TEMPLATES.filter(template => {
+        if (!normalizedPrefix) {
+            return template.showOnBlankLine !== false;
+        }
+        return template.keywords.some(keyword => keyword.startsWith(normalizedPrefix));
+    });
+
+    return suggestions.map((template, index) => createStepTemplateSuggestion(monaco, template, index));
 }
 
 // =============================================================================
@@ -452,6 +671,27 @@ function getVisualAssertionSuggestions(monaco: Monaco): CompletionSuggestion[] {
 // =============================================================================
 
 export function registerVeroCompletionProvider(monaco: Monaco): void {
+    // Guided test-step templates for users who do not remember exact Vero syntax.
+    monaco.languages.registerCompletionItemProvider('vero', {
+        triggerCharacters: [' ', '\n'],
+        provideCompletionItems: (model: MonacoEditor.editor.ITextModel, position: MonacoEditor.Position) => {
+            const lineContent = model.getLineContent(position.lineNumber);
+            const textBeforeCursor = lineContent.substring(0, position.column - 1);
+            const trimmed = textBeforeCursor.trim();
+
+            if (trimmed === '') {
+                return { suggestions: getGuidedStepSuggestions(monaco) };
+            }
+
+            const keywordMatch = trimmed.match(/^([a-zA-Z]+)$/);
+            if (!keywordMatch) {
+                return { suggestions: [] };
+            }
+
+            return { suggestions: getGuidedStepSuggestions(monaco, keywordMatch[1]) };
+        },
+    });
+
     // Visual screenshot assertion completions.
     monaco.languages.registerCompletionItemProvider('vero', {
         triggerCharacters: [' ', '\n'],

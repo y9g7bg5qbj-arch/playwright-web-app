@@ -5,6 +5,7 @@ import { veroExecutionRouter } from './veroExecution.routes';
 import { veroAgentRouter } from './veroAgent.routes';
 import { veroScenarioRouter } from './veroScenario.routes';
 import { veroValidationRouter } from './veroValidation.routes';
+import { veroPageFieldsRouter } from './veroPageFields.routes';
 
 const router = Router();
 
@@ -17,5 +18,6 @@ router.use('/', veroExecutionRouter);
 router.use('/', veroAgentRouter);
 router.use('/', veroScenarioRouter);
 router.use('/', veroValidationRouter);
+router.use('/', veroPageFieldsRouter);
 
 export default router;

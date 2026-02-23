@@ -261,7 +261,40 @@ export interface ScenarioQueryOptions {
   veroPath?: string;
 }
 
+// Page field data for slash builder dropdowns
+export interface VeroPageFieldInfo {
+  name: string;
+  selectorType: string;
+  selectorValue: string;
+}
+
+export interface VeroPageActionInfo {
+  name: string;
+  parameters: string[];
+}
+
+export interface VeroPageFieldData {
+  name: string;
+  filePath: string;
+  fields: VeroPageFieldInfo[];
+  actions: VeroPageActionInfo[];
+}
+
 export const veroApi = {
+  // ============================================
+  // PAGE FIELDS (Slash Builder)
+  // ============================================
+
+  /**
+   * Get all page/field metadata for slash builder dropdowns
+   */
+  async getPageFields(projectId: string): Promise<VeroPageFieldData[]> {
+    const response = await request<{ success: boolean; data: VeroPageFieldData[] }>(
+      `/vero/page-fields?projectId=${encodeURIComponent(projectId)}`
+    );
+    return response.data;
+  },
+
   // ============================================
   // FILE OPERATIONS
   // ============================================

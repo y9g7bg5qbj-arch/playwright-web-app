@@ -36,6 +36,7 @@ import { DataPanel } from '../ide/DataPanel';
 import { VDQLReferencePanel } from '../ide/VDQLReferencePanel';
 import { AIAgentPanel } from '../ide/AIAgentPanel';
 import { useTestDataRegistry } from '@/hooks/useTestDataRegistry';
+import { usePageFieldRegistry } from '@/hooks/usePageFieldRegistry';
 import { CommandPalette, type PaletteCommand } from './CommandPalette';
 import { QuickOpenDialog } from './QuickOpenDialog';
 import { ProblemsPanel, type Problem } from './ProblemsPanel';
@@ -85,6 +86,7 @@ export function VeroWorkspace() {
 
   // ─── Test data registry for editor autocomplete ────────────────
   useTestDataRegistry(currentProject?.id);
+  usePageFieldRegistry(selectedProjectId || currentProject?.projects?.[0]?.id || null);
 
   // ─── Shared infrastructure ────────────────────────────────────
   const socketRef = useRef<Socket | null>(null);
