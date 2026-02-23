@@ -71,6 +71,7 @@ export interface UseFileManagementReturn {
   toFullPath: (filePath: string, project?: StoreProject) => string;
   encodePathSegments: (path: string) => string;
   toDevRootPath: (basePath?: string) => string | undefined;
+  setEditorMode: (tabId: string, mode: 'code' | 'builder') => void;
 }
 
 export function useFileManagement({
@@ -857,6 +858,13 @@ export function useFileManagement({
     return activeTabIdRef.current;
   }, []);
 
+  /** Toggle editor mode (code vs builder) for a specific tab. */
+  const setEditorMode = useCallback((tabId: string, mode: 'code' | 'builder') => {
+    setOpenTabs(prev => prev.map(tab =>
+      tab.id === tabId ? { ...tab, editorMode: mode } : tab
+    ));
+  }, []);
+
   return {
     openTabs,
     activeTabId,
@@ -892,5 +900,6 @@ export function useFileManagement({
     toFullPath,
     encodePathSegments,
     toDevRootPath,
+    setEditorMode,
   };
 }

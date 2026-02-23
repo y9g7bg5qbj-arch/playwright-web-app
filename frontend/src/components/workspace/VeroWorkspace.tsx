@@ -542,7 +542,8 @@ export function VeroWorkspace() {
   const isFullPageView = FULL_PAGE_VIEWS.includes(activeView);
   const { activeTab, openTabs, activeTabId } = fileManagement;
   const isEditableActiveTab = Boolean(activeTab && (activeTab.type === undefined || activeTab.type === 'file'));
-  const showRightToolRail = activeView === 'explorer' && !isFullPageView && isEditableActiveTab;
+  const isBuilderMode = activeTab?.editorMode === 'builder';
+  const showRightToolRail = activeView === 'explorer' && !isFullPageView && isEditableActiveTab && !isBuilderMode;
 
   useEffect(() => {
     if (showRightToolRail) return;
@@ -760,6 +761,7 @@ export function VeroWorkspace() {
                       activeTabId={activeTabId}
                       onActivate={fileManagement.activateTab}
                       onClose={fileManagement.closeTab}
+                      onToggleEditorMode={fileManagement.setEditorMode}
                     />
 
                     {/* Debug controls */}

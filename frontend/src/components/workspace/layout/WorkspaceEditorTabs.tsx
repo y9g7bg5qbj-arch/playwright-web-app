@@ -7,9 +7,21 @@ export interface WorkspaceEditorTabsProps {
   activeTabId: string | null;
   onActivate: (tabId: string) => void;
   onClose: (tabId: string) => void;
+  onToggleEditorMode?: (tabId: string, mode: 'code' | 'builder') => void;
 }
 
-export const WorkspaceEditorTabs = React.memo(function WorkspaceEditorTabs({ tabs, activeTabId, onActivate, onClose }: WorkspaceEditorTabsProps) {
+/** Check if a tab is a .vero feature file eligible for visual builder */
+function isFeatureFile(tab: OpenTab): boolean {
+  if (!tab.path.endsWith('.vero')) return false;
+  const trimmed = tab.content.trimStart();
+  return trimmed.startsWith('FEATURE') || /^\s*(@\w+\s+)*FEATURE\b/.test(trimmed);
+}
+
+export const WorkspaceEditorTabs = React.memo(function WorkspaceEditorTabs({ tabs, activeTabId, onActivate, onClose, onToggleEditorMode }: WorkspaceEditorTabsProps) {
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  const showModeToggle = activeTab && isFeatureFile(activeTab) && onToggleEditorMode;
+  const currentMode = activeTab?.editorMode ?? 'code';
+
   return (
     <div className="h-[38px] flex items-center border-b border-border-default bg-dark-shell px-1.5" role="tablist">
       <div className="flex items-center gap-1 overflow-x-auto no-scrollbar min-w-0 flex-1">
@@ -62,6 +74,34 @@ export const WorkspaceEditorTabs = React.memo(function WorkspaceEditorTabs({ tab
           );
         })}
       </div>
+
+      {/* Code / Builder mode toggle */}
+      {showModeToggle && (
+        <div className="flex items-center gap-0.5 ml-2 mr-1 flex-shrink-0">
+          <button
+            onClick={() => onToggleEditorMode!(activeTab!.id, 'code')}
+            className={`flex items-center gap-1 px-2 py-0.5 text-3xs rounded-md border transition-colors ${
+              currentMode === 'code'
+                ? 'border-brand-primary/60 bg-brand-primary/15 text-text-primary'
+                : 'border-transparent text-text-muted hover:text-text-primary hover:bg-dark-elevated/45'
+            }`}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 13 }}>code</span>
+            Code
+          </button>
+          <button
+            onClick={() => onToggleEditorMode!(activeTab!.id, 'builder')}
+            className={`flex items-center gap-1 px-2 py-0.5 text-3xs rounded-md border transition-colors ${
+              currentMode === 'builder'
+                ? 'border-brand-primary/60 bg-brand-primary/15 text-text-primary'
+                : 'border-transparent text-text-muted hover:text-text-primary hover:bg-dark-elevated/45'
+            }`}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 13 }}>view_list</span>
+            Builder
+          </button>
+        </div>
+      )}
     </div>
   );
 });
