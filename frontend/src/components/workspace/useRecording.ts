@@ -16,17 +16,7 @@ function toPascalCase(str: string): string {
 }
 
 /** Extract unique page names referenced as PageName.fieldName in Vero lines. */
-function extractPageNames(veroLines: string[]): string[] {
-  const names = new Set<string>();
-  for (const line of veroLines) {
-    // Match PascalCase identifiers followed by .fieldName (e.g., LoginPage.emailInput)
-    const matches = line.matchAll(/\b([A-Z][a-zA-Z0-9]+)\.\w+/g);
-    for (const m of matches) {
-      names.add(m[1]);
-    }
-  }
-  return [...names];
-}
+
 
 export interface UseRecordingParams {
   socketRef: MutableRefObject<Socket | null>;
@@ -122,9 +112,6 @@ export function useRecording({
     // Scenario names must be PascalCase identifiers (no quotes)
     const stepsIndented = veroLines.map(line => `    ${line}`).join('\n');
     const veroScenario = `  scenario ${toPascalCase(scenarioName)} {\n${stepsIndented}\n  }`;
-
-    // Extract page names referenced in the recorded lines (e.g., LoginPage from LoginPage.emailInput)
-    const referencedPages = extractPageNames(veroLines);
 
     // Prefer the tab that was active when recording started for deterministic insertion
     const targetTabId = recordingTargetTabIdRef.current || getActiveTabId();

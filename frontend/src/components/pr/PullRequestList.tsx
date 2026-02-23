@@ -23,7 +23,6 @@ import type { PullRequest } from '@/api/pullRequest';
 import { CreatePullRequestModal } from './CreatePullRequestModal';
 import {
   getPullRequestStatusTheme,
-  prUiClasses,
   pullRequestStatusOptions,
 } from './prTheme';
 
