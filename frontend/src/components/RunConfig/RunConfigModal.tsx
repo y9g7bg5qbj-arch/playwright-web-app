@@ -1,5 +1,5 @@
 // design-lint-ignore NO_HARDCODED_MODAL — max-w-6xl 2-panel+6-tab layout exceeds Modal's max-w-4xl; interior controls use shared primitives
-import { useState, useEffect, useMemo, useRef, type ComponentType } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   X,
   Plus,
@@ -7,40 +7,13 @@ import {
   Copy,
   Play,
   Save,
-  Settings,
-  SlidersHorizontal,
-  Filter,
-  Timer,
-  Clapperboard,
-  Image,
-  Wrench,
   FlaskConical,
 } from 'lucide-react';
 import { useRunConfigStore, type RunConfiguration, DEFAULT_CONFIG, PRESET_CONFIGS } from '@/store/runConfigStore';
 import { useProjectStore } from '@/store/projectStore';
-import { GeneralTab } from './GeneralTab';
-import { ExecutionTab } from './ExecutionTab';
-import { FilteringTab } from './FilteringTab';
-import { TimeoutsTab } from './TimeoutsTab';
-import { ArtifactsTab } from './ArtifactsTab';
-import { VisualTab } from './VisualTab';
-import { AdvancedTab } from './AdvancedTab';
-import { ParametersTab } from './ParametersTab';
-import { Tabs, TabsList, TabsTrigger, Button, Tooltip } from '@/components/ui';
+import { RunConfigEditor } from './RunConfigEditor';
+import { Button, Tooltip } from '@/components/ui';
 import { cx } from './theme';
-
-type TabType = 'general' | 'execution' | 'filtering' | 'timeouts' | 'artifacts' | 'visual' | 'parameters' | 'advanced';
-
-const TABS: { id: TabType; label: string; icon: ComponentType<{ className?: string }> }[] = [
-  { id: 'general', label: 'General', icon: Settings },
-  { id: 'execution', label: 'Execution', icon: SlidersHorizontal },
-  { id: 'filtering', label: 'Filtering', icon: Filter },
-  { id: 'timeouts', label: 'Timeouts', icon: Timer },
-  { id: 'artifacts', label: 'Artifacts', icon: Clapperboard },
-  { id: 'visual', label: 'Visual', icon: Image },
-  { id: 'parameters', label: 'Parameters', icon: FlaskConical },
-  { id: 'advanced', label: 'Advanced', icon: Wrench },
-];
 
 interface RunConfigModalProps {
   onRun?: (configId: string) => void;
@@ -68,7 +41,6 @@ export function RunConfigModal({ onRun, workflowId, projectId }: RunConfigModalP
 
   const [selectedConfigId, setSelectedConfigId] = useState<string | null>(null);
   const [editingConfig, setEditingConfig] = useState<RunConfiguration | null>(null);
-  const [activeTab, setActiveTab] = useState<TabType>('general');
   const [hasChanges, setHasChanges] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const autoCreateAttemptScopeRef = useRef<string | null>(null);
@@ -209,7 +181,6 @@ export function RunConfigModal({ onRun, workflowId, projectId }: RunConfigModalP
     try {
       const newConfig = await addConfiguration(withUniqueName(DEFAULT_CONFIG), scopedWorkflowId, scopedProjectId);
       setSelectedConfigId(newConfig.id);
-      setActiveTab('general');
       setCreateError(null);
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : 'Failed to create run configuration');
@@ -226,7 +197,6 @@ export function RunConfigModal({ onRun, workflowId, projectId }: RunConfigModalP
     try {
       const newConfig = await addConfiguration(withUniqueName(preset), scopedWorkflowId, scopedProjectId);
       setSelectedConfigId(newConfig.id);
-      setActiveTab('general');
       setCreateError(null);
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : 'Failed to create run configuration');
@@ -399,33 +369,7 @@ export function RunConfigModal({ onRun, workflowId, projectId }: RunConfigModalP
 
           <section className="flex min-w-0 flex-1 flex-col">
             {editingConfig ? (
-              <>
-                <div className="border-b border-border-default bg-dark-bg px-4 py-1.5">
-                  <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabType)} variant="pill" size="md">
-                    <TabsList className="overflow-x-auto">
-                      {TABS.map((tab) => {
-                        const Icon = tab.icon;
-                        return (
-                          <TabsTrigger key={tab.id} value={tab.id} icon={<Icon className="h-3.5 w-3.5" />}>
-                            {tab.label}
-                          </TabsTrigger>
-                        );
-                      })}
-                    </TabsList>
-                  </Tabs>
-                </div>
-
-                <div className="min-h-0 flex-1 overflow-y-auto bg-dark-canvas/40 p-5">
-                  {activeTab === 'general' && <GeneralTab config={editingConfig} onChange={handleChange} />}
-                  {activeTab === 'execution' && <ExecutionTab config={editingConfig} onChange={handleChange} />}
-                  {activeTab === 'filtering' && <FilteringTab config={editingConfig} onChange={handleChange} />}
-                  {activeTab === 'timeouts' && <TimeoutsTab config={editingConfig} onChange={handleChange} />}
-                  {activeTab === 'artifacts' && <ArtifactsTab config={editingConfig} onChange={handleChange} />}
-                  {activeTab === 'visual' && <VisualTab config={editingConfig} onChange={handleChange} />}
-                  {activeTab === 'parameters' && <ParametersTab config={editingConfig} onChange={handleChange} />}
-                  {activeTab === 'advanced' && <AdvancedTab config={editingConfig} onChange={handleChange} />}
-                </div>
-              </>
+              <RunConfigEditor config={editingConfig} onChange={handleChange} />
             ) : (
               <div className="flex flex-1 items-center justify-center text-sm text-text-secondary">
                 Select a configuration or create a new one.

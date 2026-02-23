@@ -10,6 +10,9 @@ export default defineConfig({
       'vero-lang': path.resolve(__dirname, '../vero-lang/dist/index.js'),
     },
   },
+  optimizeDeps: {
+    include: ['@playwright-web-app/shared'],
+  },
   server: {
     host: '0.0.0.0',
     port: 5173,

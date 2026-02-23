@@ -8,9 +8,10 @@ import { runConfigTheme, cardSelectClass, chipClass, cx } from './theme';
 interface GeneralTabProps {
   config: RunConfiguration;
   onChange: <K extends keyof RunConfiguration>(field: K, value: RunConfiguration[K]) => void;
+  hideName?: boolean;
 }
 
-export function GeneralTab({ config, onChange }: GeneralTabProps) {
+export function GeneralTab({ config, onChange, hideName }: GeneralTabProps) {
   const { environments, setManagerOpen } = useEnvironmentStore();
   const {
     isConnected,
@@ -93,19 +94,21 @@ export function GeneralTab({ config, onChange }: GeneralTabProps) {
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
-      <section className={runConfigTheme.section}>
-        <div className="mb-2 flex items-center gap-2">
-          <Rocket className="h-4 w-4 text-brand-secondary" />
-          <label className={runConfigTheme.label}>Configuration Name</label>
-        </div>
-        <input
-          type="text"
-          value={config.name}
-          onChange={(event) => onChange('name', event.target.value)}
-          className={runConfigTheme.input}
-          placeholder="Nightly regression - chrome"
-        />
-      </section>
+      {!hideName && (
+        <section className={runConfigTheme.section}>
+          <div className="mb-2 flex items-center gap-2">
+            <Rocket className="h-4 w-4 text-brand-secondary" />
+            <label className={runConfigTheme.label}>Configuration Name</label>
+          </div>
+          <input
+            type="text"
+            value={config.name}
+            onChange={(event) => onChange('name', event.target.value)}
+            className={runConfigTheme.input}
+            placeholder="Nightly regression - chrome"
+          />
+        </section>
+      )}
 
       <section className={runConfigTheme.section}>
         <div className="mb-2 flex items-center gap-2">
