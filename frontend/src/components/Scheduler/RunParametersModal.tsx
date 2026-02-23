@@ -1,14 +1,15 @@
 /**
  * RunParametersModal - Jenkins-style "Build with Parameters" modal
- * Manual trigger now supports parameter overrides only.
+ * Supports parameter overrides AND per-run execution config overrides.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Play, AlertCircle, Sliders, Settings } from 'lucide-react';
+import { Play, AlertCircle, Sliders, Settings, ChevronDown } from 'lucide-react';
 import { Modal, Button } from '@/components/ui';
 import type {
   Schedule,
   ScheduleParameterValues,
   ScheduleTriggerRequest,
+  ExecutionConfigOverrides,
   RunParameterDefinition,
   RunParameterSet,
 } from '@playwright-web-app/shared';
@@ -42,6 +43,8 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
 }) => {
   const [parameterValues, setParameterValues] = useState<ScheduleParameterValues>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [executionOverrides, setExecutionOverrides] = useState<ExecutionConfigOverrides>({});
+  const [showExecutionOverrides, setShowExecutionOverrides] = useState(false);
 
   const selectedParameterSet = useMemo(() => {
     if (!runConfiguration?.parameterSetId) return undefined;
@@ -82,6 +85,8 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
 
     setParameterValues(defaults);
     setErrors({});
+    setExecutionOverrides({});
+    setShowExecutionOverrides(false);
   }, [
     hasLegacyParameters,
     hasModernParameters,
@@ -125,10 +130,10 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
             newErrors[def.name] = `${def.label} must be a number`;
             return;
           }
-          if (def.min !== undefined && num < def.min) {
+          if (def.min != null && num < def.min) {
             newErrors[def.name] = `${def.label} must be at least ${def.min}`;
           }
-          if (def.max !== undefined && num > def.max) {
+          if (def.max != null && num > def.max) {
             newErrors[def.name] = `${def.label} must be at most ${def.max}`;
           }
         }
@@ -150,11 +155,29 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
     return Object.keys(newErrors).length === 0;
   };
 
+  const overrideCount = Object.keys(executionOverrides).length;
+
   const handleRun = () => {
     if (!validate()) return;
 
     onRun({
       parameterValues: Object.keys(parameterValues).length > 0 ? parameterValues : undefined,
+      executionConfigOverrides: overrideCount > 0 ? executionOverrides : undefined,
+    });
+  };
+
+  const updateOverride = <K extends keyof ExecutionConfigOverrides>(
+    key: K,
+    value: ExecutionConfigOverrides[K] | undefined,
+  ) => {
+    setExecutionOverrides((prev) => {
+      const next = { ...prev };
+      if (value === undefined) {
+        delete next[key];
+      } else {
+        next[key] = value;
+      }
+      return next;
     });
   };
 
@@ -347,7 +370,7 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
         <div className="border border-border-default rounded-lg p-4 bg-dark-card/40">
           <div className="flex items-center gap-2 text-sm font-medium text-text-secondary mb-2">
             <Settings className="w-4 h-4" />
-            Linked Run Configuration
+            Schedule Run Configuration
           </div>
           {runConfiguration ? (
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-muted">
@@ -367,6 +390,148 @@ export const RunParametersModal: React.FC<RunParametersModalProps> = ({
           ) : (
             <div className="text-xs text-status-warning">
               Linked run configuration could not be resolved in the client store. The backend will still enforce linkage.
+            </div>
+          )}
+        </div>
+
+        {/* Execution Config Overrides (collapsible) */}
+        <div className="border border-border-default rounded-lg overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowExecutionOverrides(!showExecutionOverrides)}
+            className="w-full flex items-center justify-between px-4 py-3 bg-dark-card/40 hover:bg-dark-card/60 transition-colors"
+          >
+            <div className="flex items-center gap-2 text-sm font-medium text-text-secondary">
+              <Sliders className="w-4 h-4" />
+              Execution Overrides
+              {overrideCount > 0 && (
+                <span className="text-xs bg-brand-primary/20 text-brand-primary px-2 py-0.5 rounded-full">
+                  {overrideCount} override{overrideCount !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+            <ChevronDown className={`w-4 h-4 text-text-muted transition-transform ${showExecutionOverrides ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showExecutionOverrides && (
+            <div className="p-4 space-y-4 border-t border-border-default">
+              <p className="text-xs text-text-muted">
+                Override execution settings for this run only. Leave blank to use the linked configuration defaults.
+              </p>
+
+              <div className="grid grid-cols-2 gap-4">
+                {/* Workers */}
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">
+                    Workers
+                    <span className="text-text-muted ml-1">(base: {runConfiguration?.workers ?? '—'})</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    placeholder={String(runConfiguration?.workers ?? 1)}
+                    value={executionOverrides.workers ?? ''}
+                    onChange={(e) => updateOverride('workers', e.target.value === '' ? undefined : Number(e.target.value))}
+                    disabled={isLoading}
+                    className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-status-info"
+                  />
+                </div>
+
+                {/* Retries */}
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">
+                    Retries
+                    <span className="text-text-muted ml-1">(base: {runConfiguration?.retries ?? '—'})</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={10}
+                    placeholder={String(runConfiguration?.retries ?? 0)}
+                    value={executionOverrides.retries ?? ''}
+                    onChange={(e) => updateOverride('retries', e.target.value === '' ? undefined : Number(e.target.value))}
+                    disabled={isLoading}
+                    className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-status-info"
+                  />
+                </div>
+
+                {/* Timeout */}
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">
+                    Timeout (seconds)
+                    <span className="text-text-muted ml-1">(base: {runConfiguration ? Math.round(runConfiguration.timeout / 1000) : '—'}s)</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={600}
+                    placeholder={String(runConfiguration ? Math.round(runConfiguration.timeout / 1000) : 30)}
+                    value={executionOverrides.timeout !== undefined ? Math.round(executionOverrides.timeout / 1000) : ''}
+                    onChange={(e) => updateOverride('timeout', e.target.value === '' ? undefined : Number(e.target.value) * 1000)}
+                    disabled={isLoading}
+                    className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-status-info"
+                  />
+                </div>
+
+                {/* Browser */}
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">
+                    Browser
+                    <span className="text-text-muted ml-1">(base: {runConfiguration?.browser ?? '—'})</span>
+                  </label>
+                  <select
+                    value={executionOverrides.browser ?? ''}
+                    onChange={(e) => updateOverride('browser', e.target.value === '' ? undefined : e.target.value as 'chromium' | 'firefox' | 'webkit')}
+                    disabled={isLoading}
+                    className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
+                  >
+                    <option value="">Default ({runConfiguration?.browser ?? 'chromium'})</option>
+                    <option value="chromium">Chromium</option>
+                    <option value="firefox">Firefox</option>
+                    <option value="webkit">WebKit</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Headless toggle */}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={executionOverrides.headless !== undefined ? executionOverrides.headless : !runConfiguration?.headed}
+                  onChange={(e) => {
+                    const baseValue = !runConfiguration?.headed;
+                    // Only set override if different from base
+                    if (e.target.checked === baseValue) {
+                      updateOverride('headless', undefined);
+                    } else {
+                      updateOverride('headless', e.target.checked);
+                    }
+                  }}
+                  disabled={isLoading}
+                  className="w-4 h-4 rounded border-border-default bg-dark-card text-brand-primary focus:ring-status-info"
+                />
+                <span className="text-sm text-text-secondary">Headless mode</span>
+                <span className="text-xs text-text-muted">(base: {runConfiguration?.headed ? 'off' : 'on'})</span>
+              </label>
+
+              {/* Tag Expression */}
+              <div>
+                <label className="block text-xs font-medium text-text-secondary mb-1">
+                  Tag Expression
+                  {runConfiguration?.tagExpression && (
+                    <span className="text-text-muted ml-1">(base: {runConfiguration.tagExpression})</span>
+                  )}
+                </label>
+                <input
+                  type="text"
+                  placeholder={runConfiguration?.tagExpression || 'e.g., @smoke and not @slow'}
+                  value={executionOverrides.tagExpression ?? ''}
+                  onChange={(e) => updateOverride('tagExpression', e.target.value === '' ? undefined : e.target.value)}
+                  disabled={isLoading}
+                  className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-sm text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-status-info"
+                />
+              </div>
             </div>
           )}
         </div>

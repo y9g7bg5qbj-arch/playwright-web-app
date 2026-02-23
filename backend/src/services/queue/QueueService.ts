@@ -511,6 +511,105 @@ class QueueService extends EventEmitter {
     }
   }
 
+  // ============================================
+  // REPEATABLE SCHEDULE MANAGEMENT
+  // ============================================
+
+  private inMemoryScheduleTimers: Map<string, NodeJS.Timeout> = new Map();
+
+  /**
+   * Upsert a repeatable schedule.
+   * BullMQ mode: uses upsertJobScheduler.
+   * In-memory mode: uses cron-parser + setTimeout chain.
+   */
+  async upsertRepeatableSchedule(
+    scheduleId: string,
+    cronExpression: string,
+    timezone: string,
+    jobData: Record<string, unknown>
+  ): Promise<void> {
+    const schedulerKey = `sched-${scheduleId}`;
+
+    if (this.isRedisAvailable) {
+      const queue = this.queues.get(QUEUE_NAMES.SCHEDULE_RUN);
+      if (!queue) {
+        throw new Error('Schedule-run queue not found');
+      }
+      await queue.upsertJobScheduler(
+        schedulerKey,
+        { pattern: cronExpression, tz: timezone },
+        { name: `schedule-run-${scheduleId}`, data: { ...jobData, scheduleId } }
+      );
+      logger.info(`Upserted BullMQ job scheduler for schedule ${scheduleId}`);
+    } else {
+      this.removeInMemoryScheduleTimer(scheduleId);
+
+      const { CronExpressionParser } = await import('cron-parser');
+      const startNext = () => {
+        try {
+          const expr = CronExpressionParser.parse(cronExpression, {
+            tz: timezone,
+            currentDate: new Date(),
+          });
+          const nextDate = expr.next().toDate();
+          const delayMs = Math.max(0, nextDate.getTime() - Date.now());
+
+          const timer = setTimeout(async () => {
+            this.inMemoryScheduleTimers.delete(scheduleId);
+            try {
+              await this.addJob(
+                QUEUE_NAMES.SCHEDULE_RUN as QueueName,
+                `schedule-run-${scheduleId}`,
+                { ...jobData, scheduleId },
+                { priority: 1 }
+              );
+            } catch (err) {
+              logger.error(`Failed to enqueue in-memory repeatable job for schedule ${scheduleId}:`, err);
+            }
+            startNext();
+          }, delayMs);
+          timer.unref();
+          this.inMemoryScheduleTimers.set(scheduleId, timer);
+        } catch (err) {
+          logger.error(`Failed to compute next run for in-memory schedule ${scheduleId}:`, err);
+        }
+      };
+
+      startNext();
+      logger.info(`Upserted in-memory schedule timer for schedule ${scheduleId}`);
+    }
+  }
+
+  /**
+   * Remove a repeatable schedule.
+   */
+  async removeRepeatableSchedule(scheduleId: string): Promise<void> {
+    const schedulerKey = `sched-${scheduleId}`;
+
+    if (this.isRedisAvailable) {
+      const queue = this.queues.get(QUEUE_NAMES.SCHEDULE_RUN);
+      if (queue) {
+        try {
+          await queue.removeJobScheduler(schedulerKey);
+        } catch {
+          // Ignore — scheduler may not exist
+        }
+        logger.info(`Removed BullMQ job scheduler for schedule ${scheduleId}`);
+      }
+    } else {
+      this.removeInMemoryScheduleTimer(scheduleId);
+      logger.info(`Removed in-memory schedule timer for schedule ${scheduleId}`);
+    }
+  }
+
+  private removeInMemoryScheduleTimer(scheduleId: string): void {
+    const existing = this.inMemoryScheduleTimers.get(scheduleId);
+    if (existing) {
+      clearTimeout(existing);
+      this.inMemoryScheduleTimers.delete(scheduleId);
+    }
+  }
+
   /**
    * Map BullMQ job state to our JobStatus
    */
@@ -527,6 +626,12 @@ class QueueService extends EventEmitter {
    */
   async shutdown(): Promise<void> {
     logger.info('Shutting down Queue Service...');
+
+    // Clear in-memory schedule timers
+    for (const [_id, timer] of this.inMemoryScheduleTimers) {
+      clearTimeout(timer);
+    }
+    this.inMemoryScheduleTimers.clear();
 
     // Close BullMQ workers and queues
     for (const [name, worker] of this.workers) {

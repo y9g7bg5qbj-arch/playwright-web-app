@@ -4,9 +4,8 @@ import { QUEUE_NAMES } from './types';
 import { processScheduleRunJob } from './workers/scheduleRunWorker';
 import { scheduleService } from '../schedule.service';
 
-let queueBootstrapped = false;
-let dueSchedulePoller: NodeJS.Timeout | null = null;
-let dueScheduleDispatchInFlight = false;
+let infrastructureReady = false;
+let workersStarted = false;
 
 function parseConcurrency(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
@@ -16,34 +15,12 @@ function parseConcurrency(value: string | undefined, fallback: number): number {
   return Math.floor(parsed);
 }
 
-function parseIntervalMs(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 5000) {
-    return fallback;
-  }
-  return Math.floor(parsed);
-}
-
-async function dispatchDueSchedulesTick(): Promise<void> {
-  if (dueScheduleDispatchInFlight) {
-    return;
-  }
-
-  dueScheduleDispatchInFlight = true;
-  try {
-    const { dispatched, failed } = await scheduleService.dispatchDueSchedules();
-    if (dispatched > 0 || failed > 0) {
-      logger.info(`Due schedule dispatch tick complete: dispatched=${dispatched}, failed=${failed}`);
-    }
-  } catch (error) {
-    logger.error('Failed to dispatch due schedules:', error);
-  } finally {
-    dueScheduleDispatchInFlight = false;
-  }
-}
-
-export async function initializeQueueWorkers(): Promise<void> {
-  if (queueBootstrapped) {
+/**
+ * Initialize queue infrastructure (Redis connection, queue producers/clients).
+ * Required by both API and worker roles so that the API can enqueue jobs.
+ */
+export async function initializeQueueInfrastructure(): Promise<void> {
+  if (infrastructureReady) {
     return;
   }
 
@@ -55,6 +32,35 @@ export async function initializeQueueWorkers(): Promise<void> {
   }
 
   await queueService.initialize();
+  infrastructureReady = true;
+  logger.info('Queue infrastructure initialized');
+}
+
+/**
+ * Reconcile repeatable schedules on worker startup.
+ * Ensures all active schedules have BullMQ job schedulers registered
+ * and stale schedulers for inactive/deleted schedules are removed.
+ */
+async function reconcileRepeatableSchedules(): Promise<void> {
+  try {
+    await scheduleService.reconcileRepeatableSchedules();
+  } catch (error) {
+    logger.error('Failed to reconcile repeatable schedules at startup:', error);
+  }
+}
+
+/**
+ * Start queue workers and reconcile repeatable schedules.
+ * Only needed by the worker role. Requires initializeQueueInfrastructure() first.
+ */
+export async function startQueueWorkers(): Promise<void> {
+  if (workersStarted) {
+    return;
+  }
+
+  if (!infrastructureReady) {
+    await initializeQueueInfrastructure();
+  }
 
   const concurrency = parseConcurrency(process.env.SCHEDULE_QUEUE_CONCURRENCY, 5);
   await queueService.startWorker(
@@ -63,31 +69,27 @@ export async function initializeQueueWorkers(): Promise<void> {
     { concurrency }
   );
 
-  const pollIntervalMs = parseIntervalMs(process.env.SCHEDULE_DISPATCH_INTERVAL_MS, 30000);
-  dueSchedulePoller = setInterval(() => {
-    void dispatchDueSchedulesTick();
-  }, pollIntervalMs);
+  // Reconcile repeatable schedules so all active DB schedules have BullMQ schedulers.
+  await reconcileRepeatableSchedules();
 
-  // Dispatch immediately at startup so missed schedules are picked up without waiting for the first interval.
-  await dispatchDueSchedulesTick();
+  workersStarted = true;
+  logger.info(`Queue workers started (schedule-run concurrency: ${concurrency})`);
+}
 
-  queueBootstrapped = true;
-  logger.info(
-    `Queue workers initialized (schedule-run concurrency: ${concurrency}, dispatch interval: ${pollIntervalMs}ms)`
-  );
+/**
+ * Combined init for backward compatibility (PROCESS_ROLE=all or unset).
+ */
+export async function initializeQueueWorkers(): Promise<void> {
+  await initializeQueueInfrastructure();
+  await startQueueWorkers();
 }
 
 export async function shutdownQueueWorkers(): Promise<void> {
-  if (!queueBootstrapped) {
-    return;
+  if (infrastructureReady || workersStarted) {
+    await queueService.shutdown();
   }
 
-  if (dueSchedulePoller) {
-    clearInterval(dueSchedulePoller);
-    dueSchedulePoller = null;
-  }
-
-  await queueService.shutdown();
-  queueBootstrapped = false;
+  infrastructureReady = false;
+  workersStarted = false;
   logger.info('Queue workers shut down');
 }

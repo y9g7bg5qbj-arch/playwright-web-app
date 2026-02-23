@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   },
   scheduleRunRepositoryMock: {
     update: vi.fn(),
+    create: vi.fn(),
+    hasActiveRuns: vi.fn(),
   },
   userEnvironmentRepositoryMock: {
     findById: vi.fn(),
@@ -32,6 +34,14 @@ const mocks = vi.hoisted(() => ({
   },
   workflowRepositoryMock: {
     findById: vi.fn(),
+    findByApplicationId: vi.fn(),
+  },
+  runParameterDefinitionRepositoryMock: {
+    findByApplicationId: vi.fn(),
+  },
+  runParameterSetRepositoryMock: {
+    findById: vi.fn(),
+    findByApplicationId: vi.fn(),
   },
   executionStepRepositoryMock: {
     create: vi.fn(),
@@ -55,6 +65,9 @@ const mocks = vi.hoisted(() => ({
   executionServiceMock: {
     updateStatus: vi.fn(),
   },
+  scheduleServiceMock: {
+    triggerChainedSchedules: vi.fn(),
+  },
 }));
 
 vi.mock('../db/repositories/mongo', () => ({
@@ -68,6 +81,8 @@ vi.mock('../db/repositories/mongo', () => ({
   applicationRepository: mocks.applicationRepositoryMock,
   workflowRepository: mocks.workflowRepositoryMock,
   executionStepRepository: mocks.executionStepRepositoryMock,
+  runParameterDefinitionRepository: mocks.runParameterDefinitionRepositoryMock,
+  runParameterSetRepository: mocks.runParameterSetRepositoryMock,
 }));
 
 vi.mock('../services/audit.service', () => ({
@@ -123,6 +138,10 @@ vi.mock('../services/results', () => ({
   ResultManager: vi.fn(),
 }));
 
+vi.mock('../services/schedule.service', () => ({
+  scheduleService: mocks.scheduleServiceMock,
+}));
+
 import { processScheduleRunJob } from '../services/queue/workers/scheduleRunWorker';
 
 function buildJob(overrides: Partial<ScheduleRunJobData> = {}) {
@@ -170,6 +189,14 @@ describe('scheduleRunWorker environment propagation', () => {
     mocks.projectRepositoryMock.findById.mockResolvedValue(null);
     mocks.applicationRepositoryMock.findById.mockResolvedValue(null);
     mocks.workflowRepositoryMock.findById.mockResolvedValue(null);
+    mocks.workflowRepositoryMock.findByApplicationId.mockResolvedValue([]);
+    mocks.runParameterDefinitionRepositoryMock.findByApplicationId.mockResolvedValue([]);
+    mocks.runParameterSetRepositoryMock.findById.mockResolvedValue(null);
+    mocks.runParameterSetRepositoryMock.findByApplicationId.mockResolvedValue([]);
+    mocks.scheduleRunRepositoryMock.create.mockResolvedValue({ id: 'run-auto-1' });
+    mocks.scheduleRunRepositoryMock.hasActiveRuns.mockResolvedValue(false);
+
+    mocks.scheduleServiceMock.triggerChainedSchedules.mockResolvedValue(undefined);
 
     mocks.githubServiceMock.triggerWorkflow.mockResolvedValue({ success: true });
     mocks.githubServiceMock.listWorkflowRuns.mockResolvedValue([]);
@@ -476,6 +503,179 @@ describe('scheduleRunWorker environment propagation', () => {
     });
   });
 
+  it('creates ScheduleRun at execution time for repeatable tick (no runId)', async () => {
+    mocks.resolveTestFilesMock.mockResolvedValue(['/tests/Login.vero']);
+    mocks.executeVeroRunMock.mockResolvedValue({
+      status: 'passed',
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      durationMs: 800,
+      exitCode: 0,
+      generatedCode: '',
+      output: '',
+    });
+
+    mocks.scheduleRepositoryMock.findById.mockResolvedValue({
+      id: 'schedule-1',
+      userId: 'user-1',
+      name: 'Repeatable Nightly',
+      projectId: 'proj-1',
+      executionTarget: 'local',
+      isActive: true,
+      concurrencyPolicy: 'forbid',
+      runConfigurationId: 'config-1',
+      testSelector: JSON.stringify({}),
+      cronExpression: '0 2 * * *',
+      timezone: 'UTC',
+    });
+
+    mocks.runConfigurationRepositoryMock.findById.mockResolvedValue({
+      id: 'config-1',
+      name: 'Config',
+      target: 'local',
+      browser: 'chromium',
+      headless: true,
+      workers: 1,
+      retries: 0,
+      timeout: 30000,
+      runtimeConfig: JSON.stringify({}),
+    });
+
+    mocks.scheduleRunRepositoryMock.create.mockResolvedValue({ id: 'run-auto-1' });
+    mocks.scheduleRunRepositoryMock.hasActiveRuns.mockResolvedValue(false);
+
+    // Build a job WITHOUT runId (simulates repeatable tick)
+    const job = {
+      id: 'job-repeatable-1',
+      name: 'schedule-run-schedule-1',
+      data: {
+        scheduleId: 'schedule-1',
+        userId: 'user-1',
+        triggerType: 'scheduled' as const,
+      },
+      priority: 1,
+      status: 'waiting',
+      attempts: 0,
+      maxAttempts: 1,
+      progress: 0,
+      createdAt: new Date(), // recent = not stale
+    };
+
+    await processScheduleRunJob(job as any);
+
+    // Should have created a ScheduleRun
+    expect(mocks.scheduleRunRepositoryMock.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scheduleId: 'schedule-1',
+        triggerType: 'scheduled',
+        status: 'pending',
+      })
+    );
+
+    // Should then proceed to execute
+    expect(mocks.executeVeroRunMock).toHaveBeenCalledTimes(1);
+
+    // Should update the auto-created run to running then to passed
+    expect(mocks.scheduleRunRepositoryMock.update).toHaveBeenCalledWith(
+      'run-auto-1',
+      expect.objectContaining({ status: 'running' })
+    );
+    expect(mocks.scheduleRunRepositoryMock.update).toHaveBeenCalledWith(
+      'run-auto-1',
+      expect.objectContaining({ status: 'passed' })
+    );
+  });
+
+  it('skips repeatable tick when stale (lag exceeds threshold)', async () => {
+    mocks.scheduleRepositoryMock.findById.mockResolvedValue({
+      id: 'schedule-1',
+      userId: 'user-1',
+      name: 'Stale Test',
+      isActive: true,
+      cronExpression: '0 2 * * *',
+      timezone: 'UTC',
+    });
+
+    mocks.scheduleRunRepositoryMock.create.mockResolvedValue({ id: 'run-skipped-1' });
+
+    // Build a job WITHOUT runId that was created 10 minutes ago (stale)
+    const job = {
+      id: 'job-stale-1',
+      name: 'schedule-run-schedule-1',
+      data: {
+        scheduleId: 'schedule-1',
+        userId: 'user-1',
+        triggerType: 'scheduled' as const,
+      },
+      priority: 1,
+      status: 'waiting',
+      attempts: 0,
+      maxAttempts: 1,
+      progress: 0,
+      createdAt: new Date(Date.now() - 10 * 60 * 1000), // 10 minutes ago
+    };
+
+    await processScheduleRunJob(job as any);
+
+    // Should create a skipped run record
+    expect(mocks.scheduleRunRepositoryMock.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'skipped',
+        skipReason: expect.stringContaining('Stale job'),
+      })
+    );
+
+    // Should NOT execute anything
+    expect(mocks.executeVeroRunMock).not.toHaveBeenCalled();
+    expect(mocks.executionEngineMock.runSuite).not.toHaveBeenCalled();
+  });
+
+  it('skips repeatable tick when concurrency policy forbids overlap', async () => {
+    mocks.scheduleRepositoryMock.findById.mockResolvedValue({
+      id: 'schedule-1',
+      userId: 'user-1',
+      name: 'Overlap Test',
+      isActive: true,
+      concurrencyPolicy: 'forbid',
+      cronExpression: '0 2 * * *',
+      timezone: 'UTC',
+    });
+
+    // Active runs exist
+    mocks.scheduleRunRepositoryMock.hasActiveRuns.mockResolvedValue(true);
+    mocks.scheduleRunRepositoryMock.create.mockResolvedValue({ id: 'run-skipped-2' });
+
+    const job = {
+      id: 'job-overlap-1',
+      name: 'schedule-run-schedule-1',
+      data: {
+        scheduleId: 'schedule-1',
+        userId: 'user-1',
+        triggerType: 'scheduled' as const,
+      },
+      priority: 1,
+      status: 'waiting',
+      attempts: 0,
+      maxAttempts: 1,
+      progress: 0,
+      createdAt: new Date(),
+    };
+
+    await processScheduleRunJob(job as any);
+
+    // Should create a skipped run
+    expect(mocks.scheduleRunRepositoryMock.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'skipped',
+        skipReason: 'Overlap forbidden: previous run still pending or running',
+      })
+    );
+
+    // Should NOT execute anything
+    expect(mocks.executeVeroRunMock).not.toHaveBeenCalled();
+  });
+
   it('handles mixed .vero and .spec.ts files in the same schedule', async () => {
     mocks.resolveTestFilesMock.mockResolvedValue([
       '/tests/Login.vero',
@@ -522,5 +722,103 @@ describe('scheduleRunWorker environment propagation', () => {
       'run-1',
       expect.objectContaining({ status: 'passed', passedCount: 3 })
     );
+  });
+
+  it('triggers chained schedules when run passes', async () => {
+    mocks.resolveTestFilesMock.mockResolvedValue(['/tests/Login.vero']);
+    mocks.executeVeroRunMock.mockResolvedValue({
+      status: 'passed',
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      durationMs: 500,
+      exitCode: 0,
+      generatedCode: '',
+      output: '',
+    });
+
+    const scheduleWithChain = {
+      id: 'schedule-1',
+      userId: 'user-1',
+      name: 'Parent Schedule',
+      executionTarget: 'local',
+      testSelector: JSON.stringify({}),
+      cronExpression: '0 6 * * *',
+      timezone: 'UTC',
+      onSuccessTriggerScheduleIds: JSON.stringify(['schedule-child-1', 'schedule-child-2']),
+    };
+
+    mocks.scheduleRepositoryMock.findById.mockResolvedValue(scheduleWithChain);
+
+    await processScheduleRunJob(buildJob() as any);
+
+    // Should have called triggerChainedSchedules with the schedule and runId
+    expect(mocks.scheduleServiceMock.triggerChainedSchedules).toHaveBeenCalledWith(
+      scheduleWithChain,
+      'run-1'
+    );
+  });
+
+  it('does NOT trigger chained schedules when run fails', async () => {
+    mocks.resolveTestFilesMock.mockResolvedValue(['/tests/Login.vero']);
+    mocks.executeVeroRunMock.mockResolvedValue({
+      status: 'failed',
+      passed: 0,
+      failed: 1,
+      skipped: 0,
+      durationMs: 500,
+      exitCode: 1,
+      generatedCode: '',
+      output: '',
+      error: 'Assertion failed',
+    });
+
+    const scheduleWithChain = {
+      id: 'schedule-1',
+      userId: 'user-1',
+      name: 'Parent Schedule',
+      executionTarget: 'local',
+      testSelector: JSON.stringify({}),
+      cronExpression: '0 6 * * *',
+      timezone: 'UTC',
+      onSuccessTriggerScheduleIds: JSON.stringify(['schedule-child-1']),
+    };
+
+    mocks.scheduleRepositoryMock.findById.mockResolvedValue(scheduleWithChain);
+
+    await processScheduleRunJob(buildJob() as any);
+
+    // Should NOT have been called since the run failed
+    expect(mocks.scheduleServiceMock.triggerChainedSchedules).not.toHaveBeenCalled();
+  });
+
+  it('does NOT trigger chained schedules when schedule has no chain IDs', async () => {
+    mocks.resolveTestFilesMock.mockResolvedValue(['/tests/Login.vero']);
+    mocks.executeVeroRunMock.mockResolvedValue({
+      status: 'passed',
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      durationMs: 500,
+      exitCode: 0,
+      generatedCode: '',
+      output: '',
+    });
+
+    mocks.scheduleRepositoryMock.findById.mockResolvedValue({
+      id: 'schedule-1',
+      userId: 'user-1',
+      name: 'No Chain',
+      executionTarget: 'local',
+      testSelector: JSON.stringify({}),
+      cronExpression: '0 6 * * *',
+      timezone: 'UTC',
+      // No onSuccessTriggerScheduleIds
+    });
+
+    await processScheduleRunJob(buildJob() as any);
+
+    // triggerChainedSchedules is called but should be a no-op (no chain IDs)
+    expect(mocks.scheduleServiceMock.triggerChainedSchedules).toHaveBeenCalled();
   });
 });

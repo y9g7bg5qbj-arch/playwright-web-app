@@ -14,8 +14,9 @@ export interface MongoScheduleRun {
   _id?: string;
   id: string;
   scheduleId: string;
-  triggerType: 'cron' | 'scheduled' | 'manual' | 'webhook' | 'api';
-  status: 'pending' | 'running' | 'passed' | 'failed' | 'cancelled';
+  triggerType: 'cron' | 'scheduled' | 'manual' | 'webhook' | 'api' | 'chained';
+  status: 'pending' | 'running' | 'passed' | 'failed' | 'cancelled' | 'skipped';
+  skipReason?: string;
   testCount?: number;
   passedCount?: number;
   failedCount?: number;
@@ -25,6 +26,8 @@ export interface MongoScheduleRun {
   errorMessage?: string;
   parameterValues?: string;
   executionConfig?: string;
+  /** Per-run execution overrides (JSON blob), stored separately for audit trail. */
+  executionConfigOverrides?: string;
   triggeredByUser?: string;
   webhookToken?: string;
   githubRunId?: string;
@@ -74,6 +77,10 @@ export const scheduleRepository = {
 
   async findByUserId(userId: string): Promise<MongoSchedule[]> {
     return getCollection<MongoSchedule>(COLLECTIONS.SCHEDULES).find({ userId }).toArray();
+  },
+
+  async findAll(): Promise<MongoSchedule[]> {
+    return getCollection<MongoSchedule>(COLLECTIONS.SCHEDULES).find({}).toArray();
   },
 
   async findByUserIdAndWorkflowId(userId: string, workflowId: string): Promise<MongoSchedule[]> {
@@ -155,6 +162,14 @@ export const scheduleRunRepository = {
 
   async countByScheduleId(scheduleId: string): Promise<number> {
     return getCollection<MongoScheduleRun>(COLLECTIONS.SCHEDULE_RUNS).countDocuments({ scheduleId });
+  },
+
+  async hasActiveRuns(scheduleId: string): Promise<boolean> {
+    const count = await getCollection<MongoScheduleRun>(COLLECTIONS.SCHEDULE_RUNS).countDocuments({
+      scheduleId,
+      status: { $in: ['pending', 'running'] },
+    });
+    return count > 0;
   },
 
   async create(data: Omit<MongoScheduleRun, '_id' | 'id' | 'createdAt'>): Promise<MongoScheduleRun> {

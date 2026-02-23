@@ -3,6 +3,8 @@
  * Provides parsing, validation, and calculation of cron expressions
  */
 
+import { CronExpressionParser } from 'cron-parser';
+
 // Cron field ranges
 const CRON_RANGES = {
   minute: { min: 0, max: 59 },
@@ -33,70 +35,6 @@ const CRON_PRESETS: Record<string, string> = {
   '@midnight': '0 0 * * *',
   '@hourly': '0 * * * *',
 };
-
-const WEEKDAY_NAMES: Record<string, number> = {
-  sun: 0,
-  mon: 1,
-  tue: 2,
-  wed: 3,
-  thu: 4,
-  fri: 5,
-  sat: 6,
-};
-
-const formatterCache = new Map<string, Intl.DateTimeFormat>();
-
-interface ZonedDateParts {
-  month: number;
-  dayOfMonth: number;
-  dayOfWeek: number;
-  hour: number;
-  minute: number;
-}
-
-function normalizeTimezone(timezone: string): string {
-  try {
-    Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
-    return timezone;
-  } catch {
-    return 'UTC';
-  }
-}
-
-function getTimezoneFormatter(timezone: string): Intl.DateTimeFormat {
-  const normalized = normalizeTimezone(timezone);
-  const cached = formatterCache.get(normalized);
-  if (cached) return cached;
-
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: normalized,
-    month: 'numeric',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: 'numeric',
-    weekday: 'short',
-    hour12: false,
-  });
-
-  formatterCache.set(normalized, formatter);
-  return formatter;
-}
-
-function getZonedDateParts(date: Date, timezone: string): ZonedDateParts {
-  const formatter = getTimezoneFormatter(timezone);
-  const parts = formatter.formatToParts(date);
-
-  const getPart = (type: string): string => parts.find((p) => p.type === type)?.value || '0';
-  const weekdayRaw = getPart('weekday').toLowerCase().slice(0, 3);
-
-  return {
-    month: Number(getPart('month')),
-    dayOfMonth: Number(getPart('day')),
-    dayOfWeek: WEEKDAY_NAMES[weekdayRaw] ?? 0,
-    hour: Number(getPart('hour')),
-    minute: Number(getPart('minute')),
-  };
-}
 
 export interface CronValidationResult {
   valid: boolean;
@@ -301,75 +239,42 @@ export function validateCronExpression(expression: string): CronValidationResult
 }
 
 /**
- * Calculate the next run time from a cron expression
+ * Normalize a timezone string, falling back to UTC for invalid values.
+ */
+function normalizeTimezone(timezone: string): string {
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
+    return timezone;
+  } catch {
+    return 'UTC';
+  }
+}
+
+/**
+ * Calculate the next run time from a cron expression.
+ * Uses cron-parser for efficient calculation (no minute-by-minute iteration).
  */
 export function getNextRunTime(
   expression: string,
   fromDate: Date = new Date(),
   timezone: string = 'UTC'
 ): Date | null {
-  const parsed = parseCronExpression(expression);
-  if (!parsed) {
+  const normalized = CRON_PRESETS[expression.toLowerCase()] || expression;
+  try {
+    const expr = CronExpressionParser.parse(normalized, {
+      tz: normalizeTimezone(timezone),
+      currentDate: fromDate,
+    });
+    const next = expr.next();
+    return next.toDate();
+  } catch {
     return null;
   }
-
-  // Start from the next absolute minute
-  const next = new Date(fromDate);
-  next.setUTCSeconds(0);
-  next.setUTCMilliseconds(0);
-  next.setUTCMinutes(next.getUTCMinutes() + 1);
-
-  // Limit iterations to prevent infinite loops
-  const maxIterations = 366 * 24 * 60; // One year of minutes
-  let iterations = 0;
-
-  while (iterations < maxIterations) {
-    iterations++;
-    const zoned = getZonedDateParts(next, timezone);
-    const month = zoned.month;
-    const dayOfMonth = zoned.dayOfMonth;
-    const dayOfWeek = zoned.dayOfWeek;
-    const hour = zoned.hour;
-    const minute = zoned.minute;
-
-    // Check if all fields match
-    const monthMatch = parsed.month.values.includes(month);
-    const dayOfMonthMatch = parsed.dayOfMonth.values.includes(dayOfMonth);
-    const dayOfWeekMatch = parsed.dayOfWeek.values.includes(dayOfWeek);
-    const hourMatch = parsed.hour.values.includes(hour);
-    const minuteMatch = parsed.minute.values.includes(minute);
-
-    // Day matching: both dayOfMonth and dayOfWeek must be considered
-    // If both are restricted (not *), either can match (OR logic)
-    // If only one is restricted, that one must match
-    const dayOfMonthAll = parsed.dayOfMonth.raw === '*';
-    const dayOfWeekAll = parsed.dayOfWeek.raw === '*';
-
-    let dayMatch: boolean;
-    if (dayOfMonthAll && dayOfWeekAll) {
-      dayMatch = true;
-    } else if (dayOfMonthAll) {
-      dayMatch = dayOfWeekMatch;
-    } else if (dayOfWeekAll) {
-      dayMatch = dayOfMonthMatch;
-    } else {
-      // Both are restricted, use OR logic (standard cron behavior)
-      dayMatch = dayOfMonthMatch || dayOfWeekMatch;
-    }
-
-    if (monthMatch && dayMatch && hourMatch && minuteMatch) {
-      return next;
-    }
-
-    // Increment by one absolute minute and evaluate in target timezone.
-    next.setUTCMinutes(next.getUTCMinutes() + 1);
-  }
-
-  return null; // No match found within iteration limit
 }
 
 /**
- * Get the next N run times from a cron expression
+ * Get the next N run times from a cron expression.
+ * Uses cron-parser for efficient calculation.
  */
 export function getNextRunTimes(
   expression: string,
@@ -377,17 +282,21 @@ export function getNextRunTimes(
   fromDate: Date = new Date(),
   timezone: string = 'UTC'
 ): Date[] {
-  const results: Date[] = [];
-  let current = fromDate;
-
-  for (let i = 0; i < count; i++) {
-    const next = getNextRunTime(expression, current, timezone);
-    if (!next) break;
-    results.push(next);
-    current = next;
+  const normalized = CRON_PRESETS[expression.toLowerCase()] || expression;
+  try {
+    const expr = CronExpressionParser.parse(normalized, {
+      tz: normalizeTimezone(timezone),
+      currentDate: fromDate,
+    });
+    const results: Date[] = [];
+    for (let i = 0; i < count; i++) {
+      const next = expr.next();
+      results.push(next.toDate());
+    }
+    return results;
+  } catch {
+    return [];
   }
-
-  return results;
 }
 
 /**

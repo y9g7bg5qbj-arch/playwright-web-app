@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   },
   scheduleRunRepositoryMock: {
     create: vi.fn(),
+    hasActiveRuns: vi.fn(),
   },
   scheduleTestResultRepositoryMock: {
     findByRunId: vi.fn(),
@@ -56,6 +57,7 @@ describe('scheduleService.dispatchDueSchedules', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.scheduleRepositoryMock.update.mockResolvedValue({});
+    mocks.scheduleRunRepositoryMock.hasActiveRuns.mockResolvedValue(false);
     mocks.auditServiceMock.logScheduleAction.mockResolvedValue(undefined);
   });
 

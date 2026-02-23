@@ -30,11 +30,14 @@ import type {
     ScheduleParameterDefinition,
     ScheduleParameterValues,
     ScheduleExecutionConfig,
+    ExecutionConfigOverrides,
     ScheduleExecutionTarget,
     ScheduleGitHubActionsConfig,
     ScheduleFolderScope,
+    RunConfigurationCreate,
 } from '@playwright-web-app/shared';
 import { randomBytes } from 'crypto';
+import { isAdmin } from '../middleware/rbac';
 
 // Import the full-featured cron parser
 import { validateCronExpression as validateCron, getNextRunTime as calculateNextRunTime, getNextRunTimes as calculateNextRunTimes, describeCronExpression as describeCron } from './scheduler/cronParser';
@@ -68,6 +71,7 @@ function getNextRunTime(cronExpression: string, timezone: string = 'UTC', fromDa
 }
 
 const SCHEDULE_RUN_CONFIG_MIGRATION_VERSION = 1;
+const SCHEDULE_OWNED_CONFIG_MIGRATION_VERSION = 2;
 
 export class ScheduleService {
     private migrationInFlight: Promise<void> | null = null;
@@ -82,7 +86,10 @@ export class ScheduleService {
             return;
         }
 
-        this.migrationInFlight = this.runLegacyScheduleBackfill();
+        this.migrationInFlight = (async () => {
+            await this.runLegacyScheduleBackfill();
+            await this.migrateSharedConfigsToScheduleOwned();
+        })();
         try {
             await this.migrationInFlight;
             this.migrationCompleted = true;
@@ -186,6 +193,114 @@ export class ScheduleService {
         return workflow?.applicationId || null;
     }
 
+    /**
+     * Create a scheduler-owned run configuration from an inline payload.
+     */
+    private async createSchedulerOwnedConfig(
+        workflowId: string,
+        projectId: string,
+        scheduleName: string,
+        configPayload: RunConfigurationCreate,
+        scheduleId: string,
+    ): Promise<any> {
+        return runConfigurationRepository.create({
+            workflowId,
+            projectId,
+            name: configPayload.name || `Schedule: ${scheduleName}`,
+            description: configPayload.description,
+            isDefault: false,
+            tags: configPayload.tags ?? [],
+            tagMode: configPayload.tagMode ?? 'any',
+            excludeTags: configPayload.excludeTags ?? [],
+            testFlowIds: configPayload.testFlowIds ?? [],
+            grep: configPayload.grep,
+            tagExpression: configPayload.tagExpression,
+            namePatterns: configPayload.namePatterns ? JSON.stringify(configPayload.namePatterns) : undefined,
+            environmentId: configPayload.environmentId,
+            target: configPayload.target ?? 'local',
+            localConfig: configPayload.localConfig ? JSON.stringify(configPayload.localConfig) : undefined,
+            dockerConfig: configPayload.dockerConfig ? JSON.stringify(configPayload.dockerConfig) : undefined,
+            githubActionsConfig: configPayload.githubActionsConfig ? JSON.stringify(configPayload.githubActionsConfig) : undefined,
+            browser: configPayload.browser ?? 'chromium',
+            browserChannel: configPayload.browserChannel,
+            headless: configPayload.headless ?? true,
+            viewport: JSON.stringify(configPayload.viewport ?? { width: 1280, height: 720 }),
+            workers: configPayload.workers ?? 1,
+            shardCount: configPayload.shardCount ?? 1,
+            retries: configPayload.retries ?? 0,
+            timeout: configPayload.timeout ?? 30000,
+            tracing: configPayload.tracing ?? 'on-failure',
+            screenshot: configPayload.screenshot ?? 'on-failure',
+            video: configPayload.video ?? 'off',
+            advancedConfig: configPayload.advancedConfig ? JSON.stringify(configPayload.advancedConfig) : undefined,
+            selectionScope: configPayload.selectionScope,
+            envVars: configPayload.envVars ? JSON.stringify(configPayload.envVars) : undefined,
+            parameterSetId: configPayload.parameterSetId,
+            parameterOverrides: configPayload.parameterOverrides ? JSON.stringify(configPayload.parameterOverrides) : undefined,
+            visualPreset: configPayload.visualPreset,
+            visualThreshold: configPayload.visualThreshold,
+            visualMaxDiffPixels: configPayload.visualMaxDiffPixels,
+            visualMaxDiffPixelRatio: configPayload.visualMaxDiffPixelRatio,
+            visualUpdateSnapshots: configPayload.visualUpdateSnapshots,
+            runtimeConfig: configPayload.runtimeConfig ? JSON.stringify(configPayload.runtimeConfig) : undefined,
+            githubRepository: configPayload.githubRepository,
+            githubWorkflowPath: configPayload.githubWorkflowPath,
+            ownerType: 'schedule',
+            ownerScheduleId: scheduleId,
+        });
+    }
+
+    /**
+     * Update an existing scheduler-owned run configuration from an inline payload.
+     */
+    private async updateSchedulerOwnedConfig(
+        configId: string,
+        configPayload: Partial<RunConfigurationCreate>,
+    ): Promise<any> {
+        const updateData: Record<string, any> = {};
+
+        if (configPayload.name !== undefined) updateData.name = configPayload.name;
+        if (configPayload.description !== undefined) updateData.description = configPayload.description;
+        if (configPayload.tags !== undefined) updateData.tags = configPayload.tags;
+        if (configPayload.tagMode !== undefined) updateData.tagMode = configPayload.tagMode;
+        if (configPayload.excludeTags !== undefined) updateData.excludeTags = configPayload.excludeTags;
+        if (configPayload.testFlowIds !== undefined) updateData.testFlowIds = configPayload.testFlowIds;
+        if (configPayload.grep !== undefined) updateData.grep = configPayload.grep;
+        if (configPayload.tagExpression !== undefined) updateData.tagExpression = configPayload.tagExpression;
+        if (configPayload.namePatterns !== undefined) updateData.namePatterns = configPayload.namePatterns ? JSON.stringify(configPayload.namePatterns) : null;
+        if (configPayload.environmentId !== undefined) updateData.environmentId = configPayload.environmentId;
+        if (configPayload.target !== undefined) updateData.target = configPayload.target;
+        if (configPayload.localConfig !== undefined) updateData.localConfig = configPayload.localConfig ? JSON.stringify(configPayload.localConfig) : null;
+        if (configPayload.dockerConfig !== undefined) updateData.dockerConfig = configPayload.dockerConfig ? JSON.stringify(configPayload.dockerConfig) : null;
+        if (configPayload.githubActionsConfig !== undefined) updateData.githubActionsConfig = configPayload.githubActionsConfig ? JSON.stringify(configPayload.githubActionsConfig) : null;
+        if (configPayload.browser !== undefined) updateData.browser = configPayload.browser;
+        if (configPayload.browserChannel !== undefined) updateData.browserChannel = configPayload.browserChannel;
+        if (configPayload.headless !== undefined) updateData.headless = configPayload.headless;
+        if (configPayload.viewport !== undefined) updateData.viewport = JSON.stringify(configPayload.viewport);
+        if (configPayload.workers !== undefined) updateData.workers = configPayload.workers;
+        if (configPayload.shardCount !== undefined) updateData.shardCount = configPayload.shardCount;
+        if (configPayload.retries !== undefined) updateData.retries = configPayload.retries;
+        if (configPayload.timeout !== undefined) updateData.timeout = configPayload.timeout;
+        if (configPayload.tracing !== undefined) updateData.tracing = configPayload.tracing;
+        if (configPayload.screenshot !== undefined) updateData.screenshot = configPayload.screenshot;
+        if (configPayload.video !== undefined) updateData.video = configPayload.video;
+        if (configPayload.advancedConfig !== undefined) updateData.advancedConfig = configPayload.advancedConfig ? JSON.stringify(configPayload.advancedConfig) : null;
+        if (configPayload.selectionScope !== undefined) updateData.selectionScope = configPayload.selectionScope;
+        if (configPayload.envVars !== undefined) updateData.envVars = configPayload.envVars ? JSON.stringify(configPayload.envVars) : null;
+        if (configPayload.parameterSetId !== undefined) updateData.parameterSetId = configPayload.parameterSetId;
+        if (configPayload.parameterOverrides !== undefined) updateData.parameterOverrides = configPayload.parameterOverrides ? JSON.stringify(configPayload.parameterOverrides) : null;
+        if (configPayload.visualPreset !== undefined) updateData.visualPreset = configPayload.visualPreset;
+        if (configPayload.visualThreshold !== undefined) updateData.visualThreshold = configPayload.visualThreshold;
+        if (configPayload.visualMaxDiffPixels !== undefined) updateData.visualMaxDiffPixels = configPayload.visualMaxDiffPixels;
+        if (configPayload.visualMaxDiffPixelRatio !== undefined) updateData.visualMaxDiffPixelRatio = configPayload.visualMaxDiffPixelRatio;
+        if (configPayload.visualUpdateSnapshots !== undefined) updateData.visualUpdateSnapshots = configPayload.visualUpdateSnapshots;
+        if (configPayload.runtimeConfig !== undefined) updateData.runtimeConfig = configPayload.runtimeConfig ? JSON.stringify(configPayload.runtimeConfig) : null;
+        if (configPayload.githubRepository !== undefined) updateData.githubRepository = configPayload.githubRepository;
+        if (configPayload.githubWorkflowPath !== undefined) updateData.githubWorkflowPath = configPayload.githubWorkflowPath;
+
+        return runConfigurationRepository.update(configId, updateData);
+    }
+
     private async loadAndValidateRunConfiguration(
         runConfigurationId: string,
         workflowId: string,
@@ -204,12 +319,12 @@ export class ScheduleService {
         return linkedConfig;
     }
 
-    private async validateWorkflowOwnership(userId: string, workflowId: string): Promise<any> {
+    private async validateWorkflowOwnership(userId: string, workflowId: string, userRole?: string): Promise<any> {
         const workflow = await workflowRepository.findById(workflowId);
         if (!workflow) {
             throw new ValidationError(`Workflow '${workflowId}' not found`);
         }
-        if (workflow.userId !== userId) {
+        if (!isAdmin(userRole) && workflow.userId !== userId) {
             throw new ForbiddenError('Workflow does not belong to current user');
         }
         return workflow;
@@ -218,10 +333,11 @@ export class ScheduleService {
     private async validateProjectWorkflowOwnership(
         projectId: string,
         workflowId: string,
-        userId?: string
+        userId?: string,
+        userRole?: string
     ): Promise<void> {
         const workflow = userId
-            ? await this.validateWorkflowOwnership(userId, workflowId)
+            ? await this.validateWorkflowOwnership(userId, workflowId, userRole)
             : await workflowRepository.findById(workflowId);
         if (!workflow) {
             throw new ValidationError(`Workflow '${workflowId}' not found`);
@@ -491,9 +607,114 @@ export class ScheduleService {
     }
 
     /**
+     * Migration v2: Clone shared run configs into scheduler-owned copies.
+     * For every schedule that still points at a shared (workspace-level) run config,
+     * duplicate the linked config with ownerType='schedule' and rebind.
+     */
+    private async migrateSharedConfigsToScheduleOwned(): Promise<void> {
+        const allSchedules = await scheduleRepository.findAll();
+        let migrated = 0;
+        let skipped = 0;
+
+        for (const schedule of allSchedules) {
+            // Skip if already at v2 or has no linked config
+            if (
+                (schedule.migrationVersion ?? 0) >= SCHEDULE_OWNED_CONFIG_MIGRATION_VERSION ||
+                !schedule.runConfigurationId
+            ) {
+                continue;
+            }
+
+            try {
+                // Check if this schedule already has an owned config (idempotency)
+                const existingOwned = await runConfigurationRepository.findByOwnerScheduleId(schedule.id);
+                if (existingOwned) {
+                    // Already has an owned config — just bump version
+                    await scheduleRepository.update(schedule.id, {
+                        runConfigurationId: existingOwned.id,
+                        migrationVersion: SCHEDULE_OWNED_CONFIG_MIGRATION_VERSION,
+                    });
+                    migrated += 1;
+                    continue;
+                }
+
+                // Load the shared config
+                const sharedConfig = await runConfigurationRepository.findById(schedule.runConfigurationId);
+                if (!sharedConfig) {
+                    skipped += 1;
+                    logger.warn(`[ScheduleOwnedConfigMigration] Skipping schedule ${schedule.id}: linked config ${schedule.runConfigurationId} not found`);
+                    continue;
+                }
+
+                // Clone as scheduler-owned
+                const cloned = await runConfigurationRepository.create({
+                    workflowId: sharedConfig.workflowId,
+                    projectId: sharedConfig.projectId,
+                    name: `Schedule: ${schedule.name}`,
+                    description: sharedConfig.description,
+                    isDefault: false,
+                    tags: sharedConfig.tags,
+                    tagMode: sharedConfig.tagMode,
+                    excludeTags: sharedConfig.excludeTags,
+                    testFlowIds: sharedConfig.testFlowIds,
+                    grep: sharedConfig.grep,
+                    tagExpression: sharedConfig.tagExpression,
+                    namePatterns: sharedConfig.namePatterns,
+                    environmentId: sharedConfig.environmentId,
+                    target: sharedConfig.target,
+                    localConfig: sharedConfig.localConfig,
+                    dockerConfig: sharedConfig.dockerConfig,
+                    githubActionsConfig: sharedConfig.githubActionsConfig,
+                    browser: sharedConfig.browser,
+                    browserChannel: sharedConfig.browserChannel,
+                    headless: sharedConfig.headless,
+                    viewport: sharedConfig.viewport,
+                    workers: sharedConfig.workers,
+                    shardCount: sharedConfig.shardCount,
+                    retries: sharedConfig.retries,
+                    timeout: sharedConfig.timeout,
+                    tracing: sharedConfig.tracing,
+                    screenshot: sharedConfig.screenshot,
+                    video: sharedConfig.video,
+                    advancedConfig: sharedConfig.advancedConfig,
+                    selectionScope: sharedConfig.selectionScope,
+                    envVars: sharedConfig.envVars,
+                    parameterSetId: sharedConfig.parameterSetId,
+                    parameterOverrides: sharedConfig.parameterOverrides,
+                    visualPreset: sharedConfig.visualPreset,
+                    visualThreshold: sharedConfig.visualThreshold,
+                    visualMaxDiffPixels: sharedConfig.visualMaxDiffPixels,
+                    visualMaxDiffPixelRatio: sharedConfig.visualMaxDiffPixelRatio,
+                    visualUpdateSnapshots: sharedConfig.visualUpdateSnapshots,
+                    runtimeConfig: sharedConfig.runtimeConfig,
+                    githubRepository: sharedConfig.githubRepository,
+                    githubWorkflowPath: sharedConfig.githubWorkflowPath,
+                    ownerType: 'schedule',
+                    ownerScheduleId: schedule.id,
+                });
+
+                // Rebind schedule to the cloned config
+                await scheduleRepository.update(schedule.id, {
+                    runConfigurationId: cloned.id,
+                    migrationVersion: SCHEDULE_OWNED_CONFIG_MIGRATION_VERSION,
+                });
+
+                migrated += 1;
+            } catch (error: any) {
+                skipped += 1;
+                logger.warn(`[ScheduleOwnedConfigMigration] Failed to migrate schedule ${schedule.id}: ${error?.message || error}`);
+            }
+        }
+
+        if (migrated > 0 || skipped > 0) {
+            logger.info(`[ScheduleOwnedConfigMigration] Completed: migrated=${migrated}, skipped=${skipped}`);
+        }
+    }
+
+    /**
      * Create a new schedule
      */
-    async create(userId: string, data: ScheduleCreate): Promise<Schedule> {
+    async create(userId: string, data: ScheduleCreate, userRole?: string): Promise<Schedule> {
         // Validate cron expression
         const cronValidation = validateCron(data.cronExpression);
         if (!cronValidation.valid) {
@@ -512,11 +733,14 @@ export class ScheduleService {
         if (data.scopeFolder !== 'sandboxes' && data.scopeSandboxId) {
             throw new ValidationError('scopeSandboxId is only valid when scopeFolder is sandboxes');
         }
-        if (!data.runConfigurationId) {
-            throw new ValidationError('runConfigurationId is required');
+
+        const hasInlineConfig = data.scheduleRunConfiguration && typeof data.scheduleRunConfiguration === 'object';
+        const hasLinkedId = data.runConfigurationId && typeof data.runConfigurationId === 'string';
+        if (!hasInlineConfig && !hasLinkedId) {
+            throw new ValidationError('Either runConfigurationId or scheduleRunConfiguration is required');
         }
 
-        await this.validateProjectWorkflowOwnership(data.projectId, data.workflowId, userId);
+        await this.validateProjectWorkflowOwnership(data.projectId, data.workflowId, userId, userRole);
 
         const scopeSandboxId = data.scopeFolder === 'sandboxes' ? data.scopeSandboxId : undefined;
         const generatedSelector = await this.buildSelectorFromScope(
@@ -525,18 +749,42 @@ export class ScheduleService {
             scopeSandboxId
         );
 
-        const linkedConfig = await this.loadAndValidateRunConfiguration(
-            data.runConfigurationId,
-            data.workflowId,
-            data.projectId
-        );
-        const compat = this.buildLegacyCompatFromRunConfiguration(linkedConfig);
-        if (compat.executionTarget === 'github-actions' && (!compat.githubRepoFullName || !compat.githubWorkflowFile)) {
+        // Resolve the run configuration: either validate linked or defer for inline creation
+        let linkedConfig: any;
+        let effectiveRunConfigurationId: string | undefined;
+
+        if (hasLinkedId && !hasInlineConfig) {
+            linkedConfig = await this.loadAndValidateRunConfiguration(
+                data.runConfigurationId!,
+                data.workflowId,
+                data.projectId
+            );
+            effectiveRunConfigurationId = data.runConfigurationId!;
+        }
+
+        // Build compat from linked config if available (inline path defers)
+        let compat = linkedConfig
+            ? this.buildLegacyCompatFromRunConfiguration(linkedConfig)
+            : { executionTarget: 'local' as ScheduleExecutionTarget };
+
+        if (linkedConfig && compat.executionTarget === 'github-actions' && (!compat.githubRepoFullName || !compat.githubWorkflowFile)) {
             throw new ValidationError('Linked run configuration is missing GitHub repository/workflow settings');
         }
 
         const nextRunAt = getNextRunTime(data.cronExpression, data.timezone || 'UTC');
         const webhookToken = generateWebhookToken();
+        const enforcedIsActive = true;
+
+        if (data.isActive === false) {
+            logger.warn('[Schedule] New schedule requested as paused; enforcing active state', {
+                userId,
+                workflowId: data.workflowId,
+                projectId: data.projectId,
+                scheduleName: data.name,
+                requestedIsActive: data.isActive,
+                enforcedIsActive,
+            });
+        }
 
         const schedule = await scheduleRepository.create({
             userId,
@@ -550,19 +798,53 @@ export class ScheduleService {
             timezone: data.timezone || 'UTC',
             testSelector: JSON.stringify(generatedSelector),
             notificationConfig: data.notificationConfig ? JSON.stringify(data.notificationConfig) : undefined,
-            isActive: data.isActive ?? true,
+            isActive: enforcedIsActive,
             nextRunAt: nextRunAt || undefined,
             webhookToken,
             parameters: undefined,
             defaultExecutionConfig: undefined,
             executionTarget: compat.executionTarget,
-            runConfigurationId: data.runConfigurationId,
+            runConfigurationId: effectiveRunConfigurationId,
             githubRepoFullName: compat.executionTarget === 'github-actions' ? compat.githubRepoFullName : undefined,
             githubBranch: compat.executionTarget === 'github-actions' ? (compat.githubBranch || 'main') : undefined,
             githubWorkflowFile: compat.executionTarget === 'github-actions' ? compat.githubWorkflowFile : undefined,
             githubInputs: compat.executionTarget === 'github-actions' ? compat.githubInputs : undefined,
-            migrationVersion: SCHEDULE_RUN_CONFIG_MIGRATION_VERSION,
+            migrationVersion: SCHEDULE_OWNED_CONFIG_MIGRATION_VERSION,
+            onSuccessTriggerScheduleIds: data.onSuccessTriggerScheduleIds?.length
+                ? JSON.stringify(data.onSuccessTriggerScheduleIds)
+                : undefined,
         });
+
+        // If using inline config, create the scheduler-owned config and update the schedule
+        if (hasInlineConfig) {
+            const ownedConfig = await this.createSchedulerOwnedConfig(
+                data.workflowId,
+                data.projectId,
+                data.name,
+                data.scheduleRunConfiguration!,
+                schedule.id,
+            );
+            effectiveRunConfigurationId = ownedConfig.id;
+            linkedConfig = ownedConfig;
+            compat = this.buildLegacyCompatFromRunConfiguration(ownedConfig);
+
+            await scheduleRepository.update(schedule.id, {
+                runConfigurationId: ownedConfig.id,
+                executionTarget: compat.executionTarget,
+                githubRepoFullName: compat.executionTarget === 'github-actions' ? compat.githubRepoFullName : undefined,
+                githubBranch: compat.executionTarget === 'github-actions' ? (compat.githubBranch || 'main') : undefined,
+                githubWorkflowFile: compat.executionTarget === 'github-actions' ? compat.githubWorkflowFile : undefined,
+                githubInputs: compat.executionTarget === 'github-actions' ? compat.githubInputs : undefined,
+            });
+        }
+
+        // Validate chained schedule references (after create so we have the ID)
+        if (data.onSuccessTriggerScheduleIds?.length) {
+            await this.validateChainedSchedules(userId, schedule.id, data.onSuccessTriggerScheduleIds);
+        }
+
+        // Sync repeatable schedule registration.
+        await this.syncRepeatableSchedule(schedule.id);
 
         // Get recent runs
         const runs = await scheduleRunRepository.findByScheduleId(schedule.id, 5);
@@ -573,9 +855,9 @@ export class ScheduleService {
     /**
      * Find all schedules for a user
      */
-    async findAll(userId: string, workflowId?: string): Promise<Schedule[]> {
+    async findAll(userId: string, workflowId?: string, userRole?: string): Promise<Schedule[]> {
         if (workflowId) {
-            await this.validateWorkflowOwnership(userId, workflowId);
+            await this.validateWorkflowOwnership(userId, workflowId, userRole);
             const schedules = await scheduleRepository.findByUserIdAndWorkflowId(userId, workflowId);
             const schedulesWithRuns = await Promise.all(
                 schedules.map(async (schedule) => {
@@ -586,7 +868,9 @@ export class ScheduleService {
             return schedulesWithRuns.map(s => this.formatSchedule(s));
         }
 
-        const schedules = await scheduleRepository.findByUserId(userId);
+        const schedules = isAdmin(userRole)
+            ? await scheduleRepository.findAll()
+            : await scheduleRepository.findByUserId(userId);
         const schedulesWithRuns = await Promise.all(
             schedules.map(async (schedule) => {
                 const runs = await scheduleRunRepository.findByScheduleId(schedule.id, 5);
@@ -615,22 +899,22 @@ export class ScheduleService {
     /**
      * Verify user owns the schedule. Returns the schedule record.
      */
-    private async verifyOwnership(userId: string, scheduleId: string): Promise<any> {
+    private async verifyOwnership(userId: string, scheduleId: string, userRole?: string): Promise<any> {
         const schedule = await scheduleRepository.findById(scheduleId);
 
         if (!schedule) {
             throw new NotFoundError('Schedule not found');
         }
 
-        if (schedule.userId !== userId) {
+        if (!isAdmin(userRole) && schedule.userId !== userId) {
             throw new ForbiddenError('Access denied');
         }
 
         return schedule;
     }
 
-    async findOne(userId: string, scheduleId: string): Promise<Schedule> {
-        const schedule = await this.verifyOwnership(userId, scheduleId);
+    async findOne(userId: string, scheduleId: string, userRole?: string): Promise<Schedule> {
+        const schedule = await this.verifyOwnership(userId, scheduleId, userRole);
 
         const runs = await scheduleRunRepository.findByScheduleId(scheduleId, 10);
         const runsWithResults = await this.enrichRunsWithResults(runs);
@@ -641,8 +925,8 @@ export class ScheduleService {
     /**
      * Update a schedule
      */
-    async update(userId: string, scheduleId: string, data: ScheduleUpdate): Promise<Schedule> {
-        const existing = await this.verifyOwnership(userId, scheduleId);
+    async update(userId: string, scheduleId: string, data: ScheduleUpdate, userRole?: string): Promise<Schedule> {
+        const existing = await this.verifyOwnership(userId, scheduleId, userRole);
 
         // Validate new cron expression if provided
         let nextRunAt = existing.nextRunAt;
@@ -656,16 +940,17 @@ export class ScheduleService {
             nextRunAt = getNextRunTime(effectiveCronExpression, effectiveTimezone) || undefined;
         }
 
-        if (!data.runConfigurationId) {
-            throw new ValidationError('runConfigurationId is required');
+        const hasInlineConfig = data.scheduleRunConfiguration && typeof data.scheduleRunConfiguration === 'object';
+        const hasLinkedId = data.runConfigurationId && typeof data.runConfigurationId === 'string';
+        if (!hasInlineConfig && !hasLinkedId) {
+            throw new ValidationError('Either runConfigurationId or scheduleRunConfiguration is required');
         }
-        const effectiveRunConfigurationId = data.runConfigurationId;
 
         const effectiveWorkflowId = existing.workflowId;
         if (!effectiveWorkflowId) {
             throw new ValidationError('workflowId is required to validate run configuration ownership');
         }
-        await this.validateWorkflowOwnership(userId, effectiveWorkflowId);
+        await this.validateWorkflowOwnership(userId, effectiveWorkflowId, userRole);
 
         const scopeInputProvided =
             data.projectId !== undefined ||
@@ -702,11 +987,40 @@ export class ScheduleService {
             );
         }
 
-        const linkedConfig = await this.loadAndValidateRunConfiguration(
-            effectiveRunConfigurationId,
-            effectiveWorkflowId,
-            effectiveProjectId
-        );
+        // Resolve run configuration: inline or linked
+        let linkedConfig: any;
+        let effectiveRunConfigurationId: string;
+
+        if (hasInlineConfig) {
+            // Check if schedule already has a scheduler-owned config
+            const existingOwnedConfig = await runConfigurationRepository.findByOwnerScheduleId(scheduleId);
+
+            if (existingOwnedConfig) {
+                // Update existing scheduler-owned config
+                await this.updateSchedulerOwnedConfig(existingOwnedConfig.id, data.scheduleRunConfiguration as RunConfigurationCreate);
+                linkedConfig = await runConfigurationRepository.findById(existingOwnedConfig.id);
+                effectiveRunConfigurationId = existingOwnedConfig.id;
+            } else {
+                // Create new scheduler-owned config (was previously linked to shared)
+                const ownedConfig = await this.createSchedulerOwnedConfig(
+                    effectiveWorkflowId,
+                    effectiveProjectId!,
+                    data.name || existing.name,
+                    data.scheduleRunConfiguration as RunConfigurationCreate,
+                    scheduleId,
+                );
+                linkedConfig = ownedConfig;
+                effectiveRunConfigurationId = ownedConfig.id;
+            }
+        } else {
+            linkedConfig = await this.loadAndValidateRunConfiguration(
+                data.runConfigurationId!,
+                effectiveWorkflowId,
+                effectiveProjectId
+            );
+            effectiveRunConfigurationId = data.runConfigurationId!;
+        }
+
         const compat = this.buildLegacyCompatFromRunConfiguration(linkedConfig);
         if (compat.executionTarget === 'github-actions' && (!compat.githubRepoFullName || !compat.githubWorkflowFile)) {
             throw new ValidationError('Linked run configuration is missing GitHub repository/workflow settings');
@@ -736,13 +1050,26 @@ export class ScheduleService {
         updateData.githubBranch = compat.githubBranch || null;
         updateData.githubWorkflowFile = compat.githubWorkflowFile || null;
         updateData.githubInputs = compat.githubInputs || null;
-        updateData.migrationVersion = SCHEDULE_RUN_CONFIG_MIGRATION_VERSION;
+        updateData.migrationVersion = SCHEDULE_OWNED_CONFIG_MIGRATION_VERSION;
+        if (data.onSuccessTriggerScheduleIds !== undefined) {
+            updateData.onSuccessTriggerScheduleIds = data.onSuccessTriggerScheduleIds?.length
+                ? JSON.stringify(data.onSuccessTriggerScheduleIds)
+                : null;
+        }
+
+        // Validate chained schedule references before persisting
+        if (data.onSuccessTriggerScheduleIds?.length) {
+            await this.validateChainedSchedules(userId, scheduleId, data.onSuccessTriggerScheduleIds);
+        }
 
         const schedule = await scheduleRepository.update(scheduleId, updateData);
 
         if (!schedule) {
             throw new NotFoundError('Schedule not found');
         }
+
+        // Sync repeatable schedule registration.
+        await this.syncRepeatableSchedule(scheduleId);
 
         const runs = await scheduleRunRepository.findByScheduleId(scheduleId, 5);
 
@@ -752,16 +1079,19 @@ export class ScheduleService {
     /**
      * Delete a schedule
      */
-    async delete(userId: string, scheduleId: string): Promise<void> {
-        await this.verifyOwnership(userId, scheduleId);
+    async delete(userId: string, scheduleId: string, userRole?: string): Promise<void> {
+        await this.verifyOwnership(userId, scheduleId, userRole);
         await scheduleRepository.delete(scheduleId);
+        await queueService.removeRepeatableSchedule(scheduleId);
+        // Clean up scheduler-owned run configuration
+        await runConfigurationRepository.deleteByOwnerScheduleId(scheduleId);
     }
 
     /**
      * Toggle schedule active status
      */
-    async toggleActive(userId: string, scheduleId: string): Promise<Schedule> {
-        const existing = await this.verifyOwnership(userId, scheduleId);
+    async toggleActive(userId: string, scheduleId: string, userRole?: string): Promise<Schedule> {
+        const existing = await this.verifyOwnership(userId, scheduleId, userRole);
 
         const schedule = await scheduleRepository.update(scheduleId, {
             isActive: !existing.isActive,
@@ -774,6 +1104,9 @@ export class ScheduleService {
             throw new NotFoundError('Schedule not found');
         }
 
+        // Sync repeatable schedule registration.
+        await this.syncRepeatableSchedule(scheduleId);
+
         const runs = await scheduleRunRepository.findByScheduleId(scheduleId, 5);
 
         return this.formatSchedule({ ...schedule, runs });
@@ -785,9 +1118,10 @@ export class ScheduleService {
     async triggerRun(
         userId: string,
         scheduleId: string,
-        request?: ScheduleTriggerRequest
+        request?: ScheduleTriggerRequest,
+        userRole?: string
     ): Promise<ScheduleRun> {
-        const schedule = await this.verifyOwnership(userId, scheduleId);
+        const schedule = await this.verifyOwnership(userId, scheduleId, userRole);
 
         // Get user info for audit
         const user = await userRepository.findById(userId);
@@ -799,8 +1133,9 @@ export class ScheduleService {
             throw new ValidationError('Schedule is missing workflow context');
         }
 
+        // Reject old deprecated field name; use executionConfigOverrides instead
         if (request && Object.prototype.hasOwnProperty.call(request as object, 'executionConfig')) {
-            throw new ValidationError('Manual execution overrides are no longer supported for schedules');
+            throw new ValidationError('executionConfig is deprecated; use executionConfigOverrides instead');
         }
 
         const linkedConfig = await this.loadAndValidateRunConfiguration(
@@ -808,7 +1143,20 @@ export class ScheduleService {
             schedule.workflowId,
             schedule.projectId
         );
-        const effectiveConfig = this.buildScheduleExecutionConfigFromRunConfiguration(linkedConfig);
+        const baseConfig = this.buildScheduleExecutionConfigFromRunConfiguration(linkedConfig);
+
+        // Merge per-run execution overrides (Jenkins-style) on top of base config
+        const overrides = request?.executionConfigOverrides;
+        const effectiveConfig: ScheduleExecutionConfig = overrides
+            ? {
+                ...baseConfig,
+                ...(overrides.browser !== undefined ? { browser: overrides.browser } : {}),
+                ...(overrides.headless !== undefined ? { headless: overrides.headless } : {}),
+                ...(overrides.workers !== undefined ? { workers: overrides.workers } : {}),
+                ...(overrides.retries !== undefined ? { retries: overrides.retries } : {}),
+                ...(overrides.timeout !== undefined ? { timeout: overrides.timeout } : {}),
+              }
+            : baseConfig;
 
         const { schema, defaults } = await this.resolveRunParametersForSchedule(schedule, linkedConfig);
         const effectiveParams: ScheduleParameterValues = {
@@ -828,6 +1176,10 @@ export class ScheduleService {
             executionConfig: Object.keys(effectiveConfig).length > 0
                 ? JSON.stringify(effectiveConfig)
                 : undefined,
+            // Store overrides separately for audit trail
+            executionConfigOverrides: overrides && Object.keys(overrides).length > 0
+                ? JSON.stringify(overrides)
+                : undefined,
             triggeredByUser: user?.email || userId,
         });
 
@@ -839,6 +1191,8 @@ export class ScheduleService {
                 userId,
                 triggerType: 'manual',
                 parameterValues: effectiveParams,
+                // Pass overrides to worker for execution-time merging
+                executionConfigOverrides: overrides,
             };
 
             await queueService.addJob(
@@ -904,10 +1258,10 @@ export class ScheduleService {
                     if (isNaN(numValue)) {
                         throw new ValidationError(`"${param.label}" must be a number`);
                     }
-                    if (param.min !== undefined && numValue < param.min) {
+                    if (param.min != null && numValue < param.min) {
                         throw new ValidationError(`"${param.label}" must be at least ${param.min}`);
                     }
-                    if (param.max !== undefined && numValue > param.max) {
+                    if (param.max != null && numValue > param.max) {
                         throw new ValidationError(`"${param.label}" must be at most ${param.max}`);
                     }
                     break;
@@ -1012,8 +1366,8 @@ export class ScheduleService {
     /**
      * Get run history for a schedule
      */
-    async getRuns(userId: string, scheduleId: string, limit: number = 20, offset: number = 0): Promise<{ runs: ScheduleRun[]; total: number }> {
-        await this.verifyOwnership(userId, scheduleId);
+    async getRuns(userId: string, scheduleId: string, limit: number = 20, offset: number = 0, userRole?: string): Promise<{ runs: ScheduleRun[]; total: number }> {
+        await this.verifyOwnership(userId, scheduleId, userRole);
 
         const [rawRuns, total] = await Promise.all([
             scheduleRunRepository.findByScheduleId(scheduleId, limit, offset),
@@ -1030,7 +1384,7 @@ export class ScheduleService {
     /**
      * Get details of a specific run
      */
-    async getRun(userId: string, runId: string): Promise<ScheduleRun> {
+    async getRun(userId: string, runId: string, userRole?: string): Promise<ScheduleRun> {
         const run = await scheduleRunRepository.findById(runId);
 
         if (!run) {
@@ -1039,7 +1393,7 @@ export class ScheduleService {
 
         const schedule = await scheduleRepository.findById(run.scheduleId);
 
-        if (!schedule || schedule.userId !== userId) {
+        if (!schedule || (!isAdmin(userRole) && schedule.userId !== userId)) {
             throw new ForbiddenError('Access denied');
         }
 
@@ -1077,6 +1431,26 @@ export class ScheduleService {
             }
 
             try {
+                // Concurrency policy check: skip when 'forbid' and active runs exist.
+                const policy = schedule.concurrencyPolicy || 'forbid';
+                if (policy === 'forbid') {
+                    const hasActive = await scheduleRunRepository.hasActiveRuns(schedule.id);
+                    if (hasActive) {
+                        await scheduleRunRepository.create({
+                            scheduleId: schedule.id,
+                            triggerType: 'scheduled',
+                            status: 'skipped',
+                            skipReason: 'Overlap forbidden: previous run still pending or running',
+                            triggeredByUser: 'system',
+                        });
+                        const now = new Date();
+                        const nextRunAt = getNextRunTime(schedule.cronExpression, schedule.timezone || 'UTC', now) || undefined;
+                        await scheduleRepository.update(schedule.id, { nextRunAt });
+                        skipped += 1;
+                        continue;
+                    }
+                }
+
                 let defaultParamValues: ScheduleParameterValues = {};
                 let defaultConfig: ScheduleExecutionConfig = schedule.defaultExecutionConfig
                     ? this.parseJSON<ScheduleExecutionConfig>(schedule.defaultExecutionConfig, {})
@@ -1189,6 +1563,127 @@ export class ScheduleService {
                     lastRunAt: now,
                     nextRunAt: nextRunAt || undefined,
                 });
+
+                // P1.2: Trigger chained schedules on success
+                if (results.status === 'passed') {
+                    await this.triggerChainedSchedules(schedule, runId);
+                }
+            }
+        }
+    }
+
+    /**
+     * P1.2: Validate that chained schedule IDs are valid.
+     * - All targets must exist and belong to the same user.
+     * - No cycles: following onSuccessTriggerScheduleIds from any target
+     *   must not lead back to sourceScheduleId.
+     */
+    private async validateChainedSchedules(
+        userId: string,
+        sourceScheduleId: string,
+        targetIds: string[],
+    ): Promise<void> {
+        // Self-reference check
+        if (targetIds.includes(sourceScheduleId)) {
+            throw new ValidationError('A schedule cannot chain to itself');
+        }
+
+        // Ownership check
+        for (const targetId of targetIds) {
+            const target = await scheduleRepository.findById(targetId);
+            if (!target) {
+                throw new ValidationError(`Chained schedule ${targetId} not found`);
+            }
+            if (target.userId !== userId) {
+                throw new ValidationError(`Chained schedule ${targetId} belongs to a different user`);
+            }
+        }
+
+        // Cycle detection via BFS
+        const visited = new Set<string>([sourceScheduleId]);
+        const queue = [...targetIds];
+        while (queue.length > 0) {
+            const current = queue.shift()!;
+            if (visited.has(current)) {
+                throw new ValidationError(`Cycle detected: chained schedule ${current} leads back to the source`);
+            }
+            visited.add(current);
+
+            const schedule = await scheduleRepository.findById(current);
+            if (schedule?.onSuccessTriggerScheduleIds) {
+                const childIds = this.parseJSON<string[]>(schedule.onSuccessTriggerScheduleIds, []);
+                for (const childId of childIds) {
+                    if (!visited.has(childId)) {
+                        queue.push(childId);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * P1.2: Trigger chained schedules after a successful run.
+     * Enqueues child schedule runs with triggerType 'chained'.
+     */
+    async triggerChainedSchedules(schedule: any, parentRunId: string): Promise<void> {
+        const chainIds = schedule.onSuccessTriggerScheduleIds
+            ? this.parseJSON<string[]>(schedule.onSuccessTriggerScheduleIds, [])
+            : [];
+
+        if (chainIds.length === 0) return;
+
+        logger.info(`[Chain] Schedule ${schedule.id} passed — triggering ${chainIds.length} chained schedule(s)`, {
+            parentRunId,
+            chainIds,
+        });
+
+        for (const childId of chainIds) {
+            try {
+                const child = await scheduleRepository.findById(childId);
+                if (!child) {
+                    logger.warn(`[Chain] Chained schedule ${childId} not found — skipping`);
+                    continue;
+                }
+                if (!child.isActive) {
+                    logger.info(`[Chain] Chained schedule ${childId} is inactive — skipping`);
+                    continue;
+                }
+
+                // Create a pending ScheduleRun for the child
+                const run = await scheduleRunRepository.create({
+                    scheduleId: childId,
+                    triggerType: 'chained',
+                    status: 'pending',
+                    triggeredByUser: 'system',
+                });
+
+                // Enqueue the job
+                const jobData: ScheduleRunJobData = {
+                    scheduleId: childId,
+                    runId: run.id,
+                    userId: child.userId,
+                    triggerType: 'chained',
+                };
+
+                await queueService.addJob(
+                    QUEUE_NAMES.SCHEDULE_RUN as any,
+                    `chained-run-${childId}`,
+                    jobData,
+                    { priority: 1 },
+                );
+
+                logger.info(`[Chain] Enqueued chained run ${run.id} for schedule ${childId}`, {
+                    parentRunId,
+                    childRunId: run.id,
+                });
+
+                await auditService.logExecutionAction('chained_trigger', run.id, child.userId, {
+                    parentScheduleId: schedule.id,
+                    parentRunId,
+                    childScheduleId: childId,
+                });
+            } catch (err: any) {
+                logger.error(`[Chain] Failed to trigger chained schedule ${childId}:`, err);
             }
         }
     }
@@ -1224,12 +1719,12 @@ export class ScheduleService {
     /**
      * Get webhook information for a schedule
      */
-    async getWebhookInfo(userId: string, scheduleId: string): Promise<{
+    async getWebhookInfo(userId: string, scheduleId: string, userRole?: string): Promise<{
         token: string | null;
         webhookUrl: string | null;
         hasToken: boolean;
     }> {
-        const schedule = await this.verifyOwnership(userId, scheduleId);
+        const schedule = await this.verifyOwnership(userId, scheduleId, userRole);
 
         const baseUrl = process.env.API_BASE_URL || 'http://localhost:3000';
 
@@ -1245,8 +1740,8 @@ export class ScheduleService {
     /**
      * Regenerate webhook token for a schedule
      */
-    async regenerateWebhookToken(userId: string, scheduleId: string): Promise<string> {
-        await this.verifyOwnership(userId, scheduleId);
+    async regenerateWebhookToken(userId: string, scheduleId: string, userRole?: string): Promise<string> {
+        await this.verifyOwnership(userId, scheduleId, userRole);
 
         const newToken = generateWebhookToken();
 
@@ -1302,6 +1797,9 @@ export class ScheduleService {
             runConfigurationId: schedule.runConfigurationId || undefined,
             githubConfig,
             migrationVersion: schedule.migrationVersion,
+            onSuccessTriggerScheduleIds: schedule.onSuccessTriggerScheduleIds
+                ? this.parseJSON<string[]>(schedule.onSuccessTriggerScheduleIds, [])
+                : undefined,
         };
     }
 
@@ -1335,6 +1833,9 @@ export class ScheduleService {
             executionConfig: run.executionConfig
                 ? this.parseJSON<ScheduleExecutionConfig>(run.executionConfig, {})
                 : undefined,
+            executionConfigOverrides: run.executionConfigOverrides
+                ? this.parseJSON<ExecutionConfigOverrides>(run.executionConfigOverrides, {} as ExecutionConfigOverrides)
+                : undefined,
             triggeredBy: run.triggeredByUser,
             githubRunId: run.githubRunId ? Number(run.githubRunId) : undefined,
             githubRunUrl: run.githubRunUrl,
@@ -1367,6 +1868,75 @@ export class ScheduleService {
         } catch {
             return defaultValue;
         }
+    }
+
+    // =============================================
+    // REPEATABLE SCHEDULE SYNC
+    // =============================================
+
+    /**
+     * Sync a single schedule's repeatable job registration.
+     * Called on create/update/toggle/delete.
+     */
+    async syncRepeatableSchedule(scheduleId: string): Promise<void> {
+        try {
+            const schedule = await scheduleRepository.findById(scheduleId);
+            if (!schedule || !schedule.isActive) {
+                await queueService.removeRepeatableSchedule(scheduleId);
+                return;
+            }
+
+            await queueService.upsertRepeatableSchedule(
+                schedule.id,
+                schedule.cronExpression,
+                schedule.timezone || 'UTC',
+                {
+                    userId: schedule.userId,
+                    triggerType: 'scheduled' as const,
+                }
+            );
+        } catch (error) {
+            logger.error(`Failed to sync repeatable schedule ${scheduleId}:`, error);
+        }
+    }
+
+    /**
+     * Reconcile all repeatable schedules on worker startup.
+     * Ensures every active schedule has a registered BullMQ scheduler.
+     */
+    async reconcileRepeatableSchedules(): Promise<void> {
+        const allSchedules = await scheduleRepository.findDue()
+            .catch(() => [] as any[]);
+
+        // Also get active schedules that haven't become due yet.
+        // findDue() only returns due schedules; we need all active ones.
+        const allActiveSchedules = await this.getAllActiveSchedules();
+
+        let registered = 0;
+        for (const schedule of allActiveSchedules) {
+            try {
+                await queueService.upsertRepeatableSchedule(
+                    schedule.id,
+                    schedule.cronExpression,
+                    schedule.timezone || 'UTC',
+                    {
+                        userId: schedule.userId,
+                        triggerType: 'scheduled' as const,
+                    }
+                );
+                registered += 1;
+            } catch (error) {
+                logger.error(`Failed to register repeatable for schedule ${schedule.id}:`, error);
+            }
+        }
+
+        logger.info(`Reconciled repeatable schedules: ${registered} registered`);
+    }
+
+    private async getAllActiveSchedules(): Promise<any[]> {
+        // Query all active schedules regardless of nextRunAt.
+        const { getDb, COLLECTIONS } = await import('../db/mongodb');
+        return getDb().collection(COLLECTIONS.SCHEDULES).find({ isActive: true }).toArray();
     }
 }
 
