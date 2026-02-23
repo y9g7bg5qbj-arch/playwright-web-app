@@ -2,6 +2,7 @@ import React from 'react';
 import type { OpenTab } from '../workspace.types';
 import { CompareTab } from '../CompareTab';
 import { VeroEditor, type VeroEditorHandle } from '../../vero/VeroEditor';
+import { VisualBuilder } from '../../visual-builder/VisualBuilder';
 
 export interface WorkspaceEditorPaneProps {
   activeTab: OpenTab;
@@ -90,6 +91,18 @@ export const WorkspaceEditorPane = React.memo(function WorkspaceEditorPane({
           )}
         </div>
       </div>
+    );
+  }
+
+  // Visual Builder mode
+  if (activeTab.editorMode === 'builder') {
+    return (
+      <VisualBuilder
+        key={`builder-${activeTab.id}`}
+        content={activeTab.content}
+        filePath={activeTab.path}
+        onChange={(newContent) => onTabContentChange(activeTab.id, newContent)}
+      />
     );
   }
 

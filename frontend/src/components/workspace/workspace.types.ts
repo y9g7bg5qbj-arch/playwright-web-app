@@ -13,6 +13,8 @@ export interface OpenTab {
   compareSource?: string;
   compareTarget?: string;
   projectId?: string;
+  // Visual builder mode toggle
+  editorMode?: 'code' | 'builder';
 }
 
 export interface FileContextMenuState {
