@@ -260,12 +260,14 @@ export const runConfigurationRepository = {
   },
 
   async findByWorkflowId(workflowId: string): Promise<MongoRunConfiguration[]> {
-    return getCollection<MongoRunConfiguration>(COLLECTIONS.RUN_CONFIGURATIONS).find({ workflowId }).toArray();
+    return getCollection<MongoRunConfiguration>(COLLECTIONS.RUN_CONFIGURATIONS)
+      .find({ workflowId, ownerType: { $ne: 'schedule' } })
+      .toArray();
   },
 
   async findByWorkflowIdAndProjectId(workflowId: string, projectId: string): Promise<MongoRunConfiguration[]> {
     return getCollection<MongoRunConfiguration>(COLLECTIONS.RUN_CONFIGURATIONS)
-      .find({ workflowId, projectId })
+      .find({ workflowId, projectId, ownerType: { $ne: 'schedule' } })
       .toArray();
   },
 
@@ -318,5 +320,16 @@ export const runConfigurationRepository = {
   async delete(id: string): Promise<boolean> {
     const result = await getCollection<MongoRunConfiguration>(COLLECTIONS.RUN_CONFIGURATIONS).deleteOne({ id });
     return result.deletedCount > 0;
-  }
+  },
+
+  async findByOwnerScheduleId(scheduleId: string): Promise<MongoRunConfiguration | null> {
+    return getCollection<MongoRunConfiguration>(COLLECTIONS.RUN_CONFIGURATIONS)
+      .findOne({ ownerType: 'schedule', ownerScheduleId: scheduleId });
+  },
+
+  async deleteByOwnerScheduleId(scheduleId: string): Promise<boolean> {
+    const result = await getCollection<MongoRunConfiguration>(COLLECTIONS.RUN_CONFIGURATIONS)
+      .deleteMany({ ownerType: 'schedule', ownerScheduleId: scheduleId });
+    return result.deletedCount > 0;
+  },
 };

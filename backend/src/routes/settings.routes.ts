@@ -6,11 +6,15 @@
 
 import { Router, Response, NextFunction } from 'express';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { requirePermission } from '../middleware/rbac';
 import { getDatabaseConfig, updateDatabaseConfig, testDatabaseConnection, getAllSettings, getSetting, setSetting, getSettingsByCategory } from '../services/settings.service';
 import { exportData, importData, copyToDatabase, validateExportData, getMigrationInfo } from '../services/dataMigration.service';
 import { logger } from '../utils/logger';
 
 const router = Router();
+
+// All settings routes require admin (manage:system) permission
+router.use(authenticateToken, requirePermission('manage:system'));
 
 // ============= DATABASE CONFIGURATION =============
 
@@ -18,7 +22,7 @@ const router = Router();
  * GET /api/settings/database
  * Get current database configuration
  */
-router.get('/database', authenticateToken, async (_req: AuthRequest, res: Response, _next: NextFunction) => {
+router.get('/database', async (_req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const config = await getDatabaseConfig();
 
@@ -48,7 +52,7 @@ router.get('/database', authenticateToken, async (_req: AuthRequest, res: Respon
  * PUT /api/settings/database
  * Update database configuration
  */
-router.put('/database', authenticateToken, async (req: AuthRequest, res: Response, _next: NextFunction) => {
+router.put('/database', async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { uri, database } = req.body;
 
@@ -79,7 +83,7 @@ router.put('/database', authenticateToken, async (req: AuthRequest, res: Respons
  * POST /api/settings/database/test
  * Test database connection
  */
-router.post('/database/test', authenticateToken, async (req: AuthRequest, res: Response, _next: NextFunction) => {
+router.post('/database/test', async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { uri, database } = req.body;
 
@@ -109,7 +113,7 @@ router.post('/database/test', authenticateToken, async (req: AuthRequest, res: R
  * GET /api/settings
  * Get all settings
  */
-router.get('/', authenticateToken, async (req: AuthRequest, res: Response, _next: NextFunction) => {
+router.get('/', async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const category = req.query.category as string | undefined;
 
@@ -148,7 +152,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response, _next
  * GET /api/settings/:key
  * Get a specific setting
  */
-router.get('/:key', authenticateToken, async (req: AuthRequest, res: Response, _next: NextFunction) => {
+router.get('/:key', async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { key } = req.params;
     const value = await getSetting(key);
@@ -174,7 +178,7 @@ router.get('/:key', authenticateToken, async (req: AuthRequest, res: Response, _
  * PUT /api/settings/:key
  * Update a specific setting
  */
-router.put('/:key', authenticateToken, async (req: AuthRequest, res: Response, _next: NextFunction) => {
+router.put('/:key', async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { key } = req.params;
     const { value, description } = req.body;
@@ -204,7 +208,7 @@ router.put('/:key', authenticateToken, async (req: AuthRequest, res: Response, _
  * GET /api/settings/migration/info
  * Get migration info for current database
  */
-router.get('/migration/info', authenticateToken, async (_req: AuthRequest, res: Response, _next: NextFunction) => {
+router.get('/migration/info', async (_req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const info = await getMigrationInfo();
     res.json({ success: true, data: info });
@@ -218,7 +222,7 @@ router.get('/migration/info', authenticateToken, async (_req: AuthRequest, res: 
  * POST /api/settings/migration/export
  * Export all data from current database
  */
-router.post('/migration/export', authenticateToken, async (_req: AuthRequest, res: Response, _next: NextFunction) => {
+router.post('/migration/export', async (_req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     logger.info('[Migration] Starting data export...');
     const data = await exportData();
@@ -238,7 +242,7 @@ router.post('/migration/export', authenticateToken, async (_req: AuthRequest, re
  * POST /api/settings/migration/import
  * Import data into a target database
  */
-router.post('/migration/import', authenticateToken, async (req: AuthRequest, res: Response, _next: NextFunction) => {
+router.post('/migration/import', async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { targetUri, targetDatabase, data, overwrite, merge } = req.body;
 
@@ -286,7 +290,7 @@ router.post('/migration/import', authenticateToken, async (req: AuthRequest, res
  * POST /api/settings/migration/copy
  * Copy all data from current database to target database
  */
-router.post('/migration/copy', authenticateToken, async (req: AuthRequest, res: Response, _next: NextFunction) => {
+router.post('/migration/copy', async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { targetUri, targetDatabase, overwrite, merge } = req.body;
 

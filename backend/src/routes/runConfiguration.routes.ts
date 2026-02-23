@@ -25,7 +25,7 @@ router.get(
   ]),
   asyncHandler(async (req: AuthRequest, res) => {
     const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : undefined;
-    const configs = await service.findAllConfigurations(req.userId!, req.params.workflowId, projectId);
+    const configs = await service.findAllConfigurations(req.userId!, req.params.workflowId, projectId, req.userRole);
     res.json({ success: true, data: configs });
   })
 );
@@ -35,7 +35,7 @@ router.get(
   '/run-configurations/:id',
   validate([param('id').isUUID().withMessage('Invalid configuration ID')]),
   asyncHandler(async (req: AuthRequest, res) => {
-    const config = await service.findConfigurationById(req.userId!, req.params.id);
+    const config = await service.findConfigurationById(req.userId!, req.params.id, req.userRole);
     res.json({ success: true, data: config });
   })
 );
@@ -72,7 +72,8 @@ router.post(
       req.userId!,
       req.params.workflowId,
       req.body,
-      req.body.projectId
+      req.body.projectId,
+      req.userRole
     );
     res.status(201).json({ success: true, data: config });
   })
@@ -105,7 +106,7 @@ router.put(
     body('video').optional().isIn(ARTIFACT_MODES),
   ]),
   asyncHandler(async (req: AuthRequest, res) => {
-    const config = await service.updateConfiguration(req.userId!, req.params.id, req.body);
+    const config = await service.updateConfiguration(req.userId!, req.params.id, req.body, req.userRole);
     res.json({ success: true, data: config });
   })
 );
@@ -115,7 +116,7 @@ router.delete(
   '/run-configurations/:id',
   validate([param('id').isUUID().withMessage('Invalid configuration ID')]),
   asyncHandler(async (req: AuthRequest, res) => {
-    await service.deleteConfiguration(req.userId!, req.params.id);
+    await service.deleteConfiguration(req.userId!, req.params.id, req.userRole);
     res.json({ success: true, data: null });
   })
 );
@@ -131,7 +132,8 @@ router.post(
     const config = await service.duplicateConfiguration(
       req.userId!,
       req.params.id,
-      req.body.name
+      req.body.name,
+      req.userRole
     );
     res.status(201).json({ success: true, data: config });
   })
@@ -146,7 +148,7 @@ router.get(
   '/workflows/:workflowId/environments',
   validate([param('workflowId').isUUID().withMessage('Invalid workflow ID')]),
   asyncHandler(async (req: AuthRequest, res) => {
-    const envs = await service.findAllEnvironments(req.userId!, req.params.workflowId);
+    const envs = await service.findAllEnvironments(req.userId!, req.params.workflowId, req.userRole);
     res.json({ success: true, data: envs });
   })
 );
@@ -156,7 +158,7 @@ router.get(
   '/environments/:id',
   validate([param('id').isUUID().withMessage('Invalid environment ID')]),
   asyncHandler(async (req: AuthRequest, res) => {
-    const env = await service.findEnvironmentById(req.userId!, req.params.id);
+    const env = await service.findEnvironmentById(req.userId!, req.params.id, req.userRole);
     res.json({ success: true, data: env });
   })
 );
@@ -174,7 +176,7 @@ router.post(
     body('isDefault').optional().isBoolean(),
   ]),
   asyncHandler(async (req: AuthRequest, res) => {
-    const env = await service.createEnvironment(req.userId!, req.params.workflowId, req.body);
+    const env = await service.createEnvironment(req.userId!, req.params.workflowId, req.body, req.userRole);
     res.status(201).json({ success: true, data: env });
   })
 );
@@ -192,7 +194,7 @@ router.put(
     body('isDefault').optional().isBoolean(),
   ]),
   asyncHandler(async (req: AuthRequest, res) => {
-    const env = await service.updateEnvironment(req.userId!, req.params.id, req.body);
+    const env = await service.updateEnvironment(req.userId!, req.params.id, req.body, req.userRole);
     res.json({ success: true, data: env });
   })
 );
@@ -202,7 +204,7 @@ router.delete(
   '/environments/:id',
   validate([param('id').isUUID().withMessage('Invalid environment ID')]),
   asyncHandler(async (req: AuthRequest, res) => {
-    await service.deleteEnvironment(req.userId!, req.params.id);
+    await service.deleteEnvironment(req.userId!, req.params.id, req.userRole);
     res.json({ success: true, data: null });
   })
 );
@@ -216,7 +218,7 @@ router.get(
   '/workflows/:workflowId/runners',
   validate([param('workflowId').isUUID().withMessage('Invalid workflow ID')]),
   asyncHandler(async (req: AuthRequest, res) => {
-    const runners = await service.findAllRunners(req.userId!, req.params.workflowId);
+    const runners = await service.findAllRunners(req.userId!, req.params.workflowId, req.userRole);
     res.json({ success: true, data: runners });
   })
 );
@@ -226,7 +228,7 @@ router.get(
   '/runners/:id',
   validate([param('id').isUUID().withMessage('Invalid runner ID')]),
   asyncHandler(async (req: AuthRequest, res) => {
-    const runner = await service.findRunnerById(req.userId!, req.params.id);
+    const runner = await service.findRunnerById(req.userId!, req.params.id, req.userRole);
     res.json({ success: true, data: runner });
   })
 );
@@ -245,7 +247,7 @@ router.post(
     body('maxWorkers').optional().isInt({ min: 1, max: 32 }),
   ]),
   asyncHandler(async (req: AuthRequest, res) => {
-    const runner = await service.createRunner(req.userId!, req.params.workflowId, req.body);
+    const runner = await service.createRunner(req.userId!, req.params.workflowId, req.body, req.userRole);
     res.status(201).json({ success: true, data: runner });
   })
 );
@@ -264,7 +266,7 @@ router.put(
     body('maxWorkers').optional().isInt({ min: 1, max: 32 }),
   ]),
   asyncHandler(async (req: AuthRequest, res) => {
-    const runner = await service.updateRunner(req.userId!, req.params.id, req.body);
+    const runner = await service.updateRunner(req.userId!, req.params.id, req.body, req.userRole);
     res.json({ success: true, data: runner });
   })
 );
@@ -274,7 +276,7 @@ router.delete(
   '/runners/:id',
   validate([param('id').isUUID().withMessage('Invalid runner ID')]),
   asyncHandler(async (req: AuthRequest, res) => {
-    await service.deleteRunner(req.userId!, req.params.id);
+    await service.deleteRunner(req.userId!, req.params.id, req.userRole);
     res.json({ success: true, data: null });
   })
 );
@@ -284,7 +286,7 @@ router.post(
   '/runners/:id/ping',
   validate([param('id').isUUID().withMessage('Invalid runner ID')]),
   asyncHandler(async (req: AuthRequest, res) => {
-    const result = await service.pingRunner(req.userId!, req.params.id);
+    const result = await service.pingRunner(req.userId!, req.params.id, req.userRole);
     res.json({ success: true, data: result });
   })
 );
@@ -298,7 +300,7 @@ router.get(
   '/workflows/:workflowId/credentials',
   validate([param('workflowId').isUUID().withMessage('Invalid workflow ID')]),
   asyncHandler(async (req: AuthRequest, res) => {
-    const credentials = await service.findAllCredentials(req.userId!, req.params.workflowId);
+    const credentials = await service.findAllCredentials(req.userId!, req.params.workflowId, req.userRole);
     res.json({ success: true, data: credentials });
   })
 );
@@ -316,7 +318,8 @@ router.post(
     const credential = await service.createCredential(
       req.userId!,
       req.params.workflowId,
-      req.body
+      req.body,
+      req.userRole
     );
     res.status(201).json({ success: true, data: credential });
   })
@@ -327,7 +330,7 @@ router.delete(
   '/credentials/:id',
   validate([param('id').isUUID().withMessage('Invalid credential ID')]),
   asyncHandler(async (req: AuthRequest, res) => {
-    await service.deleteCredential(req.userId!, req.params.id);
+    await service.deleteCredential(req.userId!, req.params.id, req.userRole);
     res.json({ success: true, data: null });
   })
 );
@@ -341,7 +344,7 @@ router.get(
   '/workflows/:workflowId/tags',
   validate([param('workflowId').isUUID().withMessage('Invalid workflow ID')]),
   asyncHandler(async (req: AuthRequest, res) => {
-    const tags = await service.getAllTags(req.userId!, req.params.workflowId);
+    const tags = await service.getAllTags(req.userId!, req.params.workflowId, req.userRole);
     res.json({ success: true, data: tags });
   })
 );
@@ -355,7 +358,7 @@ router.put(
     body('tags.*').isString().trim().notEmpty().withMessage('Tags must be non-empty strings'),
   ]),
   asyncHandler(async (req: AuthRequest, res) => {
-    const tags = await service.updateTestFlowTags(req.userId!, req.params.id, req.body.tags);
+    const tags = await service.updateTestFlowTags(req.userId!, req.params.id, req.body.tags, req.userRole);
     res.json({ success: true, data: tags });
   })
 );
@@ -380,7 +383,7 @@ router.post(
       tagMode: req.body.tagMode || 'any',
       excludeTags: req.body.excludeTags || [],
       testFlowIds: req.body.testFlowIds || [],
-    });
+    }, req.userRole);
     res.json({ success: true, data: flowIds });
   })
 );

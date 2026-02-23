@@ -1,5 +1,5 @@
 import { Collection, Document } from 'mongodb';
-import { getDb, COLLECTIONS, MongoUser, MongoApplication, MongoProject, MongoWorkflow } from '../../mongodb';
+import { getDb, COLLECTIONS, MongoUser, MongoApplication, MongoProject, MongoWorkflow, MongoPasswordToken } from '../../mongodb';
 import { v4 as uuidv4 } from 'uuid';
 
 function getCollection<T extends Document>(name: string): Collection<T> {
@@ -33,7 +33,74 @@ export const userRepository = {
 
   async findAll(): Promise<MongoUser[]> {
     return getCollection<MongoUser>(COLLECTIONS.USERS).find({}).toArray();
-  }
+  },
+
+  async updateRole(userId: string, role: string): Promise<MongoUser | null> {
+    const result = await getCollection<MongoUser>(COLLECTIONS.USERS).findOneAndUpdate(
+      { id: userId },
+      { $set: { role, updatedAt: new Date() } },
+      { returnDocument: 'after' }
+    );
+    return result;
+  },
+
+  async countByRole(role: string): Promise<number> {
+    return getCollection<MongoUser>(COLLECTIONS.USERS).countDocuments({ role });
+  },
+
+  async updatePassword(userId: string, passwordHash: string): Promise<MongoUser | null> {
+    const result = await getCollection<MongoUser>(COLLECTIONS.USERS).findOneAndUpdate(
+      { id: userId },
+      { $set: { passwordHash, passwordSetAt: new Date(), updatedAt: new Date() } },
+      { returnDocument: 'after' }
+    );
+    return result;
+  },
+
+  async updateOnboardingCompleted(userId: string): Promise<MongoUser | null> {
+    const result = await getCollection<MongoUser>(COLLECTIONS.USERS).findOneAndUpdate(
+      { id: userId },
+      { $set: { onboardingCompleted: true, updatedAt: new Date() } },
+      { returnDocument: 'after' }
+    );
+    return result;
+  },
+};
+
+// ============================================
+// PASSWORD TOKEN REPOSITORY
+// ============================================
+
+export const passwordTokenRepository = {
+  async create(data: Omit<MongoPasswordToken, '_id' | 'id' | 'createdAt'>): Promise<MongoPasswordToken> {
+    const token: MongoPasswordToken = {
+      id: uuidv4(),
+      ...data,
+      createdAt: new Date(),
+    };
+    await getCollection<MongoPasswordToken>(COLLECTIONS.PASSWORD_TOKENS).insertOne(token);
+    return token;
+  },
+
+  async findByToken(token: string): Promise<MongoPasswordToken | null> {
+    return getCollection<MongoPasswordToken>(COLLECTIONS.PASSWORD_TOKENS).findOne({ token });
+  },
+
+  async markUsed(id: string): Promise<void> {
+    await getCollection<MongoPasswordToken>(COLLECTIONS.PASSWORD_TOKENS).updateOne(
+      { id },
+      { $set: { usedAt: new Date() } }
+    );
+  },
+
+  async findPendingByUserId(userId: string, type: 'welcome' | 'reset'): Promise<MongoPasswordToken | null> {
+    return getCollection<MongoPasswordToken>(COLLECTIONS.PASSWORD_TOKENS).findOne({
+      userId,
+      type,
+      usedAt: { $exists: false },
+      expiresAt: { $gt: new Date() },
+    });
+  },
 };
 
 // ============================================
@@ -47,6 +114,10 @@ export const applicationRepository = {
 
   async findByUserId(userId: string): Promise<MongoApplication[]> {
     return getCollection<MongoApplication>(COLLECTIONS.APPLICATIONS).find({ userId }).toArray();
+  },
+
+  async findAll(): Promise<MongoApplication[]> {
+    return getCollection<MongoApplication>(COLLECTIONS.APPLICATIONS).find({}).toArray();
   },
 
   async findByUserIdAndName(userId: string, name: string): Promise<MongoApplication | null> {
@@ -139,6 +210,10 @@ export const workflowRepository = {
 
   async findByUserId(userId: string): Promise<MongoWorkflow[]> {
     return getCollection<MongoWorkflow>(COLLECTIONS.WORKFLOWS).find({ userId }).toArray();
+  },
+
+  async findAll(): Promise<MongoWorkflow[]> {
+    return getCollection<MongoWorkflow>(COLLECTIONS.WORKFLOWS).find({}).toArray();
   },
 
   async findByApplicationId(applicationId: string): Promise<MongoWorkflow[]> {

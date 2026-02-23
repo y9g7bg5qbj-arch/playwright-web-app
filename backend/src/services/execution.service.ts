@@ -13,6 +13,7 @@ import {
   workflowRepository,
 } from '../db/repositories/mongo';
 import { NotFoundError, ForbiddenError } from '../utils/errors';
+import { isAdmin } from '../middleware/rbac';
 import type { Execution, ExecutionLog } from '@playwright-web-app/shared';
 
 function safeJsonParse<T>(json: string | null | undefined, fallback: T): T {
@@ -137,14 +138,16 @@ export class ExecutionService {
   /**
    * Find recent executions across all test flows for a user
    */
-  async findRecent(userId: string, limit: number = 200, applicationId?: string): Promise<RecentExecution[]> {
+  async findRecent(userId: string, limit: number = 200, applicationId?: string, userRole?: string): Promise<RecentExecution[]> {
     const scopedApplicationId =
       typeof applicationId === 'string' && applicationId.trim().length > 0
         ? applicationId.trim()
         : undefined;
 
-    // Get all workflows for user
-    const workflows = await workflowRepository.findByUserId(userId);
+    // Get all workflows (admin sees all; non-admin sees own)
+    const workflows = isAdmin(userRole)
+      ? await workflowRepository.findAll()
+      : await workflowRepository.findByUserId(userId);
     const workflowMap = new Map(workflows.map((workflow) => [workflow.id, workflow]));
     const scopedWorkflows = scopedApplicationId
       ? workflows.filter((workflow) => workflow.applicationId === scopedApplicationId)
@@ -380,7 +383,7 @@ export class ExecutionService {
     }));
   }
 
-  async delete(userId: string, executionId: string): Promise<void> {
+  async delete(userId: string, executionId: string, userRole?: string): Promise<void> {
     const execution = await executionRepository.findById(executionId);
 
     if (!execution) {
@@ -394,7 +397,7 @@ export class ExecutionService {
     }
 
     const workflow = await workflowRepository.findById(testFlow.workflowId);
-    if (!workflow || workflow.userId !== userId) {
+    if (!workflow || (!isAdmin(userRole) && workflow.userId !== userId)) {
       throw new ForbiddenError('Access denied');
     }
 

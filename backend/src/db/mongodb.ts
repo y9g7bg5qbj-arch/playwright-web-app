@@ -152,10 +152,17 @@ export const COLLECTIONS = {
   REMOTE_RUNNERS: 'remote_runners',
   STORED_CREDENTIALS: 'stored_credentials',
 
+  // Config Sync & Auth Profiles
+  AUTH_PROFILES: 'auth_profiles',
+  CONFIG_SYNC_STATE: 'config_sync_state',
+
   // System
   SETTINGS: 'settings',
   AUDIT_LOGS: 'audit_logs',
   DATA_STORAGE_CONFIGS: 'data_storage_configs',
+
+  // Auth tokens
+  PASSWORD_TOKENS: 'password_tokens',
 } as const;
 
 // TypeScript interfaces for MongoDB documents
@@ -271,8 +278,22 @@ export interface MongoUser {
   passwordHash: string;
   name?: string;
   role: string;
+  passwordSetAt?: Date | null;
+  onboardingCompleted?: boolean;
   createdAt: Date;
   updatedAt: Date;
+}
+
+// Password token model (welcome + reset tokens)
+export interface MongoPasswordToken {
+  _id?: string;
+  id: string;
+  userId: string;
+  token: string;
+  type: 'welcome' | 'reset';
+  expiresAt: Date;
+  usedAt?: Date;
+  createdAt: Date;
 }
 
 // Workflow model
@@ -424,7 +445,9 @@ export interface MongoSchedule {
   defaultExecutionConfig?: string;
   executionTarget: string;
   runConfigurationId?: string;    // Phase 3: link to run configuration
+  concurrencyPolicy?: string;     // 'allow' | 'forbid' — overlap control
   migrationVersion?: number;      // Legacy schedule backfill marker
+  onSuccessTriggerScheduleIds?: string;  // JSON string[] — P1.2 chained schedules
   githubRepoFullName?: string;
   githubBranch?: string;
   githubWorkflowFile?: string;
@@ -482,6 +505,10 @@ export interface MongoRunConfiguration {
   visualMaxDiffPixelRatio?: number;
   visualUpdateSnapshots?: boolean;
   runtimeConfig?: string;         // JSON — frontend-specific runtime fields
+  // Ownership: 'workspace' (default, shared UI) or 'schedule' (hidden, scheduler-owned)
+  ownerType?: 'workspace' | 'schedule';
+  // When ownerType is 'schedule', the schedule ID that owns this config
+  ownerScheduleId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -762,4 +789,33 @@ export interface MongoPageObject {
   order: number;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface MongoAuthProfile {
+  _id?: string;
+  id: string;
+  applicationId: string;
+  projectId: string;
+  name: string;
+  description?: string;
+  loginScriptPath: string;
+  status: 'ready' | 'expired' | 'refreshing' | 'error';
+  storageStatePath?: string;
+  lastRefreshedAt?: Date;
+  errorMessage?: string;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface MongoConfigSyncState {
+  _id?: string;
+  id: string;
+  projectId: string;
+  lastSyncedAt: Date;
+  syncHash?: string;
+  status?: string;
+  fileHashes?: string;
+  lastConflictAt?: Date;
+  conflictLog?: string;
 }

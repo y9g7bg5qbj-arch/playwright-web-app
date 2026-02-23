@@ -8,6 +8,7 @@
 import { Router, Response } from 'express';
 import { applicationRepository, projectRepository, workflowRepository, userEnvironmentRepository, environmentVariableRepository } from '../db/repositories/mongo';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { isAdmin } from '../middleware/rbac';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -17,6 +18,14 @@ router.use(authenticateToken);
 
 function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'Unknown error';
+}
+
+/**
+ * Check if user can access an application.
+ * Admins can access any application; others must be the owner.
+ */
+function canAccessApplication(application: { userId: string }, req: AuthRequest): boolean {
+    return isAdmin(req) || application.userId === req.userId;
 }
 
 function mapEnvironmentVariable(variable: {
@@ -93,8 +102,10 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.userId!;
 
-        // Get applications owned by user
-        const applications = await applicationRepository.findByUserId(userId);
+        // Admins see all applications; non-admins see only their own
+        const applications = isAdmin(req)
+            ? await applicationRepository.findAll()
+            : await applicationRepository.findByUserId(userId);
 
         // Get counts and projects for each application
         const applicationsWithDetails = await Promise.all(
@@ -108,8 +119,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
                     name: app.name,
                     description: app.description,
                     baseUrl: app.baseUrl,
-                    isOwner: true,
-                    role: 'owner',
+                    isOwner: app.userId === userId,
+                    role: app.userId === userId ? 'owner' : 'viewer',
                     projectCount: projects.length,
                     workflowCount: workflows.length,
                     memberCount: 1,
@@ -230,7 +241,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
         }
 
         // Check ownership
-        if (application.userId !== userId) {
+        if (!canAccessApplication(application, req)) {
             return res.status(403).json({
                 success: false,
                 error: 'You do not have permission to access this application'
@@ -249,8 +260,8 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
                 name: application.name,
                 description: application.description,
                 baseUrl: application.baseUrl,
-                isOwner: true,
-                role: 'owner',
+                isOwner: application.userId === userId,
+                role: application.userId === userId ? 'owner' : 'viewer',
                 projects: projects.map(p => ({
                     id: p.id,
                     name: p.name,
@@ -295,7 +306,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
             });
         }
 
-        if (application.userId !== userId) {
+        if (!canAccessApplication(application, req)) {
             return res.status(403).json({
                 success: false,
                 error: 'You do not have permission to update this application'
@@ -347,7 +358,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
             });
         }
 
-        if (application.userId !== userId) {
+        if (!canAccessApplication(application, req)) {
             return res.status(403).json({
                 success: false,
                 error: 'You do not have permission to delete this application'
@@ -388,7 +399,7 @@ router.get('/:appId/projects', async (req: AuthRequest, res: Response) => {
             });
         }
 
-        if (application.userId !== userId) {
+        if (!canAccessApplication(application, req)) {
             return res.status(403).json({
                 success: false,
                 error: 'You do not have permission to access this application'
@@ -426,7 +437,7 @@ router.post('/:appId/projects', async (req: AuthRequest, res: Response) => {
             });
         }
 
-        if (application.userId !== userId) {
+        if (!canAccessApplication(application, req)) {
             return res.status(403).json({
                 success: false,
                 error: 'You do not have permission to create projects in this application'
@@ -478,7 +489,7 @@ router.get('/:appId/projects/:projectId', async (req: AuthRequest, res: Response
 
         const application = await applicationRepository.findById(appId);
 
-        if (!application || application.userId !== userId) {
+        if (!application || !canAccessApplication(application, req)) {
             return res.status(404).json({
                 success: false,
                 error: 'Application not found'
@@ -516,7 +527,7 @@ router.put('/:appId/projects/:projectId', async (req: AuthRequest, res: Response
 
         const application = await applicationRepository.findById(appId);
 
-        if (!application || application.userId !== userId) {
+        if (!application || !canAccessApplication(application, req)) {
             return res.status(404).json({
                 success: false,
                 error: 'Application not found'
@@ -559,7 +570,7 @@ router.delete('/:appId/projects/:projectId', async (req: AuthRequest, res: Respo
 
         const application = await applicationRepository.findById(appId);
 
-        if (!application || application.userId !== userId) {
+        if (!application || !canAccessApplication(application, req)) {
             return res.status(404).json({
                 success: false,
                 error: 'Application not found'
@@ -601,7 +612,7 @@ router.get('/:appId/environments', async (req: AuthRequest, res: Response) => {
         const { appId } = req.params;
 
         const application = await applicationRepository.findById(appId);
-        if (!application || application.userId !== userId) {
+        if (!application || !canAccessApplication(application, req)) {
             return res.status(404).json({
                 success: false,
                 error: 'Application not found'
@@ -636,7 +647,7 @@ router.get('/:appId/environments/active', async (req: AuthRequest, res: Response
         const { appId } = req.params;
 
         const application = await applicationRepository.findById(appId);
-        if (!application || application.userId !== userId) {
+        if (!application || !canAccessApplication(application, req)) {
             return res.status(404).json({
                 success: false,
                 error: 'Application not found'
@@ -684,7 +695,7 @@ router.post('/:appId/environments', async (req: AuthRequest, res: Response) => {
         };
 
         const application = await applicationRepository.findById(appId);
-        if (!application || application.userId !== userId) {
+        if (!application || !canAccessApplication(application, req)) {
             return res.status(404).json({
                 success: false,
                 error: 'Application not found'
@@ -745,7 +756,7 @@ router.put('/:appId/environments/:envId', async (req: AuthRequest, res: Response
         const { name } = req.body as { name?: string };
 
         const application = await applicationRepository.findById(appId);
-        if (!application || application.userId !== userId) {
+        if (!application || !canAccessApplication(application, req)) {
             return res.status(404).json({
                 success: false,
                 error: 'Application not found'
@@ -793,7 +804,7 @@ router.delete('/:appId/environments/:envId', async (req: AuthRequest, res: Respo
         const { appId, envId } = req.params;
 
         const application = await applicationRepository.findById(appId);
-        if (!application || application.userId !== userId) {
+        if (!application || !canAccessApplication(application, req)) {
             return res.status(404).json({
                 success: false,
                 error: 'Application not found'
@@ -838,7 +849,7 @@ router.post('/:appId/environments/:envId/activate', async (req: AuthRequest, res
         const { appId, envId } = req.params;
 
         const application = await applicationRepository.findById(appId);
-        if (!application || application.userId !== userId) {
+        if (!application || !canAccessApplication(application, req)) {
             return res.status(404).json({
                 success: false,
                 error: 'Application not found'
@@ -889,7 +900,7 @@ router.post('/:appId/environments/:envId/variables', async (req: AuthRequest, re
         };
 
         const application = await applicationRepository.findById(appId);
-        if (!application || application.userId !== userId) {
+        if (!application || !canAccessApplication(application, req)) {
             return res.status(404).json({
                 success: false,
                 error: 'Application not found'
@@ -942,7 +953,7 @@ router.put('/:appId/environments/:envId/variables/:varId', async (req: AuthReque
         };
 
         const application = await applicationRepository.findById(appId);
-        if (!application || application.userId !== userId) {
+        if (!application || !canAccessApplication(application, req)) {
             return res.status(404).json({
                 success: false,
                 error: 'Application not found'
@@ -997,7 +1008,7 @@ router.delete('/:appId/environments/:envId/variables/:varId', async (req: AuthRe
         const { appId, envId, varId } = req.params;
 
         const application = await applicationRepository.findById(appId);
-        if (!application || application.userId !== userId) {
+        if (!application || !canAccessApplication(application, req)) {
             return res.status(404).json({
                 success: false,
                 error: 'Application not found'

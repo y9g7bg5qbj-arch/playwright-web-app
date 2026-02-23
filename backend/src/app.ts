@@ -31,6 +31,7 @@ import testDataTablesRoutes from './routes/test-data/tables.routes';
 import testDataVersionsRoutes from './routes/test-data/versions.routes';
 import settingsRoutes from './routes/settings.routes';
 import runParametersRoutes from './routes/runParameters.routes';
+import usersRoutes from './routes/users.routes';
 
 export function createApp() {
   const app = express();
@@ -146,6 +147,7 @@ export function createApp() {
   app.use('/api', sandboxRoutes); // Sandbox collaboration routes
   app.use('/api', pullRequestRoutes); // Pull request routes
   app.use('/api/applications', runParametersRoutes); // Run parameter definitions & sets
+  app.use('/api/users', usersRoutes); // User management (admin only)
 
   // Error handlers (must be last)
   app.use(notFoundHandler);

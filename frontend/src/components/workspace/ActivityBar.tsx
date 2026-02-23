@@ -11,6 +11,17 @@ import {
 } from 'lucide-react';
 import { IconButton, Tooltip } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/store/authStore';
+import type { UserRole } from '@playwright-web-app/shared';
+
+/** Role hierarchy for visibility checks — index = privilege level (higher = more access) */
+const ROLE_LEVEL: Record<UserRole, number> = {
+  viewer: 0,
+  qa_tester: 1,
+  senior_qa: 2,
+  qa_lead: 3,
+  admin: 4,
+};
 
 export type ActivityView =
   | 'explorer'
@@ -76,6 +87,10 @@ const ACTIVITIES: ActivityItem[] = [
 ];
 
 export function ActivityBar({ activeView, onViewChange, executionBadge, onOpenScenarioBrowser, scenarioCount }: ActivityBarProps): JSX.Element {
+  const user = useAuthStore(s => s.user);
+  const userRole: UserRole = (user?.role as UserRole) || 'qa_tester';
+  const isAdmin = ROLE_LEVEL[userRole] >= ROLE_LEVEL['admin'];
+
   return (
     <aside className="w-[42px] border-r border-border-default bg-dark-bg flex flex-col items-center py-2 gap-0.5 z-20 shrink-0 select-none">
       {ACTIVITIES.map((activity) => {
@@ -152,31 +167,33 @@ export function ActivityBar({ activeView, onViewChange, executionBadge, onOpenSc
           className="w-[34px] h-[34px]"
         />
 
-        {/* Settings */}
-        <Tooltip content="Settings" showDelayMs={0} hideDelayMs={0}>
-          <button
-            onClick={() => onViewChange('settings')}
-            className={cn(
-              'relative group flex items-center justify-center',
-              'w-[34px] h-[34px] rounded transition-colors duration-fast',
-              activeView === 'settings'
-                ? 'text-text-primary'
-                : 'text-text-muted hover:text-text-primary hover:bg-white/[0.05]'
-            )}
-            aria-label="Settings"
-          >
-            {activeView === 'settings' && (
-              <div
-                className="absolute left-[-4px] top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r bg-brand-primary"
+        {/* Settings — admin only */}
+        {isAdmin && (
+          <Tooltip content="Settings" showDelayMs={0} hideDelayMs={0}>
+            <button
+              onClick={() => onViewChange('settings')}
+              className={cn(
+                'relative group flex items-center justify-center',
+                'w-[34px] h-[34px] rounded transition-colors duration-fast',
+                activeView === 'settings'
+                  ? 'text-text-primary'
+                  : 'text-text-muted hover:text-text-primary hover:bg-white/[0.05]'
+              )}
+              aria-label="Settings"
+            >
+              {activeView === 'settings' && (
+                <div
+                  className="absolute left-[-4px] top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r bg-brand-primary"
+                />
+              )}
+              <Settings
+                size={18}
+                strokeWidth={activeView === 'settings' ? 2 : 1.5}
+                className="transition-colors"
               />
-            )}
-            <Settings
-              size={18}
-              strokeWidth={activeView === 'settings' ? 2 : 1.5}
-              className="transition-colors"
-            />
-          </button>
-        </Tooltip>
+            </button>
+          </Tooltip>
+        )}
       </div>
     </aside>
   );

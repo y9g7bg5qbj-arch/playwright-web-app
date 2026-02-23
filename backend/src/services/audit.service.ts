@@ -20,7 +20,8 @@ export type AuditAction =
   | 'cancelled'
   | 'sent'
   | 'webhook_received'
-  | 'dispatched_to_github';
+  | 'dispatched_to_github'
+  | 'chained_trigger';
 
 export interface AuditLogEntry {
   id: string;

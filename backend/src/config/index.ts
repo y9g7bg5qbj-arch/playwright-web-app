@@ -40,4 +40,11 @@ export const config = {
   logging: {
     level: process.env.LOG_LEVEL || 'info',
   },
+
+  rbac: {
+    bootstrapAdminEmails: (process.env.BOOTSTRAP_ADMIN_EMAILS || '')
+      .split(',')
+      .map(e => e.trim().toLowerCase())
+      .filter(Boolean),
+  },
 };

@@ -1,14 +1,11 @@
-// Auth imports - commented out while auth is bypassed for testing
-// import { Navigate } from 'react-router-dom';
-// import { useAuthStore } from '@/store/authStore';
+import { Navigate } from 'react-router-dom';
+import { useAuthStore } from '@/store/authStore';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  // Bypass auth for testing
-  /*
   const { user, isLoading } = useAuthStore();
 
   if (isLoading) {
@@ -22,7 +19,6 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   if (!user) {
     return <Navigate to="/login" replace />;
   }
-  */
 
   return <>{children}</>;
 }

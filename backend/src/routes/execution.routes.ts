@@ -1284,7 +1284,7 @@ router.get('/recent', asyncHandler(async (req: AuthRequest, res) => {
     typeof req.query.applicationId === 'string' && req.query.applicationId.trim().length > 0
       ? req.query.applicationId.trim()
       : undefined;
-  const executions = await executionService.findRecent(req.userId!, limit, applicationId);
+  const executions = await executionService.findRecent(req.userId!, limit, applicationId, req.userRole);
   res.json({
     success: true,
     data: executions,
@@ -1296,7 +1296,7 @@ router.delete(
   '/:id',
   validate([param('id').isUUID().withMessage('Invalid execution ID')]),
   asyncHandler(async (req: AuthRequest, res) => {
-    await executionService.delete(req.userId!, req.params.id);
+    await executionService.delete(req.userId!, req.params.id, req.userRole);
     res.json({
       success: true,
       data: null,

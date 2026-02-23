@@ -7,6 +7,7 @@
 
 import { Router, Request, Response } from 'express';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { requirePermission } from '../middleware/rbac';
 import { testConnection, clearAdapterCache, SUPPORTED_PROVIDERS } from '../services/data-adapters';
 import { applicationRepository, dataStorageConfigRepository } from '../db/repositories/mongo';
 import { logger } from '../utils/logger';
@@ -33,7 +34,7 @@ router.get('/providers', async (_req: Request, res: Response) => {
  * GET /api/data-storage/:applicationId
  * Get data storage configuration for an application
  */
-router.get('/:applicationId', async (req: Request, res: Response) => {
+router.get('/:applicationId', requirePermission('manage:projects'), async (req: Request, res: Response) => {
   try {
     const { applicationId } = req.params;
 
@@ -81,7 +82,7 @@ router.get('/:applicationId', async (req: Request, res: Response) => {
  * PUT /api/data-storage/:applicationId
  * Update data storage configuration for an application
  */
-router.put('/:applicationId', async (req: Request, res: Response) => {
+router.put('/:applicationId', requirePermission('manage:projects'), async (req: Request, res: Response) => {
   try {
     const { applicationId } = req.params;
 
@@ -161,7 +162,7 @@ router.put('/:applicationId', async (req: Request, res: Response) => {
  * POST /api/data-storage/:applicationId/test
  * Test database connection
  */
-router.post('/:applicationId/test', async (req: Request, res: Response) => {
+router.post('/:applicationId/test', requirePermission('manage:projects'), async (req: Request, res: Response) => {
   try {
     const { applicationId } = req.params;
 
@@ -244,7 +245,7 @@ router.post('/:applicationId/test', async (req: Request, res: Response) => {
  * DELETE /api/data-storage/:applicationId
  * Reset to default MongoDB storage
  */
-router.delete('/:applicationId', async (req: Request, res: Response) => {
+router.delete('/:applicationId', requirePermission('manage:projects'), async (req: Request, res: Response) => {
   try {
     const { applicationId } = req.params;
 
