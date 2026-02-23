@@ -2,7 +2,7 @@
  * SchedulerPanel - User-friendly interface for scheduling test runs
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Calendar,
   Plus,
@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { IconButton, EmptyState } from '@/components/ui';
 import { schedulesApi } from '@/api/schedules';
+import { runConfigurationApi } from '@/api/runConfiguration';
+import { fromBackendConfig } from '@/store/runConfigMapper';
 import type {
   Schedule,
   ScheduleTriggerRequest,
@@ -21,7 +23,7 @@ import { ScheduleCard } from './SchedulerScheduleCard';
 import { ScheduleForm } from './SchedulerForm';
 import { RunHistory } from './SchedulerRunHistory';
 import { useRunParameterStore } from '@/store/runParameterStore';
-import { useRunConfigStore } from '@/store/runConfigStore';
+import type { RunConfiguration } from '@/store/runConfigStore';
 
 // =============================================
 // Types
@@ -57,27 +59,29 @@ export const SchedulerPanel: React.FC<SchedulerPanelProps> = ({
 
   // Run parameters modal state
   const [runModalSchedule, setRunModalSchedule] = useState<Schedule | null>(null);
+  const [runModalConfig, setRunModalConfig] = useState<RunConfiguration | null>(null);
   const [isTriggering, setIsTriggering] = useState(false);
-  const runConfigurations = useRunConfigStore((s) => s.configurations);
-  const loadConfigurations = useRunConfigStore((s) => s.loadConfigurations);
   const parameterDefinitions = useRunParameterStore((s) => s.definitions);
   const parameterSets = useRunParameterStore((s) => s.sets);
   const isRunParamsLoading = useRunParameterStore((s) => s.isLoading);
   const fetchRunParameters = useRunParameterStore((s) => s.fetchAll);
-  const workflowRunConfigurations = useMemo(
-    () =>
-      workflowId
-        ? runConfigurations.filter((config) => config.workflowId === workflowId)
-        : [],
-    [runConfigurations, workflowId]
-  );
 
+  // Fetch owned config when trigger modal opens
   useEffect(() => {
-    if (!workflowId || !runModalSchedule?.projectId) {
+    if (!runModalSchedule?.runConfigurationId) {
+      setRunModalConfig(null);
       return;
     }
-    void loadConfigurations(workflowId, runModalSchedule.projectId);
-  }, [workflowId, runModalSchedule?.projectId, loadConfigurations]);
+    let cancelled = false;
+    runConfigurationApi.getOne(runModalSchedule.runConfigurationId)
+      .then((backend) => {
+        if (!cancelled) setRunModalConfig(fromBackendConfig(backend));
+      })
+      .catch(() => {
+        if (!cancelled) setRunModalConfig(null);
+      });
+    return () => { cancelled = true; };
+  }, [runModalSchedule?.runConfigurationId]);
 
   // Fetch schedules
   const fetchSchedules = useCallback(async () => {
@@ -185,15 +189,6 @@ export const SchedulerPanel: React.FC<SchedulerPanelProps> = ({
     setViewMode('history');
   };
 
-  // Render
-  const runModalConfiguration = runModalSchedule?.runConfigurationId
-    ? workflowRunConfigurations.find(
-        (config) =>
-          config.id === runModalSchedule.runConfigurationId &&
-          config.projectId === runModalSchedule.projectId
-      ) || null
-    : null;
-
   return (
     <div className="flex flex-col h-full bg-dark-bg">
       {/* Header */}
@@ -231,7 +226,7 @@ export const SchedulerPanel: React.FC<SchedulerPanelProps> = ({
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto px-4 pt-4">
         {viewMode === 'list' && (
           <>
             {isLoading ? (
@@ -272,6 +267,7 @@ export const SchedulerPanel: React.FC<SchedulerPanelProps> = ({
 
         {viewMode === 'create' && (
           <ScheduleForm
+            key="create-schedule-form"
             workflowId={workflowId}
             applicationId={applicationId}
             defaultProjectId={defaultProjectId}
@@ -283,6 +279,7 @@ export const SchedulerPanel: React.FC<SchedulerPanelProps> = ({
 
         {viewMode === 'edit' && selectedSchedule && (
           <ScheduleForm
+            key={`edit-schedule-${selectedSchedule.id}`}
             schedule={selectedSchedule}
             workflowId={workflowId}
             applicationId={applicationId}
@@ -316,7 +313,7 @@ export const SchedulerPanel: React.FC<SchedulerPanelProps> = ({
           onClose={() => setRunModalSchedule(null)}
           onRun={handleTriggerWithParams}
           schedule={runModalSchedule}
-          runConfiguration={runModalConfiguration}
+          runConfiguration={runModalConfig}
           parameterDefinitions={parameterDefinitions}
           parameterSets={parameterSets}
           isLoading={isTriggering || isRunParamsLoading}

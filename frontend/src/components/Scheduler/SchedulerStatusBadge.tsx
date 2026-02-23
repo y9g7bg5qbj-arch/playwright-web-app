@@ -25,6 +25,8 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, isActive }) =>
         return { color: 'bg-status-warning', text: 'Pending' };
       case 'cancelled':
         return { color: 'bg-text-muted', text: 'Cancelled' };
+      case 'skipped':
+        return { color: 'bg-status-warning/70', text: 'Skipped' };
       default:
         return { color: 'bg-text-muted', text: status };
     }
@@ -46,6 +48,7 @@ const STATUS_COLOR_MAP: Record<string, string> = {
   pending: 'bg-status-warning',
   queued: 'bg-status-warning',
   cancelled: 'bg-text-muted',
+  skipped: 'bg-status-warning/70',
 };
 
 /**
