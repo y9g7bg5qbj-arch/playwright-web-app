@@ -26,7 +26,9 @@ import {
     OpenInNewTabStatement,
     CloseTabStatement,
     // TRY/CATCH and API
-    TryCatchStatement, ApiRequestStatement, VerifyResponseStatement,
+    TryCatchStatement,
+    SelectStatement, IfElseStatement, BooleanExpression, RepeatStatement,
+    ApiRequestStatement, VerifyResponseStatement,
     MockApiStatement
 } from '../parser/ast.js';
 import {
@@ -46,6 +48,7 @@ import {
     generatePageObjectReInit as generatePageObjectReInitFn,
     type TabTranspilerHelpers
 } from './transpilerTabs.js';
+import { collectFeatureReferences } from './featureReferenceCollector.js';
 
 export interface TranspileOptions {
     baseUrl?: string;
@@ -116,6 +119,13 @@ export class Transpiler {
                     case 'TryCatch':
                         collectFromStatements(stmt.tryStatements);
                         collectFromStatements(stmt.catchStatements);
+                        break;
+                    case 'IfElse':
+                        collectFromStatements(stmt.ifStatements);
+                        collectFromStatements(stmt.elseStatements);
+                        break;
+                    case 'Repeat':
+                        collectFromStatements(stmt.statements);
                         break;
                     case 'Row':
                         this.usedTables.add(stmt.tableRef.tableName);
@@ -570,8 +580,8 @@ export class Transpiler {
     private transpileFeature(feature: FeatureNode, allFixtures: FixtureNode[] = []): string {
         const lines: string[] = [];
 
-        // Extract page names from UseNode[] for downstream methods
-        const useNames = feature.uses.map(u => u.name);
+        // Infer page/pageActions dependencies from feature body (replaces USE)
+        const useNames = collectFeatureReferences(feature);
 
         // Collect all tables used in VDQL queries
         const usedTables = this.collectUsedTables(feature);
@@ -600,8 +610,8 @@ export class Transpiler {
         }
         lines.push("import path from 'path';");
         lines.push("import fsPromises from 'fs/promises';");
-        for (const use of feature.uses) {
-            lines.push(`import { ${use.name} } from '../${this.options.pageObjectDir}/${use.name}';`);
+        for (const name of useNames) {
+            lines.push(`import { ${name} } from '../${this.options.pageObjectDir}/${name}';`);
         }
 
         // Add VeroUtils imports if utility functions are used
@@ -670,10 +680,10 @@ export class Transpiler {
         }
 
         // Page object variables
-        if (feature.uses.length > 0) {
-            for (const use of feature.uses) {
-                const varName = this.camelCase(use.name);
-                lines.push(this.line(`let ${varName}: ${use.name};`));
+        if (useNames.length > 0) {
+            for (const name of useNames) {
+                const varName = this.camelCase(name);
+                lines.push(this.line(`let ${varName}: ${name};`));
             }
             lines.push('');
         }
@@ -732,12 +742,12 @@ export class Transpiler {
 
         // Add default beforeEach if none exists but pages are used
         const hasBeforeEach = feature.hooks.some(h => h.hookType === 'BEFORE_EACH');
-        if (!hasBeforeEach && feature.uses.length > 0) {
+        if (!hasBeforeEach && useNames.length > 0) {
             lines.push(this.line(`test.beforeEach(async ({ page }) => {`));
             this.indent++;
-            for (const use of feature.uses) {
-                const varName = this.camelCase(use.name);
-                lines.push(this.line(`${varName} = new ${use.name}(page);`));
+            for (const name of useNames) {
+                const varName = this.camelCase(name);
+                lines.push(this.line(`${varName} = new ${name}(page);`));
             }
             this.indent--;
             lines.push(this.line('});'));
@@ -1197,6 +1207,18 @@ export class Transpiler {
                 }
                 return `await test.step('Wait for URL equals ' + ${urlVal}, async () => { await page.waitForURL(url => url.toString() === ${urlVal}); });`;
             }
+
+            // SELECT
+            case 'Select':
+                return this.transpileSelectStatement(statement, uses, currentPage);
+
+            // IF/ELSE
+            case 'IfElse':
+                return this.transpileIfElseStatement(statement, uses, currentPage);
+
+            // REPEAT
+            case 'Repeat':
+                return this.transpileRepeatStatement(statement, uses, currentPage);
 
             // TRY/CATCH
             case 'TryCatch':
@@ -1745,6 +1767,86 @@ export class Transpiler {
         return lines.join('\n');
     }
 
+    // ==================== SELECT TRANSPILATION ====================
+
+    private transpileSelectStatement(statement: SelectStatement, uses: string[], currentPage?: string): string {
+        const targetDesc = this.getTargetDescription(statement.target);
+        const optionExpr = this.transpileExpression(statement.option);
+        return `await test.step('Select ' + ${optionExpr} + ' from ${targetDesc}', async () => { await ${this.transpileTarget(statement.target, uses, currentPage)}.selectOption(${optionExpr}); });`;
+    }
+
+    // ==================== IF/ELSE TRANSPILATION ====================
+
+    private transpileIfElseStatement(statement: IfElseStatement, uses: string[], currentPage?: string): string {
+        const lines: string[] = [];
+        const conditionCode = this.transpileBooleanExpression(statement.condition, uses, currentPage);
+
+        lines.push(`if (${conditionCode}) {`);
+        this.indent++;
+
+        for (const stmt of statement.ifStatements) {
+            const code = this.transpileStatement(stmt, uses, currentPage);
+            if (code) lines.push(this.line(code));
+        }
+
+        this.indent--;
+
+        if (statement.elseStatements.length > 0) {
+            lines.push(this.line('} else {'));
+            this.indent++;
+
+            for (const stmt of statement.elseStatements) {
+                const code = this.transpileStatement(stmt, uses, currentPage);
+                if (code) lines.push(this.line(code));
+            }
+
+            this.indent--;
+        }
+
+        lines.push(this.line('}'));
+        return lines.join('\n');
+    }
+
+    private transpileBooleanExpression(condition: BooleanExpression, uses: string[], currentPage?: string): string {
+        switch (condition.type) {
+            case 'ElementState': {
+                const locator = this.transpileTarget(condition.target, uses, currentPage);
+                const stateMethodMap: Record<string, string> = {
+                    'VISIBLE': 'isVisible',
+                    'HIDDEN': 'isHidden',
+                    'ENABLED': 'isEnabled',
+                    'DISABLED': 'isDisabled',
+                    'CHECKED': 'isChecked',
+                };
+                const method = stateMethodMap[condition.state] || 'isVisible';
+                const call = `await ${locator}.${method}()`;
+                return condition.negated ? `!(${call})` : call;
+            }
+            case 'VariableTruthy':
+                return condition.variableName;
+        }
+    }
+
+    // ==================== REPEAT TRANSPILATION ====================
+
+    private transpileRepeatStatement(statement: RepeatStatement, uses: string[], currentPage?: string): string {
+        const lines: string[] = [];
+        const countExpr = this.transpileExpression(statement.count);
+        const loopVar = `__i${this.tempVarCounter++}`;
+
+        lines.push(`for (let ${loopVar} = 0; ${loopVar} < ${countExpr}; ${loopVar}++) {`);
+        this.indent++;
+
+        for (const stmt of statement.statements) {
+            const code = this.transpileStatement(stmt, uses, currentPage);
+            if (code) lines.push(this.line(code));
+        }
+
+        this.indent--;
+        lines.push(this.line('}'));
+        return lines.join('\n');
+    }
+
     // ==================== TRY/CATCH TRANSPILATION ====================
 
     private transpileTryCatchStatement(statement: TryCatchStatement, uses: string[], currentPage?: string): string {
@@ -2202,6 +2304,12 @@ export class Transpiler {
                 }
                 if (stmt.type === 'TryCatch') {
                     if (checkStatements(stmt.tryStatements) || checkStatements(stmt.catchStatements)) return true;
+                }
+                if (stmt.type === 'IfElse') {
+                    if (checkStatements(stmt.ifStatements) || checkStatements(stmt.elseStatements)) return true;
+                }
+                if (stmt.type === 'Repeat') {
+                    if (checkStatements(stmt.statements)) return true;
                 }
             }
             return false;

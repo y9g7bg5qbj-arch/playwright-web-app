@@ -4,7 +4,6 @@
 # ============================================
 
 FEATURE AllActionsTest {
-    USE ActionsTestPageActions
 
     SCENARIO TestOpenAction @actions @navigation {
         OPEN "https://example.com"

@@ -129,18 +129,6 @@ export class Validator {
     }
 
     private validateFeature(feature: FeatureNode): void {
-        // Validate USE statements - can use either Pages or PageActions
-        for (const use of feature.uses) {
-            if (!this.definedPages.has(use.name) && !this.definedPageActions.has(use.name)) {
-                this.addError(
-                    `'${use.name}' is used but not defined`,
-                    use.line,
-                    `Make sure ${use.name}.vero exists in pages/ or PageActions/`,
-                    'VERO-200'
-                );
-            }
-        }
-
         // Validate scenarios
         for (const scenario of feature.scenarios) {
             // Reset scenario-level variables for each scenario
@@ -196,12 +184,12 @@ export class Validator {
 
         // Helper to validate a target's page reference
         const validateTargetPage = (target: { page?: string, field?: string }, line: number) => {
-            if (target.page && !feature.uses.some(u => u.name === target.page)) {
+            if (target.page && !this.definedPages.has(target.page) && !this.definedPageActions.has(target.page)) {
                 this.addError(
-                    `Page '${target.page}' is referenced but not in USE list`,
+                    `Page '${target.page}' is not defined`,
                     line,
-                    `Add 'USE ${target.page}' at the top of the feature`,
-                    'VERO-201'
+                    `Make sure ${target.page}.vero exists in Pages/ or PageActions/`,
+                    'VERO-200'
                 );
             }
             // Also check if the field exists on the page
@@ -262,12 +250,12 @@ export class Validator {
         if (stmt.type === 'Perform') {
             const action = stmt.action;
             if (action.page) {
-                if (!feature.uses.some(u => u.name === action.page)) {
+                if (!this.definedPages.has(action.page) && !this.definedPageActions.has(action.page)) {
                     this.addError(
-                        `Page '${action.page}' is referenced but not in USE list`,
+                        `'${action.page}' is not defined`,
                         stmt.line,
-                        `Add 'USE ${action.page}' at the top of the feature`,
-                        'VERO-201'
+                        `Make sure ${action.page}.vero exists in Pages/ or PageActions/`,
+                        'VERO-200'
                     );
                 }
                 // Check if action exists on the page
@@ -319,15 +307,7 @@ export class Validator {
         // Check VERIFY/ASSERT statements
         if (stmt.type === 'Verify' || stmt.type === 'VerifyHas') {
             if ('target' in stmt && stmt.target && stmt.target.type === 'Target') {
-                const target = stmt.target;
-                if (target.page && !feature.uses.some(u => u.name === target.page)) {
-                    this.addError(
-                        `Page '${target.page}' is referenced but not in USE list`,
-                        stmt.line,
-                        `Add 'USE ${target.page}' at the top of the feature`,
-                        'VERO-201'
-                    );
-                }
+                validateTargetPage(stmt.target, stmt.line);
             }
         }
     }
@@ -366,13 +346,13 @@ export class Validator {
                     return;  // Valid data variable access
                 }
 
-                // Check if page is in USE list
-                if (!feature.uses.some(u => u.name === pageName)) {
+                // Check if page/pageActions is defined
+                if (!this.definedPages.has(pageName) && !this.definedPageActions.has(pageName)) {
                     this.addError(
-                        `Page '${pageName}' is referenced but not in USE list`,
+                        `Page '${pageName}' is not defined`,
                         line,
-                        `Add 'USE ${pageName}' at the top of the feature`,
-                        'VERO-201'
+                        `Make sure ${pageName}.vero exists in Pages/ or PageActions/`,
+                        'VERO-200'
                     );
                 }
                 // Check if variable exists on page

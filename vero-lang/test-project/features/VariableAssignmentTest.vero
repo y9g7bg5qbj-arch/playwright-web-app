@@ -1,7 +1,6 @@
 # Variable Assignment Test - Tests FLAG/TEXT = PERFORM and VERIFY variable patterns
 
 FEATURE VariableAssignmentTest {
-    USE ExamplePage
 
     SCENARIO TestVariableVerification {
         # Navigate to example.com

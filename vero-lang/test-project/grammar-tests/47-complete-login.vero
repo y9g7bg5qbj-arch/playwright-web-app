@@ -74,8 +74,6 @@ PAGE DashboardPage {
 }
 
 FEATURE UserAuthentication {
-    USE LoginPage
-    USE DashboardPage
 
     BEFORE EACH {
         OPEN "/login"

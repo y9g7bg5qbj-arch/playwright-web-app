@@ -5,9 +5,6 @@
 
 FEATURE ComprehensiveFeatureTest {
 
-    USE ComprehensivePageActions
-    USE ModalPageActions
-
     # =====================================================
     # HOOKS - Setup and teardown
     # =====================================================

@@ -1,9 +1,6 @@
 # User Registration Feature Tests
 
 FEATURE UserRegistration {
-    USE HomePageActions
-    USE SignUpPageActions
-    USE RegistrationDashboardPageActions
 
     BEFORE EACH {
         OPEN "https://example.com"

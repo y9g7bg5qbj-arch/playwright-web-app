@@ -4,7 +4,7 @@
  * Consolidates the orchestration logic previously inlined in
  * veroExecution.routes.ts so that scheduleRunWorker.ts (and any future
  * callers) can execute Vero files with the same capabilities:
- *   - Content loading, USE page resolution
+ *   - Content loading, auto-resolved page/pageActions dependency loading
  *   - Lex → parse → validate → scenario selection
  *   - Parameterized combination expansion from comma-separated run parameters
  *   - Transpilation, temp spec file creation
@@ -19,7 +19,7 @@ import { existsSync } from 'fs';
 import type { ScenarioSelectionOptions, ScenarioSelectionDiagnostics } from 'vero-lang';
 import { buildVeroRunTempSpecFileName, buildVeroRunPlaywrightArgs, resolveVeroScenarioSelection, sanitizePlaywrightArgsForLog, detectVeroRunFailure, preserveStartupFailureSpec, resolvePlaywrightHostPlatformOverride, stripVeroSpecPrefix, VERO_RUN_MODULE_MISMATCH_ERROR_CODE, type VeroRunDiagnostics } from '../routes/veroRunExecution.utils';
 import { applicationRepository, projectRepository, executionRepository, executionStepRepository, executionLogRepository, runParameterDefinitionRepository } from '../db/repositories/mongo';
-import { detectProjectRoot, loadReferencedPages } from '../routes/veroExecution.utils';
+import { detectProjectRoot, loadReferencedPages, extractReferencedPageNames } from '../routes/veroExecution.utils';
 import { resolveEnvironmentRootFromFilePath, ensureEnvironmentResources, resolveVisualSnapshotConfig } from '../routes/veroVisualSnapshots.utils';
 import { logger } from '../utils/logger';
 import { computeParameterizedCombinations } from './matrixCombinations';
@@ -258,8 +258,7 @@ export async function executeVeroRun(input: VeroRunInput): Promise<VeroRunResult
 
     for (const plannedFile of plannedFiles) {
         const veroContent = plannedFile.content ?? await readFile(plannedFile.absolutePath, 'utf-8');
-        const useMatches = veroContent.match(/USE\s+(\w+)/gi) || [];
-        const pageNames = useMatches.map((m: string) => m.replace(/USE\s+/i, '').trim());
+        const pageNames = extractReferencedPageNames(veroContent);
         const projectRoot = detectProjectRoot(plannedFile.absolutePath, VERO_PROJECT_PATH);
         const referencedContent = await loadReferencedPages(pageNames, projectRoot);
         const combinedContent = referencedContent + veroContent;

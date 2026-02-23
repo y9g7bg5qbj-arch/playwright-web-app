@@ -53,7 +53,6 @@ PAGE LoginPage {
 }
 
 FEATURE VisualChecks {
-  USE LoginPage
   SCENARIO HeaderScreenshot {
     VERIFY LoginPage.header MATCHES SCREENSHOT AS "header" WITH BALANCED THRESHOLD 0.25 MAX_DIFF_PIXELS 12 MAX_DIFF_RATIO 0.01
   }
@@ -90,7 +89,6 @@ PAGE LoginPage {
 }
 
 FEATURE VisualChecks {
-  USE LoginPage
   SCENARIO HeaderScreenshot {
     VERIFY LoginPage.header MATCHES SCREENSHOT AS "header" WITH STRICT
   }

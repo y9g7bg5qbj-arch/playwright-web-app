@@ -70,7 +70,6 @@ describe('Scroll Action', () => {
                     FIELD footer = role "contentinfo"
                 }
                 FEATURE ScrollTest {
-                    USE TestPage
                     SCENARIO ScrollToElement {
                         SCROLL TO TestPage.footer
                     }

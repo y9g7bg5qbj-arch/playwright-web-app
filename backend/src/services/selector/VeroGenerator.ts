@@ -97,7 +97,6 @@ export function generateVeroCodeSimple(session: RecordingSession): GeneratedVero
   // Generate FEATURE
   const featureLines = [
     `FEATURE ${featureName} {`,
-    `    USE ${pageName}`,
     '',
     `    SCENARIO ${inferScenarioName(session.actions)} {`,
   ];

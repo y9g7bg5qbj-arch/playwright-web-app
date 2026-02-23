@@ -39,8 +39,6 @@ PAGEACTIONS TestPageActions FOR TestPage {
 }
 
 FEATURE ComprehensiveTest {
-    USE TestPageActions
-    USE HomePageActions
 
     BEFORE EACH {
         OPEN "https://example.com"

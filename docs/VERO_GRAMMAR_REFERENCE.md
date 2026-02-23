@@ -53,7 +53,7 @@ Vero is a domain-specific language (DSL) for test automation that transpiles to 
 
 #### Structural Keywords
 ```
-PAGE, FEATURE, SCENARIO, FIELD, USE
+PAGE, FEATURE, SCENARIO, FIELD
 ```
 
 #### Hooks
@@ -196,7 +196,6 @@ page LoginPage {
 }
 
 feature Login {
-    use LoginPage
     scenario "Test" {
         log "Hello"
     }
@@ -321,30 +320,12 @@ featureBody
     ;
 
 featureMember
-    : useStatement
-    | hookDeclaration
+    : hookDeclaration
     | scenarioDeclaration
     ;
 ```
 
-### Use Statements
-
-Reference pages to use in scenarios:
-
-```antlr
-useStatement
-    : USE IDENTIFIER
-    ;
-```
-
-**Example:**
-```vero
-feature Login {
-    use LoginPage
-    use DashboardPage
-    use ProfilePage
-}
-```
+**Note:** Page dependencies are auto-resolved from feature references (e.g., `do LoginPage.login`, `click LoginPage.submitBtn`). There is no need to declare page imports explicitly.
 
 ### Hooks
 
@@ -931,8 +912,6 @@ page LoginPage {
 
 # features/Login.vero
 feature UserLogin {
-    use LoginPage
-
     before each {
         open "/login"
         wait 1 seconds
@@ -988,9 +967,6 @@ page CheckoutPage {
 }
 
 feature Checkout {
-    use CartPage
-    use CheckoutPage
-
     before each {
         open "/cart"
     }
@@ -1024,8 +1000,6 @@ page RegistrationPage {
 }
 
 feature FormValidation {
-    use RegistrationPage
-
     scenario "All fields required" @regression {
         open "/register"
         click RegistrationPage.submitBtn

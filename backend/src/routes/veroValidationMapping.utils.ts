@@ -48,7 +48,6 @@ export function getValidationErrorCode(message: string): string {
     if (message.includes('Duplicate page')) return 'VERO-303';
     if (message.includes('Duplicate field')) return 'VERO-303';
     if (message.includes('not defined')) return 'VERO-301';
-    if (message.includes('not in USE list')) return 'VERO-304';
     return 'VERO-302';
 }
 
@@ -56,13 +55,11 @@ export function getValidationErrorTitle(message: string): string {
     if (message.includes('Duplicate page')) return 'Duplicate Page Definition';
     if (message.includes('Duplicate field')) return 'Duplicate Field Definition';
     if (message.includes('not defined')) return 'Undefined Reference';
-    if (message.includes('not in USE list')) return 'Missing Import';
     return 'Validation Error';
 }
 
 export function getValidationErrorFix(message: string): string {
     if (message.includes('Duplicate')) return 'Remove or rename the duplicate definition.';
     if (message.includes('not defined')) return 'Define this element before using it, or check the spelling.';
-    if (message.includes('not in USE list')) return 'Add a USE statement at the top of the feature.';
     return 'Fix the validation issue.';
 }

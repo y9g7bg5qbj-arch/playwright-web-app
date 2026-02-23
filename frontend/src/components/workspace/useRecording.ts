@@ -135,26 +135,6 @@ export function useRecording({
       mutateTabContent(targetTabId, (prevContent) => {
         let content = prevContent;
 
-        // Add missing USE statements for referenced pages inside the feature block
-        if (referencedPages.length > 0) {
-          const existingUses = new Set(
-            (content.match(/USE\s+(\w+)/gi) || []).map(m => m.replace(/USE\s+/i, '').trim())
-          );
-          const missingPages = referencedPages.filter(p => !existingUses.has(p));
-
-          if (missingPages.length > 0) {
-            const useStatements = missingPages.map(p => `    USE ${p}`).join('\n');
-
-            // Insert USE statements after the feature opening brace
-            // Match: feature Name { (with optional annotations before it)
-            const featureOpenMatch = content.match(/(feature\s+\w+\s*\{)([ \t]*\n?)/i);
-            if (featureOpenMatch) {
-              const insertPos = content.indexOf(featureOpenMatch[0]) + featureOpenMatch[0].length;
-              content = content.slice(0, insertPos) + '\n' + useStatements + '\n' + content.slice(insertPos);
-            }
-          }
-        }
-
         // Try to find closing brace of feature block (handles both `}` and `end feature`)
         // Insert the scenario before the closing brace/end-feature keyword
         if (/(\s*}\s*)$/.test(content)) {
@@ -170,11 +150,8 @@ export function useRecording({
 
       addConsoleOutput(`Scenario "${scenarioName}" added to ${currentActiveTab.name}`);
     } else {
-      // No .vero file open - log to console with USE statements included
-      const useBlock = referencedPages.length > 0
-        ? referencedPages.map(p => `    USE ${p}`).join('\n') + '\n\n'
-        : '';
-      const newFileContent = `feature RecordedTests {\n${useBlock}\n${veroScenario}\n\n}`;
+      // No .vero file open - log to console
+      const newFileContent = `FEATURE RecordedTests {\n\n${veroScenario}\n\n}`;
       addConsoleOutput('No .vero file open. Recorded scenario:');
       addConsoleOutput(newFileContent);
     }

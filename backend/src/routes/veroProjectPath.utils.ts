@@ -50,7 +50,7 @@ export async function resolveProjectPath(
                 projectPath = resolve(VERO_PROJECTS_BASE, project.applicationId, project.id);
             }
         } else {
-            return resolve(VERO_PROJECT_PATH);
+            throw new Error(`Project not found: ${projectId}`);
         }
     } else {
         return resolve(VERO_PROJECT_PATH);

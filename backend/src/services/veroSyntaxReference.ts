@@ -40,7 +40,6 @@ PAGE PageName {
 ### FEATURE and SCENARIO
 \`\`\`vero
 FEATURE FeatureName {
-    USE PageName
 
     # SCENARIO names are PascalCase identifiers (NO quotes!)
     SCENARIO UserCanLogin @smoke {
@@ -109,7 +108,7 @@ export const VERO_SYNTAX_COMPACT = `
 Vero DSL Keywords:
 - Actions: CLICK, FILL, OPEN, CHECK, UNCHECK, SELECT, HOVER, PRESS, SCROLL, WAIT, CLEAR, TAKE SCREENSHOT, SWITCH TO NEW TAB, SWITCH TO TAB, OPEN IN NEW TAB, CLOSE TAB, LOG, PERFORM
 - Assertions: VERIFY ... IS VISIBLE/HIDDEN/ENABLED/DISABLED, VERIFY ... CONTAINS/HAS VALUE, VERIFY SCREENSHOT, VERIFY ... MATCHES SCREENSHOT
-- Structure: PAGE, FEATURE, SCENARIO (identifier, not string), FIELD, USE, WITH
+- Structure: PAGE, FEATURE, SCENARIO (identifier, not string), FIELD, WITH
 - Selectors: button, textbox, link, testid, label, placeholder, css, text
 
 SCENARIO names are PascalCase identifiers (SCENARIO UserCanLogin), NOT quoted strings.
@@ -148,7 +147,6 @@ PAGE PageName {
 }
 
 FEATURE FeatureName {
-    USE PageName
 
     SCENARIO DescriptiveScenarioName {
         # actions here
@@ -482,14 +480,13 @@ ${stepsStr}
 export function generateVeroFeature(
   name: string,
   scenarios: string[],
-  pageNames?: string[]
+  _pageNames?: string[]
 ): string {
   const featureName = toPascalCase(name);
-  const useStatements = pageNames?.map(p => `    USE ${p}`).join('\n') || '';
   const scenariosStr = scenarios.join('\n\n');
 
   return `FEATURE ${featureName} {
-${useStatements ? useStatements + '\n\n' : ''}${scenariosStr}
+${scenariosStr}
 }`;
 }
 

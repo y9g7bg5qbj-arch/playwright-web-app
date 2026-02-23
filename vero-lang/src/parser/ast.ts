@@ -80,6 +80,7 @@ export interface PageActionsNode {
 export type FeatureAnnotation = 'serial' | 'skip' | 'only';
 export type ScenarioAnnotation = 'skip' | 'only' | 'slow' | 'fixme';
 
+/** @deprecated USE statements have been removed. Kept for backward-compatible type shapes. */
 export interface UseNode {
     name: string;
     line: number;
@@ -89,6 +90,7 @@ export interface FeatureNode {
     type: 'Feature';
     name: string;
     annotations: FeatureAnnotation[];
+    /** @deprecated Always empty. Page/PageActions dependencies are now auto-inferred. */
     uses: UseNode[];
     fixtures: FixtureUseNode[];
     hooks: HookNode[];
@@ -203,6 +205,9 @@ export type StatementNode =
     | WaitForUrlStatement
     | ClearFieldStatement
     | TryCatchStatement
+    | SelectStatement
+    | IfElseStatement
+    | RepeatStatement
     | ApiRequestStatement
     | VerifyResponseStatement
     | MockApiStatement;
@@ -935,6 +940,50 @@ export interface ChainedExpression {
     type: 'Chained';
     first: UtilityExpressionNode;
     second: UtilityExpressionNode;
+}
+
+// ==================== SELECT ====================
+
+export interface SelectStatement {
+    type: 'Select';
+    option: ExpressionNode;
+    target: TargetNode;
+    line: number;
+}
+
+// ==================== IF/ELSE ====================
+
+export type BooleanExpression =
+    | ElementStateCondition
+    | VariableTruthyCondition;
+
+export interface ElementStateCondition {
+    type: 'ElementState';
+    target: TargetNode;
+    negated: boolean;
+    state: 'VISIBLE' | 'HIDDEN' | 'ENABLED' | 'DISABLED' | 'CHECKED';
+}
+
+export interface VariableTruthyCondition {
+    type: 'VariableTruthy';
+    variableName: string;
+}
+
+export interface IfElseStatement {
+    type: 'IfElse';
+    condition: BooleanExpression;
+    ifStatements: StatementNode[];
+    elseStatements: StatementNode[];
+    line: number;
+}
+
+// ==================== REPEAT ====================
+
+export interface RepeatStatement {
+    type: 'Repeat';
+    count: ExpressionNode;
+    statements: StatementNode[];
+    line: number;
 }
 
 // ==================== TRY/CATCH ====================

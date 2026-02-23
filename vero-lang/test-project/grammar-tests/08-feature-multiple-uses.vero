@@ -34,9 +34,6 @@ PAGE ProfilePage {
 }
 
 FEATURE MultipleUsesFeature {
-    USE LoginPage
-    USE DashboardPage
-    USE ProfilePage
 
     SCENARIO AccessAllPages {
         # Verify visibility using direct page field references

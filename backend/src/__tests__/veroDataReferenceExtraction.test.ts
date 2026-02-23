@@ -33,8 +33,6 @@ describe('collectDataRefsFromFeatures', () => {
             }
 
             FEATURE AssertionOnly {
-                USE AssertPage
-
                 SCENARIO CountAssertions {
                     VERIFY ELEMENT COUNT OF AssertPage.target IS 3
                     VERIFY AssertPage.target HAS COUNT 3

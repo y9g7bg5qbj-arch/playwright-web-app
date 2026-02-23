@@ -19,8 +19,6 @@ PAGE HomePage {
 }
 
 FEATURE TabFlow {
-  USE HomePage
-
   SCENARIO PopupFlow {
     CLICK HomePage.launch
     SWITCH TO NEW TAB
@@ -49,8 +47,6 @@ PAGE HomePage {
 }
 
 FEATURE TabFlow {
-  USE HomePage
-
   BEFORE ALL {
     SWITCH TO NEW TAB
   }
@@ -77,9 +73,6 @@ PAGEACTIONS HomeActions FOR HomePage {
 }
 
 FEATURE TabFlow {
-  USE HomePage
-  USE HomeActions
-
   SCENARIO Smoke {
     PERFORM HomeActions.openPopup
   }

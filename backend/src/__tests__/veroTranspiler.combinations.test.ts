@@ -25,8 +25,6 @@ PAGE LoginPage {
 }
 
 FEATURE LoginFlows {
-  USE LoginPage
-
   SCENARIO SuccessfulLogin {
     FILL LoginPage.username WITH "user"
     FILL LoginPage.password WITH "pass"
@@ -44,8 +42,6 @@ PAGE LoginPage {
 }
 
 @serial FEATURE SerialLoginFlows {
-  USE LoginPage
-
   SCENARIO SerialLogin {
     FILL LoginPage.username WITH "user"
   }
@@ -58,8 +54,6 @@ PAGE LoginPage {
 }
 
 FEATURE VisualFlows {
-  USE LoginPage
-
   SCENARIO VisualValidation @smoke @rt {
     VERIFY LoginPage.header MATCHES SCREENSHOT AS "header" WITH STRICT
   }
@@ -72,8 +66,6 @@ PAGE LoginPage {
 }
 
 FEATURE HookFlows {
-  USE LoginPage
-
   BEFORE ALL {
     LOG "before all"
   }
@@ -104,9 +96,6 @@ PAGEACTIONS LoginActions FOR LoginPage {
 }
 
 FEATURE LoginActionFlows {
-  USE LoginPage
-  USE LoginActions
-
   SCENARIO OpenWithAction {
     PERFORM LoginActions.openPage
   }

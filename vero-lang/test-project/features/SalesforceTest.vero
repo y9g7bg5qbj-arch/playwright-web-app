@@ -1,8 +1,6 @@
 # Salesforce Test - Login via Okta and create a Personal Lines account
 
 FEATURE SalesforceTest {
-    USE FarmersAppUserhomePageActions
-    USE SalesforceHomeHomeJspPageActions
 
     SCENARIO Saleforcetest {
         OPEN "$OKTA_APP_URL"

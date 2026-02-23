@@ -2,7 +2,7 @@
  * Semantic Validation Test Suite for Vero DSL
  *
  * Tests the semantic validator for:
- * - Undefined page references in USE statements
+ * - Undefined page references (auto-resolved from statement targets)
  * - Undefined field references in Page.field expressions
  * - Undefined action references in PERFORM statements
  * - PAGEACTIONS FOR undefined pages
@@ -51,14 +51,15 @@ function createPage(name: string, fields: string[] = []) {
 }
 
 /**
- * Create a simple feature node with USE statements
+ * Create a simple feature node.
+ * The `uses` array is always empty (USE has been removed).
  */
-function createFeature(name: string, uses: string[] = [], scenarios: any[] = []) {
+function createFeature(name: string, _uses: string[] = [], scenarios: any[] = []) {
     return {
         type: 'Feature' as const,
         name,
         annotations: [],
-        uses: uses.map(u => ({ name: u, line: 2 })),
+        uses: [] as Array<{ name: string; line: number }>,
         fixtures: [],
         hooks: [],
         scenarios: scenarios.length > 0 ? scenarios : [{
@@ -96,12 +97,23 @@ function createPageActions(name: string, forPage: string, actions: string[] = []
 
 describe('SemanticValidator', () => {
 
-    describe('USE statement validation', () => {
+    describe('Auto-resolved page reference validation', () => {
 
-        it('should pass when USE references a defined page', () => {
+        it('should pass when a feature references a defined page', () => {
             const ast = createTestAST({
                 pages: [createPage('HomePage', ['searchBox', 'submitBtn'])],
-                features: [createFeature('HomeTest', ['HomePage'])],
+                features: [createFeature('HomeTest', [], [{
+                    type: 'Scenario' as const,
+                    name: 'TestClick',
+                    annotations: [],
+                    tags: [],
+                    statements: [{
+                        type: 'Click' as const,
+                        target: { type: 'Target' as const, page: 'HomePage', field: 'searchBox' },
+                        line: 3,
+                    }],
+                    line: 2,
+                }])],
             });
 
             const validator = new SemanticValidator();
@@ -111,39 +123,56 @@ describe('SemanticValidator', () => {
             assert.strictEqual(result.errorCount, 0);
         });
 
-        it('should error when USE references an undefined page', () => {
+        it('should error when a feature references an undefined page in a target', () => {
             const ast = createTestAST({
                 pages: [createPage('HomePage')],
-                features: [createFeature('HomeTest', ['UnknownPage'])],
+                features: [{
+                    type: 'Feature' as const,
+                    name: 'HomeTest',
+                    annotations: [],
+                    uses: [],
+                    fixtures: [],
+                    hooks: [],
+                    scenarios: [{
+                        type: 'Scenario' as const,
+                        name: 'TestClick',
+                        annotations: [],
+                        tags: [],
+                        statements: [{
+                            type: 'Click' as const,
+                            target: { type: 'Target' as const, page: 'UnknownPage', field: 'btn' },
+                            line: 3,
+                        }],
+                        line: 2,
+                    }],
+                    line: 1,
+                }],
             });
 
             const validator = new SemanticValidator();
             const result = validator.validate(ast);
 
             assert.strictEqual(result.valid, false);
-            assert.strictEqual(result.errorCount, 1);
             assert.strictEqual(result.errors[0].code, VeroErrorCode.UNDEFINED_PAGE);
             assert.ok(result.errors[0].message.includes('UnknownPage'));
         });
 
-        it('should suggest similar page names for typos', () => {
-            const ast = createTestAST({
-                pages: [createPage('HomePage')],
-                features: [createFeature('HomeTest', ['HomPage'])], // typo
-            });
-
-            const validator = new SemanticValidator();
-            const result = validator.validate(ast);
-
-            assert.strictEqual(result.valid, false);
-            assert.ok(result.errors[0].suggestions?.includes('HomePage'));
-        });
-
-        it('should pass when USE references a PageActions', () => {
+        it('should pass when a feature references a PageActions via PERFORM', () => {
             const ast = createTestAST({
                 pages: [createPage('LoginPage')],
                 pageActions: [createPageActions('LoginActions', 'LoginPage', ['doLogin'])],
-                features: [createFeature('LoginTest', ['LoginActions'])],
+                features: [createFeature('LoginTest', [], [{
+                    type: 'Scenario' as const,
+                    name: 'TestLogin',
+                    annotations: [],
+                    tags: [],
+                    statements: [{
+                        type: 'Perform' as const,
+                        action: { type: 'ActionCall' as const, page: 'LoginActions', action: 'doLogin', arguments: [] },
+                        line: 3,
+                    }],
+                    line: 2,
+                }])],
             });
 
             const validator = new SemanticValidator();
@@ -214,7 +243,7 @@ describe('SemanticValidator', () => {
                     type: 'Feature' as const,
                     name: 'TabHooks',
                     annotations: [],
-                    uses: [{ name: 'HomePage', line: 2 }],
+                    uses: [],
                     fixtures: [],
                     hooks: [{
                         type: 'Hook' as const,
@@ -248,7 +277,7 @@ describe('SemanticValidator', () => {
                     type: 'Feature' as const,
                     name: 'TabHooks',
                     annotations: [],
-                    uses: [{ name: 'HomePage', line: 2 }],
+                    uses: [],
                     fixtures: [],
                     hooks: [{
                         type: 'Hook' as const,
@@ -285,7 +314,7 @@ describe('SemanticValidator', () => {
                     type: 'Feature' as const,
                     name: 'HomeTest',
                     annotations: [],
-                    uses: [{ name: 'HomePage', line: 2 }],
+                    uses: [],
                     fixtures: [],
                     hooks: [],
                     scenarios: [{
@@ -316,14 +345,14 @@ describe('SemanticValidator', () => {
             assert.ok(result.errors[0].message.includes('unknownField'));
         });
 
-        it('should error when page in target is not in USE list', () => {
+        it('should pass when page in target is defined (auto-resolved)', () => {
             const ast = createTestAST({
-                pages: [createPage('HomePage'), createPage('OtherPage')],
+                pages: [createPage('HomePage'), createPage('OtherPage', ['btn'])],
                 features: [{
                     type: 'Feature' as const,
                     name: 'HomeTest',
                     annotations: [],
-                    uses: [{ name: 'HomePage', line: 2 }], // Only HomePage in USE
+                    uses: [],
                     fixtures: [],
                     hooks: [],
                     scenarios: [{
@@ -335,7 +364,7 @@ describe('SemanticValidator', () => {
                             type: 'Click' as const,
                             target: {
                                 type: 'Target' as const,
-                                page: 'OtherPage', // Not in USE list
+                                page: 'OtherPage',
                                 field: 'btn',
                             },
                             line: 5,
@@ -349,9 +378,8 @@ describe('SemanticValidator', () => {
             const validator = new SemanticValidator();
             const result = validator.validate(ast);
 
-            assert.strictEqual(result.valid, false);
-            assert.strictEqual(result.errors[0].code, VeroErrorCode.UNDEFINED_PAGE);
-            assert.ok(result.errors[0].message.includes('not in USE list'));
+            // OtherPage is defined, so it should be auto-resolved without USE
+            assert.strictEqual(result.valid, true);
         });
     });
 

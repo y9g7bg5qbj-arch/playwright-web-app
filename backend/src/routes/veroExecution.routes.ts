@@ -221,9 +221,9 @@ executionRouter.post('/debug', authenticateToken, async (req: AuthRequest, res: 
         });
         executionId = execution.id;
 
-        // Extract USE statements and load referenced pages/pageActions
-        const useMatches = veroContent.match(/USE\s+(\w+)/gi) || [];
-        const pageNames = useMatches.map((m: string) => m.replace(/USE\s+/i, '').trim());
+        // Extract referenced page/pageActions names from feature AST
+        const { extractReferencedPageNames } = await import('./veroExecution.utils');
+        const pageNames = extractReferencedPageNames(veroContent);
         const confinedFilePath = filePath ? confineToBase(resolvedBase, filePath) : undefined;
         const projectRoot = confinedFilePath ? detectProjectRoot(confinedFilePath, resolvedBase) : resolvedBase;
         const referencedContent = await loadReferencedPages(pageNames, projectRoot);

@@ -86,9 +86,6 @@ PAGEACTIONS CheckoutPageActions FOR CheckoutPage {
 }
 
 FEATURE CheckoutFlow {
-    USE ProductPageActions
-    USE CartPageActions
-    USE CheckoutPageActions
 
     BEFORE EACH {
         OPEN "/products"

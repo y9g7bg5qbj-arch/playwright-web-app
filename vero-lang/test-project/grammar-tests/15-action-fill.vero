@@ -20,7 +20,6 @@ PAGE FillTestPage {
 }
 
 FEATURE FillActions {
-    USE FillTestPage
 
     SCENARIO FillVariations {
         # Fill with string value via Page

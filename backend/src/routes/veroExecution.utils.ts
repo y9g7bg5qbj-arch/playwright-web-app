@@ -1,5 +1,6 @@
 import { readFile } from 'fs/promises';
 import { join } from 'path';
+import { tokenize, parse, collectFeatureReferences } from 'vero-lang';
 
 // Detect the project root directory from a file path by finding Features/Pages/PageActions boundary.
 export function detectProjectRoot(filePath: string, defaultRoot: string): string {
@@ -57,4 +58,25 @@ export async function loadReferencedPages(pageNames: string[], projectRoot: stri
         }
     }
     return combinedContent;
+}
+
+/**
+ * Extract referenced page/pageActions names from Vero feature content using the AST.
+ * Replaces the old `USE` regex extraction.
+ */
+export function extractReferencedPageNames(veroContent: string): string[] {
+    try {
+        const lexResult = tokenize(veroContent);
+        if (lexResult.errors.length > 0) return [];
+        const parseResult = parse(lexResult.tokens);
+        const refs = new Set<string>();
+        for (const feature of parseResult.ast.features) {
+            for (const name of collectFeatureReferences(feature)) {
+                refs.add(name);
+            }
+        }
+        return [...refs];
+    } catch {
+        return [];
+    }
 }

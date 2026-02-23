@@ -29,7 +29,6 @@ PAGE VisibilityPage {
 }
 
 FEATURE VisibilityAssertions {
-    USE VisibilityPage
 
     SCENARIO VisibilityChecks {
         # Is visible - using page field references directly

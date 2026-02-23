@@ -25,7 +25,6 @@ describe('Download Handling', () => {
                     FIELD exportButton = role "button" name "Export"
                 }
                 FEATURE DownloadTest {
-                    USE ExportPage
                     SCENARIO DownloadFile {
                         DOWNLOAD FROM ExportPage.exportButton
                     }
@@ -43,7 +42,6 @@ describe('Download Handling', () => {
                     FIELD exportButton = role "button" name "Export"
                 }
                 FEATURE DownloadTest {
-                    USE ExportPage
                     SCENARIO DownloadWithName {
                         DOWNLOAD FROM ExportPage.exportButton AS "report.csv"
                     }
@@ -63,7 +61,6 @@ describe('Download Handling', () => {
                     FIELD exportButton = role "button" name "Export"
                 }
                 FEATURE DownloadTest {
-                    USE ExportPage
                     SCENARIO DownloadFile {
                         DOWNLOAD FROM ExportPage.exportButton
                     }
@@ -79,7 +76,6 @@ describe('Download Handling', () => {
                     FIELD exportButton = role "button" name "Export"
                 }
                 FEATURE DownloadTest {
-                    USE ExportPage
                     SCENARIO DownloadWithName {
                         DOWNLOAD FROM ExportPage.exportButton AS "report.csv"
                     }

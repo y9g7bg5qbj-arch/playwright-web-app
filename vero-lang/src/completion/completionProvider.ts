@@ -173,11 +173,10 @@ const VISUAL_ASSERTIONS: CompletionItem[] = [
  */
 const STRUCTURE_KEYWORDS: CompletionItem[] = [
     { label: 'PAGE', kind: CompletionItemKind.Class, detail: 'Define a page object', insertText: 'PAGE ${1:PageName} ("/") {\n\tFIELD ${2:fieldName} = BUTTON "${3:Submit}"\n}', insertTextRules: 4 },
-    { label: 'FEATURE', kind: CompletionItemKind.Class, detail: 'Define a feature', insertText: 'FEATURE ${1:FeatureName} {\n\tUSE ${2:PageName}\n\n\tSCENARIO ${3:ScenarioName} {\n\t\t${4}\n\t}\n}', insertTextRules: 4 },
+    { label: 'FEATURE', kind: CompletionItemKind.Class, detail: 'Define a feature', insertText: 'FEATURE ${1:FeatureName} {\n\tSCENARIO ${2:ScenarioName} {\n\t\t${3}\n\t}\n}', insertTextRules: 4 },
     { label: 'SCENARIO', kind: CompletionItemKind.Function, detail: 'Define a scenario', insertText: 'SCENARIO ${1:ScenarioName} {\n\t${2}\n}', insertTextRules: 4 },
     { label: 'FIELD', kind: CompletionItemKind.Field, detail: 'Define a page field', insertText: 'FIELD ${1:fieldName} = ${2|BUTTON,TEXTBOX,LINK,TESTID,LABEL,PLACEHOLDER,CHECKBOX,HEADING,COMBOBOX,RADIO,ROLE,TEXT,ALT,TITLE,CSS,XPATH|} "${3:value}"', insertTextRules: 4 },
     { label: 'ACTION', kind: CompletionItemKind.Method, detail: 'Define a page action', insertText: 'ACTION ${1:actionName} {\n\t${2}\n}', insertTextRules: 4 },
-    { label: 'USE', kind: CompletionItemKind.Reference, detail: 'Import a page', insertText: 'USE ${1:PageName}', insertTextRules: 4 },
     { label: 'BEFORE EACH', kind: CompletionItemKind.Event, detail: 'Run before each scenario', insertText: 'BEFORE EACH {\n\t${1}\n}', insertTextRules: 4 },
     { label: 'AFTER EACH', kind: CompletionItemKind.Event, detail: 'Run after each scenario', insertText: 'AFTER EACH {\n\t${1}\n}', insertTextRules: 4 },
 ];
