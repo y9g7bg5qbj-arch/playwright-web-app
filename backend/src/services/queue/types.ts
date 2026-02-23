@@ -8,9 +8,10 @@ export type JobPriority = 0 | 1 | 2 | 3; // 0=low, 1=normal, 2=high, 3=critical
 
 export interface ScheduleRunJobData {
   scheduleId: string;
-  runId: string;
+  /** Optional for repeatable (cron) ticks — the worker creates the run record. */
+  runId?: string;
   userId: string;
-  triggerType: 'scheduled' | 'manual' | 'webhook' | 'api';
+  triggerType: 'scheduled' | 'manual' | 'webhook' | 'api' | 'chained';
   /** @deprecated Scheduler now resolves selection from linked run configuration. */
   testSelector?: {
     tags?: string[];
@@ -18,7 +19,16 @@ export interface ScheduleRunJobData {
     patterns?: string[];
   };
   parameterValues?: Record<string, unknown>;
-  /** @deprecated Manual trigger execution overrides are no longer supported. */
+  /** Per-run execution overrides (Jenkins-style). Applied on top of the linked RunConfiguration. */
+  executionConfigOverrides?: {
+    browser?: 'chromium' | 'firefox' | 'webkit';
+    headless?: boolean;
+    workers?: number;
+    retries?: number;
+    timeout?: number;
+    tagExpression?: string;
+  };
+  /** @deprecated Manual trigger execution overrides are no longer supported via this field. */
   executionConfig?: {
     browser?: 'chromium' | 'firefox' | 'webkit';
     headless?: boolean;

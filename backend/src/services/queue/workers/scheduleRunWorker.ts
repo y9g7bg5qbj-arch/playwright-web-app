@@ -19,6 +19,8 @@ import {
   scheduleRunRepository,
   userEnvironmentRepository,
   workflowRepository,
+  runParameterDefinitionRepository,
+  runParameterSetRepository,
 } from '../../../db/repositories/mongo';
 import { auditService } from '../../audit.service';
 import { notificationService, ScheduleRunInfo } from '../../notification.service';
@@ -30,6 +32,7 @@ import { githubService } from '../../github.service';
 import { ExecutionService } from '../../execution.service';
 import { executeVeroRun, mergeExecutionEnvironment, type VeroRunInput } from '../../veroRunService';
 import { resultManager } from '../../results';
+import { scheduleService } from '../../schedule.service';
 import type { QueueJob, ScheduleRunJobData } from '../types';
 
 const executionService = new ExecutionService();
@@ -181,18 +184,174 @@ async function resolveScheduleExecutionScope(schedule: any): Promise<ExecutionSc
   };
 }
 
+// ── Stale-job guard ────────────────────────────────────────────────────
+const DEFAULT_MAX_LAG_MS = 5 * 60 * 1000; // 5 minutes
+
+function getMaxLagMs(): number {
+  const env = process.env.SCHEDULE_RUN_MAX_LAG_MS;
+  if (env) {
+    const parsed = Number(env);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return DEFAULT_MAX_LAG_MS;
+}
+
+// ── Resolve parameters for repeatable ticks ──────────────────────────
+
+async function resolveParametersForRepeatableTick(
+  schedule: any,
+  linkedConfig: any | undefined,
+): Promise<Record<string, unknown>> {
+  const applicationId = await resolveApplicationIdForRepeatableTick(schedule);
+  if (!applicationId) return {};
+
+  const definitions = await runParameterDefinitionRepository.findByApplicationId(applicationId);
+  if (definitions.length === 0) return {};
+
+  // Build defaults from definitions
+  const defaults: Record<string, unknown> = {};
+  for (const def of definitions) {
+    defaults[def.name] = def.defaultValue ?? '';
+  }
+
+  // Overlay parameter set values
+  if (linkedConfig?.parameterSetId) {
+    const parameterSet = await runParameterSetRepository.findById(linkedConfig.parameterSetId);
+    if (parameterSet && parameterSet.applicationId === applicationId) {
+      Object.assign(defaults, parameterSet.values);
+    }
+  } else {
+    const allSets = await runParameterSetRepository.findByApplicationId(applicationId);
+    const defaultSet = allSets.find((s: any) => s.isDefault);
+    if (defaultSet) {
+      Object.assign(defaults, defaultSet.values);
+    }
+  }
+
+  // Overlay parameter overrides from linked config
+  if (linkedConfig?.parameterOverrides) {
+    const overrides = parseJsonSafe<Record<string, unknown>>(linkedConfig.parameterOverrides, {});
+    if (Object.keys(overrides).length > 0) {
+      Object.assign(defaults, overrides);
+    }
+  }
+
+  return defaults;
+}
+
+async function resolveApplicationIdForRepeatableTick(schedule: any): Promise<string | null> {
+  if (schedule.projectId) {
+    const workflowsByApp = await workflowRepository.findByApplicationId(schedule.projectId);
+    if (workflowsByApp.length > 0) return schedule.projectId;
+
+    const project = await projectRepository.findById(schedule.projectId);
+    if (project?.applicationId) return project.applicationId;
+  }
+
+  if (schedule.workflowId) {
+    const workflow = await workflowRepository.findById(schedule.workflowId);
+    if (workflow?.applicationId) return workflow.applicationId;
+  }
+
+  return null;
+}
+
 /**
- * Process a schedule run job
+ * Process a schedule run job.
+ *
+ * Handles two cases:
+ * 1. Legacy / manual / webhook dispatch: `runId` is present in job data.
+ * 2. BullMQ repeatable tick: `runId` is absent — the worker creates the
+ *    ScheduleRun record, applies stale-job guard and concurrency policy.
  */
 export async function processScheduleRunJob(job: QueueJob<ScheduleRunJobData>): Promise<void> {
   const {
     scheduleId,
-    runId,
     userId,
     triggerType,
-    parameterValues,
+    parameterValues: jobParamValues,
     executionConfig: deprecatedExecutionOverrides,
   } = job.data;
+
+  let runId = job.data.runId;
+
+  // ── Load schedule upfront (needed for both paths) ────────────────────
+  const schedule = await scheduleRepository.findById(scheduleId);
+  if (!schedule) {
+    logger.warn(`Schedule ${scheduleId} not found — job ${job.id} discarded`);
+    return;
+  }
+
+  // ── Repeatable-tick path: create ScheduleRun at execution time ───────
+  if (!runId) {
+    // Stale-job guard: skip if this tick fired too late.
+    const jobCreatedAt = job.createdAt?.getTime?.() || Date.now();
+    const lagMs = Date.now() - jobCreatedAt;
+    const maxLagMs = getMaxLagMs();
+    if (lagMs > maxLagMs) {
+      logger.warn(`Schedule ${scheduleId} job ${job.id} is stale (lag ${lagMs}ms > ${maxLagMs}ms) — skipping`);
+      await scheduleRunRepository.create({
+        scheduleId,
+        triggerType: 'scheduled',
+        status: 'skipped',
+        skipReason: `Stale job: ${Math.round(lagMs / 1000)}s lag exceeds ${Math.round(maxLagMs / 1000)}s threshold`,
+        triggeredByUser: 'system',
+      });
+      return;
+    }
+
+    // Concurrency policy check
+    const policy = schedule.concurrencyPolicy || 'forbid';
+    if (policy === 'forbid') {
+      const hasActive = await scheduleRunRepository.hasActiveRuns(scheduleId);
+      if (hasActive) {
+        logger.info(`Schedule ${scheduleId}: overlap forbidden, skipping repeatable tick`);
+        await scheduleRunRepository.create({
+          scheduleId,
+          triggerType: 'scheduled',
+          status: 'skipped',
+          skipReason: 'Overlap forbidden: previous run still pending or running',
+          triggeredByUser: 'system',
+        });
+        return;
+      }
+    }
+
+    // Inactive guard: schedule may have been deactivated after job was enqueued
+    if (!schedule.isActive) {
+      logger.info(`Schedule ${scheduleId} is inactive — skipping repeatable tick`);
+      return;
+    }
+
+    // Resolve parameters & config from linked run configuration
+    let linkedRunConfig: any | undefined;
+    let resolvedParams: Record<string, unknown> = {};
+    if (schedule.runConfigurationId) {
+      linkedRunConfig = await runConfigurationRepository.findById(schedule.runConfigurationId);
+      if (linkedRunConfig) {
+        resolvedParams = await resolveParametersForRepeatableTick(schedule, linkedRunConfig);
+      }
+    }
+
+    // Create the ScheduleRun record
+    const run = await scheduleRunRepository.create({
+      scheduleId,
+      triggerType: 'scheduled',
+      status: 'pending',
+      parameterValues: Object.keys(resolvedParams).length > 0
+        ? JSON.stringify(resolvedParams)
+        : undefined,
+      triggeredByUser: 'system',
+    });
+
+    runId = run.id;
+
+    // Stamp job.data so downstream code sees the runId & resolved params
+    job.data.runId = runId;
+    job.data.parameterValues = resolvedParams;
+
+    logger.info(`Created ScheduleRun ${runId} for repeatable tick of schedule ${scheduleId}`);
+  }
 
   logger.info(`Processing schedule run job: ${job.id} (run: ${runId})`);
 
@@ -209,14 +368,9 @@ export async function processScheduleRunJob(job: QueueJob<ScheduleRunJobData>): 
     jobId: job.id,
   });
 
+  const parameterValues = job.data.parameterValues;
+
   try {
-    // Get schedule details
-    const schedule = await scheduleRepository.findById(scheduleId);
-
-    if (!schedule) {
-      throw new Error(`Schedule ${scheduleId} not found`);
-    }
-
     // Scheduler is run-config driven. Load linked configuration first.
     let linkedRunConfig: Record<string, any> | undefined;
     if (schedule.runConfigurationId) {
@@ -239,9 +393,23 @@ export async function processScheduleRunJob(job: QueueJob<ScheduleRunJobData>): 
       ? { ...linkedRunConfig }
       : { ...(deprecatedExecutionOverrides || {}) };
 
+    // Apply per-run execution config overrides (Jenkins-style)
+    const executionConfigOverrides = job.data.executionConfigOverrides;
+    if (executionConfigOverrides) {
+      if (executionConfigOverrides.browser !== undefined) effectiveConfig.browser = executionConfigOverrides.browser;
+      if (executionConfigOverrides.headless !== undefined) effectiveConfig.headless = executionConfigOverrides.headless;
+      if (executionConfigOverrides.workers !== undefined) effectiveConfig.workers = executionConfigOverrides.workers;
+      if (executionConfigOverrides.retries !== undefined) effectiveConfig.retries = executionConfigOverrides.retries;
+      if (executionConfigOverrides.timeout !== undefined) effectiveConfig.timeout = executionConfigOverrides.timeout;
+      if (executionConfigOverrides.tagExpression !== undefined) effectiveConfig.tagExpression = executionConfigOverrides.tagExpression;
+
+      logger.info(`[Schedule] Applied per-run execution config overrides`, {
+        runId,
+        overrides: executionConfigOverrides,
+      });
+    }
+
     // Preserve custom env vars BEFORE environment resolution overwrites them.
-    // Custom env vars (from run config) have higher precedence than environment
-    // manager vars — they get passed as a separate layer to mergeExecutionEnvironment().
     const customEnvVarsFromConfig = effectiveConfig.envVars
       ? { ...effectiveConfig.envVars }
       : undefined;
@@ -253,16 +421,12 @@ export async function processScheduleRunJob(job: QueueJob<ScheduleRunJobData>): 
       userId,
       effectiveConfig.environmentId,
     );
-    // Do NOT merge resolvedEnvironment.envVars onto config — they are passed
-    // as a separate layer (environmentVars) to mergeExecutionEnvironment() which
-    // applies correct precedence: envManager < paramValues < customEnvVars.
     const mergedExecutionConfig = {
       ...effectiveConfig,
       ...(resolvedEnvironment.environmentId ? { environmentId: resolvedEnvironment.environmentId } : {}),
     };
 
     if (executionTarget === 'github-actions') {
-      // Execute via GitHub Actions
       await executeViaGitHubActions(
         schedule,
         runId,
@@ -273,7 +437,6 @@ export async function processScheduleRunJob(job: QueueJob<ScheduleRunJobData>): 
         resolvedEnvironment.envVars
       );
     } else {
-      // Execute locally — now passes parameterValues (Gap 1 fix)
       await executeLocally(
         schedule,
         runId,
@@ -306,8 +469,6 @@ export async function processScheduleRunJob(job: QueueJob<ScheduleRunJobData>): 
 
     // Try to send failure notifications
     try {
-      const schedule = await scheduleRepository.findById(scheduleId);
-
       if (schedule?.notificationConfig) {
         const notificationConfig = JSON.parse(schedule.notificationConfig);
         const runInfo: ScheduleRunInfo = {
@@ -814,6 +975,15 @@ async function executeLocally(
     };
 
     await notificationService.sendRunNotifications(runInfo, notificationConfig);
+  }
+
+  // P1.2: Trigger chained schedules on success
+  if (status === 'passed') {
+    try {
+      await scheduleService.triggerChainedSchedules(schedule, runId);
+    } catch (chainErr) {
+      logger.error(`[Chain] Error triggering chained schedules for run ${runId}:`, chainErr);
+    }
   }
 
   logger.info(`Schedule run ${runId} completed locally with status: ${status} (${testCount} tests, ${veroTargets.length} vero + ${legacyFiles.length} legacy)`);

@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Calendar, RefreshCw, Sliders } from 'lucide-react';
+import { AlertTriangle, Calendar, RefreshCw, Sliders, Link, X, ChevronDown } from 'lucide-react';
 import { schedulesApi, type SchedulePreset } from '@/api/schedules';
+import { runConfigurationApi } from '@/api/runConfiguration';
 import { nestedProjectsApi } from '@/api/projects';
 import { sandboxApi } from '@/api/sandbox';
 import { veroApi, type VeroFileNode } from '@/api/vero';
 import type { Project, Schedule, ScheduleFolderScope } from '@playwright-web-app/shared';
-import { DEFAULT_CONFIG, useRunConfigStore } from '@/store/runConfigStore';
+import { DEFAULT_CONFIG, type RunConfiguration } from '@/store/runConfigStore';
+import { toBackendCreate, fromBackendConfig } from '@/store/runConfigMapper';
+import { RunConfigEditor } from '@/components/RunConfig/RunConfigEditor';
 import { CRON_PRESETS } from './schedulerUtils';
 
 export interface ScheduleFormProps {
@@ -64,6 +67,7 @@ interface SandboxOption {
   name: string;
   folderPath: string;
   source: 'database' | 'filesystem';
+  dbStatus?: string;
 }
 
 function normalizeSandboxFolderPath(value?: string): string | null {
@@ -115,6 +119,26 @@ function collectFilesystemSandboxes(fileTree: VeroFileNode[]): SandboxOption[] {
   return sandboxes.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function makeDefaultEmbeddedConfig(): RunConfiguration {
+  return {
+    ...DEFAULT_CONFIG,
+    id: 'embedded',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  } as RunConfiguration;
+}
+
+function buildConfigSummary(config: RunConfiguration): string {
+  const parts: string[] = [];
+  parts.push(config.target === 'github-actions' ? 'GitHub Actions' : 'Local');
+  parts.push(config.browser || 'chromium');
+  parts.push(`${config.workers ?? 1}w`);
+  parts.push(`${config.retries ?? 0} retries`);
+  parts.push(`${Math.round((config.timeout ?? 30000) / 1000)}s`);
+  parts.push(config.headed ? 'headed' : 'headless');
+  return parts.join(' · ');
+}
+
 export const ScheduleForm: React.FC<ScheduleFormProps> = ({
   schedule,
   workflowId,
@@ -124,6 +148,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
   onCancel,
   isLoading = false,
 }) => {
+  const isCreateMode = !schedule;
   const inferredLegacyScope = useMemo(() => inferLegacyScope(schedule), [schedule]);
 
   const [name, setName] = useState(schedule?.name || '');
@@ -137,7 +162,6 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
   const [isActive, setIsActive] = useState<boolean>(schedule?.isActive ?? true);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [isCreatingRunConfig, setIsCreatingRunConfig] = useState(false);
 
   const [projectId, setProjectId] = useState<string>(schedule?.projectId || defaultProjectId || '');
   const [scopeFolder, setScopeFolder] = useState<ScheduleFolderScope | ''>(
@@ -151,32 +175,29 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
   const [isLoadingSandboxes, setIsLoadingSandboxes] = useState(false);
 
-  const [runConfigurationId, setRunConfigurationId] = useState<string>(schedule?.runConfigurationId || '');
-  const runConfigurations = useRunConfigStore((s) => s.configurations);
-  const loadConfigurations = useRunConfigStore((s) => s.loadConfigurations);
-  const setRunConfigModalOpen = useRunConfigStore((s) => s.setModalOpen);
-  const addConfiguration = useRunConfigStore((s) => s.addConfiguration);
-  const runConfigSyncError = useRunConfigStore((s) => s.syncError);
+  const [chainScheduleIds, setChainScheduleIds] = useState<string[]>(schedule?.onSuccessTriggerScheduleIds || []);
+  const [allSchedules, setAllSchedules] = useState<{ id: string; name: string }[]>([]);
+  const [isLoadingSchedules, setIsLoadingSchedules] = useState(false);
 
-  const availableRunConfigurations = useMemo(
-    () => {
-      if (!workflowId || !projectId) {
-        return [];
-      }
-      return runConfigurations.filter(
-        (config) =>
-          !config.id.startsWith('config_') &&
-          config.workflowId === workflowId &&
-          config.projectId === projectId
-      );
-    },
-    [runConfigurations, workflowId, projectId]
-  );
-  const hasSelectedRunConfiguration = useMemo(
-    () => availableRunConfigurations.some((config) => config.id === runConfigurationId),
-    [availableRunConfigurations, runConfigurationId]
-  );
-  const effectiveRunConfigurationId = hasSelectedRunConfiguration ? runConfigurationId : '';
+  // Embedded run configuration state
+  const [embeddedConfig, setEmbeddedConfig] = useState<RunConfiguration>(makeDefaultEmbeddedConfig);
+  const [isConfigExpanded, setIsConfigExpanded] = useState(false);
+
+  // For edit mode: load the existing owned config
+  useEffect(() => {
+    if (!schedule?.runConfigurationId) return;
+    let cancelled = false;
+    runConfigurationApi.getOne(schedule.runConfigurationId)
+      .then((backend) => {
+        if (!cancelled) {
+          setEmbeddedConfig(fromBackendConfig(backend));
+        }
+      })
+      .catch(() => {
+        // If fetch fails, keep defaults
+      });
+    return () => { cancelled = true; };
+  }, [schedule?.runConfigurationId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -234,6 +255,26 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
     setScopeSandboxId('');
   }, [defaultProjectId, isLoadingProjects, projectId, projects]);
 
+  // Fetch other schedules for chain-on-success picker
+  useEffect(() => {
+    if (!workflowId) return;
+    let cancelled = false;
+    setIsLoadingSchedules(true);
+    schedulesApi.list(workflowId)
+      .then((items) => {
+        if (!cancelled) {
+          setAllSchedules(
+            items
+              .filter((s) => s.id !== schedule?.id)
+              .map((s) => ({ id: s.id, name: s.name }))
+          );
+        }
+      })
+      .catch(() => { if (!cancelled) setAllSchedules([]); })
+      .finally(() => { if (!cancelled) setIsLoadingSchedules(false); });
+    return () => { cancelled = true; };
+  }, [workflowId, schedule?.id]);
+
   useEffect(() => {
     if (!cronExpression) return;
 
@@ -259,21 +300,6 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
   }, [cronExpression, timezone]);
 
   useEffect(() => {
-    if (!workflowId || !projectId) {
-      return;
-    }
-    if (applicationId) {
-      if (isLoadingProjects) {
-        return;
-      }
-      if (projects.length === 0 || !projects.some((project) => project.id === projectId)) {
-        return;
-      }
-    }
-    void loadConfigurations(workflowId, projectId);
-  }, [workflowId, projectId, applicationId, isLoadingProjects, projects, loadConfigurations]);
-
-  useEffect(() => {
     let cancelled = false;
 
     if (scopeFolder !== 'sandboxes' || !projectId) {
@@ -294,16 +320,16 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
           const mergedByFolder = new Map<string, SandboxOption>();
 
           (items || [])
-            .filter((sandbox) => sandbox.status === 'active')
             .forEach((sandbox) => {
               if (!sandbox.folderPath) {
                 return;
               }
               mergedByFolder.set(sandbox.folderPath, {
-                id: sandbox.id,
+                id: sandbox.folderPath,
                 name: sandbox.name,
                 folderPath: sandbox.folderPath,
                 source: 'database',
+                dbStatus: sandbox.status || undefined,
               });
             });
 
@@ -364,18 +390,6 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
   }, [scopeFolder, scopeSandboxId, inferredLegacyScope.sandboxFolderPath, sandboxes]);
 
   useEffect(() => {
-    if (!runConfigurationId) {
-      return;
-    }
-    if (availableRunConfigurations.length === 0) {
-      return;
-    }
-    if (!availableRunConfigurations.some((config) => config.id === runConfigurationId)) {
-      setRunConfigurationId('');
-    }
-  }, [availableRunConfigurations, runConfigurationId]);
-
-  useEffect(() => {
     if (!schedule || schedule.scopeFolder) {
       return;
     }
@@ -389,28 +403,16 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
     }
   }, [projectId, scopeFolder, scopeSandboxId, schedule]);
 
-  const selectedConfig = availableRunConfigurations.find((c) => c.id === runConfigurationId);
-
   const handlePresetSelect = (preset: SchedulePreset) => {
     setSelectedPreset(preset.label);
     setCronExpression(preset.cronExpression);
   };
 
-  const handleCreateRunConfiguration = async () => {
-    if (!workflowId || !projectId || isCreatingRunConfig) {
-      return;
-    }
-
-    setIsCreatingRunConfig(true);
-    try {
-      const created = await addConfiguration(DEFAULT_CONFIG, workflowId, projectId);
-      setRunConfigurationId(created.id);
-      setFormError(null);
-    } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'Failed to create run configuration');
-    } finally {
-      setIsCreatingRunConfig(false);
-    }
+  const handleConfigChange = <K extends keyof RunConfiguration>(
+    field: K,
+    value: RunConfiguration[K]
+  ) => {
+    setEmbeddedConfig((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -450,10 +452,8 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
       return;
     }
 
-    if (!runConfigurationId || !hasSelectedRunConfiguration) {
-      setFormError('Run configuration is required.');
-      return;
-    }
+    // Convert embedded config to backend payload
+    const scheduleRunConfiguration = toBackendCreate(embeddedConfig);
 
     onSave({
       name,
@@ -464,13 +464,15 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
       cronExpression,
       timezone,
       workflowId,
-      isActive,
-      runConfigurationId,
+      isActive: isCreateMode ? true : isActive,
+      scheduleRunConfiguration,
+      onSuccessTriggerScheduleIds: chainScheduleIds.length > 0 ? chainScheduleIds : undefined,
     });
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="flex flex-col h-full min-h-0">
+      <div className="flex-1 overflow-y-auto space-y-6 min-h-0 pb-2">
       <div>
         <label className="block text-sm font-medium text-text-secondary mb-1">Schedule Name *</label>
         <input
@@ -562,7 +564,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
             <option value="">Select sandbox...</option>
             {sandboxes.map((sandbox) => (
               <option key={`${sandbox.source}:${sandbox.id}`} value={sandbox.id}>
-                {sandbox.name}
+                {sandbox.name}{sandbox.dbStatus && sandbox.dbStatus !== 'active' ? ` (${sandbox.dbStatus})` : ''}
               </option>
             ))}
           </select>
@@ -580,116 +582,36 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
         </div>
       )}
 
-      <div>
-        <label className="block text-sm font-medium text-text-secondary mb-1">
-          <span className="flex items-center gap-2">
-            <Sliders className="w-4 h-4 text-text-muted" />
-            Run Configuration *
-          </span>
-        </label>
-        <select
-          value={effectiveRunConfigurationId}
-          onChange={(e) => {
-            setRunConfigurationId(e.target.value);
-            if (e.target.value) {
-              setFormError(null);
-            }
-          }}
-          className={`w-full px-3 py-2 bg-dark-card border rounded-lg text-text-primary focus:outline-none focus:ring-2 ${
-            submitAttempted && !runConfigurationId
-              ? 'border-status-danger focus:ring-status-danger'
-              : 'border-border-default focus:ring-status-info'
-          }`}
-          required
+      {/* Collapsible Run Configuration Editor */}
+      <div className="rounded-lg border border-border-default overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setIsConfigExpanded((prev) => !prev)}
+          className="flex w-full items-center gap-2 bg-dark-card/60 px-3 py-2.5 text-left hover:bg-dark-card transition-colors"
         >
-          <option value="">Select a run configuration...</option>
-          {availableRunConfigurations.map((config) => (
-            <option key={config.id} value={config.id}>
-              {config.name} — {config.target}, {config.browser}, {config.workers}w, {config.headed ? 'headed' : 'headless'}
-            </option>
-          ))}
-        </select>
+          <Sliders className="h-4 w-4 text-text-muted shrink-0" />
+          <span className="text-sm font-medium text-text-secondary">Run Configuration</span>
+          {!isConfigExpanded && (
+            <span className="ml-2 truncate text-xs text-text-muted">
+              {buildConfigSummary(embeddedConfig)}
+            </span>
+          )}
+          <ChevronDown
+            className={`ml-auto h-4 w-4 text-text-muted shrink-0 transition-transform ${
+              isConfigExpanded ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
 
-        {availableRunConfigurations.length === 0 && (
-          <div className="mt-1 space-y-2">
-            <p className="text-xs text-status-warning">
-              No API-backed run configurations found for this workflow. Create one in Run Configuration first.
-            </p>
-            {runConfigSyncError && <p className="text-xs text-status-danger">{runConfigSyncError}</p>}
-            <button
-              type="button"
-              onClick={() => {
-                void handleCreateRunConfiguration();
-              }}
-              disabled={!workflowId || !projectId || isCreatingRunConfig}
-              className="inline-flex items-center rounded border border-border-default px-2 py-1 text-xs text-text-secondary hover:text-text-primary hover:border-border-emphasis disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isCreatingRunConfig ? 'Creating...' : 'Create Run Configuration'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setRunConfigModalOpen(true)}
-              className="ml-2 inline-flex items-center rounded border border-border-default px-2 py-1 text-xs text-text-secondary hover:text-text-primary hover:border-border-emphasis"
-            >
-              Open Run Configuration
-            </button>
-            {!workflowId && (
-              <p className="text-xs text-status-danger">Select an application with a workflow before creating run configurations.</p>
-            )}
-            {workflowId && !projectId && (
-              <p className="text-xs text-status-danger">Select a project folder to load run configurations.</p>
-            )}
-          </div>
-        )}
-
-        {submitAttempted && !hasSelectedRunConfiguration && (
-          <p className="text-xs text-status-danger mt-1">Select a run configuration to save this schedule.</p>
-        )}
-        {!workflowId && (
-          <p className="text-xs text-status-danger mt-1">Workflow context missing. Scheduler requires workflow-linked run configurations.</p>
-        )}
-        {workflowId && !projectId && (
-          <p className="text-xs text-status-danger mt-1">Project selection is required for project-scoped run configurations.</p>
-        )}
-
-        {selectedConfig && (
-          <div className="mt-2 p-3 bg-dark-elevated rounded-lg border border-border-default">
-            <div className="text-xs font-medium text-text-secondary mb-1">Configuration Summary</div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-muted">
-              <span>
-                Target: <span className="text-text-primary">{selectedConfig.target}</span>
-              </span>
-              <span>
-                Browser: <span className="text-text-primary">{selectedConfig.browser}</span>
-              </span>
-              <span>
-                Workers: <span className="text-text-primary">{selectedConfig.workers}</span>
-              </span>
-              <span>
-                Retries: <span className="text-text-primary">{selectedConfig.retries}</span>
-              </span>
-              <span>
-                Timeout: <span className="text-text-primary">{Math.round(selectedConfig.timeout / 1000)}s</span>
-              </span>
-              <span>
-                Mode: <span className="text-text-primary">{selectedConfig.headed ? 'Headed' : 'Headless'}</span>
-              </span>
-              {selectedConfig.tagExpression && (
-                <span className="col-span-2">
-                  Tag expression: <span className="text-text-primary">{selectedConfig.tagExpression}</span>
-                </span>
-              )}
-              {selectedConfig.grep && (
-                <span className="col-span-2">
-                  Grep: <span className="text-text-primary">{selectedConfig.grep}</span>
-                </span>
-              )}
-              {selectedConfig.parameterSetId && (
-                <span className="col-span-2">
-                  Parameter set: <span className="text-text-primary">{selectedConfig.parameterSetId}</span>
-                </span>
-              )}
-            </div>
+        {isConfigExpanded && (
+          <div className="border-t border-border-default">
+            <RunConfigEditor
+              config={embeddedConfig}
+              onChange={handleConfigChange}
+              hideName
+              hideScope
+              scrollable={false}
+            />
           </div>
         )}
       </div>
@@ -759,23 +681,94 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
         </select>
       </div>
 
-      <div className="flex items-center justify-between p-3 border border-border-default rounded-lg bg-dark-card/40">
-        <div>
-          <div className="text-sm font-medium text-text-secondary">Active</div>
-          <div className="text-xs text-text-muted">Inactive schedules are saved but will not auto-run.</div>
+      {isCreateMode ? (
+        <div className="p-3 border border-border-default rounded-lg bg-dark-card/40">
+          <div className="text-sm font-medium text-text-secondary">Activation</div>
+          <div className="text-xs text-text-muted mt-1">
+            New schedules are created active. Pause from the schedule card after creation.
+          </div>
         </div>
-        <label className="inline-flex items-center cursor-pointer">
-          <input
-            type="checkbox"
-            className="sr-only peer"
-            checked={isActive}
-            onChange={(e) => setIsActive(e.target.checked)}
-          />
-          <div className="relative w-11 h-6 bg-dark-elevated peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-status-info rounded-full peer peer-checked:bg-status-success/70 after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full" />
+      ) : (
+        <div className="flex items-center justify-between p-3 border border-border-default rounded-lg bg-dark-card/40">
+          <div>
+            <div className="text-sm font-medium text-text-secondary">Active</div>
+            <div className="text-xs text-text-muted">Inactive schedules are saved but will not auto-run.</div>
+          </div>
+          <label className="inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={isActive}
+              onChange={(e) => setIsActive(e.target.checked)}
+            />
+            <div className="relative w-11 h-6 bg-dark-elevated peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-status-info rounded-full peer peer-checked:bg-status-success/70 after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full" />
+          </label>
+        </div>
+      )}
+
+      {/* Chain on Success (P1.2) */}
+      <div>
+        <label className="block text-sm font-medium text-text-secondary mb-1">
+          <span className="flex items-center gap-2">
+            <Link className="w-4 h-4 text-text-muted" />
+            Chain on Success
+          </span>
         </label>
+        <p className="text-xs text-text-muted mb-2">
+          When this schedule passes, automatically trigger the selected schedules.
+        </p>
+        {allSchedules.length > 0 ? (
+          <>
+            <select
+              value=""
+              onChange={(e) => {
+                const id = e.target.value;
+                if (id && !chainScheduleIds.includes(id)) {
+                  setChainScheduleIds([...chainScheduleIds, id]);
+                }
+              }}
+              className="w-full px-3 py-2 bg-dark-card border border-border-default rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
+            >
+              <option value="">Add a schedule to chain...</option>
+              {allSchedules
+                .filter((s) => !chainScheduleIds.includes(s.id))
+                .map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+            </select>
+            {chainScheduleIds.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {chainScheduleIds.map((id) => {
+                  const chainName = allSchedules.find((s) => s.id === id)?.name || id;
+                  return (
+                    <span
+                      key={id}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-status-info/20 text-status-info text-xs rounded"
+                    >
+                      {chainName}
+                      <button
+                        type="button"
+                        onClick={() => setChainScheduleIds(chainScheduleIds.filter((cid) => cid !== id))}
+                        className="hover:text-status-danger transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        ) : isLoadingSchedules ? (
+          <p className="text-xs text-text-muted">Loading schedules...</p>
+        ) : (
+          <p className="text-xs text-text-muted">No other schedules available to chain.</p>
+        )}
       </div>
 
-      <div className="flex justify-end gap-3 pt-4 border-t border-border-default">
+      </div>
+
+      <div className="flex justify-end gap-3 pt-3 pb-1 border-t border-border-default bg-dark-bg shrink-0">
         {formError && <p className="mr-auto text-xs text-status-danger self-center">{formError}</p>}
         <button
           type="button"
@@ -796,8 +789,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({
             !applicationId ||
             !projectId ||
             !scopeFolder ||
-            (scopeFolder === 'sandboxes' && !scopeSandboxId) ||
-            !hasSelectedRunConfiguration
+            (scopeFolder === 'sandboxes' && !scopeSandboxId)
           }
           className="px-4 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
         >
