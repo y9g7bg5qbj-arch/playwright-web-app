@@ -14,6 +14,10 @@ import { ScenarioBrowser, type ScenarioInfo } from './ScenarioBrowser.js';
 import { RunConfigModal } from '../RunConfig/RunConfigModal';
 import { SchedulerPanel } from '../Scheduler/SchedulerPanel';
 import { AISettingsModal } from '../settings/AISettingsModal.js';
+import { UserManagementPage } from '../settings/UserManagementPage';
+import { AddUserModal } from '../settings/AddUserModal';
+import { AdminWelcomeWizard } from '../onboarding/AdminWelcomeWizard';
+import { UserWelcomeTour } from '../onboarding/UserWelcomeTour';
 import { DebugToolbar } from '../ide/DebugToolbar.js';
 import { DebugConsolePanel } from '../ide/DebugConsolePanel.js';
 import { useDebugger } from '@/hooks/useDebugger';
@@ -36,6 +40,9 @@ import { DataPanel } from '../ide/DataPanel';
 import { VDQLReferencePanel } from '../ide/VDQLReferencePanel';
 import { AIAgentPanel } from '../ide/AIAgentPanel';
 import { useTestDataRegistry } from '@/hooks/useTestDataRegistry';
+import { usePageFieldRegistry } from '@/hooks/usePageFieldRegistry';
+import { useAuthStore } from '@/store/authStore';
+import type { UserRole } from '@playwright-web-app/shared';
 import { CommandPalette, type PaletteCommand } from './CommandPalette';
 import { QuickOpenDialog } from './QuickOpenDialog';
 import { ProblemsPanel, type Problem } from './ProblemsPanel';
@@ -53,9 +60,19 @@ import { useEnvironmentSwitching } from './useEnvironmentSwitching.js';
 
 const API_BASE = '/api';
 
-const FULL_PAGE_VIEWS: ActivityView[] = ['executions', 'schedules', 'testdata', 'ai-test-generator', 'prs'];
+const FULL_PAGE_VIEWS: ActivityView[] = ['executions', 'schedules', 'testdata', 'ai-test-generator', 'prs', 'settings'];
+
+const ROLE_LEVEL: Record<UserRole, number> = {
+  admin: 4, qa_lead: 3, senior_qa: 2, qa_tester: 1, viewer: 0,
+};
 
 export function VeroWorkspace() {
+  // ─── Auth / RBAC ──────────────────────────────────────────────
+  const user = useAuthStore(s => s.user);
+  const isAdmin = ROLE_LEVEL[user?.role ?? 'viewer'] >= ROLE_LEVEL.admin;
+  const showOnboarding = user && user.onboardingCompleted === false;
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+
   // ─── View state ───────────────────────────────────────────────
   const [activeView, setActiveView] = useState<ActivityView>('explorer');
   const activeViewRef = useRef<ActivityView>('explorer');
@@ -85,6 +102,10 @@ export function VeroWorkspace() {
 
   // ─── Test data registry for editor autocomplete ────────────────
   useTestDataRegistry(currentProject?.id);
+
+  // ─── Page field registry for slash builder dropdowns ──────────
+  // Use nested project ID (not application ID) so the backend resolves the correct Pages folder.
+  usePageFieldRegistry(selectedProjectId || currentProject?.projects?.[0]?.id || null);
 
   // ─── Shared infrastructure ────────────────────────────────────
   const socketRef = useRef<Socket | null>(null);
@@ -286,6 +307,8 @@ export function VeroWorkspace() {
   // ─── Remaining local state ────────────────────────────────────
   const [showDataQueryModal, setShowDataQueryModal] = useState(false);
   const [showAISettingsModal, setShowAISettingsModal] = useState(false);
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [userListKey, setUserListKey] = useState(0);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showQuickOpen, setShowQuickOpen] = useState(false);
   const [showProblems, setShowProblems] = useState(false);
@@ -294,7 +317,7 @@ export function VeroWorkspace() {
   const [compareModal, setCompareModal] = useState<{ filePath: string; projectId?: string; sourceEnvironment: string } | null>(null);
   const [gutterMenu, setGutterMenu] = useState<{ x: number; y: number; itemType: 'scenario' | 'feature'; itemName: string } | null>(null);
 
-  const { setModalOpen: setRunConfigModalOpen, getActiveConfig, loadConfigurations } = useRunConfigStore();
+  const { getActiveConfig, loadConfigurations } = useRunConfigStore();
 
   // ─── Effects ──────────────────────────────────────────────────
   useEffect(() => {
@@ -482,7 +505,7 @@ export function VeroWorkspace() {
       icon: <FileText size={14} />, category: 'View',
       action: () => setShowProblems(prev => !prev),
     },
-    {
+    ...(isAdmin ? [{
       id: 'open-settings', label: 'Open Settings',
       icon: <Settings size={14} />, category: 'Preferences',
       action: () => handleViewChange('settings'),
@@ -491,7 +514,7 @@ export function VeroWorkspace() {
       id: 'ai-settings', label: 'AI Provider Settings',
       icon: <Bot size={14} />, category: 'Preferences',
       action: () => setShowAISettingsModal(true),
-    },
+    }] : []),
     {
       id: 'new-file', label: 'New File',
       icon: <FilePlus size={14} />, category: 'File',
@@ -517,7 +540,7 @@ export function VeroWorkspace() {
       icon: <Bot size={14} />, category: 'AI',
       action: () => handleViewChange('ai-test-generator'),
     },
-  ], [testExecution, recording, handleViewChange, fileManagement, selectedProjectId, nestedProjects]);
+  ], [testExecution, recording, handleViewChange, fileManagement, selectedProjectId, nestedProjects, isAdmin]);
 
   // ─── Quick Open file list ────────────────────────────────────
   const quickOpenFiles = useMemo(() => {
@@ -542,7 +565,8 @@ export function VeroWorkspace() {
   const isFullPageView = FULL_PAGE_VIEWS.includes(activeView);
   const { activeTab, openTabs, activeTabId } = fileManagement;
   const isEditableActiveTab = Boolean(activeTab && (activeTab.type === undefined || activeTab.type === 'file'));
-  const showRightToolRail = activeView === 'explorer' && !isFullPageView && isEditableActiveTab;
+  const isBuilderMode = activeTab?.editorMode === 'builder';
+  const showRightToolRail = activeView === 'explorer' && !isFullPageView && isEditableActiveTab && !isBuilderMode;
 
   useEffect(() => {
     if (showRightToolRail) return;
@@ -692,6 +716,13 @@ export function VeroWorkspace() {
                 />
               )
             )}
+            {activeView === 'settings' && isAdmin && (
+              <UserManagementPage
+                key={userListKey}
+                currentUserId={user?.id ?? ''}
+                onAddUser={() => setShowAddUserModal(true)}
+              />
+            )}
           </div>
         ) : (
           <>
@@ -727,27 +758,6 @@ export function VeroWorkspace() {
                   />
                 </>
               )}
-              {activeView === 'settings' && (
-                <div className="flex-1 overflow-y-auto p-4">
-                  <PanelHeader title="Settings" className="h-12 px-4" />
-                  <div className="p-4 space-y-4">
-                    <button
-                      onClick={() => setShowAISettingsModal(true)}
-                      className="w-full px-4 py-2 bg-dark-elevated border border-border-default rounded-lg text-sm text-white hover:bg-dark-elevated transition-colors flex items-center gap-2"
-                    >
-                      <span className="material-symbols-outlined text-lg">auto_awesome</span>
-                      AI Provider Settings
-                    </button>
-                    <button
-                      onClick={() => setRunConfigModalOpen(true)}
-                      className="w-full px-4 py-2 bg-dark-elevated border border-border-default rounded-lg text-sm text-white hover:bg-dark-elevated transition-colors flex items-center gap-2"
-                    >
-                      <span className="material-symbols-outlined text-lg">tune</span>
-                      Run Configurations
-                    </button>
-                  </div>
-                </div>
-              )}
             </aside>
 
             {/* Editor Area */}
@@ -760,6 +770,7 @@ export function VeroWorkspace() {
                       activeTabId={activeTabId}
                       onActivate={fileManagement.activateTab}
                       onClose={fileManagement.closeTab}
+                      onToggleEditorMode={fileManagement.setEditorMode}
                     />
 
                     {/* Debug controls */}
@@ -980,6 +991,30 @@ export function VeroWorkspace() {
         isOpen={showAISettingsModal}
         onClose={() => setShowAISettingsModal(false)}
       />
+
+      <AddUserModal
+        isOpen={showAddUserModal}
+        onClose={() => setShowAddUserModal(false)}
+        onUserCreated={() => setUserListKey(k => k + 1)}
+      />
+
+      {/* Onboarding */}
+      {showOnboarding && !onboardingDismissed && isAdmin && (
+        <AdminWelcomeWizard
+          isOpen
+          onClose={() => setOnboardingDismissed(true)}
+          onOpenAISettings={() => setShowAISettingsModal(true)}
+          onCreateApplication={async (name: string) => {
+            await createApplication({ name });
+          }}
+        />
+      )}
+      {showOnboarding && !onboardingDismissed && !isAdmin && (
+        <UserWelcomeTour
+          isOpen
+          onClose={() => setOnboardingDismissed(true)}
+        />
+      )}
 
       <RecordingModal
         isOpen={recording.showRecordingModal}
