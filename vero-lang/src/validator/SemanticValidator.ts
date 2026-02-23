@@ -134,41 +134,21 @@ export class SemanticValidator {
     }
 
     /**
-     * Validate all references in a feature
+     * Validate all references in a feature.
+     * Page/PageActions dependencies are auto-inferred — validate directly against symbol table.
      */
     private validateFeature(feature: FeatureNode): void {
-        const usedPages = new Set<string>();
-        const usedPageActions = new Set<string>();
-
-        for (const use of feature.uses) {
-            const usedName = use.name;
-            const isPage = this.symbols.pages.has(usedName);
-            const isPageActions = this.symbols.pageActions.has(usedName);
-
-            if (!isPage && !isPageActions) {
-                const allNames = [...this.symbols.pages.keys(), ...this.symbols.pageActions.keys()];
-                this.addError(
-                    VeroErrorCode.UNDEFINED_PAGE,
-                    `'${usedName}' is not defined. Use a PAGE or PAGEACTIONS name.`,
-                    use.line,
-                    usedName.length,
-                    'error',
-                    findSimilar(usedName, allNames),
-                    usedName,
-                );
-            } else {
-                if (isPage) usedPages.add(usedName);
-                if (isPageActions) usedPageActions.add(usedName);
-            }
-        }
+        // All defined pages and pageActions are available (no USE filter)
+        const knownPages = new Set(this.symbols.pages.keys());
+        const knownPageActions = new Set(this.symbols.pageActions.keys());
 
         for (const scenario of feature.scenarios) {
-            this.validateScenario(scenario, usedPages, usedPageActions);
+            this.validateScenario(scenario, knownPages, knownPageActions);
         }
 
         for (const hook of feature.hooks) {
             for (const stmt of hook.statements) {
-                this.validateStatement(stmt, usedPages, usedPageActions, hook.hookType);
+                this.validateStatement(stmt, knownPages, knownPageActions, hook.hookType);
             }
         }
     }
@@ -293,7 +273,7 @@ export class SemanticValidator {
         if (!usedPages.has(pageName)) {
             this.addError(
                 VeroErrorCode.UNDEFINED_PAGE,
-                `Page '${pageName}' is not in USE list. Add: use ${pageName}`,
+                `Page '${pageName}' is not defined.`,
                 stmt.line,
                 pageName.length,
                 'error',
@@ -325,16 +305,6 @@ export class SemanticValidator {
         usedPageActions: Set<string>
     ): void {
         if (this.symbols.pageActions.has(pageName)) {
-            if (!usedPageActions.has(pageName)) {
-                this.addError(
-                    VeroErrorCode.UNDEFINED_PAGEACTIONS,
-                    `PageActions '${pageName}' is not in USE list. Add: use ${pageName}`,
-                    line,
-                    pageName.length,
-                    'warning',
-                );
-            }
-
             const actions = this.symbols.pageActionsActions.get(pageName);
             if (actions && !actions.has(actionName)) {
                 this.addError(

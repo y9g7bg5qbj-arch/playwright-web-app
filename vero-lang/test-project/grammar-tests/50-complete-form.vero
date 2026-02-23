@@ -109,7 +109,6 @@ PAGEACTIONS RegistrationPageActions FOR RegistrationPage {
 }
 
 FEATURE FormValidation {
-    USE RegistrationPageActions
 
     BEFORE EACH {
         OPEN "/register"

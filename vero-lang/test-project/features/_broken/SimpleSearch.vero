@@ -25,7 +25,6 @@ PAGEACTIONS AmazonSearchPageActions FOR AmazonSearchPage {
 }
 
 FEATURE SimpleSearch {
-    USE AmazonSearchPageActions
 
     BEFORE EACH {
         OPEN "https://www.amazon.com"

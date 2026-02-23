@@ -1,7 +1,6 @@
 # TestFeature Feature
 
 FEATURE TestFeature {
-    USE ExamplePageActions
 
     BEFORE EACH {
         OPEN "https://example.com"

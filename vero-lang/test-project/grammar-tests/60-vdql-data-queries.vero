@@ -5,7 +5,6 @@
 # ==========================================
 
 FEATURE VDQLTests {
-    USE LoginPage
 
     # ------------------------------------------
     # BASIC DATA ACCESS (like POI sheet.getRow())

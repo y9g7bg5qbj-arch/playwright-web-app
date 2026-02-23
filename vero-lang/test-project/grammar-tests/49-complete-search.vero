@@ -52,7 +52,6 @@ PAGEACTIONS SearchPageActions FOR SearchPage {
 }
 
 FEATURE SearchFunctionality {
-    USE SearchPageActions
 
     BEFORE EACH {
         OPEN "/search"

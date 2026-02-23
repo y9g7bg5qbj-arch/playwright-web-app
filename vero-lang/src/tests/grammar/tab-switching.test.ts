@@ -30,8 +30,6 @@ describe('Tab Switching Transpilation', () => {
             }
 
             FEATURE TabFlow {
-                USE HomePage
-
                 SCENARIO PopupFlow {
                     CLICK HomePage.launch
                     SWITCH TO NEW TAB
@@ -56,8 +54,6 @@ describe('Tab Switching Transpilation', () => {
             }
 
             FEATURE TabFlow {
-                USE HomePage
-
                 SCENARIO MissingPopup {
                     SWITCH TO NEW TAB
                     CLICK HomePage.next
@@ -75,8 +71,6 @@ describe('Tab Switching Transpilation', () => {
             }
 
             FEATURE TabFlow {
-                USE HomePage
-
                 SCENARIO ExistingTab {
                     SWITCH TO TAB 2
                     CLICK HomePage.next
@@ -98,8 +92,6 @@ describe('Tab Switching Transpilation', () => {
             }
 
             FEATURE TabFlow {
-                USE HomePage
-
                 SCENARIO CloseTabFlow {
                     CLOSE TAB
                     CLICK HomePage.next
@@ -121,8 +113,6 @@ describe('Tab Switching Transpilation', () => {
             }
 
             FEATURE TabFlow {
-                USE HomePage
-
                 SCENARIO MultiTabFlow {
                     CLICK HomePage.launch
                     SWITCH TO NEW TAB
@@ -146,8 +136,6 @@ describe('Tab Switching Transpilation', () => {
             }
 
             FEATURE TabFlow {
-                USE HomePage
-
                 SCENARIO UrlSwitch {
                     SWITCH TO NEW TAB "https://playwright.dev"
                     CLICK HomePage.next

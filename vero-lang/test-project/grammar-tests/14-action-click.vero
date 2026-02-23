@@ -20,7 +20,6 @@ PAGE ClickTestPage {
 }
 
 FEATURE ClickActions {
-    USE ClickTestPage
 
     SCENARIO ClickVariations {
         # Click with string (direct text)

@@ -1,7 +1,6 @@
 # newAmazonTes Feature
 
 FEATURE NewAmazonTes {
-    USE ExamplePageActions
 
     BEFORE EACH {
         OPEN "https://example.com"

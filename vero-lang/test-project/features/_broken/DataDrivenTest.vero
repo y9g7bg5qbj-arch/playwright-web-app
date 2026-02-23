@@ -2,7 +2,6 @@
 # Note: VDQL queries are defined in grammar but not yet implemented in transpiler
 
 FEATURE DataDrivenTest {
-    USE DataTestPageActions
 
     SCENARIO BasicFormInteraction @datadriven {
         OPEN "https://example.com/users"

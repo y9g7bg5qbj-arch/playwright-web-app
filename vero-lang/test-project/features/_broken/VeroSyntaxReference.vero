@@ -5,7 +5,6 @@
 # for Page Objects, PageActions, Features, Scenarios, and Actions.
 # ============================================================
 
-
 # ============================================================
 # SECTION 1: PAGE OBJECT MODEL (Pages)
 # ============================================================
@@ -38,7 +37,6 @@ PAGE LoginPage {
     FLAG isRememberMeEnabled = TRUE
 }
 
-
 PAGE DashboardPage {
     FIELD welcomeMessage = "Welcome"
     FIELD userMenu = "User Menu"
@@ -51,7 +49,6 @@ PAGE DashboardPage {
     TEXT pageTitle = "Dashboard"
     NUMBER defaultTimeout = 5000
 }
-
 
 PAGE ProductPage {
     FIELD productName = "Product Name"
@@ -67,7 +64,6 @@ PAGE ProductPage {
     TEXT defaultColor = "Black"
     TEXT defaultSize = "Medium"
 }
-
 
 # ============================================================
 # SECTION 2: PAGEACTIONS (Public Interface to Pages)
@@ -166,7 +162,6 @@ PAGEACTIONS LoginPageActions FOR LoginPage {
     }
 }
 
-
 PAGEACTIONS DashboardPageActions FOR DashboardPage {
     # Setters
     enterSearchQuery WITH query {
@@ -219,7 +214,6 @@ PAGEACTIONS DashboardPageActions FOR DashboardPage {
         WAIT FOR welcomeMessage
     }
 }
-
 
 PAGEACTIONS ProductPageActions FOR ProductPage {
     # Setters
@@ -283,7 +277,6 @@ PAGEACTIONS ProductPageActions FOR ProductPage {
     }
 }
 
-
 # ============================================================
 # SECTION 3: FIXTURES (Test Setup/Teardown)
 # ============================================================
@@ -305,7 +298,6 @@ FIXTURE authenticatedUser {
     }
 }
 
-
 FIXTURE cleanDatabase {
     SCOPE worker
     AUTO
@@ -319,7 +311,6 @@ FIXTURE cleanDatabase {
     }
 }
 
-
 # ============================================================
 # SECTION 4: FEATURES AND SCENARIOS
 # ============================================================
@@ -328,8 +319,6 @@ FIXTURE cleanDatabase {
 
 @serial
 FEATURE UserAuthentication {
-    USE LoginPageActions
-    USE DashboardPageActions
 
     WITH FIXTURE cleanDatabase
 
@@ -423,10 +412,7 @@ FEATURE UserAuthentication {
     }
 }
 
-
 FEATURE ProductCatalog {
-    USE ProductPageActions
-    USE DashboardPageActions
 
     BEFORE EACH {
         OPEN "https://example.com/products"
@@ -469,11 +455,7 @@ FEATURE ProductCatalog {
     }
 }
 
-
 FEATURE AdvancedActions {
-    USE LoginPageActions
-    USE DashboardPageActions
-    USE ProductPageActions
 
     SCENARIO DemonstratesAllClickVariants @clicktest {
         # Standard click via PageActions
@@ -559,10 +541,7 @@ FEATURE AdvancedActions {
     }
 }
 
-
 FEATURE DataDrivenTesting {
-    USE LoginPageActions
-    USE DashboardPageActions
 
     SCENARIO TestWithLoadedData @datatest {
         # LOAD: Load data from a data table
@@ -590,10 +569,7 @@ FEATURE DataDrivenTesting {
     }
 }
 
-
 FEATURE VerificationExamples {
-    USE LoginPageActions
-    USE DashboardPageActions
 
     SCENARIO AllVerifyVariations @verifytest {
         # Visibility assertions using getters
@@ -630,14 +606,12 @@ FEATURE VerificationExamples {
     }
 }
 
-
 # ============================================================
 # SECTION 5: FEATURE WITH ALL ANNOTATIONS
 # ============================================================
 
 @skip
 FEATURE AnnotationDemo {
-    USE LoginPageActions
 
     @skip
     SCENARIO SkippedTest {
@@ -664,7 +638,6 @@ FEATURE AnnotationDemo {
         LOG "This test has multiple tags"
     }
 }
-
 
 # ============================================================
 # SUMMARY: THE PAGEACTIONS PATTERN

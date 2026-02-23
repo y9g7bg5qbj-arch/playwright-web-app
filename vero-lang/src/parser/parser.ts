@@ -25,6 +25,9 @@ import {
     OpenInNewTabStatement,
     CloseTabStatement,
     TryCatchStatement,
+    SelectStatement,
+    IfElseStatement, BooleanExpression, ElementStateCondition,
+    RepeatStatement,
     ApiRequestStatement, HttpMethod,
     VerifyResponseStatement, ResponseCondition,
     MockApiStatement
@@ -253,14 +256,13 @@ export class Parser {
             }
 
             // WITH TEXT "..." or WITHOUT TEXT "..."
-            if (tok.type === TokenType.WITH) {
+            // Only consume WITH if followed by TEXT to avoid stealing WITH from parent statements (e.g., FILL ... WITH value)
+            if (tok.type === TokenType.WITH && this.lookahead(1)?.type === TokenType.TEXT) {
                 this.advance(); // consume WITH
-                if (this.check(TokenType.TEXT)) {
-                    this.advance(); // consume TEXT
-                    if (this.check(TokenType.STRING)) {
-                        const text = this.advance().value;
-                        modifiers.push({ type: 'withText', text });
-                    }
+                this.advance(); // consume TEXT
+                if (this.check(TokenType.STRING)) {
+                    const text = this.advance().value;
+                    modifiers.push({ type: 'withText', text });
                 }
                 continue;
             }
@@ -426,7 +428,10 @@ export class Parser {
 
         while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
             if (this.check(TokenType.USE)) {
-                uses.push(this.parseUse());
+                // USE has been removed – emit migration error and skip
+                const useTok = this.advance();
+                const pageName = this.check(TokenType.IDENTIFIER) ? this.advance().value : '?';
+                this.error(`USE ${pageName} is no longer needed — page and pageActions dependencies are now auto-resolved. Remove this line.`);
             } else if (this.check(TokenType.WITH)) {
                 fixtures.push(this.parseWithFixture());
             } else if (this.check(TokenType.BEFORE) || this.check(TokenType.AFTER)) {
@@ -442,12 +447,6 @@ export class Parser {
         this.consume(TokenType.RBRACE, "Expected '}'");
 
         return { type: 'Feature', name, annotations, uses, fixtures, hooks, scenarios, line };
-    }
-
-    private parseUse(): { name: string; line: number } {
-        const useToken = this.consume(TokenType.USE, "Expected 'USE'");
-        const nameToken = this.consume(TokenType.IDENTIFIER, "Expected page name");
-        return { name: nameToken.value, line: useToken.line };
     }
 
     // WITH FIXTURE authenticatedUser { role = "admin" }
@@ -1054,6 +1053,24 @@ export class Parser {
             return this.parseTryCatchStatement(line);
         }
 
+        // SELECT "option" FROM target
+        if (this.match(TokenType.SELECT)) {
+            const option = this.parseExpression();
+            this.consume(TokenType.FROM, "Expected 'FROM' after option in SELECT");
+            const target = this.parseTarget();
+            return { type: 'Select', option, target, line } as SelectStatement;
+        }
+
+        // IF condition { ... } [ELSE { ... }]
+        if (this.match(TokenType.IF)) {
+            return this.parseIfElseStatement(line);
+        }
+
+        // REPEAT N TIMES { ... }
+        if (this.match(TokenType.REPEAT)) {
+            return this.parseRepeatStatement(line);
+        }
+
         // MOCK API "url" WITH STATUS n [AND BODY "..."]
         if (this.match(TokenType.MOCK)) {
             this.consume(TokenType.API, "Expected 'API' after 'MOCK'");
@@ -1486,6 +1503,69 @@ export class Parser {
         return { type: 'TryCatch', tryStatements, catchStatements, line };
     }
 
+    // ==================== IF/ELSE PARSING ====================
+
+    private parseIfElseStatement(line: number): IfElseStatement {
+        const condition = this.parseBooleanExpression();
+
+        this.consume(TokenType.LBRACE, "Expected '{' after IF condition");
+        const ifStatements = this.parseStatementBlock();
+        this.consume(TokenType.RBRACE, "Expected '}'");
+
+        let elseStatements: StatementNode[] = [];
+        if (this.match(TokenType.ELSE)) {
+            this.consume(TokenType.LBRACE, "Expected '{' after 'ELSE'");
+            elseStatements = this.parseStatementBlock();
+            this.consume(TokenType.RBRACE, "Expected '}'");
+        }
+
+        return { type: 'IfElse', condition, ifStatements, elseStatements, line };
+    }
+
+    private parseBooleanExpression(): BooleanExpression {
+        // Two forms:
+        // 1. target IS [NOT] VISIBLE/HIDDEN/ENABLED/DISABLED/CHECKED
+        // 2. variableName (truthy check - just an identifier before '{')
+
+        // Check if this is a simple variable truthy check:
+        // An identifier immediately followed by '{' means it's a variable truthy
+        if (this.check(TokenType.IDENTIFIER) && this.lookahead(1)?.type === TokenType.LBRACE) {
+            const variableName = this.advance().value;
+            return { type: 'VariableTruthy', variableName };
+        }
+
+        // Otherwise parse as element state condition: target IS [NOT] state
+        const target = this.parseTarget();
+        this.consume(TokenType.IS, "Expected 'IS' after target in IF condition");
+        const negated = this.match(TokenType.NOT);
+        const stateTokens = [TokenType.VISIBLE, TokenType.HIDDEN, TokenType.ENABLED, TokenType.DISABLED, TokenType.CHECKED];
+        for (const tokenType of stateTokens) {
+            if (this.match(tokenType)) {
+                return {
+                    type: 'ElementState',
+                    target,
+                    negated,
+                    state: tokenType as ElementStateCondition['state'],
+                };
+            }
+        }
+
+        this.error("Expected state keyword (VISIBLE, HIDDEN, ENABLED, DISABLED, CHECKED) after 'IS'");
+        return { type: 'VariableTruthy', variableName: '' };
+    }
+
+    // ==================== REPEAT PARSING ====================
+
+    private parseRepeatStatement(line: number): RepeatStatement {
+        const count = this.parseExpression();
+        this.consume(TokenType.TIMES, "Expected 'TIMES' after count in REPEAT");
+        this.consume(TokenType.LBRACE, "Expected '{' after 'REPEAT N TIMES'");
+        const statements = this.parseStatementBlock();
+        this.consume(TokenType.RBRACE, "Expected '}'");
+
+        return { type: 'Repeat', count, statements, line };
+    }
+
     // ==================== API REQUEST PARSING ====================
 
     private parseApiRequestStatement(line: number): ApiRequestStatement {
@@ -1709,7 +1789,7 @@ export class Parser {
         const clauses: OrderByClause[] = [];
 
         do {
-            const column = this.consume(TokenType.IDENTIFIER, "Expected column name").value;
+            const column = this.consumeColumnName();
             let direction: 'ASC' | 'DESC' = 'ASC'; // default to ASC
 
             if (this.match(TokenType.ASC)) {
@@ -1768,7 +1848,7 @@ export class Parser {
         }
 
         // Simple comparison: column operator value
-        const column = this.consume(TokenType.IDENTIFIER, "Expected column name").value;
+        const column = this.consumeColumnName();
 
         // Check for IN operator
         if (this.match(TokenType.IN)) {
@@ -2030,6 +2110,16 @@ export class Parser {
             return { type: 'Target', text };
         }
 
+        // Check if this is a selector keyword (BUTTON, TEXTBOX, etc.) followed by a string.
+        // Selector keywords are identifiers, so we must check before the generic identifier branch.
+        if (this.check(TokenType.IDENTIFIER) || this.check(TokenType.TEXT) || this.check(TokenType.TITLE)) {
+            const selectorType = Parser.SELECTOR_KEYWORD_MAP.get(this.peek().value.toUpperCase());
+            if (selectorType !== undefined && this.lookahead(1)?.type === TokenType.STRING) {
+                const selector = this.parseSelector();
+                return { type: 'Target', selector };
+            }
+        }
+
         // PageName.fieldName or just fieldName
         if (this.check(TokenType.IDENTIFIER)) {
             const first = this.advance().value;
@@ -2205,6 +2295,49 @@ export class Parser {
             return this.advance().value;
         }
         this.error(message);
+        return '';
+    }
+
+    /**
+     * Tokens that are structurally significant in WHERE / ORDER BY clauses
+     * and therefore cannot be used as column names.
+     */
+    private static readonly DATA_CLAUSE_RESERVED = new Set<TokenType>([
+        // Clause structure
+        TokenType.WHERE, TokenType.ORDER, TokenType.BY,
+        TokenType.LIMIT, TokenType.OFFSET,
+        TokenType.ASC, TokenType.DESC,
+        // Logical operators
+        TokenType.AND, TokenType.OR, TokenType.NOT,
+        // Comparison / filter operators
+        TokenType.IN, TokenType.IS, TokenType.CONTAINS,
+        TokenType.STARTS, TokenType.ENDS, TokenType.MATCHES,
+        TokenType.EQUALS_SIGN,
+        // Literals & values that should not be column names
+        TokenType.TRUE, TokenType.FALSE, TokenType.NULL,
+        TokenType.EMPTY,
+        TokenType.STRING, TokenType.NUMBER_LITERAL,
+        // Grouping
+        TokenType.LPAREN, TokenType.RPAREN,
+        TokenType.LBRACKET, TokenType.RBRACKET,
+        TokenType.COMMA,
+        // End-of-file
+        TokenType.EOF,
+    ]);
+
+    /**
+     * Consume a column name in data-query context (WHERE conditions, ORDER BY).
+     * Accepts IDENTIFIER or any keyword token that is NOT structurally reserved
+     * in WHERE / ORDER BY clauses. This allows database column names like
+     * "status", "name", "value", etc. that happen to collide with Vero keywords.
+     */
+    private consumeColumnName(): string {
+        const token = this.peek();
+        if (token.type === TokenType.IDENTIFIER ||
+            (!Parser.DATA_CLAUSE_RESERVED.has(token.type) && token.type !== TokenType.EOF)) {
+            return this.advance().value;
+        }
+        this.error("Expected column name");
         return '';
     }
 

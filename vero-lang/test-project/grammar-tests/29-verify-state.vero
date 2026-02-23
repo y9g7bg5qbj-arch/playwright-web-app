@@ -33,7 +33,6 @@ PAGE StatePage {
 }
 
 FEATURE StateAssertions {
-    USE StatePage
 
     SCENARIO StateChecks {
         # Enabled/Disabled via direct page field references

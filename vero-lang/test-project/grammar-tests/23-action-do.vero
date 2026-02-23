@@ -23,7 +23,6 @@ PAGE LoginPage {
 }
 
 FEATURE PerformActions {
-    USE LoginPage
 
     SCENARIO PerformActionVariations {
         # PERFORM without arguments

@@ -42,7 +42,6 @@ PAGEACTIONS LoginPageActions FOR LoginPage {
 }
 
 FEATURE UserAuthentication {
-    USE LoginPageActions
 
     BEFORE EACH {
         OPEN "https://example.com/login"

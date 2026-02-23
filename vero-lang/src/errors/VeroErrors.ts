@@ -160,7 +160,7 @@ export const VERO_KEYWORDS = [
     'scroll', 'wait', 'perform', 'refresh', 'clear', 'take', 'screenshot',
     'log', 'upload', 'verify',
     // Keywords
-    'use', 'with', 'from', 'to', 'in', 'for', 'returns', 'return',
+    'with', 'from', 'to', 'in', 'for', 'returns', 'return',
     // Conditions
     'is', 'visible', 'hidden', 'enabled', 'disabled', 'checked', 'empty', 'contains',
     // Types

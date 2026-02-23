@@ -1,7 +1,6 @@
 # Example Feature
 
 FEATURE Example {
-    USE HomePageActions
 
     SCENARIO ParallelTest1 @parallel {
         OPEN "https://example.com/"

@@ -166,11 +166,12 @@ export const VALIDATION_ERRORS = {
         retryable: false,
         defaultRetries: 0,
     },
+    /** @deprecated USE statements have been removed. Kept for backward compatibility. */
     VERO_304: {
         code: 'VERO-304',
         category: 'validation' as ErrorCategory,
-        title: 'Page Not Imported',
-        description: 'Add USE PageName to import this page',
+        title: 'Undefined Page Reference',
+        description: 'Referenced page or pageActions is not defined in the current sandbox',
         flakiness: 'permanent' as FlakinessType,
         retryable: false,
         defaultRetries: 0,

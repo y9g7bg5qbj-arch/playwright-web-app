@@ -1,7 +1,6 @@
 # newTest Feature
 
 FEATURE NewTest {
-    USE ExamplePageActions
 
     BEFORE EACH {
         OPEN "https://example.com"

@@ -89,7 +89,7 @@ async function cleanupInvalidRootPagesFolders(projectRoot: string): Promise<void
     }
 }
 
-async function scanDirectory(dirPath: string, relativePath = ''): Promise<FileNode[]> {
+async function scanDirectory(dirPath: string, relativePath = '', scoped = false): Promise<FileNode[]> {
     const entries = await readdir(dirPath);
     const result: FileNode[] = [];
 
@@ -104,8 +104,9 @@ async function scanDirectory(dirPath: string, relativePath = ''): Promise<FileNo
         const inSandbox = relativePathLower.startsWith('sandboxes/');
 
         if (stats.isDirectory()) {
-            // Only expose root environment folders (dev/master/sandboxes).
-            if (atProjectRoot && !ROOT_ENV_FOLDERS.has(lowerEntry)) {
+            // When scoped (root is already an env folder), skip env-folder filtering.
+            // Only expose root environment folders (dev/master/sandboxes) when unscoped.
+            if (atProjectRoot && !scoped && !ROOT_ENV_FOLDERS.has(lowerEntry)) {
                 continue;
             }
 
@@ -180,6 +181,13 @@ filesRouter.get('/files', authenticateToken, async (req: AuthRequest, res: Respo
         const result = await scanDirectory(fullPath);
         res.json({ success: true, files: result });
     } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to list files';
+        if (message.includes('Project not found')) {
+            return res.status(404).json({ success: false, error: message });
+        }
+        if (message.includes('Access denied')) {
+            return res.status(403).json({ success: false, error: message });
+        }
         logger.error('Failed to list files:', error);
         res.status(500).json({ success: false, error: 'Failed to list files' });
     }

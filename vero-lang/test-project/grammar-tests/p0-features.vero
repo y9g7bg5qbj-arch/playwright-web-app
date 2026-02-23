@@ -75,7 +75,6 @@ PAGEACTIONS UploadPageActions FOR UploadPage {
 # Feature with @serial annotation - tests run sequentially
 @serial
 FEATURE SerialLoginTests {
-    USE LoginPageActions
 
     SCENARIO FirstLoginTest @smoke {
         OPEN "https://example.com/login"
@@ -142,7 +141,6 @@ FEATURE TestAnnotations {
 
 # Feature testing URL and Title assertions
 FEATURE UrlTitleAssertions {
-    USE FormPageActions
 
     SCENARIO VerifyUrlPatterns {
         OPEN "https://example.com/dashboard/users"
@@ -167,7 +165,6 @@ FEATURE UrlTitleAssertions {
 
 # Feature testing file upload
 FEATURE FileUpload {
-    USE UploadPageActions
 
     SCENARIO SingleFileUpload {
         OPEN "https://example.com/upload"

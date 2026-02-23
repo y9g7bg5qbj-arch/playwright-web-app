@@ -44,8 +44,6 @@ PAGE LoginPage {
 
 ```vero
 FEATURE Login {
-    USE LoginPage
-    
     BEFORE EACH {
         OPEN "/login"
     }

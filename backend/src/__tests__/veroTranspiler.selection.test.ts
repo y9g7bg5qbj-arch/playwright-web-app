@@ -15,8 +15,6 @@ PAGE LoginPage {
 }
 
 FEATURE LoginFlows {
-  USE LoginPage
-
   SCENARIO SuccessfulLogin @smoke @loginComponent {
     CLICK LoginPage.username
   }
@@ -45,8 +43,6 @@ PAGE LoginPage {
 }
 
 @serial FEATURE SerialLoginFlows {
-  USE LoginPage
-
   SCENARIO SerialLogin @smoke {
     CLICK LoginPage.username
   }

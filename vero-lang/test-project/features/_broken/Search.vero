@@ -1,7 +1,6 @@
 # Google Search Feature
 
 FEATURE Search {
-    USE SearchHomePageActions
 
     BEFORE EACH {
         OPEN "https://www.google.com"

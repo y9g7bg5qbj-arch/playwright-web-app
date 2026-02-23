@@ -1,7 +1,6 @@
 # sdfgf Feature
 
 FEATURE Sdfgf {
-    USE ExamplePageActions
 
     BEFORE EACH {
         OPEN "https://example.com"

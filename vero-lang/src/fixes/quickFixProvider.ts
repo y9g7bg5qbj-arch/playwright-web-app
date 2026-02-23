@@ -167,19 +167,6 @@ export function provideQuickFixes(
         }
     }
 
-    // Fix: Page not in USE list
-    if (code === 'VERO-201' || message.includes('not in use list')) {
-        const pageName = extractQuotedName(marker.message);
-        if (pageName) {
-            actions.push({
-                title: `Add 'use ${pageName}' at top`,
-                kind: CodeActionKind.QuickFix,
-                edit: createLineEdit(ctx.filePath, 2, `use ${pageName}\n`),
-                isPreferred: true,
-            });
-        }
-    }
-
     // Fix: Keyword typo
     for (const [typo, correction] of Object.entries(KEYWORD_TYPOS)) {
         if (ctx.lineContent.toLowerCase().includes(typo)) {

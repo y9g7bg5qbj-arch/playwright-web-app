@@ -23,7 +23,6 @@ PAGE ContainsPage {
 }
 
 FEATURE ContainsAssertions {
-    USE ContainsPage
 
     SCENARIO ContainsChecks {
         # Contains with page field references

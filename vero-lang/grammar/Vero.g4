@@ -122,15 +122,9 @@ featureBody
     ;
 
 featureMember
-    : useStatement
-    | withFixtureStatement
+    : withFixtureStatement
     | hookDeclaration
     | scenarioDeclaration
-    ;
-
-// Use statement: use PageName
-useStatement
-    : USE IDENTIFIER
     ;
 
 // Hooks: before each { ... }, after all { ... }
@@ -811,7 +805,7 @@ PAGEACTIONS : P A G E A C T I O N S ;
 FEATURE     : F E A T U R E ;
 SCENARIO    : S C E N A R I O ;
 FIELD       : F I E L D ;
-USE         : U S E ;
+USE         : U S E ; // Deprecated: kept for migration error detection
 BEFORE      : B E F O R E ;
 AFTER       : A F T E R ;
 EACH        : E A C H ;

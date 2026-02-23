@@ -15,7 +15,6 @@ PAGE LoginPage {
 }
 
 FEATURE FeatureWithUse {
-    USE LoginPage
 
     SCENARIO UseLoginPage {
         PERFORM LoginPage.enterEmail WITH "test@example.com"

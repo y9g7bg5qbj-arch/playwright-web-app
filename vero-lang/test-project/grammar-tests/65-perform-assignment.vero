@@ -19,8 +19,6 @@ PAGEACTIONS TestPageActions FOR TestPage {
 
 # Feature using variable assignment
 FEATURE PerformAssignmentTest {
-    USE TestPage
-    USE TestPageActions
 
     SCENARIO TestFlagAssignment {
         OPEN "https://example.com"

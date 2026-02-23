@@ -1,5 +1,4 @@
 FEATURE Login {
-    USE LoginPageActions
 
     BEFORE EACH {
         OPEN "/login"

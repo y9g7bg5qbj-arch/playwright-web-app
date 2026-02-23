@@ -2,8 +2,6 @@
 # Search for soccer ball and get top 3 results
 
 FEATURE AmazonSearch {
-    USE AmazonPageActions
-    USE HomePageActions
 
     SCENARIO SearchForSoccerBall @smoke {
         OPEN "https://www.amazon.com"

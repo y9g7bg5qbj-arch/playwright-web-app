@@ -1,9 +1,6 @@
 # E-Commerce Shopping Feature Tests
 
 FEATURE Shopping {
-    USE ShoppingProductPageActions
-    USE CartPageActions
-    USE CheckoutPageActions
 
     BEFORE EACH {
         OPEN "https://shop.example.com/products/laptop"

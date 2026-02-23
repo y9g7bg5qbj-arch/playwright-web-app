@@ -22,7 +22,6 @@ PAGE ReturnPage {
 }
 
 FEATURE ReturnTests {
-    USE ReturnPage
 
     SCENARIO TestReturnStatements {
         TEXT resultText = ReturnPage.getResultText
