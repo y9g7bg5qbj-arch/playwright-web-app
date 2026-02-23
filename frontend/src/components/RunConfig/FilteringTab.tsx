@@ -8,6 +8,7 @@ import { veroApi } from '@/api/vero';
 interface FilteringTabProps {
   config: RunConfiguration;
   onChange: <K extends keyof RunConfiguration>(field: K, value: RunConfiguration[K]) => void;
+  hideScope?: boolean;
 }
 
 const QUICK_FILTERS = ['@smoke', '@critical', '@regression', '@e2e', '@wip'];
@@ -67,7 +68,7 @@ function addOrRemovePattern(current: string | undefined, token: string): string 
   return [...parts, token].join('|');
 }
 
-export function FilteringTab({ config, onChange }: FilteringTabProps) {
+export function FilteringTab({ config, onChange, hideScope }: FilteringTabProps) {
   const applicationId = useEnvironmentStore((state) => state.applicationId);
   const [estimatedScenarioCount, setEstimatedScenarioCount] = useState<number | null>(null);
   const [estimateNote, setEstimateNote] = useState<string | null>(null);
@@ -124,23 +125,25 @@ export function FilteringTab({ config, onChange }: FilteringTabProps) {
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
-      <section className={runConfigTheme.section}>
-        <div className="mb-2 flex items-center gap-2">
-          <Compass className="h-4 w-4 text-brand-secondary" />
-          <label className={runConfigTheme.label}>Selection Scope</label>
-        </div>
-        <select
-          className={runConfigTheme.select}
-          value={config.selectionScope || 'current-sandbox'}
-          onChange={(event) => onChange('selectionScope', (event.target.value as RunConfiguration['selectionScope']) || 'current-sandbox')}
-        >
-          <option value="current-sandbox">Current Sandbox</option>
-          <option value="active-file">Active File</option>
-        </select>
-        <p className="mt-2 text-xs text-text-muted">
-          Current Sandbox cherry-picks matching scenarios across all `.vero` files in the active sandbox.
-        </p>
-      </section>
+      {!hideScope && (
+        <section className={runConfigTheme.section}>
+          <div className="mb-2 flex items-center gap-2">
+            <Compass className="h-4 w-4 text-brand-secondary" />
+            <label className={runConfigTheme.label}>Selection Scope</label>
+          </div>
+          <select
+            className={runConfigTheme.select}
+            value={config.selectionScope || 'current-sandbox'}
+            onChange={(event) => onChange('selectionScope', (event.target.value as RunConfiguration['selectionScope']) || 'current-sandbox')}
+          >
+            <option value="current-sandbox">Current Sandbox</option>
+            <option value="active-file">Active File</option>
+          </select>
+          <p className="mt-2 text-xs text-text-muted">
+            Current Sandbox cherry-picks matching scenarios across all `.vero` files in the active sandbox.
+          </p>
+        </section>
+      )}
 
       <section className={runConfigTheme.section}>
         <div className="mb-2 flex items-center gap-2">

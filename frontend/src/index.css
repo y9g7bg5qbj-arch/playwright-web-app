@@ -158,6 +158,7 @@
 
 html {
   color-scheme: dark;
+  overflow: hidden;
 }
 
 body {
@@ -169,10 +170,12 @@ body {
   letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
 }
 
 #root {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 /* Typography - Tighter tracking for headings */
