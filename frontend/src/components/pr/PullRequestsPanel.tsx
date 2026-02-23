@@ -7,9 +7,15 @@ import type { PullRequest } from '@/api/pullRequest';
 
 interface PullRequestsPanelProps {
   projectId: string;
+  nestedProjects?: Array<{ id: string; name: string }>;
+  onSelectProject?: (id: string) => void;
 }
 
-export const PullRequestsPanel: React.FC<PullRequestsPanelProps> = ({ projectId }) => {
+export const PullRequestsPanel: React.FC<PullRequestsPanelProps> = ({
+  projectId,
+  nestedProjects,
+  onSelectProject,
+}) => {
   const selectedPullRequestId = useSandboxStore((s) => s.selectedPullRequestId);
   const setSelectedPullRequestId = useSandboxStore((s) => s.setSelectedPullRequestId);
 
@@ -30,7 +36,15 @@ export const PullRequestsPanel: React.FC<PullRequestsPanelProps> = ({ projectId 
           showMobileDetail ? 'hidden' : 'flex w-full'
         }`}
       >
-        <PullRequestList projectId={projectId} onSelectPR={handleSelectPR} />
+        <PullRequestList
+          projectId={projectId}
+          onSelectPR={handleSelectPR}
+          nestedProjects={nestedProjects}
+          onSelectProject={(id) => {
+            setSelectedPullRequestId(null);
+            onSelectProject?.(id);
+          }}
+        />
       </div>
 
       <div

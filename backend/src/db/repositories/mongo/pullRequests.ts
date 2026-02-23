@@ -357,6 +357,9 @@ export interface MongoProjectSettings {
   requiredApprovals: number;
   allowSelfApproval: boolean;
   autoDeleteSandbox: boolean;
+  useGitHubPrSync?: boolean;
+  githubRepoFullName?: string;
+  githubBaseBranch?: string;
   createdAt: Date;
   updatedAt: Date;
 }

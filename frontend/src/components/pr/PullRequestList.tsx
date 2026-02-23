@@ -4,7 +4,6 @@ import {
   CheckCircle2,
   Clock,
   FileText,
-  Filter,
   GitPullRequest,
   Loader2,
   MessageSquare,
@@ -15,7 +14,6 @@ import {
   Badge,
   Button,
   EmptyState,
-  PanelHeader,
   Select,
   cn,
   type SelectOption,
@@ -32,6 +30,8 @@ import {
 interface PullRequestListProps {
   projectId: string;
   onSelectPR?: (pr: PullRequest) => void;
+  nestedProjects?: Array<{ id: string; name: string }>;
+  onSelectProject?: (id: string) => void;
 }
 
 const statusFilterOptions: SelectOption[] = [...pullRequestStatusOptions];
@@ -39,6 +39,8 @@ const statusFilterOptions: SelectOption[] = [...pullRequestStatusOptions];
 export const PullRequestList: React.FC<PullRequestListProps> = ({
   projectId,
   onSelectPR,
+  nestedProjects,
+  onSelectProject,
 }) => {
   const [statusFilter, setStatusFilter] = useState('');
   const [showCreatePRModal, setShowCreatePRModal] = useState(false);
@@ -74,17 +76,14 @@ export const PullRequestList: React.FC<PullRequestListProps> = ({
   const canCreatePR = activeSandboxes.length > 0;
 
   const handleOpenCreatePR = () => {
-    if (!canCreatePR) {
-      return;
-    }
-
     const preferredSandboxId =
       typeof activeEnvironment === 'object' && 'sandboxId' in activeEnvironment
         ? activeEnvironment.sandboxId
-        : activeSandboxes[0].id;
-    const fallbackSandboxId = activeSandboxes.some((sandbox) => sandbox.id === preferredSandboxId)
-      ? preferredSandboxId
-      : activeSandboxes[0].id;
+        : activeSandboxes[0]?.id || '';
+    const fallbackSandboxId =
+      preferredSandboxId && activeSandboxes.some((sandbox) => sandbox.id === preferredSandboxId)
+        ? preferredSandboxId
+        : activeSandboxes[0]?.id || '';
 
     setCreatePRSandboxId(fallbackSandboxId);
     setShowCreatePRModal(true);
@@ -116,41 +115,50 @@ export const PullRequestList: React.FC<PullRequestListProps> = ({
 
   return (
     <div className="flex h-full flex-col bg-dark-bg">
-      <PanelHeader
-        icon={<GitPullRequest className="h-4 w-4 text-brand-secondary" />}
-        title="Pull Requests"
-        meta={<Badge variant="default" size="sm">{pullRequests.length}</Badge>}
-        actions={
-          <div className="flex items-center gap-1.5">
-            <Button
-              type="button"
-              onClick={handleOpenCreatePR}
-              disabled={!canCreatePR}
-              size="md"
-              variant="action"
-              leftIcon={<Plus className="h-3.5 w-3.5" />}
-              title={canCreatePR ? 'Create a new pull request' : 'Create an active sandbox first'}
-              className="whitespace-nowrap"
-            >
-              Create Pull Request
-            </Button>
-
-            <div className="flex items-center gap-1 text-text-muted">
-              <Filter className="h-3.5 w-3.5" />
-              <div className="w-[120px]">
-                <Select
-                  aria-label="Filter pull requests by status"
-                  options={statusFilterOptions}
-                  value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value)}
-                  className="h-7 border-border-default bg-dark-canvas py-1 pl-2 pr-7 text-xs"
-                />
-              </div>
-            </div>
+      {/* Header */}
+      <div className="shrink-0 border-b border-border-default bg-dark-bg">
+        <div className="flex items-center justify-between px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            <GitPullRequest className="h-4 w-4 text-brand-secondary" />
+            <span className="text-sm font-semibold text-text-primary">Pull Requests</span>
+            <Badge variant="default" size="sm">{pullRequests.length}</Badge>
           </div>
-        }
-        className="h-11 px-3"
-      />
+          <Button
+            type="button"
+            onClick={handleOpenCreatePR}
+            size="sm"
+            variant="action"
+            leftIcon={<Plus className="h-3.5 w-3.5" />}
+            title="Create a new pull request"
+            className="whitespace-nowrap"
+          >
+            New PR
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-2 px-3 pb-2">
+          {nestedProjects && nestedProjects.length > 1 && (
+            <div className="flex-1 min-w-0">
+              <Select
+                aria-label="Select project"
+                options={nestedProjects.map((p) => ({ value: p.id, label: p.name }))}
+                value={projectId}
+                onChange={(event) => onSelectProject?.(event.target.value)}
+                className="h-7 w-full border-border-default bg-dark-canvas py-1 pl-2 pr-7 text-xs rounded-md"
+              />
+            </div>
+          )}
+          <div className={nestedProjects && nestedProjects.length > 1 ? 'w-[120px] shrink-0' : 'flex-1'}>
+            <Select
+              aria-label="Filter pull requests by status"
+              options={statusFilterOptions}
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              className="h-7 w-full border-border-default bg-dark-canvas py-1 pl-2 pr-7 text-xs rounded-md"
+            />
+          </div>
+        </div>
+      </div>
 
       {error && (
         <div className="mx-3 mt-3 rounded-md border border-status-danger/30 bg-status-danger/10 px-3 py-2 text-xs text-status-danger">
@@ -190,7 +198,7 @@ export const PullRequestList: React.FC<PullRequestListProps> = ({
             )}
           </div>
         ) : (
-          <div>
+          <div className="p-2 space-y-1.5">
             {pullRequests.map((pr) => {
               const status = getPullRequestStatusTheme(pr.status);
               const StatusIcon = status.icon;
@@ -202,65 +210,66 @@ export const PullRequestList: React.FC<PullRequestListProps> = ({
                   type="button"
                   onClick={() => onSelectPR?.(pr)}
                   className={cn(
-                    prUiClasses.listRowBase,
-                    isSelected ? prUiClasses.listRowSelected : prUiClasses.listRowIdle
+                    'group w-full rounded-lg px-3 py-2.5 text-left transition-all duration-fast',
+                    isSelected
+                      ? 'bg-brand-primary/10 ring-1 ring-brand-primary/30'
+                      : 'hover:bg-dark-elevated/50'
                   )}
                 >
-                  <div className="flex items-start gap-3">
+                  <div className="flex items-start gap-2.5">
                     <div
                       className={cn(
-                        'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded border',
-                        status.surfaceClassName,
-                        status.borderClassName
+                        'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md',
+                        status.surfaceClassName
                       )}
                     >
                       <StatusIcon className={cn('h-3.5 w-3.5', status.iconClassName)} />
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={prUiClasses.listTitle}>{pr.title}</span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-sm font-medium text-text-primary">{pr.title}</span>
                         <span className="text-xxs text-text-muted">#{pr.number}</span>
                         <Badge variant={status.badgeVariant} size="sm">{status.label}</Badge>
                       </div>
 
-                      <div className={cn(prUiClasses.metaRow, 'mt-1')}>
-                        <span className={prUiClasses.metaItem}>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-xs text-text-muted">
+                        <span className="inline-flex items-center gap-1">
                           <User className="h-3 w-3" />
                           {pr.authorName || pr.authorEmail}
                         </span>
-                        <span className={prUiClasses.metaItem}>
+                        <span className="inline-flex items-center gap-1">
                           <GitPullRequest className="h-3 w-3" />
-                          {pr.sandboxName} → {pr.targetBranch}
+                          {pr.sandboxName} <span className="text-text-muted/50">&rarr;</span> {pr.targetBranch}
                         </span>
-                        <span className={prUiClasses.metaItem}>
+                        <span className="inline-flex items-center gap-1">
                           <Clock className="h-3 w-3" />
                           {formatDate(pr.createdAt)}
                         </span>
                       </div>
 
                       {pr.description && (
-                        <p className={prUiClasses.listDescription}>{pr.description}</p>
+                        <p className="mt-1 text-xs text-text-secondary line-clamp-1">{pr.description}</p>
                       )}
                     </div>
 
-                    <div className="ml-2 flex shrink-0 items-center gap-2">
-                      <span className={prUiClasses.listStat} title="Files changed">
-                        <FileText className="h-3.5 w-3.5" />
+                    <div className="ml-1 flex shrink-0 items-center gap-2 text-3xs text-text-muted">
+                      <span className="inline-flex items-center gap-1" title="Files changed">
+                        <FileText className="h-3 w-3" />
                         {pr.fileCount}
                       </span>
-                      <span className={prUiClasses.listStat} title="Comments">
-                        <MessageSquare className="h-3.5 w-3.5" />
+                      <span className="inline-flex items-center gap-1" title="Comments">
+                        <MessageSquare className="h-3 w-3" />
                         {pr.commentCount}
                       </span>
                       <span
                         className={cn(
-                          prUiClasses.listStat,
+                          'inline-flex items-center gap-1',
                           pr.approvalCount > 0 && 'text-status-success'
                         )}
                         title="Approvals"
                       >
-                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        <CheckCircle2 className="h-3 w-3" />
                         {pr.approvalCount}
                       </span>
                     </div>
@@ -277,6 +286,8 @@ export const PullRequestList: React.FC<PullRequestListProps> = ({
         onClose={() => setShowCreatePRModal(false)}
         sandboxes={activeSandboxes}
         initialSandboxId={createPRSandboxId}
+        projectId={projectId}
+        nestedProjects={nestedProjects}
         onSuccess={() => {
           setShowCreatePRModal(false);
           fetchPullRequests(projectId, statusFilter || undefined);

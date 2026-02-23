@@ -154,8 +154,12 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
         await mergePullRequest(prId);
         addToast({ message: 'Pull request merged successfully', variant: 'success' });
       } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        const isConflict = message.includes('MERGE_CONFLICT:');
         addToast({
-          message: `Failed to merge: ${err instanceof Error ? err.message : 'Unknown error'}`,
+          message: isConflict
+            ? 'Merge conflicts detected. Update Sandbox from Dev to resolve conflicts.'
+            : `Failed to merge: ${message}`,
           variant: 'error',
         });
       }

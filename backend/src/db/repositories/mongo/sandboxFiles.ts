@@ -22,6 +22,21 @@ export const sandboxFileRepository = {
     return map;
   },
 
+  /**
+   * Returns all files including tombstoned deletions (null content).
+   * Used by GitHub sync to propagate file deletions.
+   */
+  async findBySandboxIdWithDeletions(sandboxId: string): Promise<Map<string, string | null>> {
+    const files = await getCollection<MongoSandboxFile>(COLLECTIONS.SANDBOX_FILES)
+      .find({ sandboxId })
+      .toArray();
+    const map = new Map<string, string | null>();
+    for (const f of files) {
+      map.set(f.filePath, f.isDeleted ? null : f.content);
+    }
+    return map;
+  },
+
   async upsert(sandboxId: string, filePath: string, content: string, projectId: string): Promise<MongoSandboxFile> {
     const now = new Date();
     const result = await getCollection<MongoSandboxFile>(COLLECTIONS.SANDBOX_FILES).findOneAndUpdate(

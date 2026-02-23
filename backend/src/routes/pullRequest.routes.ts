@@ -25,7 +25,22 @@ router.get(
       req.params.projectId,
       req.query.status as string | undefined
     );
-    res.json({ pullRequests });
+    res.json({ success: true, data: { pullRequests } });
+  })
+);
+
+/**
+ * GET /api/sandboxes/:sandboxId/diff-preview
+ * Get diff between sandbox and dev without creating a PR
+ */
+router.get(
+  '/sandboxes/:sandboxId/diff-preview',
+  validate([
+    param('sandboxId').isUUID(),
+  ]),
+  asyncHandler(async (req: AuthRequest, res) => {
+    const preview = await pullRequestService.getDiffPreview(req.userId!, req.params.sandboxId);
+    res.json({ success: true, data: { preview } });
   })
 );
 
@@ -39,13 +54,21 @@ router.post(
     param('sandboxId').isUUID(),
     body('title').isString().trim().notEmpty().isLength({ min: 1, max: 200 }),
     body('description').optional().isString().trim().isLength({ max: 2000 }),
-    body('targetBranch').optional().isIn(['dev', 'master']),
+    body('selectedFiles').optional().isArray(),
+    body('selectedFiles.*').optional().isString().notEmpty(),
   ]),
   asyncHandler(async (req: AuthRequest, res) => {
+    if (req.body.targetBranch && req.body.targetBranch !== 'dev') {
+      return res.status(400).json({
+        success: false,
+        error: 'Pull requests can only target the dev branch',
+      });
+    }
+
     const pullRequest = await pullRequestService.create(req.userId!, req.params.sandboxId, {
       title: req.body.title,
       description: req.body.description,
-      targetBranch: req.body.targetBranch,
+      selectedFiles: req.body.selectedFiles,
     });
 
     // Emit WebSocket event
@@ -54,7 +77,7 @@ router.post(
       io.to(`project:${pullRequest.projectId}`).emit('pr:created', { pullRequest });
     }
 
-    res.status(201).json({ pullRequest });
+    res.status(201).json({ success: true, data: { pullRequest } });
   })
 );
 
@@ -70,9 +93,9 @@ router.get(
   asyncHandler(async (req: AuthRequest, res) => {
     const pullRequest = await pullRequestService.getById(req.params.id);
     if (!pullRequest) {
-      return res.status(404).json({ error: 'Pull request not found' });
+      return res.status(404).json({ success: false, error: 'Pull request not found' });
     }
-    res.json({ pullRequest });
+    res.json({ success: true, data: { pullRequest } });
   })
 );
 
@@ -99,7 +122,7 @@ router.patch(
       io.to(`project:${pullRequest.projectId}`).emit('pr:updated', { pullRequest });
     }
 
-    res.json({ pullRequest });
+    res.json({ success: true, data: { pullRequest } });
   })
 );
 
@@ -121,7 +144,7 @@ router.post(
       io.to(`project:${pullRequest.projectId}`).emit('pr:updated', { pullRequest });
     }
 
-    res.json({ pullRequest });
+    res.json({ success: true, data: { pullRequest } });
   })
 );
 
@@ -137,7 +160,7 @@ router.delete(
   asyncHandler(async (req: AuthRequest, res) => {
     const pullRequest = await pullRequestService.getById(req.params.id);
     if (!pullRequest) {
-      return res.status(404).json({ error: 'Pull request not found' });
+      return res.status(404).json({ success: false, error: 'Pull request not found' });
     }
 
     await pullRequestService.close(req.params.id, req.userId!);
@@ -162,8 +185,8 @@ router.get(
     param('id').isUUID(),
   ]),
   asyncHandler(async (req: AuthRequest, res) => {
-    const diff = await pullRequestService.getDiff(req.params.id);
-    res.json({ diff });
+    const diff = await pullRequestService.getDiff(req.params.id, req.userId);
+    res.json({ success: true, data: { diff } });
   })
 );
 
@@ -178,8 +201,8 @@ router.get(
     param('filePath').isString().notEmpty(),
   ]),
   asyncHandler(async (req: AuthRequest, res) => {
-    const fileDiff = await pullRequestService.getFileDiff(req.params.id, req.params.filePath);
-    res.json({ fileDiff });
+    const fileDiff = await pullRequestService.getFileDiff(req.params.id, req.params.filePath, req.userId);
+    res.json({ success: true, data: { fileDiff } });
   })
 );
 
@@ -194,7 +217,7 @@ router.get(
   ]),
   asyncHandler(async (req: AuthRequest, res) => {
     const files = await pullRequestService.getChangedFiles(req.params.id);
-    res.json({ files });
+    res.json({ success: true, data: { files } });
   })
 );
 
@@ -209,7 +232,7 @@ router.get(
   ]),
   asyncHandler(async (req: AuthRequest, res) => {
     const reviews = await pullRequestService.getReviews(req.params.id);
-    res.json({ reviews });
+    res.json({ success: true, data: { reviews } });
   })
 );
 
@@ -243,7 +266,7 @@ router.post(
       io.to(`project:${pullRequest.projectId}`).emit('pr:updated', { pullRequest });
     }
 
-    res.status(201).json({ review });
+    res.status(201).json({ success: true, data: { review } });
   })
 );
 
@@ -258,7 +281,7 @@ router.get(
   ]),
   asyncHandler(async (req: AuthRequest, res) => {
     const comments = await pullRequestService.getComments(req.params.id);
-    res.json({ comments });
+    res.json({ success: true, data: { comments } });
   })
 );
 
@@ -293,7 +316,7 @@ router.post(
       });
     }
 
-    res.status(201).json({ comment });
+    res.status(201).json({ success: true, data: { comment } });
   })
 );
 
@@ -324,7 +347,7 @@ router.get(
   ]),
   asyncHandler(async (req: AuthRequest, res) => {
     const result = await pullRequestService.canMerge(req.params.id, req.userId!);
-    res.json(result);
+    res.json({ success: true, data: result });
   })
 );
 
@@ -350,7 +373,7 @@ router.post(
       io.to(`project:${pullRequest.projectId}`).emit('pr:updated', { pullRequest });
     }
 
-    res.json({ pullRequest });
+    res.json({ success: true, data: { pullRequest } });
   })
 );
 

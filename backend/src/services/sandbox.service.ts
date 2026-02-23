@@ -345,10 +345,67 @@ export class SandboxService {
   }
 
   /**
-   * List all sandboxes for a project
+   * List all sandboxes for a project.
+   * Also discovers sandbox directories on disk that are not yet registered
+   * in the database and auto-registers them.
    */
   async listByProject(projectId: string): Promise<SandboxWithDetails[]> {
     const sandboxes = await sandboxRepository.findByProjectId(projectId);
+
+    // Try to discover unregistered sandbox directories on disk
+    try {
+      const project = await projectRepository.findById(projectId);
+      if (project) {
+        let projectPath = project.veroPath;
+        if (!projectPath) {
+          const application = await applicationRepository.findById(project.applicationId);
+          if (application) {
+            projectPath = path.join(VERO_PROJECTS_BASE, application.id, project.id);
+          }
+        }
+        if (projectPath) {
+          const sandboxesDir = path.join(projectPath, 'sandboxes');
+          try {
+            const entries = await fs.readdir(sandboxesDir, { withFileTypes: true });
+            const knownFolders = new Set(sandboxes.map(s => s.folderPath));
+
+            // Resolve owner: use existing sandbox owner, or fall back to application userId
+            let fallbackOwnerId = sandboxes[0]?.ownerId ?? '';
+            if (!fallbackOwnerId) {
+              const application = await applicationRepository.findById(project.applicationId);
+              fallbackOwnerId = application?.userId ?? '';
+            }
+
+            for (const entry of entries) {
+              if (!entry.isDirectory()) continue;
+              if (EXCLUDED_SANDBOX_DIR_NAMES.has(entry.name.toLowerCase())) continue;
+              const folderPath = `sandboxes/${entry.name}`;
+              if (knownFolders.has(folderPath)) continue;
+
+              // Unregistered sandbox directory found — register it
+              logger.info(`Discovering unregistered sandbox directory: ${folderPath} in project ${projectId}`);
+              const newSandbox = await sandboxRepository.create({
+                name: entry.name,
+                ownerId: fallbackOwnerId,
+                projectId,
+                sourceBranch: 'dev',
+                folderPath,
+                status: 'active',
+              });
+              sandboxes.push(newSandbox);
+            }
+          } catch (dirErr: any) {
+            // sandboxes directory may not exist — that's fine
+            if (dirErr.code !== 'ENOENT') {
+              logger.warn(`Could not scan sandbox directory for project ${projectId}:`, dirErr);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn(`Failed to discover sandboxes for project ${projectId}:`, err);
+    }
+
     return Promise.all(sandboxes.map(s => this.toSandboxWithDetails(s)));
   }
 

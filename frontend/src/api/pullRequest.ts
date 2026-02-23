@@ -92,7 +92,20 @@ export interface DiffSummary {
 export interface CreatePullRequestInput {
   title: string;
   description?: string;
-  targetBranch?: 'dev' | 'master';
+  selectedFiles?: string[];
+}
+
+export interface DiffPreviewFile {
+  filePath: string;
+  changeType: 'added' | 'modified' | 'deleted';
+  additions: number;
+  deletions: number;
+}
+
+export interface DiffPreview {
+  files: DiffPreviewFile[];
+  totalAdditions: number;
+  totalDeletions: number;
 }
 
 export interface UpdatePullRequestInput {
@@ -153,6 +166,10 @@ interface FileDiffResponse {
   fileDiff: FileDiff;
 }
 
+interface DiffPreviewResponse {
+  preview: DiffPreview;
+}
+
 export const pullRequestApi = {
   // List all PRs for a project
   async listByProject(projectId: string, status?: string): Promise<PullRequest[]> {
@@ -167,6 +184,12 @@ export const pullRequestApi = {
   async getById(prId: string): Promise<PullRequest> {
     const response = await apiClient.get<PRResponse>(`/pull-requests/${prId}`);
     return response.pullRequest;
+  },
+
+  // Get diff preview between sandbox and dev (before creating PR)
+  async getDiffPreview(sandboxId: string): Promise<DiffPreview> {
+    const response = await apiClient.get<DiffPreviewResponse>(`/sandboxes/${sandboxId}/diff-preview`);
+    return response.preview;
   },
 
   // Create a new PR from a sandbox

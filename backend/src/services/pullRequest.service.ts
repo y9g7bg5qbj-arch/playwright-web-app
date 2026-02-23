@@ -2,19 +2,28 @@
  * Pull Request Service
  *
  * Manages pull requests for sandbox-to-main branch merges.
+ * Supports dual-path: local git (default) or GitHub-backed PRs
+ * when `useGitHubPrSync` is enabled in project settings.
  */
 
 import * as path from 'path';
-import { pullRequestRepository, pullRequestReviewRepository, pullRequestCommentRepository, pullRequestFileRepository, projectSettingsRepository, sandboxRepository, userRepository, projectRepository, applicationRepository } from '../db/repositories/mongo';
+import * as fs from 'fs/promises';
+import { pullRequestRepository, pullRequestReviewRepository, pullRequestCommentRepository, pullRequestFileRepository, projectSettingsRepository, sandboxRepository, sandboxFileRepository, userRepository, projectRepository, applicationRepository, githubIntegrationRepository } from '../db/repositories/mongo';
 import { gitService, GitDiffResult, GitFileDiff } from './git.service';
+import { githubService } from './github.service';
+import { githubFileToFileDiff, githubFilesToDiffSummary, type GitHubPRFile } from '../utils/githubDiffParser';
+import { collectDirectoryFiles, buildDiffSummary, buildFileDiff, buildAllFileDiffs } from '../utils/diff';
 import { logger } from '../utils/logger';
+import { AppError } from '../utils/errors';
+import { normalizeRole, hasPermission } from '../middleware/rbac';
+import type { MongoProjectSettings } from '../db/repositories/mongo/pullRequests';
 
 const VERO_PROJECTS_BASE = process.env.VERO_PROJECTS_PATH || path.join(process.cwd(), 'vero-projects');
 
 export interface CreatePullRequestInput {
   title: string;
   description?: string;
-  targetBranch?: 'dev' | 'master';
+  selectedFiles?: string[];
 }
 
 export interface SubmitReviewInput {
@@ -141,8 +150,8 @@ export class PullRequestService {
    * Resolve the project path and sandbox details for a PR
    */
   private async resolvePRProjectPath(pullRequestId: string): Promise<{
-    pr: { id: string; targetBranch: string; sandboxId: string; projectId: string; authorId: string; status: string };
-    sandbox: { folderPath: string };
+    pr: { id: string; targetBranch: string; sandboxId: string; projectId: string; authorId: string; status: string; githubPrNumber?: number };
+    sandbox: { folderPath: string; id: string };
     projectPath: string;
   }> {
     const pr = await pullRequestRepository.findById(pullRequestId);
@@ -171,6 +180,75 @@ export class PullRequestService {
   }
 
   /**
+   * Check if GitHub PR sync is enabled for a project and validate the token.
+   * Returns settings if GitHub path should be used, null otherwise.
+   */
+  private async getGitHubConfig(projectId: string, userId: string): Promise<{
+    settings: MongoProjectSettings;
+    owner: string;
+    repo: string;
+    baseBranch: string;
+  } | null> {
+    const settings = await projectSettingsRepository.findByProjectId(projectId);
+    if (!settings?.useGitHubPrSync || !settings.githubRepoFullName) {
+      return null;
+    }
+
+    // Validate GitHub token
+    const integration = await githubIntegrationRepository.findByUserId(userId);
+    if (!integration?.accessToken) {
+      throw new AppError(400, 'GitHub integration required. Connect your GitHub account in Settings.');
+    }
+
+    const [owner, repo] = settings.githubRepoFullName.split('/');
+    if (!owner || !repo) {
+      throw new AppError(400, 'Invalid GitHub repository configuration. Check project settings.');
+    }
+
+    return {
+      settings,
+      owner,
+      repo,
+      baseBranch: settings.githubBaseBranch || 'main',
+    };
+  }
+
+  /**
+   * Resolve which user's GitHub token to use for API calls.
+   * Prefers the requesting user's token; falls back to the PR author's.
+   */
+  private async resolveGitHubTokenUser(requestingUserId: string | undefined, authorId: string): Promise<string> {
+    if (requestingUserId) {
+      const integration = await githubIntegrationRepository.findByUserId(requestingUserId);
+      if (integration?.accessToken) {
+        return requestingUserId;
+      }
+    }
+    return authorId;
+  }
+
+  /**
+   * Ensure sandbox files are stored in the database for stateless GitHub push.
+   * Hydrates from disk on first call (cold-start).
+   */
+  private async ensureSandboxFiles(sandboxId: string, sandboxFolderPath: string, projectPath: string, projectId: string): Promise<Map<string, string>> {
+    // Check if files already exist in DB
+    const existing = await sandboxFileRepository.findBySandboxIdAsMap(sandboxId);
+    if (existing.size > 0) {
+      return existing;
+    }
+
+    // Cold-start: hydrate from disk
+    // sandboxFolderPath is already "sandboxes/<name>", so join directly with projectPath
+    const sandboxPath = path.join(projectPath, sandboxFolderPath);
+    const files = await collectDirectoryFiles(sandboxPath);
+    if (files.size > 0) {
+      await sandboxFileRepository.upsertMany(sandboxId, files, projectId);
+    }
+    return files;
+  }
+
+  /**
    * Create a new pull request from a sandbox
    */
   async create(userId: string, sandboxId: string, input: CreatePullRequestInput): Promise<PullRequestWithDetails> {
@@ -178,16 +256,16 @@ export class PullRequestService {
     const sandbox = await sandboxRepository.findById(sandboxId);
 
     if (!sandbox) {
-      throw new Error('Sandbox not found');
+      throw new AppError(404, 'Sandbox not found');
     }
 
     // Only sandbox owner can create PR
     if (sandbox.ownerId !== userId) {
-      throw new Error('Only sandbox owner can create pull request');
+      throw new AppError(403, 'Only sandbox owner can create pull request');
     }
 
     if (sandbox.status !== 'active') {
-      throw new Error('Cannot create PR from archived or merged sandbox');
+      throw new AppError(409, 'Cannot create PR from archived or merged sandbox');
     }
 
     // Get owner and project details
@@ -197,36 +275,94 @@ export class PullRequestService {
     ]);
 
     if (!owner || !project) {
-      throw new Error('Owner or project not found');
+      throw new AppError(404, 'Owner or project not found');
     }
 
     const application = await applicationRepository.findById(project.applicationId);
     if (!application) {
-      throw new Error('Application not found');
+      throw new AppError(404, 'Application not found');
     }
 
     // Check if there's already an open PR for this sandbox
     const existingPRs = await pullRequestRepository.findOpenBySandboxId(sandboxId);
     if (existingPRs.length > 0) {
-      throw new Error('A pull request already exists for this sandbox');
+      throw new AppError(409, 'A pull request already exists for this sandbox');
     }
 
     // Get next PR number for this project
     const prNumber = await pullRequestRepository.getNextPRNumber(project.id);
-
-    const targetBranch = input.targetBranch || 'dev';
-
-    // Get the project path and diff summary
+    const targetBranch = 'dev';
     const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
 
-    let diffResult: GitDiffResult;
-    try {
-      diffResult = await gitService.getDiffSummary(projectPath, targetBranch, sandbox.folderPath);
-    } catch (error) {
-      diffResult = { files: [], totalAdditions: 0, totalDeletions: 0 };
+    // Check for GitHub sync
+    const githubConfig = await this.getGitHubConfig(project.id, userId);
+
+    let diffFiles: Array<{ filePath: string; changeType: 'added' | 'modified' | 'deleted'; additions: number; deletions: number }>;
+    let githubPrNumber: number | undefined;
+
+    if (githubConfig) {
+      // === GitHub Path (fully stateless — no local disk reads) ===
+      const { owner: ghOwner, repo: ghRepo, baseBranch } = githubConfig;
+      const branchName = `vero/sandbox-${sandbox.id.slice(0, 8)}`;
+
+      // Ensure sandbox files are in DB, then sync to GitHub (including tombstoned deletions)
+      await this.ensureSandboxFiles(sandbox.id, sandbox.folderPath, projectPath, project.id);
+      let fileMap = await sandboxFileRepository.findBySandboxIdWithDeletions(sandbox.id);
+
+      // Filter to selected files for GitHub sync
+      if (input.selectedFiles && input.selectedFiles.length > 0) {
+        const selectedSet = new Set(input.selectedFiles);
+        const filteredMap = new Map<string, string | null>();
+        for (const [filePath, content] of fileMap) {
+          if (selectedSet.has(filePath)) {
+            filteredMap.set(filePath, content);
+          }
+        }
+        fileMap = filteredMap;
+      }
+
+      await githubService.syncSandboxToBranch(userId, ghOwner, ghRepo, branchName, baseBranch, fileMap);
+
+      // Create GitHub PR
+      const ghPR = await githubService.createGitHubPR(
+        userId, ghOwner, ghRepo,
+        branchName, baseBranch,
+        input.title, input.description
+      );
+      githubPrNumber = ghPR.number;
+
+      // Fetch file diff from GitHub (authoritative — no local disk dependency)
+      const ghFiles = await githubService.getGitHubPRFiles(userId, ghOwner, ghRepo, ghPR.number);
+      const summary = githubFilesToDiffSummary(ghFiles as GitHubPRFile[]);
+      diffFiles = summary.files;
+    } else {
+      // === Local Folder-Based Path ===
+      try {
+        const targetDir = path.join(projectPath, targetBranch);
+        const sandboxDir = path.join(projectPath, sandbox.folderPath);
+        const [targetFiles, sandboxFiles] = await Promise.all([
+          collectDirectoryFiles(targetDir),
+          collectDirectoryFiles(sandboxDir),
+        ]);
+        const summary = buildDiffSummary(targetFiles, sandboxFiles);
+        diffFiles = summary.files.map(f => ({
+          filePath: f.filePath,
+          changeType: f.changeType as 'added' | 'modified' | 'deleted',
+          additions: f.additions,
+          deletions: f.deletions,
+        }));
+      } catch (error) {
+        throw new AppError(400, `Cannot compute diff: ${error instanceof Error ? error.message : 'unknown error'}`);
+      }
     }
 
-    // Create pull request
+    // Filter to selected files if provided
+    if (input.selectedFiles && input.selectedFiles.length > 0) {
+      const selectedSet = new Set(input.selectedFiles);
+      diffFiles = diffFiles.filter(f => selectedSet.has(f.filePath));
+    }
+
+    // Create pull request record
     const pullRequest = await pullRequestRepository.create({
       number: prNumber,
       title: input.title,
@@ -236,16 +372,12 @@ export class PullRequestService {
       projectId: sandbox.projectId,
       targetBranch,
       status: 'draft',
+      githubPrNumber,
     });
 
     // Create file change records
-    if (diffResult.files.length > 0) {
-      await pullRequestFileRepository.createMany(pullRequest.id, diffResult.files.map(f => ({
-        filePath: f.filePath,
-        changeType: f.changeType as 'added' | 'modified' | 'deleted',
-        additions: f.additions,
-        deletions: f.deletions,
-      })));
+    if (diffFiles.length > 0) {
+      await pullRequestFileRepository.createMany(pullRequest.id, diffFiles);
     }
 
     return {
@@ -271,7 +403,57 @@ export class PullRequestService {
       approvalCount: 0,
       changesRequestedCount: 0,
       commentCount: 0,
-      fileCount: diffResult.files.length,
+      fileCount: diffFiles.length,
+    };
+  }
+
+  /**
+   * Get a diff preview between sandbox and dev WITHOUT creating a PR.
+   * Used by the frontend to show file selection checkboxes before creation.
+   */
+  async getDiffPreview(userId: string, sandboxId: string): Promise<{
+    files: Array<{ filePath: string; changeType: 'added' | 'modified' | 'deleted'; additions: number; deletions: number }>;
+    totalAdditions: number;
+    totalDeletions: number;
+  }> {
+    const sandbox = await sandboxRepository.findById(sandboxId);
+    if (!sandbox) {
+      throw new AppError(404, 'Sandbox not found');
+    }
+
+    if (sandbox.status !== 'active') {
+      throw new AppError(409, 'Cannot preview diff from archived or merged sandbox');
+    }
+
+    const project = await projectRepository.findById(sandbox.projectId);
+    if (!project) {
+      throw new AppError(404, 'Project not found');
+    }
+
+    const application = await applicationRepository.findById(project.applicationId);
+    if (!application) {
+      throw new AppError(404, 'Application not found');
+    }
+
+    const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
+    const targetBranch = 'dev';
+
+    const targetDir = path.join(projectPath, targetBranch);
+    const sandboxDir = path.join(projectPath, sandbox.folderPath);
+    const [targetFiles, sandboxFiles] = await Promise.all([
+      collectDirectoryFiles(targetDir),
+      collectDirectoryFiles(sandboxDir),
+    ]);
+    const summary = buildDiffSummary(targetFiles, sandboxFiles);
+    return {
+      files: summary.files.map(f => ({
+        filePath: f.filePath,
+        changeType: f.changeType as 'added' | 'modified' | 'deleted',
+        additions: f.additions,
+        deletions: f.deletions,
+      })),
+      totalAdditions: summary.totalAdditions,
+      totalDeletions: summary.totalDeletions,
     };
   }
 
@@ -351,11 +533,11 @@ export class PullRequestService {
       throw new Error('Pull request not found');
     }
 
-    // Author or admin can close
+    // Author or users with manage:projects permission can close
     if (pr.authorId !== userId) {
       const user = await userRepository.findById(userId);
-      if (user?.role !== 'admin' && user?.role !== 'qa_lead') {
-        throw new Error('Only the author or admin can close a PR');
+      if (!user || !hasPermission(normalizeRole(user.role), 'manage:projects')) {
+        throw new Error('Only the author or admin/lead can close a PR');
       }
     }
 
@@ -372,17 +554,17 @@ export class PullRequestService {
     const pr = await pullRequestRepository.findById(pullRequestId);
 
     if (!pr) {
-      throw new Error('Pull request not found');
+      throw new AppError(404, 'Pull request not found');
     }
 
     if (pr.status !== 'open') {
-      throw new Error('Can only review open PRs');
+      throw new AppError(409, `Can only review open PRs (current status: ${pr.status})`);
     }
 
     // Check if user can review (not author, has reviewer permissions)
     const user = await userRepository.findById(userId);
     if (!user) {
-      throw new Error('User not found');
+      throw new AppError(404, 'User not found');
     }
 
     // Get project settings
@@ -390,14 +572,13 @@ export class PullRequestService {
 
     // Check self-approval
     if (pr.authorId === userId && !settings?.allowSelfApproval) {
-      throw new Error('Cannot review your own PR');
+      throw new AppError(403, 'Cannot review your own PR');
     }
 
     // Check role permissions for approval
     if (input.status === 'approved') {
-      const canApprove = ['senior_qa', 'qa_lead', 'admin'].includes(user.role);
-      if (!canApprove) {
-        throw new Error('You do not have permission to approve PRs');
+      if (!hasPermission(normalizeRole(user.role), 'approve:pr')) {
+        throw new AppError(403, 'You do not have permission to approve PRs');
       }
     }
 
@@ -536,48 +717,126 @@ export class PullRequestService {
   }
 
   /**
-   * Get diff for a PR
+   * Get diff for a PR (dual-path: GitHub or local git)
    */
-  async getDiff(pullRequestId: string): Promise<GitDiffResult> {
+  async getDiff(pullRequestId: string, userId?: string): Promise<GitDiffResult> {
     const { pr, sandbox, projectPath } = await this.resolvePRProjectPath(pullRequestId);
-    return gitService.getDiffSummary(projectPath, pr.targetBranch, sandbox.folderPath);
+
+    // GitHub path: use GitHub API to fetch PR files
+    if (pr.githubPrNumber) {
+      const settings = await projectSettingsRepository.findByProjectId(pr.projectId);
+      if (settings?.useGitHubPrSync && settings.githubRepoFullName) {
+        const [owner, repo] = settings.githubRepoFullName.split('/');
+        const tokenUserId = await this.resolveGitHubTokenUser(userId, pr.authorId);
+        const ghFiles = await githubService.getGitHubPRFiles(tokenUserId, owner, repo, pr.githubPrNumber);
+        const summary = githubFilesToDiffSummary(ghFiles as GitHubPRFile[]);
+        return {
+          files: summary.files,
+          totalAdditions: summary.totalAdditions,
+          totalDeletions: summary.totalDeletions,
+        };
+      }
+    }
+
+    // Local folder-based diff
+    const targetDir = path.join(projectPath, pr.targetBranch);
+    const sandboxDir = path.join(projectPath, sandbox.folderPath);
+    const [targetFiles, sandboxFiles] = await Promise.all([
+      collectDirectoryFiles(targetDir),
+      collectDirectoryFiles(sandboxDir),
+    ]);
+    const summary = buildDiffSummary(targetFiles, sandboxFiles);
+    return {
+      files: summary.files,
+      totalAdditions: summary.totalAdditions,
+      totalDeletions: summary.totalDeletions,
+    };
   }
 
   /**
-   * Get detailed diff for a specific file in a PR
+   * Get detailed diff for a specific file in a PR (dual-path)
    */
-  async getFileDiff(pullRequestId: string, filePath: string): Promise<GitFileDiff> {
+  async getFileDiff(pullRequestId: string, filePath: string, userId?: string): Promise<GitFileDiff> {
     const { pr, sandbox, projectPath } = await this.resolvePRProjectPath(pullRequestId);
-    return gitService.getFileDiff(projectPath, pr.targetBranch, sandbox.folderPath, filePath);
+
+    // GitHub path
+    if (pr.githubPrNumber) {
+      const settings = await projectSettingsRepository.findByProjectId(pr.projectId);
+      if (settings?.useGitHubPrSync && settings.githubRepoFullName) {
+        const [owner, repo] = settings.githubRepoFullName.split('/');
+        const tokenUserId = await this.resolveGitHubTokenUser(userId, pr.authorId);
+        const ghFiles = await githubService.getGitHubPRFiles(tokenUserId, owner, repo, pr.githubPrNumber);
+        const targetFile = (ghFiles as GitHubPRFile[]).find(f => f.filename === filePath);
+        if (!targetFile) {
+          return { filePath, hunks: [] };
+        }
+        const diff = githubFileToFileDiff(targetFile);
+        return { filePath: diff.filePath, hunks: diff.hunks };
+      }
+    }
+
+    // Local folder-based diff
+    const targetDir = path.join(projectPath, pr.targetBranch);
+    const sandboxDir = path.join(projectPath, sandbox.folderPath);
+    const [targetFiles, sandboxFiles] = await Promise.all([
+      collectDirectoryFiles(targetDir),
+      collectDirectoryFiles(sandboxDir),
+    ]);
+    const diff = buildFileDiff(filePath, targetFiles.get(filePath), sandboxFiles.get(filePath));
+    return { filePath: diff.filePath, hunks: diff.hunks };
   }
 
   /**
-   * Get all file diffs for a PR
+   * Get all file diffs for a PR (dual-path)
    */
-  async getAllFileDiffs(pullRequestId: string): Promise<GitFileDiff[]> {
+  async getAllFileDiffs(pullRequestId: string, userId?: string): Promise<GitFileDiff[]> {
     const { pr, sandbox, projectPath } = await this.resolvePRProjectPath(pullRequestId);
-    return gitService.getAllFileDiffs(projectPath, pr.targetBranch, sandbox.folderPath);
+
+    // GitHub path
+    if (pr.githubPrNumber) {
+      const settings = await projectSettingsRepository.findByProjectId(pr.projectId);
+      if (settings?.useGitHubPrSync && settings.githubRepoFullName) {
+        const [owner, repo] = settings.githubRepoFullName.split('/');
+        const tokenUserId = await this.resolveGitHubTokenUser(userId, pr.authorId);
+        const ghFiles = await githubService.getGitHubPRFiles(tokenUserId, owner, repo, pr.githubPrNumber);
+        return (ghFiles as GitHubPRFile[]).map(f => {
+          const diff = githubFileToFileDiff(f);
+          return { filePath: diff.filePath, hunks: diff.hunks };
+        });
+      }
+    }
+
+    // Local folder-based diff
+    const targetDir = path.join(projectPath, pr.targetBranch);
+    const sandboxDir = path.join(projectPath, sandbox.folderPath);
+    const [targetFiles, sandboxFiles] = await Promise.all([
+      collectDirectoryFiles(targetDir),
+      collectDirectoryFiles(sandboxDir),
+    ]);
+    return buildAllFileDiffs(targetFiles, sandboxFiles).map(d => ({
+      filePath: d.filePath,
+      hunks: d.hunks,
+    }));
   }
 
   /**
-   * Merge a PR
+   * Merge a PR (dual-path: GitHub or local git)
    */
   async merge(pullRequestId: string, userId: string): Promise<PullRequestWithDetails> {
     const pr = await pullRequestRepository.findById(pullRequestId);
 
     if (!pr) {
-      throw new Error('Pull request not found');
+      throw new AppError(404, 'Pull request not found');
     }
 
     // Check user permissions to merge
     const user = await userRepository.findById(userId);
     if (!user) {
-      throw new Error('User not found');
+      throw new AppError(404, 'User not found');
     }
 
-    const canMerge = ['senior_qa', 'qa_lead', 'admin'].includes(user.role);
-    if (!canMerge) {
-      throw new Error('You do not have permission to merge PRs');
+    if (!hasPermission(normalizeRole(user.role), 'merge:pr')) {
+      throw new AppError(403, 'You do not have permission to merge PRs');
     }
 
     // Check PR status
@@ -589,32 +848,81 @@ export class PullRequestService {
       const approvals = await pullRequestReviewRepository.countByStatus(pullRequestId, 'approved');
 
       if (approvals < requiredApprovals) {
-        throw new Error(`PR requires ${requiredApprovals} approval(s). Currently has ${approvals}.`);
+        throw new AppError(409, `PR requires ${requiredApprovals} approval(s). Currently has ${approvals}.`);
       }
     }
 
     const sandbox = await sandboxRepository.findById(pr.sandboxId);
     if (!sandbox) {
-      throw new Error('Sandbox not found');
+      throw new AppError(404, 'Sandbox not found');
     }
 
     const project = await projectRepository.findById(sandbox.projectId);
     if (!project) {
-      throw new Error('Project not found');
+      throw new AppError(404, 'Project not found');
     }
 
     const application = await applicationRepository.findById(project.applicationId);
     if (!application) {
-      throw new Error('Application not found');
+      throw new AppError(404, 'Application not found');
     }
 
     const projectPath = project.veroPath || path.join(VERO_PROJECTS_BASE, application.id, project.id);
 
-    await gitService.checkoutBranch(projectPath, pr.targetBranch);
-    const mergeResult = await gitService.mergeBranch(projectPath, sandbox.folderPath);
+    // Check for GitHub sync
+    const githubConfig = await this.getGitHubConfig(project.id, userId);
 
-    if (!mergeResult.success) {
-      throw new Error(`Merge conflicts detected in files: ${mergeResult.conflicts?.join(', ')}`);
+    if (githubConfig && pr.githubPrNumber) {
+      // === GitHub Path ===
+      const { owner: ghOwner, repo: ghRepo } = githubConfig;
+
+      // Check mergeability with backoff
+      const mergeStatus = await githubService.getPullRequestWithMergeable(
+        userId, ghOwner, ghRepo, pr.githubPrNumber
+      );
+
+      if (!mergeStatus.mergeable) {
+        throw new AppError(409, 'MERGE_CONFLICT: Update Sandbox from Dev to resolve conflicts.');
+      }
+
+      // Merge via GitHub API
+      const mergeResult = await githubService.mergeGitHubPR(
+        userId, ghOwner, ghRepo, pr.githubPrNumber,
+        `Merge PR #${pr.number}: ${pr.title}`
+      );
+
+      if (!mergeResult.merged) {
+        throw new AppError(502, `GitHub merge failed: ${mergeResult.message}`);
+      }
+    } else {
+      // === Local File-Copy Merge ===
+      // Only files tracked in the PR are merged (supports selective file inclusion)
+      const prFiles = await pullRequestFileRepository.findByPullRequestId(pullRequestId);
+
+      if (prFiles.length === 0) {
+        throw new AppError(409, 'No files to merge');
+      }
+
+      const targetDir = path.join(projectPath, pr.targetBranch);
+      const sandboxDir = path.join(projectPath, sandbox.folderPath);
+
+      for (const file of prFiles) {
+        const targetFilePath = path.join(targetDir, file.filePath);
+        const sandboxFilePath = path.join(sandboxDir, file.filePath);
+
+        if (file.changeType === 'deleted') {
+          try {
+            await fs.unlink(targetFilePath);
+          } catch (err: any) {
+            if (err.code !== 'ENOENT') throw err;
+          }
+        } else {
+          // added or modified: read from sandbox, write to dev
+          const content = await fs.readFile(sandboxFilePath, 'utf-8');
+          await fs.mkdir(path.dirname(targetFilePath), { recursive: true });
+          await fs.writeFile(targetFilePath, content, 'utf-8');
+        }
+      }
     }
 
     // Update PR status
@@ -630,8 +938,8 @@ export class PullRequestService {
     // Get settings to check if we should delete sandbox
     const settings = await projectSettingsRepository.findByProjectId(pr.projectId);
 
-    // Optionally delete the git branch
-    if (settings?.autoDeleteSandbox) {
+    // Optionally delete the git branch (only for local git path)
+    if (settings?.autoDeleteSandbox && !githubConfig) {
       try {
         await gitService.deleteBranch(projectPath, sandbox.folderPath, true);
       } catch (error) {
@@ -657,9 +965,8 @@ export class PullRequestService {
       return { canMerge: false, reason: 'User not found' };
     }
 
-    // Check role
-    const hasPermission = ['senior_qa', 'qa_lead', 'admin'].includes(user.role);
-    if (!hasPermission) {
+    const canMergeByRole = hasPermission(normalizeRole(user.role), 'merge:pr');
+    if (!canMergeByRole) {
       return { canMerge: false, reason: 'Insufficient permissions' };
     }
 

@@ -35,8 +35,8 @@ export interface GitDiffHunk {
 export interface GitDiffLine {
   type: 'context' | 'add' | 'delete';
   content: string;
-  oldLineNumber?: number;
-  newLineNumber?: number;
+  oldLineNumber: number | null;
+  newLineNumber: number | null;
 }
 
 export class GitService {
@@ -379,6 +379,7 @@ export class GitService {
           lines.push({
             type: 'add',
             content: line.slice(1),
+            oldLineNumber: null,
             newLineNumber: newLineNum++,
           });
         } else if (line.startsWith('-')) {
@@ -386,6 +387,7 @@ export class GitService {
             type: 'delete',
             content: line.slice(1),
             oldLineNumber: oldLineNum++,
+            newLineNumber: null,
           });
         } else if (line.startsWith(' ') || line === '') {
           lines.push({
