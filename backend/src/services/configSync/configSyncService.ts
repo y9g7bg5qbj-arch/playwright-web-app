@@ -223,7 +223,7 @@ export class ConfigSyncService {
 
     let previousHashes: Record<string, string> = {};
     try {
-      previousHashes = JSON.parse(syncState.fileHashes);
+      previousHashes = JSON.parse(syncState.fileHashes || '{}');
     } catch { /* empty */ }
 
     const changedFiles: string[] = [];

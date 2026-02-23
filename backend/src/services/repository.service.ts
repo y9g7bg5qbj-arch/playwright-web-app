@@ -3,6 +3,7 @@
 // Uses MongoDB repositories for database operations
 
 import { NotFoundError, ForbiddenError } from '../utils/errors';
+import { isAdmin } from '../middleware/rbac';
 import { workflowRepository, objectRepositoryRepository, pageObjectRepository } from '../db/repositories/mongo';
 import { ObjectRepository, ObjectRepositoryUpdate, PageObject, PageObjectCreate, PageObjectUpdate, PageElementCreate, PageElementUpdate } from '@playwright-web-app/shared';
 
@@ -17,9 +18,9 @@ export class RepositoryService {
     /**
      * Get or create an Object Repository for a workflow
      */
-    async getByWorkflowId(userId: string, workflowId: string): Promise<ObjectRepository> {
+    async getByWorkflowId(userId: string, workflowId: string, userRole?: string): Promise<ObjectRepository> {
         // Verify workflow belongs to user
-        await this.verifyWorkflowAccess(userId, workflowId);
+        await this.verifyWorkflowAccess(userId, workflowId, userRole);
 
         return this.objectRepoRepo.getOrCreateByWorkflowId(workflowId);
     }
@@ -30,9 +31,10 @@ export class RepositoryService {
     async updateRepository(
         userId: string,
         workflowId: string,
-        data: ObjectRepositoryUpdate
+        data: ObjectRepositoryUpdate,
+        userRole?: string
     ): Promise<ObjectRepository> {
-        await this.verifyWorkflowAccess(userId, workflowId);
+        await this.verifyWorkflowAccess(userId, workflowId, userRole);
 
         const repo = await this.objectRepoRepo.findByWorkflowId(workflowId);
         if (!repo) {
@@ -49,8 +51,8 @@ export class RepositoryService {
     /**
      * Get all pages in a repository
      */
-    async getPages(userId: string, workflowId: string): Promise<PageObject[]> {
-        await this.verifyWorkflowAccess(userId, workflowId);
+    async getPages(userId: string, workflowId: string, userRole?: string): Promise<PageObject[]> {
+        await this.verifyWorkflowAccess(userId, workflowId, userRole);
 
         const repo = await this.objectRepoRepo.findByWorkflowId(workflowId);
         if (!repo) {
@@ -66,9 +68,10 @@ export class RepositoryService {
     async createPage(
         userId: string,
         workflowId: string,
-        data: Omit<PageObjectCreate, 'repositoryId'>
+        data: Omit<PageObjectCreate, 'repositoryId'>,
+        userRole?: string
     ): Promise<PageObject> {
-        await this.verifyWorkflowAccess(userId, workflowId);
+        await this.verifyWorkflowAccess(userId, workflowId, userRole);
 
         // Get or create repository
         const repo = await this.objectRepoRepo.getOrCreateByWorkflowId(workflowId);
@@ -86,9 +89,10 @@ export class RepositoryService {
         userId: string,
         workflowId: string,
         pageId: string,
-        data: PageObjectUpdate
+        data: PageObjectUpdate,
+        userRole?: string
     ): Promise<PageObject> {
-        await this.verifyWorkflowAccess(userId, workflowId);
+        await this.verifyWorkflowAccess(userId, workflowId, userRole);
         await this.verifyPageBelongsToWorkflow(workflowId, pageId);
 
         return this.pageObjectRepo.update(pageId, data);
@@ -97,8 +101,8 @@ export class RepositoryService {
     /**
      * Delete a page
      */
-    async deletePage(userId: string, workflowId: string, pageId: string): Promise<void> {
-        await this.verifyWorkflowAccess(userId, workflowId);
+    async deletePage(userId: string, workflowId: string, pageId: string, userRole?: string): Promise<void> {
+        await this.verifyWorkflowAccess(userId, workflowId, userRole);
         await this.verifyPageBelongsToWorkflow(workflowId, pageId);
 
         return this.pageObjectRepo.delete(pageId);
@@ -110,9 +114,10 @@ export class RepositoryService {
     async reorderPages(
         userId: string,
         workflowId: string,
-        pageIds: string[]
+        pageIds: string[],
+        userRole?: string
     ): Promise<void> {
-        await this.verifyWorkflowAccess(userId, workflowId);
+        await this.verifyWorkflowAccess(userId, workflowId, userRole);
 
         const repo = await this.objectRepoRepo.findByWorkflowId(workflowId);
         if (!repo) {
@@ -133,9 +138,10 @@ export class RepositoryService {
         userId: string,
         workflowId: string,
         pageId: string,
-        element: PageElementCreate
+        element: PageElementCreate,
+        userRole?: string
     ): Promise<PageObject> {
-        await this.verifyWorkflowAccess(userId, workflowId);
+        await this.verifyWorkflowAccess(userId, workflowId, userRole);
         await this.verifyPageBelongsToWorkflow(workflowId, pageId);
 
         return this.pageObjectRepo.addElement(pageId, element);
@@ -149,9 +155,10 @@ export class RepositoryService {
         workflowId: string,
         pageId: string,
         elementId: string,
-        data: PageElementUpdate
+        data: PageElementUpdate,
+        userRole?: string
     ): Promise<PageObject> {
-        await this.verifyWorkflowAccess(userId, workflowId);
+        await this.verifyWorkflowAccess(userId, workflowId, userRole);
         await this.verifyPageBelongsToWorkflow(workflowId, pageId);
 
         return this.pageObjectRepo.updateElement(pageId, elementId, data);
@@ -164,9 +171,10 @@ export class RepositoryService {
         userId: string,
         workflowId: string,
         pageId: string,
-        elementId: string
+        elementId: string,
+        userRole?: string
     ): Promise<PageObject> {
-        await this.verifyWorkflowAccess(userId, workflowId);
+        await this.verifyWorkflowAccess(userId, workflowId, userRole);
         await this.verifyPageBelongsToWorkflow(workflowId, pageId);
 
         return this.pageObjectRepo.removeElement(pageId, elementId);
@@ -179,14 +187,14 @@ export class RepositoryService {
     /**
      * Verify that a workflow belongs to the user
      */
-    private async verifyWorkflowAccess(userId: string, workflowId: string): Promise<void> {
+    private async verifyWorkflowAccess(userId: string, workflowId: string, userRole?: string): Promise<void> {
         const workflow = await workflowRepository.findById(workflowId);
 
         if (!workflow) {
             throw new NotFoundError('Workflow not found');
         }
 
-        if (workflow.userId !== userId) {
+        if (!isAdmin(userRole) && workflow.userId !== userId) {
             throw new ForbiddenError('Access denied');
         }
     }

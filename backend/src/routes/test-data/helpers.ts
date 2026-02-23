@@ -6,6 +6,7 @@
  */
 
 import { applicationRepository, projectRepository } from '../../db/repositories/mongo';
+import { isAdmin } from '../../middleware/rbac';
 
 // ==================== TYPES ====================
 
@@ -42,12 +43,15 @@ export async function resolveScopeForRequest(
     userId: string,
     applicationIdInput?: string,
     nestedProjectIdInput?: string,
-    allowFallbackApplication = true
+    allowFallbackApplication = true,
+    userRole?: string
 ): Promise<{ scope?: TestDataScope; error?: string; status?: number }> {
     let applicationId = applicationIdInput;
 
     if (!applicationId && allowFallbackApplication) {
-        const userApps = await applicationRepository.findByUserId(userId);
+        const userApps = isAdmin(userRole)
+            ? await applicationRepository.findAll()
+            : await applicationRepository.findByUserId(userId);
         const firstApp = userApps.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0];
         applicationId = firstApp?.id;
     }
@@ -60,7 +64,7 @@ export async function resolveScopeForRequest(
     }
 
     const application = await applicationRepository.findById(applicationId);
-    if (!application || application.userId !== userId) {
+    if (!application || (!isAdmin(userRole) && application.userId !== userId)) {
         return {
             status: 403,
             error: 'Access denied to this application'

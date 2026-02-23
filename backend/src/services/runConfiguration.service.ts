@@ -6,6 +6,7 @@
 
 import { workflowRepository, projectRepository, runConfigurationRepository, executionEnvironmentRepository, remoteRunnerRepository, storedCredentialRepository, testFlowRepository } from '../db/repositories/mongo';
 import { NotFoundError, ForbiddenError } from '../utils/errors';
+import { isAdmin } from '../middleware/rbac';
 import { logger } from '../utils/logger';
 import type { RunConfiguration, RunConfigurationCreate, RunConfigurationUpdate, RunConfigRuntimeFields, ExecutionEnvironment, ExecutionEnvironmentCreate, ExecutionEnvironmentUpdate, RemoteRunner, RemoteRunnerCreate, RemoteRunnerUpdate, StoredCredential, StoredCredentialCreate, Viewport, LocalExecutionConfig, DockerExecutionConfig, GitHubActionsConfig, ExecutionTarget, BrowserType, BrowserChannel, ArtifactMode } from '@playwright-web-app/shared';
 
@@ -15,14 +16,14 @@ import type { RunConfiguration, RunConfigurationCreate, RunConfigurationUpdate, 
 
 export class RunConfigurationService {
   // Verify workflow belongs to user
-  private async verifyWorkflowAccess(userId: string, workflowId: string): Promise<void> {
+  private async verifyWorkflowAccess(userId: string, workflowId: string, userRole?: string): Promise<void> {
     const workflow = await workflowRepository.findById(workflowId);
 
     if (!workflow) {
       throw new NotFoundError('Workflow not found');
     }
 
-    if (workflow.userId !== userId) {
+    if (!isAdmin(userRole) && workflow.userId !== userId) {
       throw new ForbiddenError('Access denied');
     }
   }
@@ -48,8 +49,8 @@ export class RunConfigurationService {
   // RUN CONFIGURATIONS
   // ============================================
 
-  async findAllConfigurations(userId: string, workflowId: string, projectId?: string): Promise<RunConfiguration[]> {
-    await this.verifyWorkflowAccess(userId, workflowId);
+  async findAllConfigurations(userId: string, workflowId: string, projectId?: string, userRole?: string): Promise<RunConfiguration[]> {
+    await this.verifyWorkflowAccess(userId, workflowId, userRole);
     if (projectId) {
       await this.verifyProjectBelongsToWorkflow(workflowId, projectId);
     }
@@ -84,14 +85,14 @@ export class RunConfigurationService {
     return formatted;
   }
 
-  async findConfigurationById(userId: string, configId: string): Promise<RunConfiguration> {
+  async findConfigurationById(userId: string, configId: string, userRole?: string): Promise<RunConfiguration> {
     const config = await runConfigurationRepository.findById(configId);
 
     if (!config) {
       throw new NotFoundError('Run configuration not found');
     }
 
-    await this.verifyWorkflowAccess(userId, config.workflowId);
+    await this.verifyWorkflowAccess(userId, config.workflowId, userRole);
 
     const environment = config.environmentId
       ? await executionEnvironmentRepository.findById(config.environmentId)
@@ -104,9 +105,10 @@ export class RunConfigurationService {
     userId: string,
     workflowId: string,
     data: RunConfigurationCreate,
-    projectIdOverride?: string
+    projectIdOverride?: string,
+    userRole?: string
   ): Promise<RunConfiguration> {
-    await this.verifyWorkflowAccess(userId, workflowId);
+    await this.verifyWorkflowAccess(userId, workflowId, userRole);
     const projectId = projectIdOverride ?? data.projectId;
     if (projectId) {
       await this.verifyProjectBelongsToWorkflow(workflowId, projectId);
@@ -175,7 +177,8 @@ export class RunConfigurationService {
   async updateConfiguration(
     userId: string,
     configId: string,
-    data: RunConfigurationUpdate
+    data: RunConfigurationUpdate,
+    userRole?: string
   ): Promise<RunConfiguration> {
     const existing = await runConfigurationRepository.findById(configId);
 
@@ -183,7 +186,7 @@ export class RunConfigurationService {
       throw new NotFoundError('Run configuration not found');
     }
 
-    await this.verifyWorkflowAccess(userId, existing.workflowId);
+    await this.verifyWorkflowAccess(userId, existing.workflowId, userRole);
 
     // If this is set as default, unset other defaults
     if (data.isDefault) {
@@ -230,14 +233,14 @@ export class RunConfigurationService {
     return this.formatConfiguration({ ...config, environment });
   }
 
-  async deleteConfiguration(userId: string, configId: string): Promise<void> {
+  async deleteConfiguration(userId: string, configId: string, userRole?: string): Promise<void> {
     const existing = await runConfigurationRepository.findById(configId);
 
     if (!existing) {
       throw new NotFoundError('Run configuration not found');
     }
 
-    await this.verifyWorkflowAccess(userId, existing.workflowId);
+    await this.verifyWorkflowAccess(userId, existing.workflowId, userRole);
 
     await runConfigurationRepository.delete(configId);
   }
@@ -245,9 +248,10 @@ export class RunConfigurationService {
   async duplicateConfiguration(
     userId: string,
     configId: string,
-    newName: string
+    newName: string,
+    userRole?: string
   ): Promise<RunConfiguration> {
-    const existing = await this.findConfigurationById(userId, configId);
+    const existing = await this.findConfigurationById(userId, configId, userRole);
 
     return this.createConfiguration(userId, existing.workflowId, {
       projectId: existing.projectId,
@@ -413,22 +417,22 @@ export class RunConfigurationService {
   // EXECUTION ENVIRONMENTS
   // ============================================
 
-  async findAllEnvironments(userId: string, workflowId: string): Promise<ExecutionEnvironment[]> {
-    await this.verifyWorkflowAccess(userId, workflowId);
+  async findAllEnvironments(userId: string, workflowId: string, userRole?: string): Promise<ExecutionEnvironment[]> {
+    await this.verifyWorkflowAccess(userId, workflowId, userRole);
 
     const envs = await executionEnvironmentRepository.findByWorkflowId(workflowId);
 
     return envs.map(this.formatEnvironment);
   }
 
-  async findEnvironmentById(userId: string, envId: string): Promise<ExecutionEnvironment> {
+  async findEnvironmentById(userId: string, envId: string, userRole?: string): Promise<ExecutionEnvironment> {
     const env = await executionEnvironmentRepository.findById(envId);
 
     if (!env) {
       throw new NotFoundError('Environment not found');
     }
 
-    await this.verifyWorkflowAccess(userId, env.workflowId);
+    await this.verifyWorkflowAccess(userId, env.workflowId, userRole);
 
     return this.formatEnvironment(env);
   }
@@ -436,9 +440,10 @@ export class RunConfigurationService {
   async createEnvironment(
     userId: string,
     workflowId: string,
-    data: ExecutionEnvironmentCreate
+    data: ExecutionEnvironmentCreate,
+    userRole?: string
   ): Promise<ExecutionEnvironment> {
-    await this.verifyWorkflowAccess(userId, workflowId);
+    await this.verifyWorkflowAccess(userId, workflowId, userRole);
 
     // If this is set as default, unset other defaults
     if (data.isDefault) {
@@ -461,7 +466,8 @@ export class RunConfigurationService {
   async updateEnvironment(
     userId: string,
     envId: string,
-    data: ExecutionEnvironmentUpdate
+    data: ExecutionEnvironmentUpdate,
+    userRole?: string
   ): Promise<ExecutionEnvironment> {
     const existing = await executionEnvironmentRepository.findById(envId);
 
@@ -469,7 +475,7 @@ export class RunConfigurationService {
       throw new NotFoundError('Environment not found');
     }
 
-    await this.verifyWorkflowAccess(userId, existing.workflowId);
+    await this.verifyWorkflowAccess(userId, existing.workflowId, userRole);
 
     // If this is set as default, unset other defaults
     if (data.isDefault) {
@@ -498,14 +504,14 @@ export class RunConfigurationService {
     return this.formatEnvironment(env);
   }
 
-  async deleteEnvironment(userId: string, envId: string): Promise<void> {
+  async deleteEnvironment(userId: string, envId: string, userRole?: string): Promise<void> {
     const existing = await executionEnvironmentRepository.findById(envId);
 
     if (!existing) {
       throw new NotFoundError('Environment not found');
     }
 
-    await this.verifyWorkflowAccess(userId, existing.workflowId);
+    await this.verifyWorkflowAccess(userId, existing.workflowId, userRole);
 
     await executionEnvironmentRepository.delete(envId);
   }
@@ -529,22 +535,22 @@ export class RunConfigurationService {
   // REMOTE RUNNERS
   // ============================================
 
-  async findAllRunners(userId: string, workflowId: string): Promise<RemoteRunner[]> {
-    await this.verifyWorkflowAccess(userId, workflowId);
+  async findAllRunners(userId: string, workflowId: string, userRole?: string): Promise<RemoteRunner[]> {
+    await this.verifyWorkflowAccess(userId, workflowId, userRole);
 
     const runners = await remoteRunnerRepository.findByWorkflowId(workflowId);
 
     return runners.map(this.formatRunner);
   }
 
-  async findRunnerById(userId: string, runnerId: string): Promise<RemoteRunner> {
+  async findRunnerById(userId: string, runnerId: string, userRole?: string): Promise<RemoteRunner> {
     const runner = await remoteRunnerRepository.findById(runnerId);
 
     if (!runner) {
       throw new NotFoundError('Remote runner not found');
     }
 
-    await this.verifyWorkflowAccess(userId, runner.workflowId);
+    await this.verifyWorkflowAccess(userId, runner.workflowId, userRole);
 
     return this.formatRunner(runner);
   }
@@ -552,9 +558,10 @@ export class RunConfigurationService {
   async createRunner(
     userId: string,
     workflowId: string,
-    data: RemoteRunnerCreate
+    data: RemoteRunnerCreate,
+    userRole?: string
   ): Promise<RemoteRunner> {
-    await this.verifyWorkflowAccess(userId, workflowId);
+    await this.verifyWorkflowAccess(userId, workflowId, userRole);
 
     const runner = await remoteRunnerRepository.create({
       workflowId,
@@ -574,7 +581,8 @@ export class RunConfigurationService {
   async updateRunner(
     userId: string,
     runnerId: string,
-    data: RemoteRunnerUpdate
+    data: RemoteRunnerUpdate,
+    userRole?: string
   ): Promise<RemoteRunner> {
     const existing = await remoteRunnerRepository.findById(runnerId);
 
@@ -582,7 +590,7 @@ export class RunConfigurationService {
       throw new NotFoundError('Remote runner not found');
     }
 
-    await this.verifyWorkflowAccess(userId, existing.workflowId);
+    await this.verifyWorkflowAccess(userId, existing.workflowId, userRole);
 
     const updateData = this.buildUpdateData(
       data,
@@ -598,20 +606,20 @@ export class RunConfigurationService {
     return this.formatRunner(runner);
   }
 
-  async deleteRunner(userId: string, runnerId: string): Promise<void> {
+  async deleteRunner(userId: string, runnerId: string, userRole?: string): Promise<void> {
     const existing = await remoteRunnerRepository.findById(runnerId);
 
     if (!existing) {
       throw new NotFoundError('Remote runner not found');
     }
 
-    await this.verifyWorkflowAccess(userId, existing.workflowId);
+    await this.verifyWorkflowAccess(userId, existing.workflowId, userRole);
 
     await remoteRunnerRepository.delete(runnerId);
   }
 
-  async pingRunner(userId: string, runnerId: string): Promise<{ healthy: boolean; message?: string }> {
-    await this.findRunnerById(userId, runnerId);
+  async pingRunner(userId: string, runnerId: string, userRole?: string): Promise<{ healthy: boolean; message?: string }> {
+    await this.findRunnerById(userId, runnerId, userRole);
 
     // TODO: Implement actual health check
     const isHealthy = true;
@@ -649,8 +657,8 @@ export class RunConfigurationService {
   // STORED CREDENTIALS
   // ============================================
 
-  async findAllCredentials(userId: string, workflowId: string): Promise<StoredCredential[]> {
-    await this.verifyWorkflowAccess(userId, workflowId);
+  async findAllCredentials(userId: string, workflowId: string, userRole?: string): Promise<StoredCredential[]> {
+    await this.verifyWorkflowAccess(userId, workflowId, userRole);
 
     const credentials = await storedCredentialRepository.findByWorkflowId(workflowId);
 
@@ -660,9 +668,10 @@ export class RunConfigurationService {
   async createCredential(
     userId: string,
     workflowId: string,
-    data: StoredCredentialCreate
+    data: StoredCredentialCreate,
+    userRole?: string
   ): Promise<StoredCredential> {
-    await this.verifyWorkflowAccess(userId, workflowId);
+    await this.verifyWorkflowAccess(userId, workflowId, userRole);
 
     // TODO: Encrypt the value before storing
     const encryptedValue = Buffer.from(data.value).toString('base64');
@@ -677,14 +686,14 @@ export class RunConfigurationService {
     return this.formatCredential(credential);
   }
 
-  async deleteCredential(userId: string, credentialId: string): Promise<void> {
+  async deleteCredential(userId: string, credentialId: string, userRole?: string): Promise<void> {
     const existing = await storedCredentialRepository.findById(credentialId);
 
     if (!existing) {
       throw new NotFoundError('Credential not found');
     }
 
-    await this.verifyWorkflowAccess(userId, existing.workflowId);
+    await this.verifyWorkflowAccess(userId, existing.workflowId, userRole);
 
     await storedCredentialRepository.delete(credentialId);
   }
@@ -704,8 +713,8 @@ export class RunConfigurationService {
   // TAG MANAGEMENT
   // ============================================
 
-  async getAllTags(userId: string, workflowId: string): Promise<string[]> {
-    await this.verifyWorkflowAccess(userId, workflowId);
+  async getAllTags(userId: string, workflowId: string, userRole?: string): Promise<string[]> {
+    await this.verifyWorkflowAccess(userId, workflowId, userRole);
 
     const flows = await testFlowRepository.findByWorkflowId(workflowId);
 
@@ -718,7 +727,7 @@ export class RunConfigurationService {
     return Array.from(allTags).sort();
   }
 
-  async updateTestFlowTags(userId: string, flowId: string, tags: string[]): Promise<string[]> {
+  async updateTestFlowTags(userId: string, flowId: string, tags: string[], userRole?: string): Promise<string[]> {
     const flow = await testFlowRepository.findById(flowId);
 
     if (!flow) {
@@ -727,7 +736,7 @@ export class RunConfigurationService {
 
     const workflow = await workflowRepository.findById(flow.workflowId);
 
-    if (!workflow || workflow.userId !== userId) {
+    if (!workflow || (!isAdmin(userRole) && workflow.userId !== userId)) {
       throw new ForbiddenError('Access denied');
     }
 
@@ -743,9 +752,10 @@ export class RunConfigurationService {
   async filterTestFlows(
     userId: string,
     workflowId: string,
-    config: { tags: string[]; tagMode: 'any' | 'all'; excludeTags: string[]; testFlowIds: string[] }
+    config: { tags: string[]; tagMode: 'any' | 'all'; excludeTags: string[]; testFlowIds: string[] },
+    userRole?: string
   ): Promise<string[]> {
-    await this.verifyWorkflowAccess(userId, workflowId);
+    await this.verifyWorkflowAccess(userId, workflowId, userRole);
 
     let flows = await testFlowRepository.findByWorkflowId(workflowId);
 

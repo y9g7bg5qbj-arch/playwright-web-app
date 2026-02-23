@@ -559,6 +559,143 @@ class NotificationService {
   }
 
   /**
+   * Send welcome email to a newly provisioned user
+   */
+  async sendWelcomeEmail(to: string, name: string, role: string, setPasswordUrl: string): Promise<void> {
+    if (!this.sendGridApiKey) {
+      logger.warn(`SendGrid not configured - welcome email to ${to} skipped. Set-password URL: ${setPasswordUrl}`);
+      return;
+    }
+
+    const subject = 'Welcome to Vero IDE — Set Your Password';
+    const plainText = [
+      `Hi ${name},`,
+      '',
+      `You've been added to Vero IDE as ${role}.`,
+      '',
+      `Set your password to get started: ${setPasswordUrl}`,
+      '',
+      'This link expires in 7 days.',
+      '',
+      '— The Vero IDE Team',
+    ].join('\n');
+
+    const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #e0e0e0; background: #1a1a2e; margin: 0; padding: 0;">
+  <div style="max-width: 560px; margin: 0 auto; padding: 40px 20px;">
+    <div style="background: #16213e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 32px; text-align: center;">
+      <h1 style="color: #ffffff; font-size: 22px; margin: 0 0 8px;">Welcome to Vero IDE</h1>
+      <p style="color: #a0a0b8; font-size: 14px; margin: 0 0 24px;">You've been added as <strong style="color: #6c8cff;">${role}</strong></p>
+      <p style="color: #c0c0d0; font-size: 14px; margin: 0 0 24px;">Hi ${name}, set your password to get started.</p>
+      <a href="${setPasswordUrl}" style="display: inline-block; background: #6c8cff; color: #ffffff; text-decoration: none; padding: 12px 32px; border-radius: 8px; font-size: 14px; font-weight: 600;">Set Your Password</a>
+      <p style="color: #707088; font-size: 12px; margin: 24px 0 0;">This link expires in 7 days.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    try {
+      const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.sendGridApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          personalizations: [{ to: [{ email: to }] }],
+          from: { email: this.fromEmail, name: 'Vero IDE' },
+          subject,
+          content: [
+            { type: 'text/plain', value: plainText },
+            { type: 'text/html', value: html },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`SendGrid API error: ${error}`);
+      }
+
+      logger.info(`Welcome email sent to ${to}`);
+    } catch (error: any) {
+      logger.error(`Failed to send welcome email to ${to}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send password reset email
+   */
+  async sendPasswordResetEmail(to: string, name: string, resetUrl: string): Promise<void> {
+    if (!this.sendGridApiKey) {
+      logger.warn(`SendGrid not configured - reset email to ${to} skipped. Reset URL: ${resetUrl}`);
+      return;
+    }
+
+    const subject = 'Vero IDE — Reset Your Password';
+    const plainText = [
+      `Hi ${name || 'there'},`,
+      '',
+      'We received a request to reset your password.',
+      '',
+      `Reset your password: ${resetUrl}`,
+      '',
+      'This link expires in 1 hour. If you did not request this, you can safely ignore this email.',
+      '',
+      '— The Vero IDE Team',
+    ].join('\n');
+
+    const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #e0e0e0; background: #1a1a2e; margin: 0; padding: 0;">
+  <div style="max-width: 560px; margin: 0 auto; padding: 40px 20px;">
+    <div style="background: #16213e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 32px; text-align: center;">
+      <h1 style="color: #ffffff; font-size: 22px; margin: 0 0 8px;">Reset Your Password</h1>
+      <p style="color: #c0c0d0; font-size: 14px; margin: 0 0 24px;">Hi ${name || 'there'}, we received a request to reset your password.</p>
+      <a href="${resetUrl}" style="display: inline-block; background: #6c8cff; color: #ffffff; text-decoration: none; padding: 12px 32px; border-radius: 8px; font-size: 14px; font-weight: 600;">Reset Password</a>
+      <p style="color: #707088; font-size: 12px; margin: 24px 0 0;">This link expires in 1 hour. If you didn't request this, ignore this email.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    try {
+      const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.sendGridApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          personalizations: [{ to: [{ email: to }] }],
+          from: { email: this.fromEmail, name: 'Vero IDE' },
+          subject,
+          content: [
+            { type: 'text/plain', value: plainText },
+            { type: 'text/html', value: html },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`SendGrid API error: ${error}`);
+      }
+
+      logger.info(`Password reset email sent to ${to}`);
+    } catch (error: any) {
+      logger.error(`Failed to send reset email to ${to}:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Get notification history for a schedule
    */
   async getScheduleNotifications(scheduleId: string, limit: number = 50) {

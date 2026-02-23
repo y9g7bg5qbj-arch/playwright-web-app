@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const successMessage = (location.state as any)?.message;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,6 +39,11 @@ export function LoginPage() {
           </p>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          {successMessage && (
+            <div className="rounded-lg bg-status-success/10 border border-status-success/30 p-4">
+              <p className="text-sm text-status-success">{successMessage}</p>
+            </div>
+          )}
           {error && (
             <div className="rounded-lg bg-accent-red/10 border border-accent-red/30 p-4">
               <p className="text-sm text-accent-red">{error}</p>
@@ -87,12 +94,18 @@ export function LoginPage() {
             </button>
           </div>
 
-          <div className="text-center">
+          <div className="flex items-center justify-between">
+            <Link
+              to="/forgot-password"
+              className="text-sm text-text-muted hover:text-text-primary transition-colors"
+            >
+              Forgot password?
+            </Link>
             <Link
               to="/register"
               className="text-sm text-accent-blue hover:text-accent-blue/80 transition-colors"
             >
-              Don't have an account? Sign up
+              Create account
             </Link>
           </div>
         </form>

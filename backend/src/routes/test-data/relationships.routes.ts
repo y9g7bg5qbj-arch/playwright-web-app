@@ -94,7 +94,7 @@ router.get('/relationships', async (req: AuthRequest, res: Response) => {
         const userId = req.userId!;
         const applicationId = getStringParam(req.query.projectId);
         const nestedProjectId = getStringParam(req.query.nestedProjectId);
-        const resolved = await resolveScopeForRequest(userId, applicationId, nestedProjectId, false);
+        const resolved = await resolveScopeForRequest(userId, applicationId, nestedProjectId, false, req.userRole);
         if (!resolved.scope) {
             return res.status(resolved.status || 500).json({
                 success: false,

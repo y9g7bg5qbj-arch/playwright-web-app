@@ -41,7 +41,7 @@ router.post('/preview-query', async (req: AuthRequest, res: Response) => {
             });
         }
 
-        const resolved = await resolveScopeForRequest(userId, applicationId, undefined, true);
+        const resolved = await resolveScopeForRequest(userId, applicationId, undefined, true, req.userRole);
         if (!resolved.scope) {
             return res.status(resolved.status || 500).json({
                 success: false,

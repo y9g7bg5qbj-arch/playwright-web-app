@@ -136,15 +136,49 @@ export const createScheduleValidation = [
     .notEmpty().withMessage('scopeSandboxId is required when scopeFolder is sandboxes')
     .isString().withMessage('scopeSandboxId must be a string'),
 
-  // Linked run configuration validation
+  // Linked run configuration (optional when scheduleRunConfiguration is provided)
   body('runConfigurationId')
-    .notEmpty().withMessage('runConfigurationId is required')
+    .optional()
     .isString().withMessage('runConfigurationId must be a string'),
+
+  // Inline run configuration for scheduler-owned configs
+  body('scheduleRunConfiguration')
+    .optional()
+    .isObject().withMessage('scheduleRunConfiguration must be an object'),
+
+  body('scheduleRunConfiguration.name')
+    .optional()
+    .isString().withMessage('Run configuration name must be a string'),
+
+  // Cross-field: require at least one of runConfigurationId or scheduleRunConfiguration
+  body()
+    .custom((_, { req }) => {
+      const hasId = req.body?.runConfigurationId && typeof req.body.runConfigurationId === 'string' && req.body.runConfigurationId.trim() !== '';
+      const hasInline = req.body?.scheduleRunConfiguration && typeof req.body.scheduleRunConfiguration === 'object';
+      if (!hasId && !hasInline) {
+        throw new Error('Either runConfigurationId or scheduleRunConfiguration is required');
+      }
+      return true;
+    }),
 
   // isActive validation
   body('isActive')
     .optional()
     .isBoolean().withMessage('isActive must be a boolean'),
+
+  // Concurrency policy validation
+  body('concurrencyPolicy')
+    .optional()
+    .isIn(['allow', 'forbid']).withMessage('concurrencyPolicy must be one of: allow, forbid'),
+
+  // Chained schedules (P1.2)
+  body('onSuccessTriggerScheduleIds')
+    .optional()
+    .isArray({ max: 10 }).withMessage('onSuccessTriggerScheduleIds must be an array with at most 10 entries'),
+
+  body('onSuccessTriggerScheduleIds.*')
+    .isString().withMessage('Each chained schedule ID must be a string')
+    .isLength({ min: 1 }).withMessage('Chained schedule ID cannot be empty'),
 
   // TestSelector validation
   body('testSelector')
@@ -263,6 +297,20 @@ export const updateScheduleValidation = [
     .optional()
     .isBoolean().withMessage('isActive must be a boolean'),
 
+  // Concurrency policy validation
+  body('concurrencyPolicy')
+    .optional()
+    .isIn(['allow', 'forbid']).withMessage('concurrencyPolicy must be one of: allow, forbid'),
+
+  // Chained schedules (P1.2)
+  body('onSuccessTriggerScheduleIds')
+    .optional()
+    .isArray({ max: 10 }).withMessage('onSuccessTriggerScheduleIds must be an array with at most 10 entries'),
+
+  body('onSuccessTriggerScheduleIds.*')
+    .isString().withMessage('Each chained schedule ID must be a string')
+    .isLength({ min: 1 }).withMessage('Chained schedule ID cannot be empty'),
+
   // Scope fields (optional on update; validated when supplied)
   body('projectId')
     .optional()
@@ -290,10 +338,30 @@ export const updateScheduleValidation = [
       return true;
     }),
 
-  // Linked run configuration is required for scheduler updates
+  // Linked run configuration (optional when scheduleRunConfiguration is provided)
   body('runConfigurationId')
-    .notEmpty().withMessage('runConfigurationId is required')
+    .optional()
     .isString().withMessage('runConfigurationId must be a string'),
+
+  // Inline run configuration for scheduler-owned configs
+  body('scheduleRunConfiguration')
+    .optional()
+    .isObject().withMessage('scheduleRunConfiguration must be an object'),
+
+  body('scheduleRunConfiguration.name')
+    .optional()
+    .isString().withMessage('Run configuration name must be a string'),
+
+  // Cross-field: require at least one of runConfigurationId or scheduleRunConfiguration
+  body()
+    .custom((_, { req }) => {
+      const hasId = req.body?.runConfigurationId && typeof req.body.runConfigurationId === 'string' && req.body.runConfigurationId.trim() !== '';
+      const hasInline = req.body?.scheduleRunConfiguration && typeof req.body.scheduleRunConfiguration === 'object';
+      if (!hasId && !hasInline) {
+        throw new Error('Either runConfigurationId or scheduleRunConfiguration is required');
+      }
+      return true;
+    }),
 
   // TestSelector validation (same as create)
   body('testSelector')
@@ -433,7 +501,7 @@ export const webhookTokenValidation = [
 ];
 
 /**
- * Validation for manual trigger payload (parameter overrides only)
+ * Validation for manual trigger payload (parameter overrides + execution config overrides)
  */
 export const triggerScheduleRunValidation = [
   param('id')
@@ -444,8 +512,39 @@ export const triggerScheduleRunValidation = [
     .optional()
     .isObject().withMessage('parameterValues must be an object'),
 
+  // Reject the old deprecated field name
   body('executionConfig')
     .not()
     .exists()
-    .withMessage('executionConfig overrides are not supported for schedule triggers'),
+    .withMessage('executionConfig is deprecated; use executionConfigOverrides instead'),
+
+  // Per-run execution config overrides (Jenkins-style)
+  body('executionConfigOverrides')
+    .optional()
+    .isObject().withMessage('executionConfigOverrides must be an object'),
+
+  body('executionConfigOverrides.browser')
+    .optional()
+    .isIn(['chromium', 'firefox', 'webkit'])
+    .withMessage('browser must be one of: chromium, firefox, webkit'),
+
+  body('executionConfigOverrides.headless')
+    .optional()
+    .isBoolean().withMessage('headless must be a boolean'),
+
+  body('executionConfigOverrides.workers')
+    .optional()
+    .isInt({ min: 1, max: 50 }).withMessage('workers must be between 1 and 50'),
+
+  body('executionConfigOverrides.retries')
+    .optional()
+    .isInt({ min: 0, max: 10 }).withMessage('retries must be between 0 and 10'),
+
+  body('executionConfigOverrides.timeout')
+    .optional()
+    .isInt({ min: 0, max: 600000 }).withMessage('timeout must be between 0 and 600000ms'),
+
+  body('executionConfigOverrides.tagExpression')
+    .optional()
+    .isString().withMessage('tagExpression must be a string'),
 ];

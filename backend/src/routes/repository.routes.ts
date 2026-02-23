@@ -34,7 +34,7 @@ router.get(
         const userId = (req as AuthRequest).userId!;
         const { workflowId } = req.params;
 
-        const repository = await repositoryService.getByWorkflowId(userId, workflowId);
+        const repository = await repositoryService.getByWorkflowId(userId, workflowId, (req as AuthRequest).userRole);
 
         res.json({ success: true, data: repository });
     })
@@ -61,7 +61,7 @@ router.put(
             name,
             description,
             globalElements,
-        });
+        }, (req as AuthRequest).userRole);
 
         res.json({ success: true, data: repository });
     })
@@ -84,7 +84,7 @@ router.get(
         const userId = (req as AuthRequest).userId!;
         const { workflowId } = req.params;
 
-        const pages = await repositoryService.getPages(userId, workflowId);
+        const pages = await repositoryService.getPages(userId, workflowId, (req as AuthRequest).userRole);
 
         res.json({ success: true, data: pages });
     })
@@ -115,7 +115,7 @@ router.post(
             urlPattern,
             baseUrl,
             elements,
-        });
+        }, (req as AuthRequest).userRole);
 
         res.status(201).json({ success: true, data: page });
     })
@@ -149,7 +149,7 @@ router.put(
             baseUrl,
             elements,
             order,
-        });
+        }, (req as AuthRequest).userRole);
 
         res.json({ success: true, data: page });
     })
@@ -169,7 +169,7 @@ router.delete(
         const userId = (req as AuthRequest).userId!;
         const { workflowId, pageId } = req.params;
 
-        await repositoryService.deletePage(userId, workflowId, pageId);
+        await repositoryService.deletePage(userId, workflowId, pageId, (req as AuthRequest).userRole);
 
         res.json({ success: true, message: 'Page deleted' });
     })
@@ -191,7 +191,7 @@ router.put(
         const { workflowId } = req.params;
         const { pageIds } = req.body;
 
-        await repositoryService.reorderPages(userId, workflowId, pageIds);
+        await repositoryService.reorderPages(userId, workflowId, pageIds, (req as AuthRequest).userRole);
 
         res.json({ success: true, message: 'Pages reordered' });
     })
@@ -225,7 +225,7 @@ router.post(
             description,
             locator,
             tags,
-        });
+        }, (req as AuthRequest).userRole);
 
         res.status(201).json({ success: true, data: page });
     })
@@ -256,7 +256,7 @@ router.put(
             description,
             locator,
             tags,
-        });
+        }, (req as AuthRequest).userRole);
 
         res.json({ success: true, data: page });
     })
@@ -277,7 +277,7 @@ router.delete(
         const userId = (req as AuthRequest).userId!;
         const { workflowId, pageId, elementId } = req.params;
 
-        const page = await repositoryService.removeElement(userId, workflowId, pageId, elementId);
+        const page = await repositoryService.removeElement(userId, workflowId, pageId, elementId, (req as AuthRequest).userRole);
 
         res.json({ success: true, data: page });
     })

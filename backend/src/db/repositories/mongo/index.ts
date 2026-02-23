@@ -19,9 +19,11 @@ export * from './infrastructure';
 export * from './pageObjects';
 export * from './dataTables';
 export * from './runParameters';
+export * from './authProfiles';
+export * from './configSync';
 
 // Aggregate repository object for convenience
-import { userRepository, applicationRepository, projectRepository, workflowRepository } from './core';
+import { userRepository, applicationRepository, projectRepository, workflowRepository, passwordTokenRepository } from './core';
 import { testFlowRepository, testDataSheetRepository, testDataRowRepository, testDataSavedViewRepository, testDataRelationshipRepository } from './testData';
 import { executionRepository, executionLogRepository, executionStepRepository, executionEnvironmentRepository, runConfigurationRepository } from './testExecution';
 import { scheduleRepository, scheduleRunRepository, scheduleTestResultRepository, scheduledTestRepository, scheduledTestRunRepository, scheduleNotificationRepository, notificationHistoryRepository } from './scheduling';
@@ -90,6 +92,7 @@ export const mongoRepositories = {
   pageObject: pageObjectRepository,
   runParameterDefinition: runParameterDefinitionRepository,
   runParameterSet: runParameterSetRepository,
+  passwordToken: passwordTokenRepository,
 };
 
 export default mongoRepositories;

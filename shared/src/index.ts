@@ -1,6 +1,7 @@
 // Export types but exclude ExecutionTarget (defined in runConfiguration)
 export {
     User,
+    UserRole,
     UserCreate,
     UserLogin,
     AuthResponse,
@@ -119,6 +120,7 @@ export type {
     ScheduleParameterDefinition,
     ScheduleParameterValues,
     ScheduleExecutionConfig,
+    ExecutionConfigOverrides,
     ScheduleExecutionTarget,
     ScheduleGitHubActionsConfig,
     ScheduleTriggerRequest,

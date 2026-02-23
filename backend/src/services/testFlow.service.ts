@@ -6,17 +6,18 @@
 
 import { testFlowRepository, workflowRepository, executionRepository } from '../db/repositories/mongo';
 import { NotFoundError, ForbiddenError } from '../utils/errors';
+import { isAdmin } from '../middleware/rbac';
 import type { TestFlow, TestFlowCreate, TestFlowUpdate } from '@playwright-web-app/shared';
 
 export class TestFlowService {
-  private async verifyWorkflowAccess(userId: string, workflowId: string): Promise<void> {
+  private async verifyWorkflowAccess(userId: string, workflowId: string, userRole?: string): Promise<void> {
     const workflow = await workflowRepository.findById(workflowId);
 
     if (!workflow) {
       throw new NotFoundError('Workflow not found');
     }
 
-    if (workflow.userId !== userId) {
+    if (!isAdmin(userRole) && workflow.userId !== userId) {
       throw new ForbiddenError('Access denied');
     }
   }
@@ -25,7 +26,7 @@ export class TestFlowService {
    * Verify the user owns the workflow that contains the given test flow.
    * Returns the test flow record.
    */
-  private async verifyTestFlowAccess(userId: string, testFlowId: string): Promise<any> {
+  private async verifyTestFlowAccess(userId: string, testFlowId: string, userRole?: string): Promise<any> {
     const testFlow = await testFlowRepository.findById(testFlowId);
 
     if (!testFlow) {
@@ -34,15 +35,15 @@ export class TestFlowService {
 
     const workflow = await workflowRepository.findById(testFlow.workflowId);
 
-    if (!workflow || workflow.userId !== userId) {
+    if (!workflow || (!isAdmin(userRole) && workflow.userId !== userId)) {
       throw new ForbiddenError('Access denied');
     }
 
     return testFlow;
   }
 
-  async create(userId: string, workflowId: string, data: TestFlowCreate): Promise<TestFlow> {
-    await this.verifyWorkflowAccess(userId, workflowId);
+  async create(userId: string, workflowId: string, data: TestFlowCreate, userRole?: string): Promise<TestFlow> {
+    await this.verifyWorkflowAccess(userId, workflowId, userRole);
 
     const testFlow = await testFlowRepository.create({
       workflowId,
@@ -57,8 +58,8 @@ export class TestFlowService {
     return this.formatTestFlow(testFlow);
   }
 
-  async findAll(userId: string, workflowId: string): Promise<TestFlow[]> {
-    await this.verifyWorkflowAccess(userId, workflowId);
+  async findAll(userId: string, workflowId: string, userRole?: string): Promise<TestFlow[]> {
+    await this.verifyWorkflowAccess(userId, workflowId, userRole);
 
     const testFlows = await testFlowRepository.findByWorkflowId(workflowId);
 
@@ -73,16 +74,16 @@ export class TestFlowService {
     return testFlowsWithExecutions.map(this.formatTestFlow);
   }
 
-  async findOne(userId: string, testFlowId: string): Promise<TestFlow> {
-    const testFlow = await this.verifyTestFlowAccess(userId, testFlowId);
+  async findOne(userId: string, testFlowId: string, userRole?: string): Promise<TestFlow> {
+    const testFlow = await this.verifyTestFlowAccess(userId, testFlowId, userRole);
 
     const executions = await executionRepository.findByTestFlowId(testFlowId, 10);
 
     return this.formatTestFlow({ ...testFlow, executions });
   }
 
-  async update(userId: string, testFlowId: string, data: TestFlowUpdate): Promise<TestFlow> {
-    await this.verifyTestFlowAccess(userId, testFlowId);
+  async update(userId: string, testFlowId: string, data: TestFlowUpdate, userRole?: string): Promise<TestFlow> {
+    await this.verifyTestFlowAccess(userId, testFlowId, userRole);
 
     const testFlow = await testFlowRepository.update(testFlowId, {
       name: data.name,
@@ -99,13 +100,13 @@ export class TestFlowService {
     return this.formatTestFlow(testFlow);
   }
 
-  async delete(userId: string, testFlowId: string): Promise<void> {
-    await this.verifyTestFlowAccess(userId, testFlowId);
+  async delete(userId: string, testFlowId: string, userRole?: string): Promise<void> {
+    await this.verifyTestFlowAccess(userId, testFlowId, userRole);
     await testFlowRepository.delete(testFlowId);
   }
 
-  async clone(userId: string, testFlowId: string): Promise<TestFlow> {
-    const existing = await this.verifyTestFlowAccess(userId, testFlowId);
+  async clone(userId: string, testFlowId: string, userRole?: string): Promise<TestFlow> {
+    const existing = await this.verifyTestFlowAccess(userId, testFlowId, userRole);
 
     const cloned = await testFlowRepository.create({
       workflowId: existing.workflowId,

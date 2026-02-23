@@ -1,8 +1,15 @@
+import type { RunConfigurationCreate, RunConfigurationUpdate } from './runConfiguration';
+
 // User Types
+export type UserRole = 'admin' | 'qa_lead' | 'senior_qa' | 'qa_tester' | 'viewer';
+
 export interface User {
   id: string;
   email: string;
   name?: string;
+  role: UserRole;
+  onboardingCompleted?: boolean;
+  passwordSetAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -392,8 +399,9 @@ export class ApiError extends Error {
 // SCHEDULED TEST EXECUTION TYPES
 // ============================================
 
-export type ScheduleTriggerType = 'scheduled' | 'webhook' | 'manual';
-export type ScheduleRunStatus = 'pending' | 'running' | 'passed' | 'failed' | 'cancelled';
+export type ScheduleTriggerType = 'scheduled' | 'webhook' | 'manual' | 'chained';
+export type ScheduleRunStatus = 'pending' | 'running' | 'passed' | 'failed' | 'cancelled' | 'skipped';
+export type ScheduleConcurrencyPolicy = 'allow' | 'forbid';
 
 // Test selector configuration for scheduled runs
 export interface TestSelector {
@@ -464,6 +472,20 @@ export interface ScheduleExecutionConfig {
   parameterSetId?: string;
 }
 
+/**
+ * Subset of execution config fields that can be temporarily overridden per-run
+ * via the "Run now" modal (Jenkins-style parameterized overrides).
+ * These apply to ONE run only and do NOT modify the saved RunConfiguration.
+ */
+export interface ExecutionConfigOverrides {
+  browser?: 'chromium' | 'firefox' | 'webkit';
+  headless?: boolean;
+  workers?: number;
+  retries?: number;
+  timeout?: number;
+  tagExpression?: string;
+}
+
 // Execution target for schedules (where tests run)
 export type ScheduleExecutionTarget = 'local' | 'github-actions';
 
@@ -475,9 +497,11 @@ export interface ScheduleGitHubActionsConfig {
   inputs?: Record<string, string>; // Workflow inputs
 }
 
-// Request to trigger a run with parameters
+// Request to trigger a run with parameters and optional execution overrides
 export interface ScheduleTriggerRequest {
   parameterValues?: ScheduleParameterValues;
+  /** Per-run execution config overrides (Jenkins-style). Applied on top of the linked RunConfiguration. */
+  executionConfigOverrides?: ExecutionConfigOverrides;
 }
 
 // Schedule entity
@@ -508,10 +532,14 @@ export interface Schedule {
   executionTarget: ScheduleExecutionTarget;
   // Linked run configuration (source of truth for execution behavior)
   runConfigurationId?: string;
+  // Overlap control: 'forbid' skips runs when previous is still pending/running
+  concurrencyPolicy?: ScheduleConcurrencyPolicy;
   // Legacy schedule-embedded GitHub config (read-only compatibility)
   githubConfig?: ScheduleGitHubActionsConfig;
   // Legacy migration marker (set by backend backfill)
   migrationVersion?: number;
+  // P1.2: Chained schedules — trigger these on success
+  onSuccessTriggerScheduleIds?: string[];
 }
 
 export interface ScheduleCreate {
@@ -525,8 +553,12 @@ export interface ScheduleCreate {
   timezone?: string;
   notificationConfig?: ScheduleNotificationConfig;
   isActive?: boolean;
-  // Required: scheduler is linked to a run configuration source of truth
-  runConfigurationId: string;
+  // Linked run configuration ID (optional when scheduleRunConfiguration is provided)
+  runConfigurationId?: string;
+  // Inline run config payload for scheduler-owned configs
+  scheduleRunConfiguration?: RunConfigurationCreate;
+  // P1.2: Chained schedules — trigger these on success
+  onSuccessTriggerScheduleIds?: string[];
 }
 
 export interface ScheduleUpdate {
@@ -539,8 +571,12 @@ export interface ScheduleUpdate {
   timezone?: string;
   notificationConfig?: ScheduleNotificationConfig;
   isActive?: boolean;
-  // Required on update payloads to keep scheduler linked to its source-of-truth run config
-  runConfigurationId: string;
+  // Linked run configuration ID (optional when scheduleRunConfiguration is provided)
+  runConfigurationId?: string;
+  // Inline run config payload for scheduler-owned configs
+  scheduleRunConfiguration?: RunConfigurationUpdate;
+  // P1.2: Chained schedules — trigger these on success
+  onSuccessTriggerScheduleIds?: string[];
 }
 
 // Schedule run entity
@@ -556,6 +592,7 @@ export interface ScheduleRun {
   durationMs?: number;
   artifactsPath?: string;
   errorMessage?: string;
+  skipReason?: string;
   startedAt?: Date;
   completedAt?: Date;
   createdAt: Date;
@@ -563,6 +600,8 @@ export interface ScheduleRun {
   // Parameter system - what was used for this run
   parameterValues?: ScheduleParameterValues;
   executionConfig?: ScheduleExecutionConfig;
+  /** Per-run execution overrides that were applied (audit trail). */
+  executionConfigOverrides?: ExecutionConfigOverrides;
   triggeredBy?: string;  // User email or "system" for cron
   // GitHub Actions tracking (when executed via GitHub Actions)
   githubRunId?: number;

@@ -26,7 +26,7 @@ router.get('/sheets', async (req: AuthRequest, res: Response) => {
         const userId = req.userId!;
         const applicationId = getStringParam(req.query.projectId);
         const nestedProjectId = getStringParam(req.query.nestedProjectId);
-        const resolved = await resolveScopeForRequest(userId, applicationId, nestedProjectId, true);
+        const resolved = await resolveScopeForRequest(userId, applicationId, nestedProjectId, true, req.userRole);
 
         if (!resolved.scope) {
             // Keep list behavior non-failing for unauthorized/missing contexts
@@ -97,7 +97,7 @@ router.post('/sheets', async (req: AuthRequest, res: Response) => {
             });
         }
 
-        const resolved = await resolveScopeForRequest(userId, applicationId, nestedProjectId, true);
+        const resolved = await resolveScopeForRequest(userId, applicationId, nestedProjectId, true, req.userRole);
         if (!resolved.scope) {
             return res.status(resolved.status || 500).json({
                 success: false,
@@ -153,7 +153,7 @@ router.get('/sheets/:id', async (req: Request, res: Response) => {
         const nestedProjectId = getStringParam(req.query.nestedProjectId);
         let scope: TestDataScope | undefined;
         if (applicationId || nestedProjectId) {
-            const resolved = await resolveScopeForRequest(userId, applicationId, nestedProjectId, false);
+            const resolved = await resolveScopeForRequest(userId, applicationId, nestedProjectId, false, (req as AuthRequest).userRole);
             if (!resolved.scope) {
                 return res.status(resolved.status || 500).json({
                     success: false,
@@ -214,7 +214,7 @@ router.put('/sheets/:id', async (req: Request, res: Response) => {
         const { name, pageObject, description, columns } = req.body;
         let scope: TestDataScope | undefined;
         if (applicationId || nestedProjectId) {
-            const resolved = await resolveScopeForRequest(userId, applicationId, nestedProjectId, false);
+            const resolved = await resolveScopeForRequest(userId, applicationId, nestedProjectId, false, (req as AuthRequest).userRole);
             if (!resolved.scope) {
                 return res.status(resolved.status || 500).json({
                     success: false,
@@ -272,7 +272,7 @@ router.delete('/sheets/:id', async (req: Request, res: Response) => {
         const nestedProjectId = getStringParam(req.query.nestedProjectId);
         let scope: TestDataScope | undefined;
         if (applicationId || nestedProjectId) {
-            const resolved = await resolveScopeForRequest(userId, applicationId, nestedProjectId, false);
+            const resolved = await resolveScopeForRequest(userId, applicationId, nestedProjectId, false, (req as AuthRequest).userRole);
             if (!resolved.scope) {
                 return res.status(resolved.status || 500).json({
                     success: false,
@@ -319,7 +319,7 @@ router.get('/schema', async (req: AuthRequest, res: Response) => {
         const userId = req.userId!;
         const applicationId = getStringParam(req.query.projectId);
         const nestedProjectId = getStringParam(req.query.nestedProjectId);
-        const resolved = await resolveScopeForRequest(userId, applicationId, nestedProjectId, false);
+        const resolved = await resolveScopeForRequest(userId, applicationId, nestedProjectId, false, (req as AuthRequest).userRole);
         if (!resolved.scope) {
             return res.status(resolved.status || 500).json({
                 success: false,
