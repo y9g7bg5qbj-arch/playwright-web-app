@@ -1,10 +1,12 @@
 /**
  * GitHub Integration Service
  *
- * Manages GitHub OAuth, repository configs, and workflow run tracking.
+ * Manages GitHub OAuth, repository configs, workflow run tracking,
+ * and PR sync operations (via Octokit).
  */
 
 import crypto from 'crypto';
+import { Octokit } from '@octokit/rest';
 import { githubIntegrationRepository, githubRepositoryConfigRepository, githubWorkflowRunRepository, githubWorkflowJobRepository } from '../db/repositories/mongo';
 
 // Encryption key from environment (should be 32 bytes for AES-256)
@@ -186,6 +188,15 @@ class GitHubService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Get an authenticated Octokit instance for a user.
+   */
+  private async getOctokit(userId: string): Promise<Octokit> {
+    const token = await this.getToken(userId);
+    if (!token) throw new Error('GitHub not connected');
+    return new Octokit({ auth: token, userAgent: 'Vero-IDE' });
   }
 
   /**
@@ -650,6 +661,220 @@ class GitHubService {
     }
 
     return response.text();
+  }
+
+  // ============================================
+  // GITHUB PR SYNC METHODS
+  // ============================================
+
+  /**
+   * Sync sandbox files to a GitHub branch via the Trees API.
+   * Creates/updates/deletes files to match the sandbox content.
+   */
+  async syncSandboxToBranch(
+    userId: string,
+    owner: string,
+    repo: string,
+    branchName: string,
+    baseBranch: string,
+    files: Map<string, string | null>
+  ): Promise<{ sha: string }> {
+    const octokit = await this.getOctokit(userId);
+
+    // 1. Get the latest commit SHA on the base branch
+    let baseCommitSha: string;
+    try {
+      const { data: refData } = await octokit.git.getRef({ owner, repo, ref: `heads/${baseBranch}` });
+      baseCommitSha = refData.object.sha;
+    } catch (err: any) {
+      if (err.status === 404) throw new Error('GitHub repository or base branch not found. Check project settings.');
+      throw new Error(`Failed to get base branch ref: ${err.message}`);
+    }
+
+    // 2. Get the base tree SHA
+    const { data: commitData } = await octokit.git.getCommit({ owner, repo, commit_sha: baseCommitSha });
+    const baseTreeSha = commitData.tree.sha;
+
+    // 3. Build tree entries
+    const tree: Array<{ path: string; mode: '100644'; type: 'blob'; content?: string; sha?: string | null }> = [];
+    for (const [filePath, content] of files) {
+      const normalizedPath = filePath.replace(/\\/g, '/').replace(/^\//, '');
+      if (content === null) {
+        tree.push({ path: normalizedPath, mode: '100644', type: 'blob', sha: null });
+      } else {
+        tree.push({ path: normalizedPath, mode: '100644', type: 'blob', content });
+      }
+    }
+
+    // 4. Create tree
+    const { data: treeData } = await octokit.git.createTree({
+      owner, repo,
+      base_tree: baseTreeSha,
+      tree: tree as any,
+    });
+
+    // 5. Create commit
+    const { data: newCommit } = await octokit.git.createCommit({
+      owner, repo,
+      message: 'Sync sandbox files for PR',
+      tree: treeData.sha,
+      parents: [baseCommitSha],
+    });
+
+    // 6. Create or update branch ref
+    try {
+      await octokit.git.updateRef({
+        owner, repo,
+        ref: `heads/${branchName}`,
+        sha: newCommit.sha,
+        force: true,
+      });
+    } catch (err: any) {
+      if (err.status === 422) {
+        // Branch doesn't exist yet — create it
+        await octokit.git.createRef({
+          owner, repo,
+          ref: `refs/heads/${branchName}`,
+          sha: newCommit.sha,
+        });
+      } else {
+        throw new Error(`Failed to update branch: ${err.message}`);
+      }
+    }
+
+    return { sha: newCommit.sha };
+  }
+
+  /**
+   * Create a GitHub PR from a branch.
+   */
+  async createGitHubPR(
+    userId: string,
+    owner: string,
+    repo: string,
+    head: string,
+    base: string,
+    title: string,
+    body?: string
+  ): Promise<{ number: number; html_url: string }> {
+    const octokit = await this.getOctokit(userId);
+
+    try {
+      const { data: pr } = await octokit.pulls.create({
+        owner, repo, title, body: body || '', head, base,
+      });
+      return { number: pr.number, html_url: pr.html_url };
+    } catch (err: any) {
+      if (err.status === 403) throw new Error('No write access to this repository.');
+      if (err.status === 422) throw new Error(`Invalid branch or PR configuration: ${err.message || ''}`);
+      throw new Error(`Failed to create GitHub PR: ${err.message}`);
+    }
+  }
+
+  /**
+   * Get files from a GitHub PR (paginated via Octokit).
+   */
+  async getGitHubPRFiles(
+    userId: string,
+    owner: string,
+    repo: string,
+    prNumber: number
+  ): Promise<Array<{
+    filename: string;
+    status: string;
+    additions: number;
+    deletions: number;
+    patch?: string;
+    previous_filename?: string;
+  }>> {
+    const octokit = await this.getOctokit(userId);
+
+    try {
+      const files = await octokit.paginate(octokit.pulls.listFiles, {
+        owner, repo, pull_number: prNumber, per_page: 100,
+      });
+      return files.map(f => ({
+        filename: f.filename,
+        status: f.status,
+        additions: f.additions,
+        deletions: f.deletions,
+        patch: f.patch,
+        previous_filename: f.previous_filename,
+      }));
+    } catch (err: any) {
+      if (err.status === 401) throw new Error('GitHub token expired. Reconnect in Settings.');
+      if (err.status === 404) throw new Error('GitHub PR not found.');
+      throw new Error(`Failed to fetch PR files: ${err.message}`);
+    }
+  }
+
+  /**
+   * Check if a GitHub PR is mergeable with bounded exponential backoff.
+   * GitHub computes mergeability asynchronously, so we poll.
+   */
+  async getPullRequestWithMergeable(
+    userId: string,
+    owner: string,
+    repo: string,
+    prNumber: number
+  ): Promise<{ mergeable: boolean | null; mergeable_state: string; state: string }> {
+    const octokit = await this.getOctokit(userId);
+    const delays = [1000, 2000, 4000, 8000, 16000]; // bounded exponential backoff
+
+    for (let attempt = 0; attempt <= delays.length; attempt++) {
+      try {
+        const { data: pr } = await octokit.pulls.get({ owner, repo, pull_number: prNumber });
+
+        // mergeable is null while GitHub is still computing
+        if (pr.mergeable !== null) {
+          return {
+            mergeable: pr.mergeable,
+            mergeable_state: pr.mergeable_state ?? 'unknown',
+            state: pr.state,
+          };
+        }
+      } catch (err: any) {
+        if (err.status === 404) throw new Error('GitHub PR not found.');
+        throw new Error(`Failed to check PR mergeability: ${err.message}`);
+      }
+
+      // Wait before retrying if we have retries left
+      if (attempt < delays.length) {
+        await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+      }
+    }
+
+    throw new Error('GITHUB_TIMEOUT: Could not determine merge status. Try again in a moment.');
+  }
+
+  /**
+   * Merge a GitHub PR via the merge API.
+   */
+  async mergeGitHubPR(
+    userId: string,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    commitTitle?: string,
+    mergeMethod: 'merge' | 'squash' | 'rebase' = 'squash'
+  ): Promise<{ merged: boolean; message: string }> {
+    const octokit = await this.getOctokit(userId);
+
+    try {
+      const { data } = await octokit.pulls.merge({
+        owner, repo, pull_number: prNumber,
+        commit_title: commitTitle,
+        merge_method: mergeMethod,
+      });
+      return { merged: data.merged, message: data.message };
+    } catch (err: any) {
+      // 405 = method not allowed (branch protection), 409 = merge conflict
+      if (err.status === 405 || err.status === 409) {
+        throw new Error('MERGE_CONFLICT: Update Sandbox from Dev to resolve conflicts.');
+      }
+      if (err.status === 403) throw new Error('No write access to this repository.');
+      throw new Error(`Failed to merge GitHub PR: ${err.message}`);
+    }
   }
 }
 
