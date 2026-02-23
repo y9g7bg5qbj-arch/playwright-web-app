@@ -5,6 +5,13 @@ import { registerVeroLanguage, registerVeroCompletionProvider, registerVeroLSPPr
 import { registerVDQLCodeLensProvider } from './veroCodeLens';
 import { useEditorErrors } from '../../errors/useEditorErrors';
 import { ErrorPanel } from '../../errors/ErrorPanel';
+import { useSlashBuilder } from './slash-builder/useSlashBuilder';
+import { SlashPalette } from './slash-builder/SlashPalette';
+import { TargetPopup } from './slash-builder/TargetPopup';
+import { SlotPopup } from './slash-builder/SlotPopup';
+import { createPlaceholderDecorations, clearPlaceholderDecorations, markPlaceholderFilled, findPlaceholderAtPosition, getNextUnfilledPlaceholder, PLACEHOLDER_STYLES } from './slash-builder/placeholderDecorations';
+import { formatTarget } from './slash-builder/buildSnippet';
+import type { ActionDef, TargetValue, PlaceholderRange } from './slash-builder/types';
 
 interface DebugVariable {
     name: string;
@@ -57,6 +64,15 @@ interface VeroEditorProps {
 export interface VeroEditorHandle {
     goToLine: (line: number) => void;
     insertText: (text: string, position?: 'cursor' | 'newline') => void;
+    applySnippet: (request: {
+        text: string;
+        mode: 'replace-line' | 'insert-below';
+        lineNumber?: number;
+    }) => void;
+    openSlashBuilder: (request?: {
+        lineNumber?: number;
+        seedQuery?: string;
+    }) => void;
 }
 
 function formatDebugValue(value: unknown): string {
@@ -123,6 +139,14 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
     const [monacoInstance, setMonacoInstance] = useState<Monaco | null>(null);
     // State for Monaco model (needed for error validation hook)
     const [editorModel, setEditorModel] = useState<monacoEditor.editor.ITextModel | null>(null);
+
+    // ─── Slash Builder ──────────────────────────────────────────────
+    const slashBuilder = useSlashBuilder({
+        onInsertDataQuery: () => onInsertDataQueryRef.current?.(),
+    });
+    const slashBuilderRef = useRef(slashBuilder);
+    slashBuilderRef.current = slashBuilder;
+    const slashPlaceholdersRef = useRef<PlaceholderRange[]>([]);
 
     // Register VDQL CodeLens provider (re-registers when applicationId changes)
     const codeLensDisposableRef = useRef<{ dispose: () => void } | null>(null);
@@ -259,7 +283,56 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
             }]);
             editor.focus();
         },
-    }), []);
+        applySnippet: (request: { text: string; mode: 'replace-line' | 'insert-below'; lineNumber?: number }) => {
+            const editor = editorRef.current;
+            if (!editor) return;
+            const model = editor.getModel();
+            if (!model) return;
+
+            const line = request.lineNumber ?? editor.getPosition()?.lineNumber ?? 1;
+
+            if (request.mode === 'replace-line') {
+                const lineContent = model.getLineContent(line);
+                editor.executeEdits('vero.slashBuilder', [{
+                    range: {
+                        startLineNumber: line,
+                        startColumn: 1,
+                        endLineNumber: line,
+                        endColumn: lineContent.length + 1,
+                    },
+                    text: request.text,
+                    forceMoveMarkers: true,
+                }]);
+            } else {
+                const lineContent = model.getLineContent(line);
+                editor.executeEdits('vero.slashBuilder', [{
+                    range: {
+                        startLineNumber: line,
+                        startColumn: lineContent.length + 1,
+                        endLineNumber: line,
+                        endColumn: lineContent.length + 1,
+                    },
+                    text: '\n' + request.text,
+                    forceMoveMarkers: true,
+                }]);
+            }
+            editor.focus();
+        },
+        openSlashBuilder: (request?: { lineNumber?: number; seedQuery?: string }) => {
+            const editor = editorRef.current;
+            if (!editor || readOnly) return;
+            const line = request?.lineNumber ?? editor.getPosition()?.lineNumber ?? 1;
+            const scrolledPos = editor.getScrolledVisiblePosition({ lineNumber: line, column: 1 });
+            const editorDom = editor.getDomNode();
+            if (scrolledPos && editorDom) {
+                const editorRect = editorDom.getBoundingClientRect();
+                slashBuilder.openPalette(
+                    { x: editorRect.left + scrolledPos.left, y: editorRect.top + scrolledPos.top + scrolledPos.height },
+                    line,
+                );
+            }
+        },
+    }), [readOnly, slashBuilder]);
 
     // Sync code state when initialValue prop changes (e.g., switching tabs/files)
     useEffect(() => {
@@ -360,17 +433,232 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
             },
         });
 
-        // Update code items when content changes
-        editor.onDidChangeModelContent(() => {
+        // Update code items when content changes + slash detection
+        editor.onDidChangeModelContent((e) => {
             const value = editor.getValue();
             setCode(value);
             onChange?.(value);
             updateCodeItems(value);
+
+            // ─── Slash detection ─────────────────────────────────
+            if (readOnly) return;
+            const changes = e.changes;
+            if (changes.length !== 1) return;
+            const change = changes[0];
+            if (change.text !== '/') return;
+
+            const model = editor.getModel();
+            if (!model) return;
+
+            const lineNumber = change.range.startLineNumber;
+            const lineContent = model.getLineContent(lineNumber);
+
+            // Check if line is blank except for the "/"
+            const withoutSlash = lineContent.replace('/', '').trim();
+            if (withoutSlash !== '') return;
+
+            // Remove the "/" character but preserve leading whitespace
+            const indentMatch = lineContent.match(/^(\s*)/);
+            const indent = indentMatch ? indentMatch[1] : '';
+            editor.executeEdits('vero.slashDetect', [{
+                range: {
+                    startLineNumber: lineNumber,
+                    startColumn: 1,
+                    endLineNumber: lineNumber,
+                    endColumn: lineContent.length + 1,
+                },
+                text: indent,
+            }]);
+
+            // Get cursor position for palette placement
+            const scrolledPos = editor.getScrolledVisiblePosition({ lineNumber, column: 1 });
+            const editorDom = editor.getDomNode();
+            if (scrolledPos && editorDom) {
+                const editorRect = editorDom.getBoundingClientRect();
+                slashBuilderRef.current.openPalette(
+                    { x: editorRect.left + scrolledPos.left + 40, y: editorRect.top + scrolledPos.top + scrolledPos.height },
+                    lineNumber,
+                );
+            }
+        });
+
+        // ─── Pill click detection ────────────────────────────────
+        editor.onMouseDown((e) => {
+            if (slashBuilderRef.current.state.phase !== 'filling') return;
+            const target = e.target;
+            if (!target.position) return;
+
+            const { lineNumber, column } = target.position;
+            const placeholder = findPlaceholderAtPosition(
+                slashPlaceholdersRef.current,
+                lineNumber,
+                column,
+            );
+
+            if (placeholder) {
+                const scrolledPos = editor.getScrolledVisiblePosition(target.position);
+                const editorDom = editor.getDomNode();
+                if (scrolledPos && editorDom) {
+                    const editorRect = editorDom.getBoundingClientRect();
+                    slashBuilderRef.current.openSlotPopup(placeholder.slotId, {
+                        x: editorRect.left + scrolledPos.left,
+                        y: editorRect.top + scrolledPos.top + scrolledPos.height,
+                    });
+                }
+            }
         });
 
         // Initial parse
         updateCodeItems(initialValue);
-    }, [initialValue, onChange]);
+    }, [initialValue, onChange, readOnly]);
+
+    // ─── Slash Builder: action selection handler ────────────────────
+    const handleSlashActionSelect = useCallback((action: ActionDef) => {
+        const editor = editorRef.current;
+        const monaco = monacoRef.current;
+        if (!editor || !monaco) return;
+
+        const lineNumber = slashBuilder.state.phase === 'palette'
+            ? slashBuilder.state.lineNumber
+            : editor.getPosition()?.lineNumber ?? 1;
+
+        slashBuilder.selectAction(action, lineNumber);
+
+        // If it's a data query handoff, selectAction already handles it
+        if (action.id === 'data-query') return;
+
+        // Insert the snippet template text
+        const model = editor.getModel();
+        if (!model) return;
+
+        // Get current indentation on the line
+        const existingContent = model.getLineContent(lineNumber);
+        const indentMatch = existingContent.match(/^(\s*)/);
+        const indent = indentMatch ? indentMatch[1] : '';
+
+        // Convert snippet template placeholders to ‹label› text
+        // e.g. 'FILL ${1:‹target›} WITH "${2:‹value›}"' → 'FILL ‹target› WITH "‹value›"'
+        const plainText = action.snippetTemplate.replace(/\$\{\d+:([^}]+)\}/g, '$1');
+
+        editor.executeEdits('vero.slashBuilder', [{
+            range: {
+                startLineNumber: lineNumber,
+                startColumn: 1,
+                endLineNumber: lineNumber,
+                endColumn: existingContent.length + 1,
+            },
+            text: indent + plainText,
+        }]);
+
+        // Create placeholder decorations for ‹...› markers
+        const placeholders = createPlaceholderDecorations(editor, monaco, lineNumber, action);
+        slashPlaceholdersRef.current = placeholders;
+        slashBuilder.setPlaceholders(placeholders);
+
+        // Open popup for the first placeholder automatically
+        if (placeholders.length > 0) {
+            const first = placeholders[0];
+            const scrolledPos = editor.getScrolledVisiblePosition({
+                lineNumber: first.lineNumber,
+                column: first.startColumn,
+            });
+            const editorDom = editor.getDomNode();
+            if (scrolledPos && editorDom) {
+                const editorRect = editorDom.getBoundingClientRect();
+                slashBuilder.openSlotPopup(first.slotId, {
+                    x: editorRect.left + scrolledPos.left,
+                    y: editorRect.top + scrolledPos.top + scrolledPos.height,
+                });
+            }
+        }
+
+        editor.focus();
+    }, [slashBuilder]);
+
+    // ─── Slash Builder: slot fill handler ─────────────────────────
+    const handleSlotFill = useCallback((slotId: string, textValue: string) => {
+        const editor = editorRef.current;
+        const monaco = monacoRef.current;
+        if (!editor || !monaco) return;
+
+        const placeholder = slashPlaceholdersRef.current.find(p => p.slotId === slotId);
+        if (!placeholder) return;
+
+        // Replace the placeholder marker text with the filled value
+        editor.executeEdits('vero.slashBuilder.fill', [{
+            range: {
+                startLineNumber: placeholder.lineNumber,
+                startColumn: placeholder.startColumn,
+                endLineNumber: placeholder.lineNumber,
+                endColumn: placeholder.endColumn,
+            },
+            text: textValue,
+        }]);
+
+        // Calculate new range after edit
+        const newEndCol = placeholder.startColumn + textValue.length;
+
+        // Update decoration to "filled" style
+        markPlaceholderFilled(editor, monaco, placeholder, placeholder.startColumn, newEndCol);
+
+        // Update placeholder tracking with new range
+        placeholder.startColumn = placeholder.startColumn;
+        placeholder.endColumn = newEndCol;
+        placeholder.filled = true;
+
+        // Adjust other placeholders on same line — re-read positions from Monaco decorations
+        for (const p of slashPlaceholdersRef.current) {
+            if (p.slotId !== slotId && p.lineNumber === placeholder.lineNumber && p.startColumn > placeholder.startColumn) {
+                // This line was already processed by Monaco's executeEdits which adjusts ranges,
+                // but our manual tracking needs updating. Re-read from decoration.
+                const model = editor.getModel();
+                if (model) {
+                    const range = model.getDecorationRange(p.decorationId);
+                    if (range) {
+                        p.startColumn = range.startColumn;
+                        p.endColumn = range.endColumn;
+                    }
+                }
+            }
+        }
+
+        // Notify state machine
+        slashBuilder.fillSlot(slotId, placeholder.startColumn, newEndCol);
+
+        // Auto-open next unfilled popup
+        const next = getNextUnfilledPlaceholder(slashPlaceholdersRef.current, slotId);
+        if (next) {
+            const scrolledPos = editor.getScrolledVisiblePosition({
+                lineNumber: next.lineNumber,
+                column: next.startColumn,
+            });
+            const editorDom = editor.getDomNode();
+            if (scrolledPos && editorDom) {
+                const editorRect = editorDom.getBoundingClientRect();
+                slashBuilder.openSlotPopup(next.slotId, {
+                    x: editorRect.left + scrolledPos.left,
+                    y: editorRect.top + scrolledPos.top + scrolledPos.height,
+                });
+            }
+        }
+    }, [slashBuilder]);
+
+    // ─── Slash Builder: target fill handler ───────────────────────
+    const handleTargetFill = useCallback((slotId: string, target: TargetValue) => {
+        const textValue = formatTarget(target);
+        handleSlotFill(slotId, textValue);
+    }, [handleSlotFill]);
+
+    // Clean up placeholders when slash builder closes
+    useEffect(() => {
+        if (slashBuilder.state.phase === 'closed') {
+            const editor = editorRef.current;
+            if (editor && slashPlaceholdersRef.current.length > 0) {
+                clearPlaceholderDecorations(editor, slashPlaceholdersRef.current);
+                slashPlaceholdersRef.current = [];
+            }
+        }
+    }, [slashBuilder.state.phase]);
 
     // Create glyph margin decorations for run buttons + action icons
     const updateDecorations = useCallback((items: VeroCodeItem[], emptyScenarioNames: string[] = []) => {
@@ -675,7 +963,47 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
                 />
             )}
 
-            {/* Inline styles for glyph margin icons */}
+            {/* ─── Slash Builder Overlays ──────────────────────────── */}
+            {slashBuilder.state.phase === 'palette' && (
+                <SlashPalette
+                    x={slashBuilder.state.position.x}
+                    y={slashBuilder.state.position.y}
+                    onSelect={handleSlashActionSelect}
+                    onClose={slashBuilder.close}
+                />
+            )}
+
+            {slashBuilder.state.phase === 'filling' && slashBuilder.state.activeSlotId && slashBuilder.state.popupPosition && (() => {
+                const fillingState = slashBuilder.state;
+                const activeSlot = fillingState.action.slots.find(
+                    s => s.id === fillingState.activeSlotId
+                );
+                if (!activeSlot) return null;
+
+                if (activeSlot.kind === 'page-field' || activeSlot.kind === 'page-action') {
+                    return (
+                        <TargetPopup
+                            x={fillingState.popupPosition!.x}
+                            y={fillingState.popupPosition!.y}
+                            onApply={(target) => handleTargetFill(activeSlot.id, target)}
+                            onClose={slashBuilder.closeSlotPopup}
+                        />
+                    );
+                }
+
+                return (
+                    <SlotPopup
+                        x={fillingState.popupPosition!.x}
+                        y={fillingState.popupPosition!.y}
+                        slot={activeSlot}
+                        onApply={(value) => handleSlotFill(activeSlot.id, value)}
+                        onClose={slashBuilder.closeSlotPopup}
+                    />
+                );
+            })()}
+
+            {/* Inline styles for glyph margin icons + slash pills */}
+            <style>{PLACEHOLDER_STYLES}</style>
             <style>{`
         .vero-run-scenario {
           background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='%2322c55e'%3E%3Cpolygon points='5 3 19 12 5 21 5 3'/%3E%3C/svg%3E") center center no-repeat;
