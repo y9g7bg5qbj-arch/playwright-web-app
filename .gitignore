@@ -63,7 +63,8 @@ backend/.vero-run-debug.spec.*
 
 # Local dev scaffolding
 backend/e2e/
-backend/scripts/
+backend/scripts/*
+!backend/scripts/run-vero-workflow.ts
 backend/playwright.scheduler-ui.config.ts
 ecosystem.config.cjs
 
