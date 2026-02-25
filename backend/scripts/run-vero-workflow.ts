@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import { basename, extname, isAbsolute, join, resolve } from 'path';
 import {
   applyScenarioSelection,
+  collectFeatureReferences,
   parse,
   type ScenarioSelectionOptions,
   tokenize,
@@ -200,6 +201,26 @@ async function loadReferencedPages(pageNames: string[], projectRoot: string): Pr
   return combinedContent;
 }
 
+function extractReferencedPageNames(veroContent: string): string[] {
+  try {
+    const lexResult = tokenize(veroContent);
+    if (lexResult.errors.length > 0) {
+      return [];
+    }
+
+    const parseResult = parse(lexResult.tokens);
+    const refs = new Set<string>();
+    for (const feature of parseResult.ast.features || []) {
+      for (const name of collectFeatureReferences(feature)) {
+        refs.add(name);
+      }
+    }
+    return [...refs];
+  } catch {
+    return [];
+  }
+}
+
 function countScenariosInProgram(program: any): number {
   if (program && Array.isArray(program.features)) {
     return program.features.reduce((count: number, feature: any) => {
@@ -282,7 +303,11 @@ async function run(): Promise<void> {
   try {
     const veroFilePathInput = process.env.VERO_FILE_PATH?.trim() || '';
     const encodedContent = process.env.VERO_CONTENT_B64?.trim() || '';
+    const encodedReferencedContent = process.env.VERO_REFERENCED_CONTENT_B64?.trim() || '';
     const selectionScope = resolveSelectionScope(normalizeOptionalString(process.env.SELECTION_SCOPE));
+    const injectedReferencedContent = encodedReferencedContent
+      ? decodeBase64Utf8(encodedReferencedContent)
+      : '';
 
     let veroContent = encodedContent ? decodeBase64Utf8(encodedContent) : '';
     if (!veroContent && veroFilePathInput) {
@@ -372,9 +397,11 @@ async function run(): Promise<void> {
       }
 
       const projectRoot = detectProjectRoot(plannedFile.absolutePath, veroProjectsRoot);
-      const useMatches = fileContent.match(/USE\s+(\w+)/gi) || [];
-      const pageNames = useMatches.map((m: string) => m.replace(/USE\s+/i, '').trim());
-      const referencedContent = await loadReferencedPages(pageNames, projectRoot);
+      const pageNames = extractReferencedPageNames(fileContent);
+      let referencedContent = await loadReferencedPages(pageNames, projectRoot);
+      if (!referencedContent.trim() && injectedReferencedContent) {
+        referencedContent = injectedReferencedContent;
+      }
       const combinedContent = `${referencedContent}${fileContent}`;
 
       let diagnostics: { selectedScenarios: number; totalScenarios: number };

@@ -41,6 +41,11 @@ on:
         required: false
         default: ''
         type: string
+      veroReferencedContentB64:
+        description: 'Base64-encoded referenced Vero content (Pages/PageActions)'
+        required: false
+        default: ''
+        type: string
       retries:
         description: 'Test retry count'
         required: false
@@ -233,6 +238,7 @@ jobs:
           CI: true
           VERO_FILE_PATH: ${{ inputs.veroFilePath }}
           VERO_CONTENT_B64: ${{ inputs.veroContentB64 }}
+          VERO_REFERENCED_CONTENT_B64: ${{ inputs.veroReferencedContentB64 }}
           WORKERS: ${{ inputs.workers || '1' }}
           SHARD_INDEX: ${{ matrix.shard }}
           SHARD_TOTAL: ${{ inputs.shards || '1' }}

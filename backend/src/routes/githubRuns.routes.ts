@@ -10,8 +10,53 @@ import { validate } from '../middleware/validate';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { githubService } from '../services/github.service';
+import { resolve } from 'path';
+import { detectProjectRoot, extractReferencedPageNames, loadReferencedPages } from './veroExecution.utils';
 
 const router = Router();
+
+function decodeBase64Utf8(value: string): string {
+  return Buffer.from(value, 'base64').toString('utf8');
+}
+
+function encodeBase64Utf8(value: string): string {
+  return Buffer.from(value, 'utf8').toString('base64');
+}
+
+async function enrichVeroDispatchInputs(inputs?: Record<string, string>): Promise<Record<string, string> | undefined> {
+  if (!inputs) return undefined;
+  if (inputs.runMode !== 'vero') return inputs;
+  if (inputs.veroReferencedContentB64?.trim()) return inputs;
+
+  const encodedFeatureContent = inputs.veroContentB64?.trim();
+  const veroFilePath = inputs.veroFilePath?.trim();
+  if (!encodedFeatureContent || !veroFilePath) return inputs;
+
+  let featureContent = '';
+  try {
+    featureContent = decodeBase64Utf8(encodedFeatureContent);
+  } catch {
+    return inputs;
+  }
+
+  if (!featureContent.trim()) return inputs;
+
+  const referencedNames = extractReferencedPageNames(featureContent);
+  if (referencedNames.length === 0) return inputs;
+
+  const repoRoot = resolve(process.cwd());
+  const veroProjectsRoot = resolve(repoRoot, 'vero-projects');
+  const absoluteFilePath = resolve(veroProjectsRoot, veroFilePath);
+  const projectRoot = detectProjectRoot(absoluteFilePath, veroProjectsRoot);
+
+  const referencedContent = await loadReferencedPages(referencedNames, projectRoot);
+  if (!referencedContent.trim()) return inputs;
+
+  return {
+    ...inputs,
+    veroReferencedContentB64: encodeBase64Utf8(referencedContent),
+  };
+}
 
 // ============================================
 // WORKFLOW RUNS
@@ -38,6 +83,7 @@ router.post(
           Object.entries(inputs).map(([key, value]) => [key, String(value)])
         )
       : undefined;
+    const enrichedInputs = await enrichVeroDispatchInputs(sanitizedInputs);
 
     // Get default branch if ref not provided
     let targetRef = ref;
@@ -52,7 +98,7 @@ router.post(
       repo,
       workflowPath,
       targetRef,
-      sanitizedInputs
+      enrichedInputs
     );
 
     if (!result.success) {
