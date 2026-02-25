@@ -72,5 +72,8 @@
     "tsx": "^4.15.0",
     "typescript": "^5.3.3",
     "vitest": "^4.0.16"
+  },
+  "overrides": {
+    "zip-stream": "7.0.1"
   }
 }
