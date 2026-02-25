@@ -38,3 +38,17 @@ export class ValidationError extends AppError {
     super(422, message);
   }
 }
+
+export class GitHubUpstreamError extends AppError {
+  constructor(
+    public upstreamStatus: number,
+    message: string
+  ) {
+    super(upstreamStatus >= 500 ? 502 : upstreamStatus, message);
+    Object.setPrototypeOf(this, GitHubUpstreamError.prototype);
+  }
+
+  get retryable(): boolean {
+    return this.upstreamStatus >= 500;
+  }
+}

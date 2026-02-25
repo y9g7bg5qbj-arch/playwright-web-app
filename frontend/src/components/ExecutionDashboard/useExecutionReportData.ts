@@ -118,7 +118,11 @@ export function useExecutionReportData({ initialSelectedRunId, applicationId }: 
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch GitHub runs (HTTP ${response.status})`);
+        const body = await response.json().catch(() => null);
+        if (body?.retryable) {
+          return;
+        }
+        throw new Error(`Failed to fetch GitHub runs for ${owner}/${repo} (HTTP ${response.status})`);
       }
 
       const data = await response.json();

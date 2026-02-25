@@ -8,6 +8,7 @@
 import crypto from 'crypto';
 import { Octokit } from '@octokit/rest';
 import { githubIntegrationRepository, githubRepositoryConfigRepository, githubWorkflowRunRepository, githubWorkflowJobRepository } from '../db/repositories/mongo';
+import { GitHubUpstreamError } from '../utils/errors';
 
 // Encryption key from environment (should be 32 bytes for AES-256)
 const ENCRYPTION_KEY = process.env.GITHUB_TOKEN_ENCRYPTION_KEY;
@@ -113,6 +114,35 @@ function decrypt(encryptedText: string): string {
 
 class GitHubService {
   private baseUrl = 'https://api.github.com';
+
+  private async createGitHubApiError(operation: string, response: Response): Promise<Error> {
+    let detail = '';
+    try {
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const payload = await response.json() as { message?: unknown };
+        if (typeof payload.message === 'string' && payload.message.trim()) {
+          detail = payload.message.trim();
+        }
+      } else {
+        const text = await response.text();
+        if (text.trim()) {
+          detail = text.replace(/\s+/g, ' ').trim().slice(0, 320);
+        }
+      }
+    } catch {
+      // Best-effort error detail extraction only.
+    }
+
+    const statusSegment = `${operation} (HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''})`;
+    const message = detail ? `${statusSegment}: upstream=${detail}` : statusSegment;
+
+    if (response.status >= 500) {
+      return new GitHubUpstreamError(response.status, message);
+    }
+
+    return new Error(message);
+  }
 
   /**
    * Validate a Personal Access Token
@@ -350,7 +380,7 @@ class GitHubService {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to fetch workflow runs');
+      throw await this.createGitHubApiError(`Failed to fetch workflow runs for ${owner}/${repo}`, response);
     }
 
     const data = await response.json() as { workflow_runs: GitHubWorkflowRun[] };

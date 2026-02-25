@@ -12,6 +12,9 @@ import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { githubService } from '../services/github.service';
 import { resolve } from 'path';
 import { detectProjectRoot, extractReferencedPageNames, loadReferencedPages } from './veroExecution.utils';
+import { VERO_PROJECTS_BASE } from './veroProjectPath.utils';
+import { GitHubUpstreamError } from '../utils/errors';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -44,13 +47,19 @@ async function enrichVeroDispatchInputs(inputs?: Record<string, string>): Promis
   const referencedNames = extractReferencedPageNames(featureContent);
   if (referencedNames.length === 0) return inputs;
 
-  const repoRoot = resolve(process.cwd());
-  const veroProjectsRoot = resolve(repoRoot, 'vero-projects');
+  const veroProjectsRoot = resolve(VERO_PROJECTS_BASE);
   const absoluteFilePath = resolve(veroProjectsRoot, veroFilePath);
   const projectRoot = detectProjectRoot(absoluteFilePath, veroProjectsRoot);
 
   const referencedContent = await loadReferencedPages(referencedNames, projectRoot);
-  if (!referencedContent.trim()) return inputs;
+  if (!referencedContent.trim()) {
+    logger.debug('enrichVeroDispatchInputs: references detected but loaded content is empty', {
+      referencedNames,
+      veroProjectsRoot,
+      projectRoot,
+    });
+    return inputs;
+  }
 
   return {
     ...inputs,
@@ -165,6 +174,14 @@ router.get(
         res.json({
           success: true,
           data: [],
+        });
+        return;
+      }
+      if (error instanceof GitHubUpstreamError && error.retryable) {
+        res.status(error.statusCode).json({
+          success: false,
+          error: 'GitHub API temporarily unavailable',
+          retryable: true,
         });
         return;
       }
