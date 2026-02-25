@@ -156,6 +156,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            shared/package-lock.json
+            vero-lang/package-lock.json
+            tests/package-lock.json
 
       # --- Generic mode dependencies ---
       - name: Install test dependencies (generic mode)
@@ -173,13 +179,65 @@ jobs:
           done
 
       # --- Vero mode dependencies ---
+      - name: Restore shared dist cache (Vero mode)
+        id: shared_dist_cache
+        if: \${{ inputs.runMode == 'vero' }}
+        uses: actions/cache@v4
+        with:
+          path: shared/dist
+          key: shared-dist-\${{ runner.os }}-\${{ hashFiles('shared/src/**/*.ts', 'shared/tsconfig.json', 'shared/package-lock.json') }}
+
+      - name: Install shared dependencies (Vero mode)
+        if: \${{ inputs.runMode == 'vero' && steps.shared_dist_cache.outputs.cache-hit != 'true' }}
+        working-directory: ./shared
+        run: npm ci
+
+      - name: Build shared package (Vero mode)
+        if: \${{ inputs.runMode == 'vero' && steps.shared_dist_cache.outputs.cache-hit != 'true' }}
+        working-directory: ./shared
+        run: npm run build
+
+      - name: Restore vero-lang dist cache (Vero mode)
+        id: vero_lang_dist_cache
+        if: \${{ inputs.runMode == 'vero' }}
+        uses: actions/cache@v4
+        with:
+          path: vero-lang/dist
+          key: vero-lang-dist-\${{ runner.os }}-\${{ hashFiles('vero-lang/src/**/*.ts', 'vero-lang/grammar/**', 'vero-lang/tsconfig.json', 'vero-lang/package-lock.json') }}
+
+      - name: Restore vero-lang node_modules cache (Vero mode)
+        id: vero_lang_modules_cache
+        if: \${{ inputs.runMode == 'vero' }}
+        uses: actions/cache@v4
+        with:
+          path: vero-lang/node_modules
+          key: vero-lang-node-modules-\${{ runner.os }}-\${{ hashFiles('vero-lang/package-lock.json') }}
+
+      - name: Install vero-lang dependencies (Vero mode)
+        if: \${{ inputs.runMode == 'vero' && steps.vero_lang_modules_cache.outputs.cache-hit != 'true' }}
+        working-directory: ./vero-lang
+        run: npm ci
+
+      - name: Build vero-lang package (Vero mode)
+        if: \${{ inputs.runMode == 'vero' && steps.vero_lang_dist_cache.outputs.cache-hit != 'true' }}
+        working-directory: ./vero-lang
+        run: npm run build
+
       - name: Install backend dependencies (Vero mode)
         if: \${{ inputs.runMode == 'vero' }}
         working-directory: ./backend
         run: npm ci
 
-      - name: Install Playwright browsers (Vero mode)
+      - name: Restore Playwright browser cache (Vero mode)
+        id: pw_cache_vero
         if: \${{ inputs.runMode == 'vero' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-vero-\${{ runner.os }}-\${{ hashFiles('backend/package-lock.json') }}
+
+      - name: Install Playwright browsers (Vero mode)
+        if: \${{ inputs.runMode == 'vero' && steps.pw_cache_vero.outputs.cache-hit != 'true' }}
         working-directory: ./backend
         run: npx playwright install --with-deps chromium
 
