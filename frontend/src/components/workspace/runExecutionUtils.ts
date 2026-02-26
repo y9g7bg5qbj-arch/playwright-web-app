@@ -1,4 +1,4 @@
-import { normalizeExecutionTarget } from '@playwright-web-app/shared';
+import { normalizeExecutionTarget } from '@/utils/normalizeExecutionTarget';
 
 type BrowserMode = 'headed' | 'headless';
 
@@ -99,12 +99,6 @@ export function buildGitHubInputs(
   parameterizedNames?: string[]
 ): Record<string, string> {
   const browserMode = resolveBrowserMode(config);
-  const baseUrl =
-    typeof config.baseURL === 'string'
-      ? config.baseURL.trim()
-      : typeof config.baseUrl === 'string'
-        ? config.baseUrl.trim()
-        : '';
 
   const inputs: Record<string, string> = {
     runMode: 'vero',
@@ -152,9 +146,6 @@ export function buildGitHubInputs(
   if (config.lastFailed === true) {
     inputs.lastFailed = 'true';
   }
-  if (baseUrl) {
-    inputs.baseUrl = baseUrl;
-  }
   if (envVars && Object.keys(envVars).length > 0) {
     inputs.envVarsB64 = encodeUtf8ToBase64(JSON.stringify(envVars));
   }
@@ -188,12 +179,6 @@ export function buildLocalRunConfig(config: ConfigLike) {
   return {
     browser: typeof config.browser === 'string' ? config.browser : 'chromium',
     browserMode: resolveBrowserMode(config),
-    baseUrl:
-      typeof config.baseURL === 'string'
-        ? config.baseURL
-        : typeof config.baseUrl === 'string'
-          ? config.baseUrl
-          : undefined,
     timeout: toPositiveInteger(config.timeout, 30000),
     retries: toNonNegativeInteger(config.retries, 0),
     tracing:
