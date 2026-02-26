@@ -9,7 +9,6 @@ import fs from 'fs/promises';
 import { resolveProjectPath } from '../../routes/veroProjectPath.utils';
 import { extractScenariosFromVero, normalizeTags } from '../../routes/veroScenarioIndex.utils';
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const globCallback = require('glob') as (pattern: string, options: Record<string, unknown>, cb: (err: Error | null, matches: string[]) => void) => void;
 const glob = promisify(globCallback) as unknown as (pattern: string, options: { cwd: string; absolute: boolean }) => Promise<string[]>;
 
