@@ -366,14 +366,14 @@ export const CreatePullRequestModal: React.FC<CreatePullRequestModalProps> = ({
                       {file.filePath}
                     </span>
                     <span className={cn(
-                      'shrink-0 text-[10px] font-medium',
+                      'shrink-0 text-3xs font-medium',
                       file.changeType === 'added' && 'text-status-success',
                       file.changeType === 'modified' && 'text-status-warning',
                       file.changeType === 'deleted' && 'text-status-danger',
                     )}>
                       {file.changeType === 'added' ? 'A' : file.changeType === 'modified' ? 'M' : 'D'}
                     </span>
-                    <span className="shrink-0 text-[10px] text-text-muted">
+                    <span className="shrink-0 text-3xs text-text-muted">
                       {file.additions > 0 && <span className="text-status-success">+{file.additions}</span>}
                       {file.deletions > 0 && <span className="ml-1 text-status-danger">-{file.deletions}</span>}
                     </span>

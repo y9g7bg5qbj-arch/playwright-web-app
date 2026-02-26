@@ -166,7 +166,7 @@ export function SlotPopup({ x, y, slot, onApply, onClose }: SlotPopupProps) {
             onKeyDown={handleKeyDown}
         >
             <div className="p-2">
-                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                <div className="text-3xs text-text-muted uppercase tracking-wider mb-1">
                     {slot.label}
                 </div>
                 {renderInput()}
@@ -174,7 +174,7 @@ export function SlotPopup({ x, y, slot, onApply, onClose }: SlotPopupProps) {
             {/* Only show footer for text/number (select/key apply immediately) */}
             {(slot.kind === 'text' || slot.kind === 'number') && (
                 <div className="flex items-center justify-between px-2 py-1.5 border-t border-border-default">
-                    <span className="text-[10px] text-text-muted">Enter to apply</span>
+                    <span className="text-3xs text-text-muted">Enter to apply</span>
                     <button
                         onClick={handleApply}
                         disabled={!value.trim() && !slot.optional}

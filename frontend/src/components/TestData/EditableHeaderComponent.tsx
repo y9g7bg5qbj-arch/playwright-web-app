@@ -172,7 +172,7 @@ export function EditableHeaderComponent(props: IHeaderParams & EditableHeaderCus
                 />
                 {error && createPortal(
                     <div
-                        className="fixed px-2 py-1 bg-status-danger/90 text-white text-[10px] rounded shadow-lg whitespace-nowrap pointer-events-none"
+                        className="fixed px-2 py-1 bg-status-danger/90 text-white text-3xs rounded shadow-lg whitespace-nowrap pointer-events-none"
                         style={{
                             top: inputRef.current ? inputRef.current.getBoundingClientRect().bottom + 2 : 0,
                             left: inputRef.current ? inputRef.current.getBoundingClientRect().left : 0,

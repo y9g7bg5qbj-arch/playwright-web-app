@@ -78,7 +78,7 @@ export function WorkflowFileSetup({ status, error, onSetup }: WorkflowFileSetupP
         Set up workflow file
       </button>
       <p className="text-xs text-text-muted">
-        This will commit <code className={cx(runConfigTheme.code, 'px-1 py-0.5 text-[10px]')}>.github/workflows/vero-tests.yml</code> to your repository.
+        This will commit <code className={cx(runConfigTheme.code, 'px-1 py-0.5 text-3xs')}>.github/workflows/vero-tests.yml</code> to your repository.
       </p>
     </div>
   );
