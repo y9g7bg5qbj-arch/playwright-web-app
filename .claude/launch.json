@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["dist/index.js"],
+      "port": 3000,
+      "cwd": "/Users/miker/Documents/PlaywrightIDE/playwright-web-app/backend",
+      "env": {
+        "PORT": "3000",
+        "BYPASS_AUTH": "true",
+        "VERO_PROJECT_PATH": "../vero-projects"
+      }
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173
+    }
+  ]
+}

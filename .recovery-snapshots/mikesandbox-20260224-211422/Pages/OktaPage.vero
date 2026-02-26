@@ -1,0 +1,14 @@
+# FarmersAppUserhomePage
+
+PAGE OktaPage ("/app/UserHome") {
+    FIELD connectingToOktaDashboardheading = role "heading" name "Connecting to Okta Dashboard"
+    FIELD myidOrUsernametextbox = role "textbox" name "myID or Username"
+    FIELD nextbutton = role "button" name "Next"
+    FIELD passwordtextbox = role "textbox" name "Password"
+    FIELD verifybutton = role "button" name "Verify"
+    FIELD workforemoststarQaAkamaitext = text "WorkForemostSTAR (QA)Akamai"
+    FIELD launchAppApexUatlink = role "link" name "launch app APEX UAT"
+    FIELD nextbutton1 = role "button" name "Next"
+    FIELD verifyWithYourPasswordheading = role "heading" name "Verify with your password"
+    FIELD nextbutton2 = role "button" name "Next"
+}

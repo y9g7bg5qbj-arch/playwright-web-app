@@ -1,0 +1,35 @@
+PAGEACTIONS ApexPageActions FOR ApexPage {
+    createAccount WITH firstName, lastName {
+
+        CLICK accountslink
+        CLICK newbutton
+        CLICK representAPersonWhoHastext
+        CLICK nextbutton
+        CLICK salutationcombobox
+        CLICK mrOption
+        CLICK lastNametextbox
+        FILL lastNametextbox WITH lastName
+        CLICK firstNametextbox
+        FILL firstNametextbox WITH firstName
+        CLICK sourceCategoryPlCombobox
+        CLICK directContactoption
+        CLICK savebutton
+    }
+
+     createAccount{
+        
+         CLICK accountslink
+        CLICK newbutton
+        CLICK representAPersonWhoHastext
+        CLICK nextbutton
+        CLICK salutationcombobox
+        CLICK mrOption
+        CLICK lastNametextbox
+        FILL lastNametextbox WITH "AutoLast"
+        CLICK firstNametextbox
+        FILL firstNametextbox WITH "AutoFirst"
+        CLICK sourceCategoryPlCombobox
+        CLICK directContactoption
+        CLICK savebutton
+    }
+}

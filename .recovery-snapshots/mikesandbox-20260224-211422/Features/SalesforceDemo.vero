@@ -1,0 +1,162 @@
+FEATURE SalesforceDemo {
+  
+  SCENARIO SalesforceAuthoring @demo @authoring @Mike {
+    ROW agent = FIRST Agents WHERE environment = {{environment}} and state = {{state}}
+    PERFORM OktaPageActions.loginAndLaunchApexWithCredentials WITH agent.oktaUrl, agent.username, agent.password
+    SWITCH TO NEW TAB
+    PERFORM ApexPageActions.createAccount 
+  }
+  
+
+  SCENARIO SalesforceMaintainability @demo @maintainability @Mike {
+    ROW agent = FIRST Agents WHERE environment = {{environment}} and state = {{state}}
+    OPEN agent.oktaUrl
+    CLICK OktaPage.myidOrUsernametextbox
+    FILL OktaPage.myidOrUsernametextbox WITH agent.username
+    CLICK OktaPage.nextbutton2
+    FILL OktaPage.passwordtextbox WITH agent.password
+    CLICK OktaPage.verifybutton
+    CLICK OktaPage.launchAppApexUatlink
+    SWITCH TO NEW TAB
+    CLICK ApexPage.accountslink
+    CLICK ApexPage.newbutton
+    CLICK ApexPage.representAPersonWhoHastext
+    CLICK ApexPage.nextbutton
+    CLICK ApexPage.salutationcombobox
+    CLICK ApexPage.mrOption
+    CLICK ApexPage.lastNametextbox
+    FILL ApexPage.lastNametextbox WITH agent.lastName
+    CLICK ApexPage.firstNametextbox
+    FILL ApexPage.firstNametextbox WITH agent.firstName
+    CLICK ApexPage.sourceCategoryPlCombobox
+    CLICK ApexPage.directContactoption
+    CLICK ApexPage.savebutton
+  }
+
+  SCENARIO SalesforceDebug @demo @debug @Mike {
+    ROW agent = FIRST Agents WHERE environment = {{environment}} and state = {{state}}
+    OPEN agent.oktaUrl
+    CLICK OktaPage.myidOrUsernametextbox
+    FILL OktaPage.myidOrUsernametextbox WITH agent.username
+    CLICK OktaPage.nextbutton2
+    FILL OktaPage.passwordtextbox WITH agent.password
+    CLICK OktaPage.verifybutton
+    CLICK OktaPage.launchAppApexUatlink
+    SWITCH TO NEW TAB
+    CLICK ApexPage.accountslink
+    CLICK ApexPage.newbutton
+    CLICK ApexPage.representAPersonWhoHastext
+    CLICK ApexPage.nextbutton
+    CLICK ApexPage.salutationcombobox
+    CLICK ApexPage.mrOption
+    CLICK ApexPage.lastNametextbox
+    FILL ApexPage.lastNametextbox WITH agent.lastName
+    CLICK ApexPage.firstNametextbox
+    FILL ApexPage.firstNametextbox WITH agent.firstName
+    CLICK ApexPage.sourceCategoryPlCombobox
+    CLICK ApexPage.directContactoption
+    CLICK ApexPage.savebutton
+  }
+
+  SCENARIO SalesforceReporting @demo @reporting @Mike {
+      ROW agent = FIRST Agents WHERE environment = {{environment}} and state = {{state}}
+    OPEN agent.oktaUrl
+    CLICK OktaPage.myidOrUsernametextbox
+    FILL OktaPage.myidOrUsernametextbox WITH agent.username
+    CLICK OktaPage.nextbutton2
+    FILL OktaPage.passwordtextbox WITH agent.password
+    CLICK OktaPage.verifybutton
+    CLICK OktaPage.launchAppApexUatlink
+    SWITCH TO NEW TAB
+    CLICK ApexPage.accountslink
+    CLICK ApexPage.newbutton
+    CLICK ApexPage.representAPersonWhoHastext
+    CLICK ApexPage.nextbutton
+    CLICK ApexPage.salutationcombobox
+    CLICK ApexPage.mrOption
+    CLICK ApexPage.lastNametextbox
+    FILL ApexPage.lastNametextbox WITH agent.lastName
+    CLICK ApexPage.firstNametextbox
+    FILL ApexPage.firstNametextbox WITH agent.firstName
+    CLICK ApexPage.sourceCategoryPlCombobox
+    CLICK ApexPage.directContactoption
+    CLICK ApexPage.savebutton
+  }
+
+  SCENARIO SalesforceCollaboration @demo @collaboration @Mike {
+ ROW agent = FIRST Agents WHERE environment = {{environment}} and state = {{state}}
+    OPEN agent.oktaUrl
+    CLICK OktaPage.myidOrUsernametextbox
+    FILL OktaPage.myidOrUsernametextbox WITH agent.username
+    CLICK OktaPage.nextbutton2
+    FILL OktaPage.passwordtextbox WITH agent.password
+    CLICK OktaPage.verifybutton
+    CLICK OktaPage.launchAppApexUatlink
+    SWITCH TO NEW TAB
+    CLICK ApexPage.accountslink
+    CLICK ApexPage.newbutton
+    CLICK ApexPage.representAPersonWhoHastext
+    CLICK ApexPage.nextbutton
+    CLICK ApexPage.salutationcombobox
+    CLICK ApexPage.mrOption
+    CLICK ApexPage.lastNametextbox
+    FILL ApexPage.lastNametextbox WITH agent.lastName
+    CLICK ApexPage.firstNametextbox
+    FILL ApexPage.firstNametextbox WITH agent.firstName
+    CLICK ApexPage.sourceCategoryPlCombobox
+    CLICK ApexPage.directContactoption
+    CLICK ApexPage.savebutton
+  }
+
+  SCENARIO SalesforceRunConfig @demo @runconfig @Mike {
+ ROW agent = FIRST Agents WHERE environment = {{environment}} and state = {{state}}
+    OPEN agent.oktaUrl
+    CLICK OktaPage.myidOrUsernametextbox
+    FILL OktaPage.myidOrUsernametextbox WITH agent.username
+    CLICK OktaPage.nextbutton2
+    FILL OktaPage.passwordtextbox WITH agent.password
+    CLICK OktaPage.verifybutton
+    CLICK OktaPage.launchAppApexUatlink
+    SWITCH TO NEW TAB
+    CLICK ApexPage.accountslink
+    CLICK ApexPage.newbutton
+    CLICK ApexPage.representAPersonWhoHastext
+    CLICK ApexPage.nextbutton
+    CLICK ApexPage.salutationcombobox
+    CLICK ApexPage.mrOption
+    CLICK ApexPage.lastNametextbox
+    FILL ApexPage.lastNametextbox WITH agent.lastName
+    CLICK ApexPage.firstNametextbox
+    FILL ApexPage.firstNametextbox WITH agent.firstName
+    CLICK ApexPage.sourceCategoryPlCombobox
+    CLICK ApexPage.directContactoption
+    CLICK ApexPage.savebutton
+  }
+
+  SCENARIO SalesforceScheduler @demo @scheduler @Mike {
+   ROW agent = FIRST Agents WHERE environment = {{environment}} and state = {{state}}
+    OPEN agent.oktaUrl
+    CLICK OktaPage.myidOrUsernametextbox
+    FILL OktaPage.myidOrUsernametextbox WITH agent.username
+    CLICK OktaPage.nextbutton2
+    FILL OktaPage.passwordtextbox WITH agent.password
+    CLICK OktaPage.verifybutton
+    CLICK OktaPage.launchAppApexUatlink
+    SWITCH TO NEW TAB
+    CLICK ApexPage.accountslink
+    CLICK ApexPage.newbutton
+    CLICK ApexPage.representAPersonWhoHastext
+    CLICK ApexPage.nextbutton
+    CLICK ApexPage.salutationcombobox
+    CLICK ApexPage.mrOption
+    CLICK ApexPage.lastNametextbox
+    FILL ApexPage.lastNametextbox WITH agent.lastName
+    CLICK ApexPage.firstNametextbox
+    FILL ApexPage.firstNametextbox WITH agent.firstName
+    CLICK ApexPage.sourceCategoryPlCombobox
+    CLICK ApexPage.directContactoption
+    CLICK ApexPage.savebutton
+  }
+
+  
+}
