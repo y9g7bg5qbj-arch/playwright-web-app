@@ -12,12 +12,10 @@ import { logger } from '../../../utils/logger';
 import {
   applicationRepository,
   executionRepository,
-  environmentVariableRepository,
   projectRepository,
   runConfigurationRepository,
   scheduleRepository,
   scheduleRunRepository,
-  userEnvironmentRepository,
   workflowRepository,
   runParameterDefinitionRepository,
   runParameterSetRepository,
@@ -70,7 +68,6 @@ function mapRunConfigurationToExecutionConfig(rawConfig: any): Record<string, an
     tracing: rawConfig.tracing,
     screenshot: rawConfig.screenshot,
     video: rawConfig.video,
-    environmentId: rawConfig.environmentId,
     // Visual config
     visualPreset: rawConfig.visualPreset,
     visualThreshold: rawConfig.visualThreshold,
@@ -79,8 +76,6 @@ function mapRunConfigurationToExecutionConfig(rawConfig: any): Record<string, an
     visualUpdateSnapshots: rawConfig.visualUpdateSnapshots,
     // Sharding
     shardCount: rawConfig.shardCount,
-    // Custom env vars from the run config
-    envVars: parseJsonSafe<Record<string, string>>(rawConfig.envVars, {}),
     // Selection and filtering
     selectionScope: rawConfig.selectionScope,
     tagExpression: rawConfig.tagExpression,
@@ -409,32 +404,24 @@ export async function processScheduleRunJob(job: QueueJob<ScheduleRunJobData>): 
       });
     }
 
-    // Preserve custom env vars BEFORE environment resolution overwrites them.
-    const customEnvVarsFromConfig = effectiveConfig.envVars
-      ? { ...effectiveConfig.envVars }
-      : undefined;
-
     const resolvedSelector = resolveScheduleSelector(schedule, effectiveConfig);
     const executionTarget = resolveExecutionTarget(schedule, effectiveConfig);
     const executionScope = await resolveScheduleExecutionScope(schedule);
-    const resolvedEnvironment = await resolveEnvironmentContext(
-      userId,
-      effectiveConfig.environmentId,
-    );
-    const mergedExecutionConfig = {
-      ...effectiveConfig,
-      ...(resolvedEnvironment.environmentId ? { environmentId: resolvedEnvironment.environmentId } : {}),
-    };
 
     if (executionTarget === 'github-actions') {
+      // Runtime variables are parameter-resolved only.
+      const mergedEnvVarsForGitHub = mergeExecutionEnvironment(
+        undefined,
+        parameterValues,
+      );
       await executeViaGitHubActions(
         schedule,
         runId,
         userId,
         triggerType,
         parameterValues,
-        mergedExecutionConfig,
-        resolvedEnvironment.envVars
+        effectiveConfig,
+        Object.keys(mergedEnvVarsForGitHub).length > 0 ? mergedEnvVarsForGitHub : undefined,
       );
     } else {
       await executeLocally(
@@ -442,10 +429,8 @@ export async function processScheduleRunJob(job: QueueJob<ScheduleRunJobData>): 
         runId,
         userId,
         triggerType,
-        mergedExecutionConfig,
+        effectiveConfig,
         parameterValues,
-        resolvedEnvironment.envVars,
-        customEnvVarsFromConfig,
         resolvedSelector,
         executionScope,
       );
@@ -493,42 +478,6 @@ export async function processScheduleRunJob(job: QueueJob<ScheduleRunJobData>): 
 
     throw error; // Re-throw to mark job as failed
   }
-}
-
-async function resolveEnvironmentContext(
-  userId: string,
-  requestedEnvironmentId?: string
-): Promise<{ environmentId?: string; envVars: Record<string, string> }> {
-  let selectedEnvironment: { id: string; userId: string } | null = null;
-
-  if (requestedEnvironmentId) {
-    const requested = await userEnvironmentRepository.findById(requestedEnvironmentId);
-    if (requested && requested.userId === userId) {
-      selectedEnvironment = requested;
-    }
-  }
-
-  if (!selectedEnvironment) {
-    const active = await userEnvironmentRepository.findActiveByUserId(userId);
-    if (active) {
-      selectedEnvironment = active;
-    }
-  }
-
-  if (!selectedEnvironment) {
-    return { envVars: {} };
-  }
-
-  const variables = await environmentVariableRepository.findByEnvironmentId(selectedEnvironment.id);
-  const envVars: Record<string, string> = {};
-  for (const variable of variables) {
-    envVars[variable.key] = String(variable.value ?? '');
-  }
-
-  return {
-    environmentId: selectedEnvironment.id,
-    envVars,
-  };
 }
 
 /**
@@ -602,8 +551,10 @@ async function executeViaGitHubActions(
     ...(executionConfig?.namePatterns?.length && {
       namePatternsB64: Buffer.from(JSON.stringify(executionConfig.namePatterns), 'utf-8').toString('base64'),
     }),
-    // Base URL
-    ...(executionConfig?.baseUrl && { baseUrl: executionConfig.baseUrl }),
+    // Base URL (from runtime config or merged env vars)
+    ...((executionConfig?.baseUrl || resolvedEnvVars?.BASE_URL || resolvedEnvVars?.baseUrl) && {
+      baseUrl: executionConfig?.baseUrl || resolvedEnvVars?.BASE_URL || resolvedEnvVars?.baseUrl,
+    }),
     // Add parameter values as inputs (convert to strings)
     ...Object.fromEntries(
       Object.entries(parameterValues || {}).map(([k, v]) => [k, String(v)])
@@ -699,8 +650,6 @@ async function executeLocally(
   triggerType: string,
   executionConfig?: any,
   parameterValues?: Record<string, unknown>,
-  resolvedEnvVars?: Record<string, string>,
-  customEnvVars?: Record<string, string>,
   resolvedSelector?: Record<string, unknown>,
   executionScope?: ExecutionScope,
 ): Promise<void> {
@@ -804,10 +753,8 @@ async function executeLocally(
           updateSnapshotsMode: executionConfig?.visualUpdateSnapshots ? 'all' : undefined,
           visualUpdateSnapshots: executionConfig?.visualUpdateSnapshots,
         },
-        // Env var merge: env manager vars → parameter values → run config custom env vars
-        environmentVars: resolvedEnvVars,
+        // Runtime variables are parameter-resolved only.
         parameterValues,
-        customEnvVars,
         selection: {
           ...(veroTarget.scenarioNames?.length ? { scenarioNames: veroTarget.scenarioNames } : {}),
           ...(executionConfig?.tagExpression ? { tagExpression: executionConfig.tagExpression } : {}),
@@ -878,11 +825,10 @@ async function executeLocally(
       legacyExecutionId = require('uuid').v4();
     }
 
-    // Merge env vars for legacy path too
+    // Runtime variables are parameter-resolved only.
     const mergedEnvVars = mergeExecutionEnvironment(
-      resolvedEnvVars,
+      undefined,
       parameterValues,
-      customEnvVars,
     );
 
     const options: ExecutionOptions = {
@@ -893,8 +839,7 @@ async function executeLocally(
       retries: executionConfig?.retries || 0,
       workers: executionConfig?.workers || 1,
       baseUrl: executionConfig?.baseUrl,
-      environmentId: executionConfig?.environmentId,
-      envVars: Object.keys(mergedEnvVars).length > 0 ? mergedEnvVars : executionConfig?.envVars,
+      envVars: Object.keys(mergedEnvVars).length > 0 ? mergedEnvVars : undefined,
       runId: legacyExecutionId,
     };
 

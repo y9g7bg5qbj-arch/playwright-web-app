@@ -8,7 +8,7 @@ import { workflowRepository, projectRepository, runConfigurationRepository, exec
 import { NotFoundError, ForbiddenError } from '../utils/errors';
 import { isAdmin } from '../middleware/rbac';
 import { logger } from '../utils/logger';
-import type { RunConfiguration, RunConfigurationCreate, RunConfigurationUpdate, RunConfigRuntimeFields, ExecutionEnvironment, ExecutionEnvironmentCreate, ExecutionEnvironmentUpdate, RemoteRunner, RemoteRunnerCreate, RemoteRunnerUpdate, StoredCredential, StoredCredentialCreate, Viewport, LocalExecutionConfig, DockerExecutionConfig, GitHubActionsConfig, ExecutionTarget, BrowserType, BrowserChannel, ArtifactMode } from '@playwright-web-app/shared';
+import type { RunConfiguration, RunConfigurationCreate, RunConfigurationUpdate, RunConfigRuntimeFields, TargetEnvironment, ExecutionEnvironment, ExecutionEnvironmentCreate, ExecutionEnvironmentUpdate, RemoteRunner, RemoteRunnerCreate, RemoteRunnerUpdate, StoredCredential, StoredCredentialCreate, Viewport, LocalExecutionConfig, DockerExecutionConfig, GitHubActionsConfig, ExecutionTarget, BrowserType, BrowserChannel, ArtifactMode } from '@playwright-web-app/shared';
 
 // ============================================
 // RUN CONFIGURATION SERVICE
@@ -59,18 +59,8 @@ export class RunConfigurationService {
       ? await runConfigurationRepository.findByWorkflowIdAndProjectId(workflowId, projectId)
       : (await runConfigurationRepository.findByWorkflowId(workflowId)).filter((config) => Boolean(config.projectId));
 
-    // Get environments and runners for each config
-    const enrichedConfigs = await Promise.all(
-      configs.map(async (config) => {
-        const environment = config.environmentId
-          ? await executionEnvironmentRepository.findById(config.environmentId)
-          : null;
-        return { ...config, environment };
-      })
-    );
-
     const formatted: RunConfiguration[] = [];
-    for (const config of enrichedConfigs) {
+    for (const config of configs) {
       try {
         formatted.push(this.formatConfiguration(config));
       } catch (error: any) {
@@ -94,11 +84,7 @@ export class RunConfigurationService {
 
     await this.verifyWorkflowAccess(userId, config.workflowId, userRole);
 
-    const environment = config.environmentId
-      ? await executionEnvironmentRepository.findById(config.environmentId)
-      : null;
-
-    return this.formatConfiguration({ ...config, environment });
+    return this.formatConfiguration(config);
   }
 
   async createConfiguration(
@@ -137,7 +123,6 @@ export class RunConfigurationService {
       grep: data.grep,
       tagExpression: data.tagExpression,
       namePatterns: data.namePatterns ? JSON.stringify(data.namePatterns) : undefined,
-      environmentId: data.environmentId,
       target: data.target ?? 'local',
       localConfig: data.localConfig ? JSON.stringify(data.localConfig) : undefined,
       dockerConfig: data.dockerConfig ? JSON.stringify(data.dockerConfig) : undefined,
@@ -156,6 +141,8 @@ export class RunConfigurationService {
       advancedConfig: data.advancedConfig ? JSON.stringify(data.advancedConfig) : undefined,
       // Phase 2 additions
       selectionScope: data.selectionScope,
+      targetProjectId: data.targetProjectId,
+      targetEnvironment: data.targetEnvironment ? JSON.stringify(data.targetEnvironment) : undefined,
       envVars: data.envVars ? JSON.stringify(data.envVars) : undefined,
       parameterSetId: data.parameterSetId,
       parameterOverrides: data.parameterOverrides ? JSON.stringify(data.parameterOverrides) : undefined,
@@ -167,11 +154,7 @@ export class RunConfigurationService {
       runtimeConfig: data.runtimeConfig ? JSON.stringify(data.runtimeConfig) : undefined,
     });
 
-    const environment = config.environmentId
-      ? await executionEnvironmentRepository.findById(config.environmentId)
-      : null;
-
-    return this.formatConfiguration({ ...config, environment });
+    return this.formatConfiguration(config);
   }
 
   async updateConfiguration(
@@ -200,18 +183,18 @@ export class RunConfigurationService {
 
     const plainKeys = [
       'name', 'description', 'isDefault', 'tags', 'tagMode', 'excludeTags',
-      'testFlowIds', 'grep', 'tagExpression', 'environmentId', 'target', 'browser',
+      'testFlowIds', 'grep', 'tagExpression', 'target', 'browser',
       'browserChannel', 'headless', 'workers', 'shardCount', 'retries',
       'timeout', 'tracing', 'screenshot', 'video',
       // Phase 2 plain keys
-      'selectionScope', 'parameterSetId',
+      'selectionScope', 'targetProjectId', 'parameterSetId',
       'visualPreset', 'visualThreshold', 'visualMaxDiffPixels',
       'visualMaxDiffPixelRatio', 'visualUpdateSnapshots',
     ];
     const jsonKeys = [
       'localConfig', 'dockerConfig', 'githubActionsConfig', 'advancedConfig',
       // Phase 2 JSON keys
-      'namePatterns', 'envVars', 'parameterOverrides', 'runtimeConfig',
+      'namePatterns', 'targetEnvironment', 'envVars', 'parameterOverrides', 'runtimeConfig',
     ];
     const updateData = this.buildUpdateData(data, [...plainKeys, ...jsonKeys], jsonKeys);
 
@@ -226,11 +209,7 @@ export class RunConfigurationService {
       throw new NotFoundError('Run configuration not found');
     }
 
-    const environment = config.environmentId
-      ? await executionEnvironmentRepository.findById(config.environmentId)
-      : null;
-
-    return this.formatConfiguration({ ...config, environment });
+    return this.formatConfiguration(config);
   }
 
   async deleteConfiguration(userId: string, configId: string, userRole?: string): Promise<void> {
@@ -265,7 +244,6 @@ export class RunConfigurationService {
       grep: existing.grep,
       tagExpression: existing.tagExpression,
       namePatterns: existing.namePatterns,
-      environmentId: existing.environmentId,
       target: existing.target,
       localConfig: existing.localConfig,
       dockerConfig: existing.dockerConfig,
@@ -289,6 +267,8 @@ export class RunConfigurationService {
       visualMaxDiffPixelRatio: existing.visualMaxDiffPixelRatio,
       visualUpdateSnapshots: existing.visualUpdateSnapshots,
       selectionScope: existing.selectionScope,
+      targetProjectId: existing.targetProjectId,
+      targetEnvironment: existing.targetEnvironment,
       envVars: existing.envVars,
       parameterSetId: existing.parameterSetId,
       parameterOverrides: existing.parameterOverrides,
@@ -377,8 +357,6 @@ export class RunConfigurationService {
       grep: config.grep ?? undefined,
       tagExpression: config.tagExpression ?? undefined,
       namePatterns: this.parseJsonField<string[]>(config.namePatterns),
-      environmentId: config.environmentId ?? undefined,
-      environment: config.environment ? this.formatEnvironment(config.environment) : undefined,
       target: config.target as ExecutionTarget,
       localConfig: this.parseJsonField<LocalExecutionConfig>(config.localConfig),
       dockerConfig: this.parseJsonField<DockerExecutionConfig>(config.dockerConfig),
@@ -404,6 +382,8 @@ export class RunConfigurationService {
       visualMaxDiffPixelRatio: config.visualMaxDiffPixelRatio ?? undefined,
       visualUpdateSnapshots: config.visualUpdateSnapshots ?? undefined,
       selectionScope: config.selectionScope ?? undefined,
+      targetProjectId: config.targetProjectId ?? undefined,
+      targetEnvironment: this.parseJsonField(config.targetEnvironment),
       envVars: this.parseJsonField<Record<string, string>>(config.envVars),
       parameterSetId: config.parameterSetId ?? undefined,
       parameterOverrides: this.parseJsonField<Record<string, string | number | boolean>>(config.parameterOverrides),

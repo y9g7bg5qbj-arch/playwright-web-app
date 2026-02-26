@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Monitor, Github, CheckCircle2, AlertCircle, Globe, Rocket, Eye, EyeOff, Loader2, LogOut, ExternalLink } from 'lucide-react';
+import { Monitor, Github, CheckCircle2, AlertCircle, Rocket, Eye, EyeOff, Loader2, LogOut, ExternalLink } from 'lucide-react';
 import type { RunConfiguration } from '@/store/runConfigStore';
-import { useEnvironmentStore } from '@/store/environmentStore';
 import { useGitHubStore } from '@/store/useGitHubStore';
 import { runConfigTheme, cardSelectClass, chipClass, cx } from './theme';
 
@@ -12,7 +11,6 @@ interface GeneralTabProps {
 }
 
 export function GeneralTab({ config, onChange, hideName }: GeneralTabProps) {
-  const { environments, setManagerOpen } = useEnvironmentStore();
   const {
     isConnected,
     integration,
@@ -48,6 +46,7 @@ export function GeneralTab({ config, onChange, hideName }: GeneralTabProps) {
       workflowFile: config.github?.workflowFile || '.github/workflows/vero-tests.yml',
     });
   }, [config.target, isConnected, selectedRepository, selectedBranch]);
+
 
   const handleConnect = async () => {
     if (!tokenInput.trim()) return;
@@ -109,42 +108,6 @@ export function GeneralTab({ config, onChange, hideName }: GeneralTabProps) {
           />
         </section>
       )}
-
-      <section className={runConfigTheme.section}>
-        <div className="mb-2 flex items-center gap-2">
-          <Globe className="h-4 w-4 text-brand-secondary" />
-          <label className={runConfigTheme.label}>Environment</label>
-        </div>
-        <select
-          value={config.environmentId || ''}
-          onChange={(event) => onChange('environmentId', event.target.value || undefined)}
-          className={runConfigTheme.select}
-        >
-          <option value="">Use active environment</option>
-          {environments.map((environment) => (
-            <option key={environment.id} value={environment.id}>
-              {environment.name} {environment.isActive && '(Active)'}
-            </option>
-          ))}
-        </select>
-        <p className="mt-2 text-xs text-text-muted">
-          Variables like{' '}
-          <code className="rounded bg-dark-elevated px-1 py-0.5 font-mono text-brand-secondary">{'{{baseUrl}}'}</code>{' '}
-          resolve from this environment.
-        </p>
-        <button
-          type="button"
-          onClick={() => setManagerOpen(true)}
-          className="mt-2 inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-brand-secondary transition-colors hover:bg-white/[0.06] hover:text-brand-hover"
-        >
-          Manage Environments...
-        </button>
-        {environments.length === 0 && (
-          <p className="mt-1 text-xs text-status-warning">
-            No environments found. Use &quot;Manage Environments...&quot; to create one.
-          </p>
-        )}
-      </section>
 
       <section className={runConfigTheme.section}>
         <p className={runConfigTheme.label}>Execution Target</p>
@@ -326,16 +289,6 @@ export function GeneralTab({ config, onChange, hideName }: GeneralTabProps) {
             </div>
           </div>
 
-          <div className="mt-3">
-            <label className={runConfigTheme.label}>Workflow File</label>
-            <input
-              type="text"
-              value={config.github?.workflowFile || ''}
-              onChange={(event) => onChange('github', { ...config.github, workflowFile: event.target.value })}
-              className={cx(runConfigTheme.input, 'mt-2 font-mono')}
-              placeholder=".github/workflows/vero-tests.yml"
-            />
-          </div>
         </section>
       )}
 
@@ -355,17 +308,6 @@ export function GeneralTab({ config, onChange, hideName }: GeneralTabProps) {
         </div>
       </section>
 
-      <section className={runConfigTheme.section}>
-        <p className={runConfigTheme.label}>Base URL</p>
-        <input
-          type="text"
-          value={config.baseURL || ''}
-          onChange={(event) => onChange('baseURL', event.target.value)}
-          className={cx(runConfigTheme.input, 'mt-2 font-mono')}
-          placeholder="http://localhost:3000"
-        />
-        <p className="mt-2 text-xs text-text-muted">Used by relative `page.goto()` calls in generated Playwright tests.</p>
-      </section>
     </div>
   );
 }

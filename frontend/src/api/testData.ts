@@ -69,6 +69,7 @@ export interface TestDataSheet {
   name: string;
   pageObject?: string;
   description?: string;
+  projectId?: string | null;
   columns: Column[];
   rowCount: number;
   createdAt: string;
@@ -220,6 +221,7 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T>
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers,
+    credentials: options?.credentials ?? 'include',
   });
   let data: any = null;
   try {
@@ -241,11 +243,34 @@ export const testDataApi = {
   /**
    * List all sheets for a project
    */
-  async listSheets(projectId: string): Promise<TestDataSheet[]> {
-    const response = await fetchJson<SheetsResponse>(
-      `/test-data/sheets?projectId=${encodeURIComponent(projectId)}`
-    );
-    return response.sheets || [];
+  async listSheets(
+    projectId: string,
+    options?: {
+      nestedProjectId?: string | null;
+      fallbackToApplicationScope?: boolean;
+    }
+  ): Promise<TestDataSheet[]> {
+    const normalizedNestedProjectId =
+      typeof options?.nestedProjectId === 'string' && options.nestedProjectId.trim().length > 0
+        ? options.nestedProjectId.trim()
+        : undefined;
+    const fallbackToApplicationScope = options?.fallbackToApplicationScope ?? true;
+
+    const listForScope = async (nestedProjectId?: string): Promise<TestDataSheet[]> => {
+      const params = new URLSearchParams();
+      params.set('projectId', projectId);
+      if (nestedProjectId) {
+        params.set('nestedProjectId', nestedProjectId);
+      }
+      const response = await fetchJson<SheetsResponse>(`/test-data/sheets?${params.toString()}`);
+      return response.sheets || [];
+    };
+
+    const scopedSheets = await listForScope(normalizedNestedProjectId);
+    if (normalizedNestedProjectId && fallbackToApplicationScope && scopedSheets.length === 0) {
+      return listForScope(undefined);
+    }
+    return scopedSheets;
   },
 
   /**

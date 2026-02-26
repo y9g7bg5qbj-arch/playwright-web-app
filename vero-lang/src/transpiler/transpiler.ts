@@ -86,71 +86,90 @@ export class Transpiler {
      * Check if a feature uses any environment variable references
      */
     private usesEnvVars(feature: FeatureNode): boolean {
-        return this.featureHasStatement(feature, (stmt) => {
-            // Check expression-bearing fields for environment variable references
-            const stmtAny = stmt as unknown as Record<string, ExpressionNode | undefined>;
-            for (const field of ['value', 'url', 'message']) {
-                if (field in stmt && stmtAny[field]?.type === 'EnvVarReference') {
-                    return true;
-                }
-            }
-            return false;
-        });
+        return this.nodeHasEnvVarReference(feature);
+    }
+
+    /**
+     * Recursively scan an AST node for EnvVarReference expressions.
+     * This covers ROW/ROWS WHERE clauses and other nested expression positions.
+     */
+    private nodeHasEnvVarReference(node: unknown): boolean {
+        if (node === null || node === undefined) return false;
+        if (Array.isArray(node)) {
+            return node.some((item) => this.nodeHasEnvVarReference(item));
+        }
+        if (typeof node !== 'object') return false;
+
+        const nodeRecord = node as Record<string, unknown>;
+        if (nodeRecord.type === 'EnvVarReference') {
+            return true;
+        }
+
+        return Object.values(nodeRecord).some((value) => this.nodeHasEnvVarReference(value));
     }
 
     /**
      * Collect all table names used in VDQL queries within a feature
      */
+    private collectUsedTablesFromStatements(statements: StatementNode[], target: Set<string>): void {
+        for (const stmt of statements) {
+            switch (stmt.type) {
+                case 'DataQuery':
+                    target.add(stmt.query.tableRef.tableName);
+                    break;
+                case 'Load':
+                    target.add(stmt.tableName);
+                    break;
+                case 'ForEach':
+                    this.collectUsedTablesFromStatements(stmt.statements, target);
+                    break;
+                case 'TryCatch':
+                    this.collectUsedTablesFromStatements(stmt.tryStatements, target);
+                    this.collectUsedTablesFromStatements(stmt.catchStatements, target);
+                    break;
+                case 'IfElse':
+                    this.collectUsedTablesFromStatements(stmt.ifStatements, target);
+                    this.collectUsedTablesFromStatements(stmt.elseStatements, target);
+                    break;
+                case 'Repeat':
+                    this.collectUsedTablesFromStatements(stmt.statements, target);
+                    break;
+                case 'Row':
+                    target.add(stmt.tableRef.tableName);
+                    break;
+                case 'Rows':
+                    target.add(stmt.tableRef.tableName);
+                    break;
+                case 'ColumnAccess':
+                    target.add(stmt.tableRef.tableName);
+                    break;
+                case 'Count':
+                    target.add(stmt.tableRef.tableName);
+                    break;
+            }
+        }
+    }
+
     private collectUsedTables(feature: FeatureNode): string[] {
         this.usedTables.clear();
 
-        const collectFromStatements = (statements: StatementNode[]) => {
-            for (const stmt of statements) {
-                switch (stmt.type) {
-                    case 'DataQuery':
-                        this.usedTables.add(stmt.query.tableRef.tableName);
-                        break;
-                    case 'Load':
-                        this.usedTables.add(stmt.tableName);
-                        break;
-                    case 'ForEach':
-                        collectFromStatements(stmt.statements);
-                        break;
-                    case 'TryCatch':
-                        collectFromStatements(stmt.tryStatements);
-                        collectFromStatements(stmt.catchStatements);
-                        break;
-                    case 'IfElse':
-                        collectFromStatements(stmt.ifStatements);
-                        collectFromStatements(stmt.elseStatements);
-                        break;
-                    case 'Repeat':
-                        collectFromStatements(stmt.statements);
-                        break;
-                    case 'Row':
-                        this.usedTables.add(stmt.tableRef.tableName);
-                        break;
-                    case 'Rows':
-                        this.usedTables.add(stmt.tableRef.tableName);
-                        break;
-                    case 'ColumnAccess':
-                        this.usedTables.add(stmt.tableRef.tableName);
-                        break;
-                    case 'Count':
-                        this.usedTables.add(stmt.tableRef.tableName);
-                        break;
-                }
-            }
-        };
-
         // Collect from hooks
         for (const hook of feature.hooks) {
-            collectFromStatements(hook.statements);
+            this.collectUsedTablesFromStatements(hook.statements, this.usedTables);
         }
 
         // Collect from scenarios
         for (const scenario of feature.scenarios) {
-            collectFromStatements(scenario.statements);
+            this.collectUsedTablesFromStatements(scenario.statements, this.usedTables);
+        }
+
+        return [...this.usedTables];
+    }
+
+    private collectUsedTablesFromPageActions(pa: PageActionsNode): string[] {
+        this.usedTables.clear();
+        for (const action of pa.actions) {
+            this.collectUsedTablesFromStatements(action.statements, this.usedTables);
         }
 
         return [...this.usedTables];
@@ -245,10 +264,34 @@ export class Transpiler {
     private transpilePageActions(pa: PageActionsNode, pages: PageNode[]): string {
         const lines: string[] = [];
         const boundPage = pages.find(p => p.name === pa.forPage);
+        const usedTables = this.collectUsedTablesFromPageActions(pa);
+        const hasVDQL = usedTables.length > 0;
 
         lines.push("import { Page, Locator } from '@playwright/test';");
         lines.push(`import { ${pa.forPage} } from './${pa.forPage}';`);
+        if (hasVDQL) {
+            lines.push("import { createDataManager } from '../runtime/DataManager';");
+            lines.push("import { testDataApi } from '../api/testDataApi';");
+        }
         lines.push('');
+
+        if (hasVDQL) {
+            lines.push("const __env__: Record<string, string> = JSON.parse(process.env.VERO_ENV_VARS || '{}');");
+            lines.push('');
+            lines.push('const dataManager = createDataManager({');
+            lines.push('    fetchTable: (tableName) => testDataApi.getTableData(tableName)');
+            lines.push('});');
+            lines.push('');
+            lines.push('const Data: Record<string, any> & {');
+            lines.push('    resolveReferences: (table: string, row: any) => any;');
+            lines.push('    resolveReferencesMany: (table: string, rows: any[]) => any[];');
+            lines.push('} = {');
+            lines.push('    resolveReferences: (_table, row) => row,');
+            lines.push('    resolveReferencesMany: (_table, rows) => rows,');
+            lines.push('};');
+            lines.push('');
+        }
+
         lines.push(`export class ${pa.name} {`);
         this.indent++;
 
@@ -265,10 +308,45 @@ export class Transpiler {
         this.indent--;
         lines.push(this.line('}'));
 
-        // Actions - these can access the bound page's fields
-        for (const action of pa.actions) {
+        if (hasVDQL) {
             lines.push('');
-            lines.push(this.transpilePageActionsMethod(action, pa.forPage, boundPage));
+            lines.push(this.line('private static __dataReady = false;'));
+            lines.push('');
+            lines.push(this.line('private static async __ensureDataLoaded(): Promise<void> {'));
+            this.indent++;
+            lines.push(this.line(`if (${pa.name}.__dataReady) return;`));
+            const tableList = usedTables.map((t) => `'${t}'`).join(', ');
+            lines.push(this.line(`await dataManager.preloadTables([${tableList}]);`));
+            for (const table of usedTables) {
+                lines.push(this.line(`Data['${table}'] = dataManager.query('${table}').execute();`));
+            }
+            lines.push(this.line(`${pa.name}.__dataReady = true;`));
+            this.indent--;
+            lines.push(this.line('}'));
+        }
+
+        // Actions - these can access the bound page's fields.
+        // Group by action name so we can transpile same-name methods as overload dispatch.
+        const actionGroups = new Map<string, ActionDefinitionNode[]>();
+        const orderedActionNames: string[] = [];
+        for (const action of pa.actions) {
+            const existing = actionGroups.get(action.name);
+            if (!existing) {
+                actionGroups.set(action.name, [action]);
+                orderedActionNames.push(action.name);
+            } else {
+                existing.push(action);
+            }
+        }
+
+        for (const actionName of orderedActionNames) {
+            const overloads = actionGroups.get(actionName) || [];
+            lines.push('');
+            if (overloads.length === 1) {
+                lines.push(this.transpilePageActionsMethod(overloads[0], pa.name, pa.forPage, boundPage, hasVDQL));
+            } else {
+                lines.push(this.transpileOverloadedPageActionsMethod(actionName, overloads, pa.name, pa.forPage, boundPage, hasVDQL));
+            }
         }
 
         this.indent--;
@@ -277,7 +355,78 @@ export class Transpiler {
         return lines.join('\n');
     }
 
-    private transpilePageActionsMethod(action: ActionDefinitionNode, forPage: string, boundPage?: PageNode): string {
+    private getOverloadedPageActionsReturnType(overloads: ActionDefinitionNode[]): string {
+        const signatureTypes = new Set(overloads.map((ov) => ov.returnType ?? 'void'));
+        if (signatureTypes.size === 1) {
+            const onlyType = overloads[0].returnType;
+            return onlyType
+                ? `: Promise<${this.getTypeScriptType(onlyType)}>`
+                : ': Promise<void>';
+        }
+        return ': Promise<any>';
+    }
+
+    private transpileOverloadedPageActionsMethod(
+        actionName: string,
+        overloads: ActionDefinitionNode[],
+        pageActionsName: string,
+        forPage: string,
+        boundPage?: PageNode,
+        hasVDQL = false
+    ): string {
+        const lines: string[] = [];
+        const returnType = this.getOverloadedPageActionsReturnType(overloads);
+        const overloadByArity = new Map<number, ActionDefinitionNode>();
+
+        // If duplicate arity exists, keep the latest declaration (same as JS last-write semantics).
+        for (const overload of overloads) {
+            overloadByArity.set(overload.parameters.length, overload);
+        }
+        const arities = Array.from(overloadByArity.keys()).sort((a, b) => a - b);
+
+        lines.push(this.line(`async ${actionName}(...__args: string[])${returnType} {`));
+        this.indent++;
+
+        if (hasVDQL) {
+            lines.push(this.line(`await ${pageActionsName}.__ensureDataLoaded();`));
+        }
+
+        for (const arity of arities) {
+            const overload = overloadByArity.get(arity)!;
+            lines.push(this.line(`if (__args.length === ${arity}) {`));
+            this.indent++;
+
+            if (arity > 0) {
+                lines.push(this.line(`const [${overload.parameters.join(', ')}] = __args;`));
+            }
+
+            for (const statement of overload.statements) {
+                const code = this.transpilePageActionsStatement(statement, forPage, boundPage);
+                if (code) lines.push(this.line(code));
+            }
+
+            if (!overload.returnType) {
+                lines.push(this.line('return;'));
+            }
+
+            this.indent--;
+            lines.push(this.line('}'));
+        }
+
+        lines.push(this.line(`throw new Error('No overload for ${actionName} with ' + __args.length + ' argument(s)');`));
+        this.indent--;
+        lines.push(this.line('}'));
+
+        return lines.join('\n');
+    }
+
+    private transpilePageActionsMethod(
+        action: ActionDefinitionNode,
+        pageActionsName: string,
+        forPage: string,
+        boundPage?: PageNode,
+        hasVDQL = false
+    ): string {
         const lines: string[] = [];
         const params = action.parameters.map(p => `${p}: string`).join(', ');
         const returnType = action.returnType
@@ -286,6 +435,10 @@ export class Transpiler {
 
         lines.push(this.line(`async ${action.name}(${params})${returnType} {`));
         this.indent++;
+
+        if (hasVDQL) {
+            lines.push(this.line(`await ${pageActionsName}.__ensureDataLoaded();`));
+        }
 
         for (const statement of action.statements) {
             // Pass the bound page name as context so fields resolve correctly

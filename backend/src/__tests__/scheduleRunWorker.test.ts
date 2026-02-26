@@ -11,13 +11,6 @@ const mocks = vi.hoisted(() => ({
     create: vi.fn(),
     hasActiveRuns: vi.fn(),
   },
-  userEnvironmentRepositoryMock: {
-    findById: vi.fn(),
-    findActiveByUserId: vi.fn(),
-  },
-  environmentVariableRepositoryMock: {
-    findByEnvironmentId: vi.fn(),
-  },
   executionRepositoryMock: {
     create: vi.fn(),
     findById: vi.fn(),
@@ -73,8 +66,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../db/repositories/mongo', () => ({
   scheduleRepository: mocks.scheduleRepositoryMock,
   scheduleRunRepository: mocks.scheduleRunRepositoryMock,
-  userEnvironmentRepository: mocks.userEnvironmentRepositoryMock,
-  environmentVariableRepository: mocks.environmentVariableRepositoryMock,
   executionRepository: mocks.executionRepositoryMock,
   runConfigurationRepository: mocks.runConfigurationRepositoryMock,
   projectRepository: mocks.projectRepositoryMock,
@@ -174,10 +165,6 @@ describe('scheduleRunWorker environment propagation', () => {
     mocks.scheduleRepositoryMock.update.mockResolvedValue({});
     mocks.scheduleRunRepositoryMock.update.mockResolvedValue({});
 
-    mocks.userEnvironmentRepositoryMock.findById.mockResolvedValue(null);
-    mocks.userEnvironmentRepositoryMock.findActiveByUserId.mockResolvedValue(null);
-    mocks.environmentVariableRepositoryMock.findByEnvironmentId.mockResolvedValue([]);
-
     mocks.auditServiceMock.logExecutionAction.mockResolvedValue(undefined);
     mocks.notificationServiceMock.sendRunNotifications.mockResolvedValue(undefined);
 
@@ -202,7 +189,7 @@ describe('scheduleRunWorker environment propagation', () => {
     mocks.githubServiceMock.listWorkflowRuns.mockResolvedValue([]);
   });
 
-  it('uses selected environmentId for local schedule runs — legacy .spec.ts path', async () => {
+  it('resolves runtime env vars from parameter values for legacy .spec.ts path', async () => {
     // Resolve to a legacy .spec.ts file (not .vero)
     mocks.resolveTestFilesMock.mockResolvedValue(['/tests/smoke.spec.ts']);
     // Mock the runSuite async generator to yield one passed result
@@ -220,35 +207,20 @@ describe('scheduleRunWorker environment propagation', () => {
       timezone: 'UTC',
     });
 
-    mocks.userEnvironmentRepositoryMock.findById.mockResolvedValue({
-      id: 'env-qa',
-      userId: 'user-1',
-      name: 'QA',
-    });
-
-    mocks.environmentVariableRepositoryMock.findByEnvironmentId.mockResolvedValue([
-      { key: 'BASE_URL', value: 'https://qa.example.com' },
-      { key: 'API_TOKEN', value: 'token-123' },
-    ]);
-
     await processScheduleRunJob(
       buildJob({
-        executionConfig: {
-          browser: 'chromium',
-          environmentId: 'env-qa',
+        executionConfig: { browser: 'chromium' },
+        parameterValues: {
+          BASE_URL: 'https://qa.example.com',
+          API_TOKEN: 'token-123',
         },
       }) as any
     );
-
-    expect(mocks.userEnvironmentRepositoryMock.findById).toHaveBeenCalledWith('env-qa');
-    expect(mocks.userEnvironmentRepositoryMock.findActiveByUserId).not.toHaveBeenCalled();
-    expect(mocks.environmentVariableRepositoryMock.findByEnvironmentId).toHaveBeenCalledWith('env-qa');
 
     // Legacy .spec.ts files go through executionEngine.runSuite
     expect(mocks.executionEngineMock.runSuite).toHaveBeenCalledWith(
       ['/tests/smoke.spec.ts'],
       expect.objectContaining({
-        environmentId: 'env-qa',
         envVars: {
           BASE_URL: 'https://qa.example.com',
           API_TOKEN: 'token-123',
@@ -256,10 +228,10 @@ describe('scheduleRunWorker environment propagation', () => {
       })
     );
 
-    expect(mocks.scheduleRunRepositoryMock.update).toHaveBeenCalledWith(
-      'run-1',
-      expect.objectContaining({ status: 'running' })
-    );
+    // No environmentId on the options
+    const options = mocks.executionEngineMock.runSuite.mock.calls[0][1];
+    expect(options.environmentId).toBeUndefined();
+
     expect(mocks.scheduleRunRepositoryMock.update).toHaveBeenCalledWith(
       'run-1',
       expect.objectContaining({ status: 'passed' })
@@ -290,16 +262,6 @@ describe('scheduleRunWorker environment propagation', () => {
       timezone: 'UTC',
     });
 
-    mocks.userEnvironmentRepositoryMock.findActiveByUserId.mockResolvedValue({
-      id: 'env-active',
-      userId: 'user-1',
-      name: 'Development',
-    });
-
-    mocks.environmentVariableRepositoryMock.findByEnvironmentId.mockResolvedValue([
-      { key: 'BASE_URL', value: 'https://dev.example.com' },
-    ]);
-
     await processScheduleRunJob(
       buildJob({
         parameterValues: { browser: 'firefox', region: 'us-east' },
@@ -314,10 +276,10 @@ describe('scheduleRunWorker environment propagation', () => {
     expect(runInput.filePath).toBe('/tests/Login.vero');
     expect(runInput.triggeredBy).toBe('schedule');
     expect(runInput.projectId).toBe('proj-1');
-    // Parameter values are passed through (Gap 1 fix)
+    // Parameter values are passed through
     expect(runInput.parameterValues).toEqual({ browser: 'firefox', region: 'us-east' });
-    // Environment manager vars are passed as environmentVars
-    expect(runInput.environmentVars).toEqual({ BASE_URL: 'https://dev.example.com' });
+    // No environment manager vars — environment layer removed
+    expect(runInput.environmentVars).toBeUndefined();
 
     expect(mocks.scheduleRunRepositoryMock.update).toHaveBeenCalledWith(
       'run-1',
@@ -405,7 +367,7 @@ describe('scheduleRunWorker environment propagation', () => {
     });
   });
 
-  it('falls back to active environment when no environmentId is configured', async () => {
+  it('does not call environment repositories (environment layer removed)', async () => {
     mocks.resolveTestFilesMock.mockResolvedValue(['/tests/smoke.spec.ts']);
     mocks.executionEngineMock.runSuite.mockReturnValue(
       (async function* () { yield { status: 'passed' }; })()
@@ -421,32 +383,16 @@ describe('scheduleRunWorker environment propagation', () => {
       timezone: 'UTC',
     });
 
-    mocks.userEnvironmentRepositoryMock.findActiveByUserId.mockResolvedValue({
-      id: 'env-active',
-      userId: 'user-1',
-      name: 'Development',
-    });
-
-    mocks.environmentVariableRepositoryMock.findByEnvironmentId.mockResolvedValue([
-      { key: 'BASE_URL', value: 'https://dev.example.com' },
-    ]);
-
     await processScheduleRunJob(buildJob() as any);
 
-    expect(mocks.userEnvironmentRepositoryMock.findById).not.toHaveBeenCalled();
-    expect(mocks.userEnvironmentRepositoryMock.findActiveByUserId).toHaveBeenCalledWith('user-1');
-    expect(mocks.executionEngineMock.runSuite).toHaveBeenCalledWith(
-      ['/tests/smoke.spec.ts'],
-      expect.objectContaining({
-        environmentId: 'env-active',
-        envVars: {
-          BASE_URL: 'https://dev.example.com',
-        },
-      })
-    );
+    // Environment layer fully removed — no env repository calls
+    const options = mocks.executionEngineMock.runSuite.mock.calls[0][1];
+    expect(options.environmentId).toBeUndefined();
+    // No parameter values -> no envVars passed to the legacy execution engine.
+    expect(options.envVars).toBeUndefined();
   });
 
-  it('injects envVarsB64 when dispatching vero-mode schedule runs to GitHub Actions', async () => {
+  it('injects envVarsB64 from resolved parameter values when dispatching to GitHub Actions', async () => {
     const setTimeoutSpy = vi
       .spyOn(global, 'setTimeout')
       .mockImplementation(((handler: (...args: any[]) => void) => {
@@ -471,19 +417,15 @@ describe('scheduleRunWorker environment propagation', () => {
       testSelector: JSON.stringify({}),
     });
 
-    mocks.userEnvironmentRepositoryMock.findActiveByUserId.mockResolvedValue({
-      id: 'env-ci',
-      userId: 'user-1',
-      name: 'CI',
-    });
-
-    mocks.environmentVariableRepositoryMock.findByEnvironmentId.mockResolvedValue([
-      { key: 'BASE_URL', value: 'https://ci.example.com' },
-      { key: 'AUTH_TOKEN', value: 'secret-token' },
-    ]);
-
     try {
-      await processScheduleRunJob(buildJob() as any);
+      await processScheduleRunJob(
+        buildJob({
+          parameterValues: {
+            BASE_URL: 'https://ci.example.com',
+            AUTH_TOKEN: 'secret-token',
+          },
+        }) as any
+      );
     } finally {
       setTimeoutSpy.mockRestore();
     }

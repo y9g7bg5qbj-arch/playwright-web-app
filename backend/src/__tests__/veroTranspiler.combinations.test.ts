@@ -125,6 +125,14 @@ FEATURE FixtureFlow {
 }
 `;
 
+const vdqlSource = `
+FEATURE DataLookupFlow {
+  SCENARIO QueryData {
+    ROW firstCred = FIRST LoginCredentials WHERE username CONTAINS "tom" ORDER BY username ASC
+  }
+}
+`;
+
 describe('veroTranspiler parameterized combinations', () => {
   it('generates parameterized describe blocks with combo labels', () => {
     const code = transpileVero(source, {
@@ -150,6 +158,10 @@ describe('veroTranspiler parameterized combinations', () => {
 
     // Should append combo label to test.describe name
     expect(code).toContain('[${__combo__.label}]');
+
+    // Only combo-scoped __env__ declaration should remain.
+    const envDeclarationMatches = code.match(/const __env__: Record<string, string>/g) || [];
+    expect(envDeclarationMatches).toHaveLength(1);
 
     // Original VERO_ENV_VARS line should be stripped (combo provides __env__)
     expect(code).not.toMatch(/const __env__.*VERO_ENV_VARS/);
@@ -302,6 +314,13 @@ describe('veroTranspiler parameterized combinations', () => {
     expect(code).not.toContain("test.step('Log: ' + 'worker teardown'");
     expect(code).toContain('async ({ browser }, use) =>');
     expect(code).not.toContain('async ({ page }, use) =>');
+  });
+
+  it('keeps DataManager import whenever createDataManager is referenced', () => {
+    const code = transpileVero(vdqlSource);
+
+    expect(code).toContain('createDataManager(');
+    expect(code).toContain("from 'vero-lang/dist/runtime/DataManager.js';");
   });
 });
 

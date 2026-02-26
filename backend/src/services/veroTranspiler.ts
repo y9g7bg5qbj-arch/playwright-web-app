@@ -456,6 +456,9 @@ function patchDescribeLabelForCombination(block: string): string {
 }
 
 function buildSingleSpecFromTranspileResult(result: TranspileResult, options: BuildSpecOptions = {}): string {
+  const stripEnvDeclaration = (code: string): string =>
+    code.replace(/^\s*const __env__.*VERO_ENV_VARS.*$/gm, '').trim();
+
   const pageBlocks = [...result.pages.values(), ...result.pageActions.values()]
     .map((code) => sanitizeModule(code))
     .filter(Boolean);
@@ -466,15 +469,29 @@ function buildSingleSpecFromTranspileResult(result: TranspileResult, options: Bu
     .map((entry) => entry.factoryName)
     .filter((name): name is string => Boolean(name));
 
-  const testBlocks = [...result.tests.values()].map((code) => sanitizeModule(code)).filter(Boolean);
+  const rawTestBlocks = [...result.tests.values()].map((code) => sanitizeModule(code)).filter(Boolean);
+  const pageHasEnvVarDeclaration = pageBlocks.some((block) => /\bconst __env__\b/.test(block));
+  const testBlocks = rawTestBlocks.map((block) => (pageHasEnvVarDeclaration ? stripEnvDeclaration(block) : block));
+
   const testSource = testBlocks.join('\n\n');
+  const runtimeSource = [...pageBlocks, ...fixtureBlocks, ...testBlocks].join('\n\n');
   const needsVeroSnapshotHelper = /\b__veroExpectScreenshot\s*\(/.test(testSource);
+  const hasEnvVarReference = /\b__env__\b/.test(testSource);
+  const hasEnvVarDeclaration = /\bconst\s+__env__\b/.test(testSource);
+  const hasRuntimeEnvVarReference = /\b__env__\b/.test(runtimeSource);
+  const hasRuntimeEnvVarDeclaration = /\bconst\s+__env__\b/.test(runtimeSource);
+  const hasCreateDataManagerReference = /\bcreateDataManager\s*\(/.test(runtimeSource);
+  const runtimeImports = buildRuntimeImports(runtimeSource);
+  const hasDataManagerImport = runtimeImports.some((importLine) => importLine === DATA_MANAGER_IMPORT);
+  if (hasCreateDataManagerReference && !hasDataManagerImport) {
+    runtimeImports.unshift(DATA_MANAGER_IMPORT);
+  }
 
   const lines: string[] = [];
   lines.push('// Auto-generated from Vero DSL via vero-lang compiler (single-file backend runtime).');
   lines.push(PLAYWRIGHT_IMPORT);
 
-  for (const runtimeImport of buildRuntimeImports(testSource)) {
+  for (const runtimeImport of runtimeImports) {
     lines.push(runtimeImport);
   }
 
@@ -519,7 +536,7 @@ function buildSingleSpecFromTranspileResult(result: TranspileResult, options: Bu
     for (const block of testBlocks) {
       const patched = block
         // Remove the original VERO_ENV_VARS line (the loop provides __env__ per combo)
-        .replace(/^\s*const __env__.*VERO_ENV_VARS.*$/m, '');
+        .replace(/^\s*const __env__.*VERO_ENV_VARS.*$/gm, '');
       const withCombinationLabel = patchDescribeLabelForCombination(patched);
       const indented = withCombinationLabel.split('\n').map((line) => '  ' + line).join('\n');
       lines.push(indented);
@@ -528,6 +545,12 @@ function buildSingleSpecFromTranspileResult(result: TranspileResult, options: Bu
 
     lines.push('}');
   } else if (testBlocks.length > 0) {
+    // Defensive fallback: inject a single shared __env__ declaration when runtime
+    // references it but no declaration exists after block normalization/deduping.
+    if ((hasRuntimeEnvVarReference || hasEnvVarReference) && !hasRuntimeEnvVarDeclaration && !hasEnvVarDeclaration) {
+      lines.push("const __env__: Record<string, string> = JSON.parse(process.env.VERO_ENV_VARS || '{}');");
+      lines.push('');
+    }
     lines.push(testBlocks.join('\n\n'));
   }
 

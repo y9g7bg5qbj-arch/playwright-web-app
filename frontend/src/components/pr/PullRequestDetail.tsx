@@ -13,6 +13,7 @@ import {
   Minus,
   Plus,
   Send,
+  Trash2,
   User,
   XCircle,
 } from 'lucide-react';
@@ -75,6 +76,7 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
     mergePullRequest,
     openPullRequestForReview,
     closePullRequest,
+    deleteClosedPullRequest,
     isLoading,
     error,
     clearCurrentPR,
@@ -104,6 +106,14 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
       fetchFileDiff(prId, selectedFile);
     }
   }, [selectedFile, prId]);
+
+  useEffect(() => {
+    if (!prId) return;
+    if (!currentPullRequest) return;
+    if (currentPullRequest.id !== prId) {
+      fetchPullRequest(prId);
+    }
+  }, [prId, currentPullRequest, fetchPullRequest]);
 
   const formatDate = (dateString: string) => new Date(dateString).toLocaleString();
 
@@ -166,13 +176,32 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
     }
   };
 
-  if (!currentPullRequest) {
+  const handlePermanentDelete = async () => {
+    if (!confirm('Permanently delete this closed pull request? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await deleteClosedPullRequest(prId);
+      addToast({ message: 'Pull request permanently deleted', variant: 'success' });
+      onBack?.();
+    } catch (err) {
+      addToast({
+        message: `Failed to permanently delete PR: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        variant: 'error',
+      });
+    }
+  };
+
+  const isDetailAligned = currentPullRequest?.id === prId;
+
+  if (!currentPullRequest || !isDetailAligned) {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        {isLoading ? (
+        {isLoading || currentPullRequest ? (
           <div className="flex items-center gap-2 text-xs text-text-muted">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading pull request...
+            Loading selected pull request...
           </div>
         ) : (
           <EmptyState
@@ -487,6 +516,20 @@ export const PullRequestDetail: React.FC<PullRequestDetailProps> = ({
                     className="border-status-danger/30 text-status-danger hover:border-status-danger/45 hover:text-status-danger"
                   >
                     Close PR
+                  </Button>
+                )}
+
+                {pr.status === 'closed' && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="md"
+                    onClick={handlePermanentDelete}
+                    disabled={isLoading}
+                    leftIcon={<Trash2 className="h-4 w-4" />}
+                    className="border-status-danger/30 text-status-danger hover:border-status-danger/45 hover:text-status-danger"
+                  >
+                    Delete Permanently
                   </Button>
                 )}
               </div>

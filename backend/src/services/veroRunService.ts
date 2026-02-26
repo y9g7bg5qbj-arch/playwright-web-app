@@ -18,7 +18,7 @@ import { join, basename, extname } from 'path';
 import { existsSync } from 'fs';
 import type { ScenarioSelectionOptions, ScenarioSelectionDiagnostics } from 'vero-lang';
 import { buildVeroRunTempSpecFileName, buildVeroRunPlaywrightArgs, resolveVeroScenarioSelection, sanitizePlaywrightArgsForLog, detectVeroRunFailure, preserveStartupFailureSpec, resolvePlaywrightHostPlatformOverride, stripVeroSpecPrefix, VERO_RUN_MODULE_MISMATCH_ERROR_CODE, type VeroRunDiagnostics } from '../routes/veroRunExecution.utils';
-import { applicationRepository, projectRepository, executionRepository, executionStepRepository, executionLogRepository, runParameterDefinitionRepository } from '../db/repositories/mongo';
+import { applicationRepository, projectRepository, sandboxRepository, executionRepository, executionStepRepository, executionLogRepository, runParameterDefinitionRepository } from '../db/repositories/mongo';
 import { detectProjectRoot, loadReferencedPages, extractReferencedPageNames } from '../routes/veroExecution.utils';
 import { resolveEnvironmentRootFromFilePath, ensureEnvironmentResources, resolveVisualSnapshotConfig } from '../routes/veroVisualSnapshots.utils';
 import { logger } from '../utils/logger';
@@ -60,6 +60,9 @@ export interface VeroRunInput {
         lastFailed?: boolean;
         selectionScope?: VeroSelectionScope;
         shard?: { current: number; total: number };
+        // Cross-project targeting
+        targetProjectId?: string;
+        targetEnvironment?: string | { sandboxId: string };
         // Visual snapshot options
         visualPreset?: string;
         visualThreshold?: number;
@@ -183,6 +186,55 @@ export function mergeExecutionEnvironment(
     return merged;
 }
 
+// ─── Target Root Resolution ────────────────────────────────────────────────
+
+/**
+ * Resolve an explicit target root directory from cross-project targeting fields.
+ * Returns undefined when the fields are absent (fallback to filePath-based resolution).
+ */
+async function resolveTargetRoot(
+    targetProjectId?: string,
+    targetEnvironment?: string | { sandboxId: string },
+): Promise<string | undefined> {
+    if (!targetProjectId || !targetEnvironment) return undefined;
+
+    const project = await projectRepository.findById(targetProjectId);
+    if (!project) {
+        logger.warn('[Vero Run] Target project not found, falling back to filePath resolution', { targetProjectId });
+        return undefined;
+    }
+
+    // Determine the environment folder name
+    let envFolder: string;
+    if (targetEnvironment === 'dev') {
+        envFolder = 'dev';
+    } else if (targetEnvironment === 'master') {
+        envFolder = 'master';
+    } else if (typeof targetEnvironment === 'object' && 'sandboxId' in targetEnvironment) {
+        // Look up sandbox to get its folder path
+        const sandbox = await sandboxRepository.findById(targetEnvironment.sandboxId);
+        if (!sandbox?.folderPath) {
+            logger.warn('[Vero Run] Target sandbox not found or has no folderPath', { sandboxId: targetEnvironment.sandboxId });
+            return undefined;
+        }
+        envFolder = `sandboxes/${sandbox.folderPath}`;
+    } else {
+        return undefined;
+    }
+
+    // Resolve the application folder from the project's application
+    const application = await applicationRepository.findById(project.applicationId);
+    if (!application) {
+        logger.warn('[Vero Run] Application not found for target project', { applicationId: project.applicationId });
+        return undefined;
+    }
+
+    // Build: VERO_PROJECT_PATH / <app-name> / <project-veroPath or name> / <envFolder>
+    const appFolder = application.name;
+    const projectFolder = project.veroPath || project.name;
+    return join(VERO_PROJECT_PATH, appFolder, projectFolder, envFolder);
+}
+
 // ─── Service Entry Point ────────────────────────────────────────────────────
 
 export async function executeVeroRun(input: VeroRunInput): Promise<VeroRunResult> {
@@ -206,11 +258,18 @@ export async function executeVeroRun(input: VeroRunInput): Promise<VeroRunResult
     // Resolve project name for Allure breadcrumbs
     const projectName = await resolveProjectName(input.projectId);
 
+    // Resolve explicit target root for cross-project targeting
+    const targetRoot = await resolveTargetRoot(
+        runConfig?.targetProjectId,
+        runConfig?.targetEnvironment,
+    );
+
     // ── 1. Resolve file execution plan ──────────────────────────────────────
     const plannedFiles = await planVeroFilesForRun({
         filePath,
         content: input.content,
         selectionScope,
+        targetRoot,
     });
     if (plannedFiles.length === 0) {
         throw new VeroRunValidationError('No content provided');
@@ -460,6 +519,28 @@ export async function executeVeroRun(input: VeroRunInput): Promise<VeroRunResult
             selection: scenarioSelection,
             combinations: paramCombinations,
         });
+        const hasDataDecl = playwrightCode.includes('const Data: Record<string, any>');
+        const hasEnsureDataLoaded = playwrightCode.includes('private static async __ensureDataLoaded()');
+        const hasOverloadDispatch = playwrightCode.includes('...__args: string[]');
+        const hasDataReference = /\bData\./.test(playwrightCode);
+        const hasLegacyDuplicateOverload =
+            playwrightCode.includes('async createAccount(firstName: string, lastName: string): Promise<void>')
+            && playwrightCode.includes('async createAccount(): Promise<void>');
+        const suspectedRuntimeDrift =
+            (hasDataReference && !hasDataDecl)
+            || (hasDataDecl && !hasEnsureDataLoaded)
+            || (hasLegacyDuplicateOverload && !hasOverloadDispatch);
+        logger.info(
+            `[DIAG] transpiler-signature file=${selectedFile.filePath} ` +
+            `hasDataDecl=${hasDataDecl} hasEnsureDataLoaded=${hasEnsureDataLoaded} hasOverloadDispatch=${hasOverloadDispatch}`
+        );
+        if (suspectedRuntimeDrift) {
+            logger.warn(
+                `[DIAG] transpiler-runtime-drift suspected file=${selectedFile.filePath} ` +
+                `hasDataDecl=${hasDataDecl} hasEnsureDataLoaded=${hasEnsureDataLoaded} ` +
+                `hasOverloadDispatch=${hasOverloadDispatch} hasLegacyDuplicateOverload=${hasLegacyDuplicateOverload}`
+            );
+        }
         await writeFile(tempTestFilePath, playwrightCode, 'utf-8');
         tempSpecPaths.push(tempTestFilePath);
         tempSpecFileNames.push(tempTestFileName);

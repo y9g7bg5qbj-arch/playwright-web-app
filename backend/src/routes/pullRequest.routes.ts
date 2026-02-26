@@ -176,6 +176,33 @@ router.delete(
 );
 
 /**
+ * DELETE /api/pull-requests/:id/permanent
+ * Permanently delete a closed pull request
+ */
+router.delete(
+  '/pull-requests/:id/permanent',
+  validate([
+    param('id').isUUID(),
+  ]),
+  asyncHandler(async (req: AuthRequest, res) => {
+    const pullRequest = await pullRequestService.getById(req.params.id);
+    if (!pullRequest) {
+      return res.status(404).json({ success: false, error: 'Pull request not found' });
+    }
+
+    await pullRequestService.deleteClosed(req.params.id, req.userId!);
+
+    // Emit WebSocket event
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`project:${pullRequest.projectId}`).emit('pr:deleted', { pullRequestId: req.params.id });
+    }
+
+    res.status(204).send();
+  })
+);
+
+/**
  * GET /api/pull-requests/:id/diff
  * Get diff summary for a PR
  */

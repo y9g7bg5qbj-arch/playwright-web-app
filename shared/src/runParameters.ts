@@ -6,9 +6,8 @@
  *
  * Variable precedence (highest wins):
  * 1. Per-run overrides (ad-hoc values entered at trigger time)
- * 2. Parameter set values (from selected preset like "California")
- * 3. Environment variables (from active AppEnvironment)
- * 4. Parameter defaults (from parameter definition schema)
+ * 2. Parameter set values (from selected preset, or app default set fallback)
+ * 3. Parameter defaults (from parameter definition schema)
  */
 
 export type RunParameterType = 'string' | 'number' | 'boolean' | 'enum';

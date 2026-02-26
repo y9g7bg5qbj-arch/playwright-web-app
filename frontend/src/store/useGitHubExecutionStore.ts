@@ -26,6 +26,15 @@ export interface GitHubExecutionScenario {
   steps?: GitHubExecutionStep[];
 }
 
+export interface GitHubReportFetchMeta {
+  status: 'pending' | 'failed' | 'succeeded';
+  attempts: number;
+  lastAttemptAt: string;
+  nextRetryAt?: string;
+  lastHttpStatus?: number;
+  lastError?: string;
+}
+
 export interface GitHubExecution {
   id: string;
   runId: number;
@@ -78,6 +87,9 @@ export interface GitHubExecution {
     startedAt?: string;
     completedAt?: string;
   }[];
+
+  // Client-side report fetch state to avoid repeated failing /report calls on polling.
+  reportFetch?: GitHubReportFetchMeta;
 }
 
 interface GitHubExecutionStore {

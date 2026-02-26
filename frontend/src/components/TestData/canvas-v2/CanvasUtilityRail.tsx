@@ -1,12 +1,11 @@
 import type { ReactNode } from 'react';
-import { Database, HardDrive, Plus, RefreshCw, Settings, Upload } from 'lucide-react';
+import { Database, HardDrive, Plus, RefreshCw, Upload } from 'lucide-react';
 import { Tooltip } from '@/components/ui';
 
 interface CanvasUtilityRailProps {
   onCreateTable: () => void;
   onImportExcel: () => void;
   onRefresh: () => void;
-  onOpenEnvironments: () => void;
   onOpenDataStorage: () => void;
   loading?: boolean;
   className?: string;
@@ -45,7 +44,6 @@ export function CanvasUtilityRail({
   onCreateTable,
   onImportExcel,
   onRefresh,
-  onOpenEnvironments,
   onOpenDataStorage,
   loading = false,
   className = '',
@@ -76,11 +74,6 @@ export function CanvasUtilityRail({
         label="Refresh"
         onClick={onRefresh}
         disabled={loading}
-      />
-      <RailButton
-        icon={<Settings className="h-3.5 w-3.5" />}
-        label="Environment Manager"
-        onClick={onOpenEnvironments}
       />
       <RailButton
         icon={<HardDrive className="h-3.5 w-3.5" />}

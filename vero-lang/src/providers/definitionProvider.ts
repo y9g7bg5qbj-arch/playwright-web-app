@@ -33,11 +33,83 @@ function makeLocation(filePath: string, line: number, col: number, length: numbe
     return { uri: filePath, range: { startLineNumber: line, startColumn: col, endLineNumber: line, endColumn: col + length } };
 }
 
+function escapeRegex(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function countParameters(parameterList: string | undefined): number {
+    if (!parameterList) return 0;
+    return parameterList
+        .split(',')
+        .map((parameter) => parameter.trim())
+        .filter(Boolean)
+        .length;
+}
+
+function inferActionCallArity(lineContent: string, actionName: string): number | null {
+    const escapedAction = escapeRegex(actionName);
+    const callMatch = lineContent.match(
+        new RegExp(`\\b(?:perform|do)\\s+(?:\\w+\\.)?${escapedAction}\\b(?:\\s+with\\s+(.+))?`, 'i')
+    );
+    if (!callMatch) return null;
+
+    const rawArgs = callMatch[1]?.replace(/\s*#.*$/, '').trim();
+    if (!rawArgs) return 0;
+    return rawArgs.split(',').map((arg) => arg.trim()).filter(Boolean).length;
+}
+
+function findEnclosingPageOrPageActionsName(code: string, lineNumber: number): string | null {
+    const lines = code.split('\n');
+    const targetLine = Math.max(1, Math.min(lineNumber, lines.length));
+
+    let activeBlockName: string | null = null;
+    let activeBraceDepth = 0;
+    let pendingBlockName: string | null = null;
+
+    for (let i = 0; i < targetLine; i++) {
+        const line = lines[i];
+        const headerMatch = line.match(/^\s*(page|pageactions)\s+(\w+)\b/i);
+
+        if (!activeBlockName && headerMatch) {
+            pendingBlockName = headerMatch[2];
+        }
+
+        if (!activeBlockName && pendingBlockName) {
+            const opens = (line.match(/\{/g) || []).length;
+            const closes = (line.match(/\}/g) || []).length;
+            if (opens > 0) {
+                activeBlockName = pendingBlockName;
+                pendingBlockName = null;
+                activeBraceDepth = opens - closes;
+                if (activeBraceDepth <= 0) {
+                    activeBlockName = null;
+                    activeBraceDepth = 0;
+                }
+                continue;
+            }
+        }
+
+        if (activeBlockName) {
+            activeBraceDepth += (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
+            if (activeBraceDepth <= 0) {
+                activeBlockName = null;
+                activeBraceDepth = 0;
+            }
+        }
+    }
+
+    return activeBlockName;
+}
+
 function findPageDefinition(pageName: string, code: string, filePath: string): Location | null {
     const lines = code.split('\n');
     for (let i = 0; i < lines.length; i++) {
-        const match = lines[i].match(new RegExp(`^\\s*page\\s+(${pageName})\\s*\\{`, 'i'));
-        if (match) return makeLocation(filePath, i + 1, lines[i].indexOf(match[1]) + 1, pageName.length);
+        const line = lines[i];
+        const pageMatch = line.match(new RegExp(`^\\s*page\\s+(${pageName})\\s*\\{`, 'i'));
+        if (pageMatch) return makeLocation(filePath, i + 1, line.indexOf(pageMatch[1]) + 1, pageName.length);
+
+        const pageActionsMatch = line.match(new RegExp(`^\\s*pageactions\\s+(${pageName})\\b(?:\\s+for\\s+\\w+)?`, 'i'));
+        if (pageActionsMatch) return makeLocation(filePath, i + 1, line.indexOf(pageActionsMatch[1]) + 1, pageName.length);
     }
     return null;
 }
@@ -67,33 +139,53 @@ function findFieldDefinition(pageName: string, fieldName: string, code: string, 
     return null;
 }
 
-function findActionDefinition(pageName: string, actionName: string, code: string, filePath: string): Location | null {
+function findActionDefinition(
+    pageName: string,
+    actionName: string,
+    code: string,
+    filePath: string,
+    expectedArity?: number | null
+): Location | null {
     const lines = code.split('\n');
-    let inPage = false;
+    const escapedActionName = escapeRegex(actionName);
+    let inBlock = false;
     let braceDepth = 0;
+    let fallbackLocation: Location | null = null;
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        const pageMatch = line.match(/^\s*page\s+(\w+)\s*\{/i);
-        if (pageMatch) {
-            inPage = pageMatch[1] === pageName;
-            braceDepth = 1;
+        const blockMatch = line.match(/^\s*(page|pageactions)\s+(\w+)\b/i);
+        if (blockMatch) {
+            inBlock = blockMatch[2] === pageName;
+            braceDepth = inBlock
+                ? (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length
+                : 0;
             continue;
         }
 
-        if (inPage) {
-            braceDepth += (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
-            if (braceDepth <= 0) { inPage = false; continue; }
-
+        if (inBlock) {
             if (braceDepth === 1) {
-                const match = line.match(new RegExp(`^\\s*(${actionName})(?:\\s+with\\s+[\\w,\\s]+)?\\s*\\{`, 'i'));
+                const match = line.match(new RegExp(`^\\s*(${escapedActionName})(?:\\s+with\\s+([\\w,\\s]+))?\\s*\\{`, 'i'));
                 if (match && !KEYWORDS.has(match[1].toLowerCase())) {
-                    return makeLocation(filePath, i + 1, line.indexOf(match[1]) + 1, actionName.length);
+                    const location = makeLocation(filePath, i + 1, line.indexOf(match[1]) + 1, actionName.length);
+                    const definitionArity = countParameters(match[2]);
+                    if (expectedArity === undefined || expectedArity === null || definitionArity === expectedArity) {
+                        return location;
+                    }
+                    if (!fallbackLocation) {
+                        fallbackLocation = location;
+                    }
                 }
+            }
+
+            braceDepth += (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
+            if (braceDepth <= 0) {
+                inBlock = false;
+                continue;
             }
         }
     }
-    return null;
+    return fallbackLocation;
 }
 
 function findVariableDefinition(varName: string, code: string, filePath: string, beforeLine?: number): Location | null {
@@ -127,13 +219,31 @@ export function provideDefinition(ctx: DefinitionContext): DefinitionResult {
         const fieldDef = findFieldDefinition(pageName, wordAtPosition, code, filePath);
         if (fieldDef) return { locations: [fieldDef] };
 
-        const actionDef = findActionDefinition(pageName, wordAtPosition, code, filePath);
+        const expectedArity = inferActionCallArity(lineContent, wordAtPosition);
+        const actionDef = findActionDefinition(pageName, wordAtPosition, code, filePath, expectedArity);
         if (actionDef) return { locations: [actionDef] };
 
         const regDef = symbolRegistry.findDefinition(`${pageName}.${wordAtPosition}`, 'field') ||
                        symbolRegistry.findDefinition(`${pageName}.${wordAtPosition}`, 'action');
         if (regDef) {
             return { locations: [makeLocation(regDef.filePath, regDef.line, regDef.column, wordAtPosition.length)] };
+        }
+    }
+
+    const escapedWord = escapeRegex(wordAtPosition);
+    const bareActionCallPattern = new RegExp(`\\b(?:perform|do)\\s+${escapedWord}\\b`, 'i');
+    const dottedActionCallPattern = new RegExp(`\\b(?:perform|do)\\s+\\w+\\.${escapedWord}\\b`, 'i');
+    if (bareActionCallPattern.test(lineContent) && !dottedActionCallPattern.test(lineContent)) {
+        const containerName = findEnclosingPageOrPageActionsName(code, lineNumber);
+        if (containerName) {
+            const expectedArity = inferActionCallArity(lineContent, wordAtPosition);
+            const actionDef = findActionDefinition(containerName, wordAtPosition, code, filePath, expectedArity);
+            if (actionDef) return { locations: [actionDef] };
+
+            const regDef = symbolRegistry.findDefinition(`${containerName}.${wordAtPosition}`, 'action');
+            if (regDef) {
+                return { locations: [makeLocation(regDef.filePath, regDef.line, regDef.column, wordAtPosition.length)] };
+            }
         }
     }
 

@@ -56,6 +56,10 @@ interface GitHubState {
   // Execution Estimate
   executionEstimate: { minutes: number; formatted: string } | null;
 
+  // Workflow File Provisioning
+  workflowFileStatus: 'unknown' | 'checking' | 'not-found' | 'found' | 'pushing' | 'error';
+  workflowFileError: string | null;
+
   // Polling
   pollingInterval: ReturnType<typeof setInterval> | null;
 
@@ -90,6 +94,10 @@ interface GitHubState {
   // Actions - Artifacts
   loadArtifacts: (runId: number) => Promise<void>;
   getArtifactDownloadUrl: (artifactId: number) => string;
+
+  // Actions - Workflow File Provisioning
+  checkWorkflowFile: (owner: string, repo: string, branch: string) => Promise<void>;
+  pushWorkflowFile: (owner: string, repo: string, branch: string) => Promise<boolean>;
 
   // Actions - Tracked Runs
   loadTrackedRuns: (workflowId: string, limit?: number) => Promise<void>;
@@ -135,6 +143,9 @@ export const useGitHubStore = create<GitHubState>((set, get) => ({
   trackedRunsLoading: false,
 
   executionEstimate: null,
+
+  workflowFileStatus: 'unknown',
+  workflowFileError: null,
 
   pollingInterval: null,
 
@@ -188,6 +199,8 @@ export const useGitHubStore = create<GitHubState>((set, get) => ({
         selectedRun: null,
         jobs: [],
         artifacts: [],
+        workflowFileStatus: 'unknown',
+        workflowFileError: null,
       });
     } catch (error) {
       console.error('Failed to disconnect:', error);
@@ -215,7 +228,7 @@ export const useGitHubStore = create<GitHubState>((set, get) => ({
   },
 
   selectRepository: (repo) => {
-    set({ selectedRepository: repo, branches: [], selectedBranch: null });
+    set({ selectedRepository: repo, branches: [], selectedBranch: null, workflowFileStatus: 'unknown', workflowFileError: null });
     if (repo) {
       get().loadBranches(repo.owner, repo.name);
     }
@@ -412,6 +425,37 @@ export const useGitHubStore = create<GitHubState>((set, get) => ({
       selectedRepository.name,
       artifactId
     );
+  },
+
+  // Workflow File Provisioning Actions
+  checkWorkflowFile: async (owner, repo, branch) => {
+    set({ workflowFileStatus: 'checking', workflowFileError: null });
+    try {
+      const result = await githubWorkflowApi.checkWorkflowFile(owner, repo, branch);
+      set({
+        workflowFileStatus: result.exists ? 'found' : 'not-found',
+      });
+    } catch (error) {
+      set({
+        workflowFileStatus: 'error',
+        workflowFileError: error instanceof Error ? error.message : 'Failed to check workflow file',
+      });
+    }
+  },
+
+  pushWorkflowFile: async (owner, repo, branch) => {
+    set({ workflowFileStatus: 'pushing', workflowFileError: null });
+    try {
+      await githubWorkflowApi.pushWorkflowFile(owner, repo, branch);
+      set({ workflowFileStatus: 'found' });
+      return true;
+    } catch (error) {
+      set({
+        workflowFileStatus: 'error',
+        workflowFileError: error instanceof Error ? error.message : 'Failed to push workflow file',
+      });
+      return false;
+    }
   },
 
   // Tracked Runs Actions

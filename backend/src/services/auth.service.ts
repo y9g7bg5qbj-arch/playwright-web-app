@@ -13,18 +13,23 @@ const WELCOME_TOKEN_EXPIRY_DAYS = 7;
 const RESET_TOKEN_EXPIRY_HOURS = 1;
 
 export class AuthService {
+  private normalizeEmail(email: string): string {
+    return email.trim().toLowerCase();
+  }
+
   /**
    * Self-registration — restricted to bootstrap admin emails only
    */
   async register(data: UserCreate): Promise<AuthResponse> {
-    const existingUser = await userRepository.findByEmail(data.email);
+    const email = this.normalizeEmail(data.email);
+    const existingUser = await userRepository.findByEmail(email);
 
     if (existingUser) {
       throw new ConflictError('User with this email already exists');
     }
 
     // Only bootstrap admin emails can self-register; all others are admin-provisioned
-    const isBootstrapAdmin = config.rbac.bootstrapAdminEmails.includes(data.email.toLowerCase());
+    const isBootstrapAdmin = config.rbac.bootstrapAdminEmails.includes(email);
     if (!isBootstrapAdmin) {
       throw new ForbiddenError('Registration is admin-provisioned. Contact your administrator.');
     }
@@ -33,7 +38,7 @@ export class AuthService {
     const role: UserRole = 'admin';
 
     const user = await userRepository.create({
-      email: data.email,
+      email,
       passwordHash,
       name: data.name,
       role,
@@ -48,13 +53,35 @@ export class AuthService {
   }
 
   async login(data: UserLogin): Promise<AuthResponse> {
-    const user = await userRepository.findByEmail(data.email);
+    const rawEmail = data.email.trim();
+    const normalizedEmail = this.normalizeEmail(data.email);
+    const user =
+      await userRepository.findByEmail(normalizedEmail)
+      || (rawEmail !== normalizedEmail ? await userRepository.findByEmail(rawEmail) : null);
 
     if (!user) {
       throw new UnauthorizedError('Invalid credentials');
     }
 
-    const isPasswordValid = await bcrypt.compare(data.password, user.passwordHash);
+    if (!user.passwordHash || typeof user.passwordHash !== 'string') {
+      logger.warn('Rejecting login due to missing password hash on user record', {
+        userId: user.id,
+        email: normalizedEmail,
+      });
+      throw new UnauthorizedError('Invalid credentials');
+    }
+
+    let isPasswordValid = false;
+    try {
+      isPasswordValid = await bcrypt.compare(data.password, user.passwordHash);
+    } catch (error) {
+      logger.warn('Rejecting login due to invalid password hash format', {
+        userId: user.id,
+        email: normalizedEmail,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new UnauthorizedError('Invalid credentials');
+    }
 
     if (!isPasswordValid) {
       throw new UnauthorizedError('Invalid credentials');
@@ -83,7 +110,8 @@ export class AuthService {
    * Creates a user with an unusable password and generates a welcome token
    */
   async createProvisionedUser(data: { name: string; email: string; role: UserRole }): Promise<{ user: User; welcomeToken: string }> {
-    const existingUser = await userRepository.findByEmail(data.email);
+    const email = this.normalizeEmail(data.email);
+    const existingUser = await userRepository.findByEmail(email);
     if (existingUser) {
       throw new ConflictError('User with this email already exists');
     }
@@ -93,7 +121,7 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(randomPassword, SALT_ROUNDS);
 
     const user = await userRepository.create({
-      email: data.email.toLowerCase(),
+      email,
       passwordHash,
       name: data.name,
       role: data.role,
@@ -180,7 +208,7 @@ export class AuthService {
    * Always returns success to avoid email enumeration
    */
   async requestPasswordReset(email: string): Promise<{ resetToken: string | null; userName: string | null }> {
-    const user = await userRepository.findByEmail(email.toLowerCase());
+    const user = await userRepository.findByEmail(this.normalizeEmail(email));
 
     if (!user) {
       // Don't reveal if email exists

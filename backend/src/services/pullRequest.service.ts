@@ -481,15 +481,15 @@ export class PullRequestService {
     const pr = await pullRequestRepository.findById(pullRequestId);
 
     if (!pr) {
-      throw new Error('Pull request not found');
+      throw new AppError(404, 'Pull request not found');
     }
 
     if (pr.authorId !== userId) {
-      throw new Error('Only the author can open a PR for review');
+      throw new AppError(403, 'Only the author can open a PR for review');
     }
 
     if (pr.status !== 'draft') {
-      throw new Error('Only draft PRs can be opened for review');
+      throw new AppError(409, 'Only draft PRs can be opened for review');
     }
 
     await pullRequestRepository.update(pullRequestId, { status: 'open' });
@@ -504,15 +504,15 @@ export class PullRequestService {
     const pr = await pullRequestRepository.findById(pullRequestId);
 
     if (!pr) {
-      throw new Error('Pull request not found');
+      throw new AppError(404, 'Pull request not found');
     }
 
     if (pr.authorId !== userId) {
-      throw new Error('Only the author can update a PR');
+      throw new AppError(403, 'Only the author can update a PR');
     }
 
     if (pr.status === 'merged' || pr.status === 'closed') {
-      throw new Error('Cannot update a merged or closed PR');
+      throw new AppError(409, 'Cannot update a merged or closed PR');
     }
 
     await pullRequestRepository.update(pullRequestId, {
@@ -530,14 +530,14 @@ export class PullRequestService {
     const pr = await pullRequestRepository.findById(pullRequestId);
 
     if (!pr) {
-      throw new Error('Pull request not found');
+      throw new AppError(404, 'Pull request not found');
     }
 
     // Author or users with manage:projects permission can close
     if (pr.authorId !== userId) {
       const user = await userRepository.findById(userId);
       if (!user || !hasPermission(normalizeRole(user.role), 'manage:projects')) {
-        throw new Error('Only the author or admin/lead can close a PR');
+        throw new AppError(403, 'Only the author or admin/lead can close a PR');
       }
     }
 
@@ -545,6 +545,38 @@ export class PullRequestService {
       status: 'closed',
       closedAt: new Date(),
     });
+  }
+
+  /**
+   * Permanently delete a closed PR and all related metadata.
+   */
+  async deleteClosed(pullRequestId: string, userId: string): Promise<void> {
+    const pr = await pullRequestRepository.findById(pullRequestId);
+
+    if (!pr) {
+      throw new AppError(404, 'Pull request not found');
+    }
+
+    if (pr.status !== 'closed') {
+      throw new AppError(409, 'Only closed pull requests can be permanently deleted');
+    }
+
+    // Author or users with manage:projects permission can delete
+    if (pr.authorId !== userId) {
+      const user = await userRepository.findById(userId);
+      if (!user || !hasPermission(normalizeRole(user.role), 'manage:projects')) {
+        throw new AppError(403, 'Only the author or admin/lead can delete a closed PR');
+      }
+    }
+
+    await pullRequestReviewRepository.deleteByPullRequestId(pullRequestId);
+    await pullRequestCommentRepository.deleteByPullRequestId(pullRequestId);
+    await pullRequestFileRepository.deleteByPullRequestId(pullRequestId);
+
+    const deleted = await pullRequestRepository.delete(pullRequestId);
+    if (!deleted) {
+      throw new AppError(500, 'Failed to delete pull request');
+    }
   }
 
   /**

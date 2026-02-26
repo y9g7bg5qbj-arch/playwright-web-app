@@ -15,6 +15,7 @@ import type { ExportMode } from '@playwright-web-app/shared';
 import { logger } from '../utils/logger';
 
 const router = Router();
+const COMPLETED_SESSION_RETENTION_MS = 5 * 60 * 1000;
 
 /**
  * POST /api/codegen/start
@@ -42,6 +43,12 @@ router.post(
 
             const { url, scenarioName, projectId, sandboxPath } = req.body;
             const userId = req.userId;
+            if (!userId) {
+                return res.status(401).json({
+                    success: false,
+                    error: 'Unauthorized',
+                });
+            }
 
             // Generate session ID server-side for security
             const sessionId = `rec-${randomUUID()}`;
@@ -49,7 +56,7 @@ router.post(
             logger.info(`[Codegen] Starting recording session ${sessionId} for URL: ${url}`);
 
             // Store session info with ownership
-            recordingSessionStore.create(sessionId, userId || 'anonymous', scenarioName || 'Recorded Scenario');
+            recordingSessionStore.create(sessionId, userId, scenarioName || 'Recorded Scenario');
 
             // Get the WebSocket server from app
             const io = req.app.get('io');
@@ -83,7 +90,8 @@ router.post(
                     }
                 },
                 // onComplete callback - when browser is closed
-                // Only emits if session still exists (stop route deletes it first)
+                // Keep session lines available briefly so stop/recovery can still
+                // return generated Vero lines even if the browser closes first.
                 () => {
                     logger.info(`[Codegen] Recording completed for session ${sessionId}`);
                     const sessionData = recordingSessionStore.get(sessionId);
@@ -97,9 +105,11 @@ router.post(
                             scenarioName: sessionData.scenarioName
                         });
                     }
-
-                    // Clean up session data
-                    recordingSessionStore.delete(sessionId);
+                    setTimeout(() => {
+                        if (!recordingSessionStore.has(sessionId)) return;
+                        recordingSessionStore.delete(sessionId);
+                        logger.info(`[Codegen] Cleaned up completed session ${sessionId} after retention window`);
+                    }, COMPLETED_SESSION_RETENTION_MS);
                 },
                 scenarioName,
                 userId,
@@ -146,6 +156,9 @@ router.post(
 
             const { sessionId } = req.params;
             const userId = req.userId;
+            if (!userId) {
+                return res.status(401).json({ success: false, error: 'Unauthorized' });
+            }
             logger.info(`[Codegen] Stopping recording session ${sessionId}`);
 
             // Verify session ownership
@@ -157,8 +170,11 @@ router.post(
                 return res.status(403).json({ success: false, error: 'Not authorized to stop this session' });
             }
 
-            // Stop the recording
-            const finalCode = await codegenRecorderService.stopRecording(sessionId);
+            // Stop active recording if still running. If the browser already closed,
+            // session lines are still available in the in-memory session store.
+            const finalCode = codegenRecorderService.hasSession(sessionId)
+                ? await codegenRecorderService.stopRecording(sessionId)
+                : '';
 
             // Get final data and clean up (prevents onComplete from also emitting)
             const veroLines = sessionData.veroLines;
@@ -171,7 +187,7 @@ router.post(
                 veroLines,
                 scenarioName,
                 playwrightCode: finalCode,
-                message: 'Recording stopped'
+                message: finalCode ? 'Recording stopped' : 'Recording already completed'
             });
         } catch (error: any) {
             logger.error('[Codegen] Stop error:', error);

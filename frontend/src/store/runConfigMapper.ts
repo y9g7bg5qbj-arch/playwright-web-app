@@ -41,13 +41,13 @@ export function toBackendCreate(
     lastFailed: config.lastFailed,
     globalTimeout: config.globalTimeout || undefined,
     grepInvert: config.grepInvert || undefined,
-    baseURL: config.baseURL || undefined,
     reporter: config.reporter?.length ? config.reporter : undefined,
     outputDir: config.outputDir || undefined,
     locale: config.locale || undefined,
     timezoneId: config.timezoneId || undefined,
     geolocation: config.geolocation || undefined,
     lastUsedAt: config.lastUsedAt || undefined,
+    ...(config.github?.branch ? { githubBranch: config.github.branch } : {}),
   };
 
   return {
@@ -67,7 +67,9 @@ export function toBackendCreate(
     tagExpression: config.tagExpression || undefined,
     namePatterns: config.namePatterns?.length ? config.namePatterns : undefined,
     selectionScope: config.selectionScope || undefined,
-    environmentId: config.environmentId || undefined,
+    targetProjectId: config.targetProjectId || undefined,
+    targetEnvironment: config.targetEnvironment || undefined,
+    // Deprecated compatibility field (kept for transport/backward compatibility).
     envVars: config.envVars && Object.keys(config.envVars).length > 0 ? config.envVars : undefined,
     parameterSetId: config.parameterSetId || undefined,
     parameterOverrides: config.parameterOverrides || undefined,
@@ -78,7 +80,9 @@ export function toBackendCreate(
     visualUpdateSnapshots: config.visualUpdateSnapshots || undefined,
     authProfileId: config.authProfileId || undefined,
     githubRepository: config.github?.repository || undefined,
-    githubWorkflowPath: config.github?.workflowFile || undefined,
+    githubWorkflowPath: config.target === 'github-actions'
+      ? '.github/workflows/vero-tests.yml'
+      : (config.github?.workflowFile || undefined),
     viewport: config.viewport,
     runtimeConfig,
   };
@@ -107,6 +111,8 @@ export function fromBackendConfig(backend: BackendRunConfiguration): FrontendRun
     grepInvert: rt.grepInvert || undefined,
     tagExpression: backend.tagExpression || undefined,
     selectionScope: backend.selectionScope || undefined,
+    targetProjectId: backend.targetProjectId || undefined,
+    targetEnvironment: backend.targetEnvironment || undefined,
     namePatterns: backend.namePatterns || undefined,
     lastFailed: rt.lastFailed ?? false,
     retries: backend.retries || 0,
@@ -122,20 +128,19 @@ export function fromBackendConfig(backend: BackendRunConfiguration): FrontendRun
     visualUpdateSnapshots: backend.visualUpdateSnapshots ?? false,
     reporter: (rt.reporter as FrontendRunConfiguration['reporter']) || ['list'],
     outputDir: rt.outputDir || undefined,
-    baseURL: rt.baseURL || undefined,
     viewport: backend.viewport || undefined,
     locale: rt.locale || undefined,
     timezoneId: rt.timezoneId || undefined,
     geolocation: rt.geolocation || undefined,
     authProfileId: backend.authProfileId || undefined,
-    environmentId: backend.environmentId || undefined,
+    // Deprecated compatibility field (kept for transport/backward compatibility).
     envVars: backend.envVars || undefined,
     parameterSetId: backend.parameterSetId || undefined,
     parameterOverrides: backend.parameterOverrides || undefined,
     github: backend.githubRepository ? {
       repository: backend.githubRepository,
-      branch: undefined,
-      workflowFile: backend.githubWorkflowPath,
+      branch: (rt as Record<string, unknown>).githubBranch as string | undefined,
+      workflowFile: '.github/workflows/vero-tests.yml',
     } : undefined,
     lastUsedAt: rt.lastUsedAt || undefined,
     createdAt: backend.createdAt,
@@ -170,7 +175,9 @@ export function toBackendUpdate(updates: Partial<FrontendRunConfiguration>): Run
   if (updates.tagExpression !== undefined) result.tagExpression = updates.tagExpression || undefined;
   if (updates.namePatterns !== undefined) result.namePatterns = updates.namePatterns;
   if (updates.selectionScope !== undefined) result.selectionScope = updates.selectionScope;
-  if (updates.environmentId !== undefined) result.environmentId = updates.environmentId || undefined;
+  if (updates.targetProjectId !== undefined) result.targetProjectId = updates.targetProjectId || undefined;
+  if (updates.targetEnvironment !== undefined) result.targetEnvironment = updates.targetEnvironment || undefined;
+  // Deprecated compatibility field (kept for transport/backward compatibility).
   if (updates.envVars !== undefined) result.envVars = updates.envVars;
   if (updates.parameterSetId !== undefined) result.parameterSetId = updates.parameterSetId || undefined;
   if (updates.visualPreset !== undefined) result.visualPreset = updates.visualPreset;
@@ -179,6 +186,22 @@ export function toBackendUpdate(updates: Partial<FrontendRunConfiguration>): Run
   if (updates.visualMaxDiffPixelRatio !== undefined) result.visualMaxDiffPixelRatio = updates.visualMaxDiffPixelRatio;
   if (updates.visualUpdateSnapshots !== undefined) result.visualUpdateSnapshots = updates.visualUpdateSnapshots;
   if (updates.viewport !== undefined) result.viewport = updates.viewport;
+  if (updates.target === 'github-actions' && updates.github === undefined) {
+    result.githubWorkflowPath = '.github/workflows/vero-tests.yml';
+  }
+  if (updates.github !== undefined) {
+    if (updates.github.repository !== undefined) {
+      result.githubRepository = updates.github.repository || undefined;
+    }
+    if (updates.github.workflowFile !== undefined) {
+      result.githubWorkflowPath =
+        updates.target === 'github-actions'
+          ? '.github/workflows/vero-tests.yml'
+          : (updates.github.workflowFile || undefined);
+    } else if (updates.target === 'github-actions') {
+      result.githubWorkflowPath = '.github/workflows/vero-tests.yml';
+    }
+  }
 
   // Bundle runtime fields
   const runtimeConfig: RunConfigRuntimeFields = {};
@@ -189,13 +212,13 @@ export function toBackendUpdate(updates: Partial<FrontendRunConfiguration>): Run
   if (updates.lastFailed !== undefined) { runtimeConfig.lastFailed = updates.lastFailed; hasRuntime = true; }
   if (updates.globalTimeout !== undefined) { runtimeConfig.globalTimeout = updates.globalTimeout; hasRuntime = true; }
   if (updates.grepInvert !== undefined) { runtimeConfig.grepInvert = updates.grepInvert; hasRuntime = true; }
-  if (updates.baseURL !== undefined) { runtimeConfig.baseURL = updates.baseURL; hasRuntime = true; }
   if (updates.reporter !== undefined) { runtimeConfig.reporter = updates.reporter; hasRuntime = true; }
   if (updates.outputDir !== undefined) { runtimeConfig.outputDir = updates.outputDir; hasRuntime = true; }
   if (updates.locale !== undefined) { runtimeConfig.locale = updates.locale; hasRuntime = true; }
   if (updates.timezoneId !== undefined) { runtimeConfig.timezoneId = updates.timezoneId; hasRuntime = true; }
   if (updates.geolocation !== undefined) { runtimeConfig.geolocation = updates.geolocation; hasRuntime = true; }
   if (updates.lastUsedAt !== undefined) { runtimeConfig.lastUsedAt = updates.lastUsedAt; hasRuntime = true; }
+  if (updates.github?.branch !== undefined) { runtimeConfig.githubBranch = updates.github.branch || undefined; hasRuntime = true; }
   if (hasRuntime) result.runtimeConfig = runtimeConfig;
 
   return result;

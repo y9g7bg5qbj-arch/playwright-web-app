@@ -22,6 +22,7 @@ export function detectProjectRoot(filePath: string, defaultRoot: string): string
 export async function loadReferencedPages(pageNames: string[], projectRoot: string): Promise<string> {
     let combinedContent = '';
     const loadedFilePaths = new Set<string>();
+    const loadedFileContents = new Map<string, string>();
 
     const appendFileIfPresent = async (filePath: string, prepend = false): Promise<boolean> => {
         if (loadedFilePaths.has(filePath)) {
@@ -31,6 +32,7 @@ export async function loadReferencedPages(pageNames: string[], projectRoot: stri
         try {
             const fileContent = await readFile(filePath, 'utf-8');
             loadedFilePaths.add(filePath);
+            loadedFileContents.set(filePath, fileContent);
             if (prepend) {
                 combinedContent = `${fileContent}\n\n${combinedContent}`;
             } else {
@@ -48,7 +50,17 @@ export async function loadReferencedPages(pageNames: string[], projectRoot: stri
 
         const loadedPage = await appendFileIfPresent(pageFilePath);
         if (!loadedPage) {
-            await appendFileIfPresent(pageActionsFilePath);
+            const loadedPageActions = await appendFileIfPresent(pageActionsFilePath);
+            if (loadedPageActions) {
+                // Load the page bound by "PAGEACTIONS <Name> FOR <Page>" regardless of naming convention.
+                const actionsContent = loadedFileContents.get(pageActionsFilePath) || '';
+                const forMatch = actionsContent.match(/\bPAGEACTIONS\s+[A-Za-z_][A-Za-z0-9_]*\s+FOR\s+([A-Za-z_][A-Za-z0-9_]*)\b/);
+                const boundPageName = forMatch?.[1];
+                if (boundPageName) {
+                    const boundPagePath = join(projectRoot, 'Pages', `${boundPageName}.vero`);
+                    await appendFileIfPresent(boundPagePath, true);
+                }
+            }
         }
 
         if (pageName.endsWith('PageActions')) {

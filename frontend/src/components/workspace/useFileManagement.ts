@@ -3,6 +3,7 @@ import type { FileNode } from './ExplorerPanel.js';
 import { convertApiFilesToFileNodes } from './workspaceFileUtils.js';
 import { useSandboxStore, getEnvironmentFolder } from '@/store/sandboxStore';
 import type { OpenTab, FileContextMenuState } from './workspace.types.js';
+import { veroApi, type RenamePreviewResult } from '@/api/vero';
 
 // Re-export shared types so existing imports from this module keep working.
 export type { OpenTab, FileContextMenuState } from './workspace.types.js';
@@ -26,6 +27,17 @@ export interface UseFileManagementParams {
   getAuthHeaders: (extraHeaders?: Record<string, string>) => Record<string, string>;
   /** The currentProject from the store — used to gate loadProjectFiles. */
   currentProject: { id: string; name: string } | undefined;
+}
+
+export interface SaveFileContentResult {
+  ok: boolean;
+  error?: string;
+}
+
+export interface SaveAllDirtyTabsResult {
+  ok: boolean;
+  savedCount: number;
+  failedFiles: string[];
 }
 
 export interface UseFileManagementReturn {
@@ -55,7 +67,9 @@ export interface UseFileManagementReturn {
   saveFileContent: (
     content: string,
     options?: { tabId?: string; silent?: boolean; reason?: 'manual' | 'autosave' },
-  ) => Promise<void>;
+  ) => Promise<SaveFileContentResult>;
+  saveAllDirtyTabsForExecution: () => Promise<SaveAllDirtyTabsResult>;
+  getSavedFileContent: (tab: OpenTab) => Promise<string>;
   flushAutoSave: (tabId?: string) => Promise<void>;
   updateTabContent: (tabId: string, content: string) => void;
   closeTab: (tabId: string) => void;
@@ -71,6 +85,12 @@ export interface UseFileManagementReturn {
   toFullPath: (filePath: string, project?: StoreProject) => string;
   encodePathSegments: (path: string) => string;
   toDevRootPath: (basePath?: string) => string | undefined;
+
+  // Page rename refactoring
+  renamePreview: RenamePreviewResult | null;
+  isApplyingRename: boolean;
+  handleConfirmRename: () => Promise<void>;
+  handleCancelRename: () => void;
 }
 
 export function useFileManagement({
@@ -86,6 +106,9 @@ export function useFileManagement({
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['proj:default', 'data', 'features', 'pages']));
   const [projectFiles, setProjectFiles] = useState<Record<string, FileNode[]>>({});
   const [contextMenu, setContextMenu] = useState<FileContextMenuState | null>(null);
+  const [renamePreview, setRenamePreview] = useState<RenamePreviewResult | null>(null);
+  const [isApplyingRename, setIsApplyingRename] = useState(false);
+  const renameContextRef = useRef<{ veroPath?: string; projectId?: string; newRelativePath: string } | null>(null);
 
   const openTabsRef = useRef<OpenTab[]>([]);
   const activeTabIdRef = useRef<string | null>(null);
@@ -347,16 +370,20 @@ export function useFileManagement({
       options?: { tabId?: string; silent?: boolean; reason?: 'manual' | 'autosave' },
     ) => {
       const targetTabId = options?.tabId ?? activeTabIdRef.current;
-      if (!targetTabId) return;
+      if (!targetTabId) {
+        return { ok: false, error: 'No active tab selected' };
+      }
 
       const tabSnapshot = openTabsRef.current.find((tab) => tab.id === targetTabId);
-      if (!tabSnapshot) return;
+      if (!tabSnapshot) {
+        return { ok: false, error: 'Target tab not found' };
+      }
 
       if (!isEditableFileTab(tabSnapshot)) {
         if (!options?.silent && (tabSnapshot.type === 'image' || tabSnapshot.type === 'binary')) {
           addConsoleOutput(`Resource files are read-only in editor: ${tabSnapshot.name}`);
         }
-        return;
+        return { ok: false, error: 'Tab is read-only' };
       }
 
       clearAutoSaveTimeout(targetTabId);
@@ -393,10 +420,10 @@ export function useFileManagement({
 
         // Ignore stale responses from slower requests.
         if (saveSequenceRef.current[targetTabId] !== saveSequence) {
-          return;
+          return { ok: false, error: 'Save superseded by a newer edit' };
         }
 
-        if (data.success) {
+        if (response.ok && data.success) {
           const currentVersion = tabVersionRef.current[targetTabId] ?? 0;
           const canMarkClean = currentVersion === versionAtSaveStart;
 
@@ -411,11 +438,16 @@ export function useFileManagement({
           if (!options?.silent && options?.reason !== 'autosave') {
             addConsoleOutput(`File saved: ${tabSnapshot.name}`);
           }
+          return { ok: true };
         } else {
-          addConsoleOutput(`Error: Failed to save ${tabSnapshot.name}: ${data.error || 'Unknown error'}`);
+          const errorMessage = data.error || `HTTP ${response.status}`;
+          addConsoleOutput(`Error: Failed to save ${tabSnapshot.name}: ${errorMessage}`);
+          return { ok: false, error: errorMessage };
         }
       } catch (error) {
-        addConsoleOutput(`Error: Failed to save ${tabSnapshot.name}: ${error instanceof Error ? error.message : 'Backend unavailable'}`);
+        const errorMessage = error instanceof Error ? error.message : 'Backend unavailable';
+        addConsoleOutput(`Error: Failed to save ${tabSnapshot.name}: ${errorMessage}`);
+        return { ok: false, error: errorMessage };
       }
     },
     [
@@ -431,6 +463,71 @@ export function useFileManagement({
       toRelativePath,
     ],
   );
+
+  const saveAllDirtyTabsForExecution = useCallback(async (): Promise<SaveAllDirtyTabsResult> => {
+    const dirtyTabs = openTabsRef.current.filter((tab) => tab.hasChanges && isEditableFileTab(tab));
+    if (dirtyTabs.length === 0) {
+      return { ok: true, savedCount: 0, failedFiles: [] };
+    }
+
+    for (const tab of dirtyTabs) {
+      clearAutoSaveTimeout(tab.id);
+    }
+
+    let savedCount = 0;
+    const failedFiles: string[] = [];
+
+    for (const tab of dirtyTabs) {
+      const result = await saveFileContent(tab.content, { tabId: tab.id, silent: true, reason: 'manual' });
+      if (result.ok) {
+        savedCount += 1;
+      } else {
+        failedFiles.push(tab.name);
+      }
+    }
+
+    return {
+      ok: failedFiles.length === 0,
+      savedCount,
+      failedFiles,
+    };
+  }, [clearAutoSaveTimeout, isEditableFileTab, saveFileContent]);
+
+  const getSavedFileContent = useCallback(async (tab: OpenTab): Promise<string> => {
+    const project = resolveProjectForPath(tab.path, tab.projectId || selectedProjectId);
+    const relativePath = toRelativePath(tab.path, project);
+    const encodedPath = encodePathSegments(relativePath);
+    const folderParam = shouldUseFolderScope(relativePath) && currentFolder
+      ? `&folder=${encodeURIComponent(currentFolder)}`
+      : '';
+
+    const apiUrl = project?.veroPath && encodedPath
+      ? `${API_BASE}/vero/files/${encodedPath}?veroPath=${encodeURIComponent(project.veroPath)}${folderParam}`
+      : `${API_BASE}/vero/files/${encodePathSegments(tab.path)}${shouldUseFolderScope(tab.path) && currentFolder ? `?folder=${encodeURIComponent(currentFolder)}` : ''}`;
+
+    const response = await fetch(apiUrl, {
+      headers: getAuthHeaders(),
+      credentials: 'include',
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success || typeof data.content !== 'string') {
+      throw new Error(data.error || `Failed to read saved file (HTTP ${response.status})`);
+    }
+    if (data.isBinary) {
+      throw new Error('Cannot execute binary file content');
+    }
+
+    return data.content;
+  }, [
+    currentFolder,
+    encodePathSegments,
+    getAuthHeaders,
+    resolveProjectForPath,
+    selectedProjectId,
+    shouldUseFolderScope,
+    toRelativePath,
+  ]);
 
   const flushAutoSave = useCallback(async (tabId?: string) => {
     const tabIdsToFlush = tabId
@@ -598,6 +695,7 @@ export function useFileManagement({
         ? currentFolder
         : undefined;
 
+      // Step 1: Rename the physical file
       const response = await fetch(`${API_BASE}/vero/files/rename`, {
         method: 'POST',
         headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
@@ -618,6 +716,36 @@ export function useFileManagement({
         if (projId && project?.veroPath) {
           loadProjectFiles(projId, project.veroPath);
         }
+
+        // Step 2: If it's a .vero file, check for page references to refactor
+        if (newName.endsWith('.vero')) {
+          try {
+            const newPageName = newName.replace(/\.vero$/i, '');
+            const preview = await veroApi.previewPageRename(
+              newRelativePath,
+              newPageName,
+              contextMenu.veroPath,
+            );
+
+            if (preview.totalOccurrences > 0 || preview.pageFile.oldContent !== preview.pageFile.newContent) {
+              // Store context for the apply step
+              renameContextRef.current = {
+                veroPath: contextMenu.veroPath,
+                projectId: projId || undefined,
+                newRelativePath,
+              };
+              setRenamePreview(preview);
+            } else {
+              addConsoleOutput('No page references to update.');
+            }
+          } catch (previewError) {
+            // Not a PAGE file or preview failed — just skip silently
+            const msg = previewError instanceof Error ? previewError.message : String(previewError);
+            if (!msg.includes('No PAGE declaration')) {
+              addConsoleOutput(`Note: Could not scan for page references: ${msg}`);
+            }
+          }
+        }
       } else {
         addConsoleOutput(`Error renaming: ${data.error}`);
       }
@@ -626,6 +754,74 @@ export function useFileManagement({
     }
 
     setContextMenu(null);
+  };
+
+  const handleConfirmRename = async () => {
+    if (!renamePreview || !renameContextRef.current) return;
+
+    setIsApplyingRename(true);
+    try {
+      await veroApi.applyPageRename(
+        renameContextRef.current.newRelativePath,
+        renamePreview.newPageName,
+        renameContextRef.current.veroPath,
+      );
+
+      addConsoleOutput(
+        `Updated ${renamePreview.totalOccurrences} reference${renamePreview.totalOccurrences !== 1 ? 's' : ''} ` +
+        `across ${renamePreview.affectedFiles.length} file${renamePreview.affectedFiles.length !== 1 ? 's' : ''}`,
+      );
+
+      // Reload project files to reflect content changes
+      const projId = renameContextRef.current.projectId || selectedProjectId;
+      const project = currentProjectProjects.find(p => p.id === projId);
+      if (projId && project?.veroPath) {
+        loadProjectFiles(projId, project.veroPath);
+      }
+
+      // Refresh any open tabs whose files were affected
+      const affectedPaths = new Set(renamePreview.affectedFiles.map(f => f.relativePath));
+      // Also include the page file itself
+      affectedPaths.add(renamePreview.pageFile.relativePath);
+
+      for (const tab of openTabsRef.current) {
+        const tabProject = resolveProjectForPath(tab.path, tab.projectId || undefined);
+        const tabRelPath = toRelativePath(tab.path, tabProject);
+        if (affectedPaths.has(tabRelPath) || affectedPaths.has(tabRelPath.replace(/\\/g, '/'))) {
+          // Re-load the file content from server
+          try {
+            const encodedPath = encodePathSegments(tabRelPath);
+            const folderParam = shouldUseFolderScope(tabRelPath) && currentFolder
+              ? `&folder=${encodeURIComponent(currentFolder)}`
+              : '';
+            const apiUrl = tabProject?.veroPath && encodedPath
+              ? `${API_BASE}/vero/files/${encodedPath}?veroPath=${encodeURIComponent(tabProject.veroPath)}${folderParam}`
+              : `${API_BASE}/vero/files/${encodePathSegments(tab.path)}`;
+
+            const resp = await fetch(apiUrl, { headers: getAuthHeaders(), credentials: 'include' });
+            const fileData = await resp.json();
+            if (fileData.success && fileData.content != null) {
+              setOpenTabs(prev => prev.map(t =>
+                t.id === tab.id ? { ...t, content: fileData.content, hasChanges: false } : t
+              ));
+            }
+          } catch {
+            // Silently skip — user can manually reload
+          }
+        }
+      }
+    } catch (error) {
+      addConsoleOutput(`Error applying rename: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsApplyingRename(false);
+      setRenamePreview(null);
+      renameContextRef.current = null;
+    }
+  };
+
+  const handleCancelRename = () => {
+    setRenamePreview(null);
+    renameContextRef.current = null;
   };
 
   const handleCreateFile = async (projectId: string, folderPath: string) => {
@@ -877,6 +1073,8 @@ export function useFileManagement({
     getActiveTabId,
     loadFileContent,
     saveFileContent,
+    saveAllDirtyTabsForExecution,
+    getSavedFileContent,
     flushAutoSave,
     updateTabContent,
     closeTab,
@@ -892,5 +1090,9 @@ export function useFileManagement({
     toFullPath,
     encodePathSegments,
     toDevRootPath,
+    renamePreview,
+    isApplyingRename,
+    handleConfirmRename,
+    handleCancelRename,
   };
 }

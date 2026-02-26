@@ -21,6 +21,9 @@ export type TagMatchMode = 'any' | 'all';
 
 export type ShardingStrategy = 'round-robin' | 'by-file' | 'by-test' | 'by-tag' | 'by-duration';
 
+/** Explicit target environment for cross-project run configs */
+export type TargetEnvironment = 'dev' | 'master' | { sandboxId: string };
+
 export type ColorScheme = 'light' | 'dark' | 'no-preference';
 
 export type ReducedMotion = 'reduce' | 'no-preference';
@@ -467,10 +470,6 @@ export interface RunConfiguration {
   tagExpression?: string;     // Cucumber-style expression for scenario tags
   namePatterns?: string[];    // Scenario name regex filters
 
-  // Environment
-  environmentId?: string;
-  environment?: ExecutionEnvironment;
-
   // Execution Target
   target: ExecutionTarget;
 
@@ -516,10 +515,14 @@ export interface RunConfiguration {
   visualMaxDiffPixelRatio?: number;
   visualUpdateSnapshots?: boolean;
 
-  // Scenario selection scope
+  // Scenario selection scope (legacy — kept for backward compat)
   selectionScope?: 'active-file' | 'current-sandbox';
 
-  // Custom environment variables (override environment manager vars)
+  // Explicit cross-project targeting (takes precedence over selectionScope)
+  targetProjectId?: string;
+  targetEnvironment?: TargetEnvironment;
+
+  // Deprecated compatibility field. UI no longer edits this; runtime resolution is parameter-only.
   envVars?: Record<string, string>;
 
   // Run parameters linkage
@@ -587,9 +590,6 @@ export interface RunConfigurationCreate {
   tagExpression?: string;
   namePatterns?: string[];
 
-  // Environment
-  environmentId?: string;
-
   // Execution Target
   target?: ExecutionTarget;
 
@@ -633,10 +633,14 @@ export interface RunConfigurationCreate {
   visualMaxDiffPixelRatio?: number;
   visualUpdateSnapshots?: boolean;
 
-  // Scenario selection scope
+  // Scenario selection scope (legacy)
   selectionScope?: 'active-file' | 'current-sandbox';
 
-  // Custom environment variables
+  // Explicit cross-project targeting
+  targetProjectId?: string;
+  targetEnvironment?: TargetEnvironment;
+
+  // Deprecated compatibility field. UI no longer edits this; runtime resolution is parameter-only.
   envVars?: Record<string, string>;
 
   // Run parameters linkage
@@ -670,7 +674,6 @@ export interface QuickRunRequest {
   namePatterns?: string[];
 
   // Where to run
-  environmentId?: string;
   environmentVariables?: Record<string, string>;
 
   // How to run
@@ -716,7 +719,6 @@ export const DEFAULT_RUN_CONFIGURATION: Omit<RunConfiguration, 'id' | 'workflowI
   grep: undefined,
   tagExpression: undefined,
   namePatterns: [],
-  environmentId: undefined,
   target: 'local',
   localConfig: { workers: 1 },
   dockerConfig: undefined,

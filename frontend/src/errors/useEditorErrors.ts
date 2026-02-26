@@ -69,6 +69,10 @@ export interface UseEditorErrorsOptions {
     veroPath?: string | null;
     /** File path for extracting project path if veroPath not provided */
     filePath?: string | null;
+    /** Active application ID for validation context */
+    applicationId?: string | null;
+    /** Active nested project ID for validation context */
+    projectId?: string | null;
 }
 
 /**
@@ -278,7 +282,15 @@ export function useEditorErrors(
     model: monacoEditor.editor.ITextModel | null,
     options: UseEditorErrorsOptions = {}
 ): UseEditorErrorsReturn {
-    const { debounceMs = 300, enableValidation = true, token, veroPath, filePath } = options;
+    const {
+        debounceMs = 300,
+        enableValidation = true,
+        token,
+        veroPath,
+        filePath,
+        applicationId,
+        projectId,
+    } = options;
 
     const [errors, setErrors] = useState<VeroError[]>([]);
     const [warnings, setWarnings] = useState<VeroError[]>([]);
@@ -327,7 +339,7 @@ export function useEditorErrors(
                         'Content-Type': 'application/json',
                         ...(token ? { Authorization: `Bearer ${token}` } : {}),
                     },
-                    body: JSON.stringify({ code, veroPath, filePath }),
+                    body: JSON.stringify({ code, veroPath, filePath, applicationId, projectId }),
                 });
 
                 if (!response.ok) {
@@ -364,7 +376,7 @@ export function useEditorErrors(
                 }
             }
         },
-        [monaco, model, enableValidation, token, veroPath, filePath]
+        [monaco, model, enableValidation, token, veroPath, filePath, applicationId, projectId]
     );
 
     /**

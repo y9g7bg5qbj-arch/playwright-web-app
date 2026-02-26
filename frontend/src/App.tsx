@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import { LoginPage } from './pages/LoginPage';
@@ -14,9 +14,13 @@ import { TestDataCanvasMockPage } from './components/TestData/canvas-v2';
 
 export function App() {
   const { checkAuth, isLoading } = useAuthStore();
+  const hasCheckedAuthRef = useRef(false);
 
   useEffect(() => {
-    checkAuth();
+    // Guard duplicate auth checks in React Strict Mode.
+    if (hasCheckedAuthRef.current) return;
+    hasCheckedAuthRef.current = true;
+    void checkAuth();
   }, [checkAuth]);
 
   if (isLoading) {

@@ -16,69 +16,138 @@ import { escapeString } from './transpilerUtils.js';
 export function generateDebugHelper(): string {
     return `
 // Debug helper for line-by-line debugging
-const __debug__ = {
-    breakpoints: new Set<number>(process.env.VERO_BREAKPOINTS?.split(',').map(Number).filter(n => !isNaN(n)) || []),
-    currentLine: 0,
-    isPaused: false,
-    stepMode: false,
+    const __debugSignalPath = process.env.VERO_DEBUG_SIGNAL_PATH || process.cwd() + '/debug-signal.json';
+const __debugEmitToFileEvents = process.env.VERO_DEBUG_EVENTS === 'stdout';
+const __debugPollMs = 50;
 
-    async beforeStep(line: number, action: string, target?: string): Promise<void> {
-        this.currentLine = line;
-        // Notify parent process of step start
-        if (process.send) {
-            process.send({ type: 'step:before', line, action, target, timestamp: Date.now() });
-        }
+const __readDebugSignal = (): any => {
+  try {
+    const fs = require('fs');
+    const raw = fs.readFileSync(__debugSignalPath, 'utf8').trim();
+    if (!raw) return null;
 
-        // Check if we should pause (breakpoint hit or step mode)
-        if (this.breakpoints.has(line) || this.stepMode) {
-            this.isPaused = true;
-            if (process.send) {
-                process.send({ type: 'execution:paused', line, action, target });
-            }
-            await this.waitForResume();
-        }
-    },
-
-    async afterStep(line: number, action: string, success: boolean = true, duration?: number): Promise<void> {
-        // Notify parent process of step completion
-        if (process.send) {
-            process.send({ type: 'step:after', line, action, success, duration, timestamp: Date.now() });
-        }
-    },
-
-    async waitForResume(): Promise<void> {
-        return new Promise<void>((resolve) => {
-            const handler = (msg: any) => {
-                if (msg.type === 'resume') {
-                    this.isPaused = false;
-                    this.stepMode = false;
-                    process.removeListener('message', handler);
-                    resolve();
-                } else if (msg.type === 'step') {
-                    this.stepMode = true;
-                    this.isPaused = false;
-                    process.removeListener('message', handler);
-                    resolve();
-                } else if (msg.type === 'stop') {
-                    process.exit(0);
-                } else if (msg.type === 'set-breakpoints') {
-                    this.breakpoints = new Set(msg.lines || []);
-                }
-            };
-            process.on('message', handler);
-        });
-    },
-
-    logVariable(name: string, value: unknown): void {
-        if (process.send) {
-            process.send({
-                type: 'variable',
-                name,
-                value: JSON.stringify(value),
-                valueType: typeof value
-            });
-        }
+    const parsed = JSON.parse(raw);
+    fs.unlinkSync(__debugSignalPath);
+    return parsed;
+  } catch (err: any) {
+    if (err?.code !== 'ENOENT') {
+      // Ignore malformed or transient file reads while preserving step flow.
     }
+    return null;
+  }
+};
+
+const __debugSendEvent = (message: {
+  type: string;
+  line?: number;
+  action?: string;
+  target?: string;
+  name?: string;
+  value?: unknown;
+  valueType?: string;
+  success?: boolean;
+  duration?: number;
+  timestamp?: number;
+}) => {
+  if (process.send) {
+    process.send(message);
+  }
+
+  if (__debugEmitToFileEvents) {
+    try {
+    console.log('__VERO_DEBUG_EVENT__' + JSON.stringify(message));
+    } catch {
+      // Ignore logging failures to avoid disrupting test execution.
+    }
+  }
+};
+
+const __debugWaitForResume = async function (this: { isPaused: boolean; stepMode: boolean; breakpoints: Set<number> }): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let resolved = false;
+    const complete = () => {
+      if (resolved) return;
+      resolved = true;
+      process.removeListener('message', messageHandler);
+      clearInterval(poller);
+      resolve();
+    };
+
+    const messageHandler = (msg: any) => {
+      if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') {
+        return;
+      }
+
+      if (msg.type === 'resume') {
+        this.isPaused = false;
+        this.stepMode = false;
+        complete();
+      } else if (msg.type === 'step') {
+        this.stepMode = true;
+        this.isPaused = false;
+        complete();
+      } else if (msg.type === 'stop') {
+        process.exit(0);
+      } else if (msg.type === 'set-breakpoints') {
+        this.breakpoints = new Set(msg.lines || []);
+      }
+    };
+
+    process.on('message', messageHandler);
+
+    const poller = setInterval(() => {
+      const message = __readDebugSignal();
+      if (!message || typeof message.type !== 'string') {
+        return;
+      }
+
+      if (message.type === 'resume') {
+        this.isPaused = false;
+        this.stepMode = false;
+        complete();
+      } else if (message.type === 'step') {
+        this.stepMode = true;
+        this.isPaused = false;
+        complete();
+      } else if (message.type === 'stop') {
+        process.exit(0);
+      } else if (message.type === 'set-breakpoints') {
+        this.breakpoints = new Set(message.lines || []);
+      }
+    }, __debugPollMs);
+  });
+};
+
+const __debug__ = {
+  breakpoints: new Set<number>(process.env.VERO_BREAKPOINTS?.split(',').map(Number).filter(n => !isNaN(n)) || []),
+  currentLine: 0,
+  isPaused: false,
+  stepMode: false,
+
+  async beforeStep(line: number, action: string, target?: string): Promise<void> {
+    this.currentLine = line;
+    __debugSendEvent({ type: 'step:before', line, action, target, timestamp: Date.now() });
+
+    // Check if we should pause (breakpoint hit or step mode)
+    if (this.breakpoints.has(line) || this.stepMode) {
+      this.isPaused = true;
+      __debugSendEvent({ type: 'execution:paused', line, action, target });
+      await __debugWaitForResume.call(this);
+    }
+  },
+
+  async afterStep(line: number, action: string, success: boolean = true, duration?: number): Promise<void> {
+    __debugSendEvent({ type: 'step:after', line, action, success, duration, timestamp: Date.now() });
+  },
+
+  logVariable(name: string, value: unknown): void {
+    __debugSendEvent({
+      type: 'variable',
+      name,
+      value: JSON.stringify(value),
+      valueType: typeof value
+    });
+  }
 };
 `;
 }
@@ -102,12 +171,13 @@ export function wrapWithDebug(
     const action = statement.type;
     const target = getStatementTargetFn(statement);
     const targetStr = target ? `, '${escapeString(target)}'` : '';
+    const scopeSafeCode = code.replace(/^(\s*)(const|let)\b/gm, '$1var');
 
     const lines: string[] = [];
     lines.push(`const __start_${line}__ = Date.now();`);
     lines.push(`await __debug__.beforeStep(${line}, '${action}'${targetStr});`);
     lines.push(`try {`);
-    lines.push(`  ${code}`);
+    lines.push(`  ${scopeSafeCode}`);
     lines.push(`  await __debug__.afterStep(${line}, '${action}', true, Date.now() - __start_${line}__);`);
     lines.push(`} catch (e) {`);
     lines.push(`  await __debug__.afterStep(${line}, '${action}', false, Date.now() - __start_${line}__);`);

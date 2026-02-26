@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
 import { UnauthorizedError } from '../utils/errors';
+import { DEV_BYPASS_USER_ID, isDevBypassEnabled } from '../utils/devBypassAuth';
 import { userRepository } from '../db/repositories/mongo';
 import type { UserRole } from '@playwright-web-app/shared';
 
@@ -16,10 +17,9 @@ export const authenticateToken = async (
   next: NextFunction
 ) => {
   try {
-    // TODO: SECURITY - This bypass should only be used for local development
-    // Set BYPASS_AUTH=true in .env to enable the bypass (development only)
-    if (config.nodeEnv === 'development' && process.env.BYPASS_AUTH === 'true') {
-      req.userId = '4a6ceb7d-9883-44e9-bfd3-6a1cd2557ffc';
+    // TODO: SECURITY - Local development bypass only
+    if (isDevBypassEnabled()) {
+      req.userId = DEV_BYPASS_USER_ID;
       req.userRole = 'admin';
       next();
       return;

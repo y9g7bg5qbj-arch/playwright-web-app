@@ -1,8 +1,6 @@
-import { useState } from 'react';
-import { Plus, Trash2, MapPin, MonitorSmartphone, Languages, Clock3 } from 'lucide-react';
+import { MapPin, MonitorSmartphone, Languages, Clock3 } from 'lucide-react';
 import type { RunConfiguration } from '@/store/runConfigStore';
 import { runConfigTheme, chipClass, cx } from './theme';
-import { IconButton } from '@/components/ui';
 
 interface AdvancedTabProps {
   config: RunConfiguration;
@@ -10,27 +8,6 @@ interface AdvancedTabProps {
 }
 
 export function AdvancedTab({ config, onChange }: AdvancedTabProps) {
-  const [newEnvKey, setNewEnvKey] = useState('');
-  const [newEnvValue, setNewEnvValue] = useState('');
-
-  const handleAddEnvVar = () => {
-    if (!newEnvKey.trim()) return;
-
-    onChange('envVars', {
-      ...config.envVars,
-      [newEnvKey.trim()]: newEnvValue,
-    });
-
-    setNewEnvKey('');
-    setNewEnvValue('');
-  };
-
-  const handleRemoveEnvVar = (key: string) => {
-    const next = { ...config.envVars };
-    delete next[key];
-    onChange('envVars', Object.keys(next).length > 0 ? next : undefined);
-  };
-
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <section className={runConfigTheme.section}>
@@ -261,74 +238,6 @@ export function AdvancedTab({ config, onChange }: AdvancedTabProps) {
         )}
       </section>
 
-      <section className={runConfigTheme.section}>
-        <p className={runConfigTheme.label}>Environment Variables</p>
-        <p className="mt-1 text-xs text-text-muted">Injected into the test process while this run config executes.</p>
-
-        {config.envVars && Object.entries(config.envVars).length > 0 && (
-          <div className="mt-3 space-y-2">
-            {Object.entries(config.envVars).map(([key, value]) => (
-              <div key={key} className="flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={key}
-                  className={cx(runConfigTheme.input, 'w-1/3 font-mono')}
-                />
-                <span className="text-text-muted">=</span>
-                <input
-                  type="text"
-                  value={value}
-                  onChange={(event) =>
-                    onChange('envVars', {
-                      ...config.envVars,
-                      [key]: event.target.value,
-                    })
-                  }
-                  className={cx(runConfigTheme.input, 'flex-1 font-mono')}
-                />
-                <IconButton
-                  icon={<Trash2 className="h-4 w-4" />}
-                  variant="outlined"
-                  tone="danger"
-                  tooltip="Remove variable"
-                  onClick={() => handleRemoveEnvVar(key)}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="mt-3 flex items-center gap-2">
-          <input
-            type="text"
-            value={newEnvKey}
-            onChange={(event) => setNewEnvKey(event.target.value)}
-            placeholder="KEY"
-            className={cx(runConfigTheme.input, 'w-1/3 font-mono')}
-          />
-          <span className="text-text-muted">=</span>
-          <input
-            type="text"
-            value={newEnvValue}
-            onChange={(event) => setNewEnvValue(event.target.value)}
-            placeholder="value"
-            className={cx(runConfigTheme.input, 'flex-1 font-mono')}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                handleAddEnvVar();
-              }
-            }}
-          />
-          <IconButton
-            icon={<Plus className="h-4 w-4" />}
-            variant="outlined"
-            tooltip="Add environment variable"
-            disabled={!newEnvKey.trim()}
-            onClick={handleAddEnvVar}
-          />
-        </div>
-      </section>
     </div>
   );
 }

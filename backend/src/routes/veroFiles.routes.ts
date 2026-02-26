@@ -5,6 +5,7 @@ import { join, dirname, extname } from 'path';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { resolveProjectPath, confineToBase } from './veroProjectPath.utils';
 import { ensureProjectEnvironmentResources } from './veroVisualSnapshots.utils';
+import { previewPageRename, applyPageRename } from './veroRenameRefactor.utils';
 import { logger } from '../utils/logger';
 
 interface FileNode {
@@ -271,6 +272,36 @@ filesRouter.post('/files/rename', authenticateToken, async (req: AuthRequest, re
     } catch (error) {
         logger.error('Failed to rename file:', error);
         res.status(500).json({ success: false, error: 'Failed to rename file' });
+    }
+});
+
+// Preview or apply page rename refactoring
+filesRouter.post('/files/rename-page-references', authenticateToken, async (req: AuthRequest, res: Response, _next: NextFunction) => {
+    try {
+        const { filePath, newPageName, apply } = req.body;
+        const projectId = req.query.projectId as string | undefined;
+        const veroPathParam = (req.body?.veroPath as string | undefined) ?? (req.query.veroPath as string | undefined);
+
+        if (!filePath || !newPageName) {
+            return res.status(400).json({ success: false, error: 'Both filePath and newPageName are required' });
+        }
+
+        const projectPath = await resolveProjectPath(veroPathParam, projectId);
+
+        if (apply) {
+            // Apply mode: build preview then apply
+            const preview = await previewPageRename(projectPath, filePath, newPageName);
+            await applyPageRename(projectPath, preview);
+            return res.json({ success: true, applied: true, preview });
+        }
+
+        // Preview mode
+        const preview = await previewPageRename(projectPath, filePath, newPageName);
+        res.json({ success: true, applied: false, preview });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to process page rename';
+        logger.error('Page rename refactoring failed:', error);
+        res.status(500).json({ success: false, error: message });
     }
 });
 

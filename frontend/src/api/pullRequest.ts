@@ -215,6 +215,11 @@ export const pullRequestApi = {
     await apiClient.delete(`/pull-requests/${prId}`);
   },
 
+  // Permanently delete a closed PR
+  async deleteClosed(prId: string): Promise<void> {
+    await apiClient.delete(`/pull-requests/${prId}/permanent`);
+  },
+
   // Get diff summary for a PR
   async getDiff(prId: string): Promise<DiffSummary> {
     const response = await apiClient.get<DiffResponse>(`/pull-requests/${prId}/diff`);

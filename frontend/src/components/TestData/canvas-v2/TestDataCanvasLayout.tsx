@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { HardDrive, Menu, MoreHorizontal, Plus, RefreshCw, Settings, Upload } from 'lucide-react';
+import { HardDrive, Menu, MoreHorizontal, Plus, RefreshCw, Upload } from 'lucide-react';
 import type { CanvasTableItem } from './types';
 import { TablesSidebar } from './TablesSidebar';
 import { Tooltip } from '@/components/ui';
@@ -13,7 +13,6 @@ interface TestDataCanvasLayoutProps {
   onCreateTable: () => void;
   onRefreshTables: () => void;
   onImportExcel: () => void;
-  onOpenEnvironments: () => void;
   onOpenDataStorage: () => void;
   onEditTable?: (tableId: string) => void;
   onDeleteTable?: (tableId: string) => void;
@@ -33,7 +32,6 @@ export function TestDataCanvasLayout({
   onCreateTable,
   onRefreshTables,
   onImportExcel,
-  onOpenEnvironments,
   onOpenDataStorage,
   onEditTable,
   onDeleteTable,
@@ -119,17 +117,6 @@ export function TestDataCanvasLayout({
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
                     Refresh
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowMobileUtilityMenu(false);
-                      onOpenEnvironments();
-                    }}
-                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xxs text-text-secondary transition-colors hover:bg-dark-elevated/70 hover:text-text-primary"
-                  >
-                    <Settings className="h-3.5 w-3.5" />
-                    Environment
                   </button>
                   <button
                     type="button"

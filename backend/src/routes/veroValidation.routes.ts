@@ -40,6 +40,108 @@ function escapeRegex(s: string): string {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function countBraceDelta(line: string): number {
+    return (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
+}
+
+function findPageOrPageActionsDefinition(lines: string[], name: string): {
+    line: number;
+    column: number;
+    endLine: number;
+    endColumn: number;
+} | null {
+    const escapedName = escapeRegex(name);
+
+    for (let i = 0; i < lines.length; i++) {
+        const ln = lines[i];
+
+        const pageMatch = ln.match(new RegExp(`^\\s*page\\s+(${escapedName})\\s*\\{`, 'i'));
+        if (pageMatch) {
+            const col = ln.indexOf(pageMatch[1]) + 1;
+            return {
+                line: i + 1,
+                column: col,
+                endLine: i + 1,
+                endColumn: col + name.length,
+            };
+        }
+
+        const pageActionsMatch = ln.match(new RegExp(`^\\s*pageactions\\s+(${escapedName})\\b(?:\\s+for\\s+\\w+)?`, 'i'));
+        if (pageActionsMatch) {
+            const col = ln.indexOf(pageActionsMatch[1]) + 1;
+            return {
+                line: i + 1,
+                column: col,
+                endLine: i + 1,
+                endColumn: col + name.length,
+            };
+        }
+    }
+
+    return null;
+}
+
+function findMemberDefinitionInPageOrPageActions(lines: string[], containerName: string, memberName: string): {
+    line: number;
+    column: number;
+    endLine: number;
+    endColumn: number;
+} | null {
+    const escapedContainer = escapeRegex(containerName);
+    const escapedMember = escapeRegex(memberName);
+    const reservedActionWords = new Set(['field', 'if', 'for', 'repeat', 'before', 'after']);
+    let inTargetBlock = false;
+    let braceDepth = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+        const ln = lines[i];
+        const blockMatch = ln.match(new RegExp(`^\\s*(page|pageactions)\\s+(${escapedContainer})\\b`, 'i'));
+
+        if (blockMatch) {
+            inTargetBlock = true;
+            braceDepth = countBraceDelta(ln);
+            continue;
+        }
+
+        if (!inTargetBlock) {
+            continue;
+        }
+
+        // PAGE blocks may include fields directly; PAGEACTIONS blocks contain only actions.
+        const fieldMatch = ln.match(new RegExp(`^\\s*field\\s+(${escapedMember})\\s*=`, 'i'));
+        if (fieldMatch) {
+            const col = ln.indexOf(fieldMatch[1]) + 1;
+            return {
+                line: i + 1,
+                column: col,
+                endLine: i + 1,
+                endColumn: col + memberName.length,
+            };
+        }
+
+        if (braceDepth === 1) {
+            const actionMatch = ln.match(new RegExp(`^\\s*(${escapedMember})(?:\\s+with\\s+[\\w,\\s]+)?\\s*\\{`, 'i'));
+            if (actionMatch && !reservedActionWords.has(actionMatch[1].toLowerCase())) {
+                const col = ln.indexOf(actionMatch[1]) + 1;
+                return {
+                    line: i + 1,
+                    column: col,
+                    endLine: i + 1,
+                    endColumn: col + memberName.length,
+                };
+            }
+        }
+
+        braceDepth += countBraceDelta(ln);
+        if (braceDepth <= 0) {
+            inTargetBlock = false;
+            braceDepth = 0;
+        }
+    }
+
+    return null;
+}
+
 /** Simple Levenshtein distance for typo suggestions */
 function levenshteinDistance(a: string, b: string): number {
     const m = a.length;
@@ -63,6 +165,8 @@ const validationRouter = Router();
 validationRouter.post('/validate', authenticateToken, async (req: AuthRequest, res: Response, _next: NextFunction) => {
     try {
         const { code, veroPath, filePath } = req.body;
+        const requestedApplicationId = typeof req.body.applicationId === 'string' ? req.body.applicationId.trim() : '';
+        const requestedProjectId = typeof req.body.projectId === 'string' ? req.body.projectId.trim() : '';
 
         // Extract project path from filePath (parent of Features/Pages/PageActions)
         let effectiveVeroPath: string | null = null;
@@ -240,9 +344,19 @@ validationRouter.post('/validate', authenticateToken, async (req: AuthRequest, r
             // ── Data reference validation ──
             // Collect data references from AST and check if tables/columns exist
             try {
-                // Extract applicationId from the vero path (format: vero-projects/{appId}/{projectId}/...)
-                let applicationId: string | null = null;
-                if (effectiveVeroPath) {
+                // Prefer explicit editor context first; fall back to project lookup, then path inference.
+                let applicationId: string | null = requestedApplicationId || null;
+                const nestedProjectId: string | null = requestedProjectId || null;
+
+                if (!applicationId && nestedProjectId) {
+                    const project = await projectRepository.findById(nestedProjectId);
+                    if (project?.applicationId) {
+                        applicationId = project.applicationId;
+                    }
+                }
+
+                // Extract applicationId from the vero path (format: vero-projects/{appId}/{projectId}/...) as last resort.
+                if (!applicationId && effectiveVeroPath) {
                     const pathParts = effectiveVeroPath.replace(/\\/g, '/').split('/');
                     const vpIdx = pathParts.indexOf('vero-projects');
                     if (vpIdx >= 0 && pathParts.length > vpIdx + 1) {
@@ -254,13 +368,28 @@ validationRouter.post('/validate', authenticateToken, async (req: AuthRequest, r
                     const tableRefs = collectDataRefsFromFeatures(parseResult.ast.features || []);
 
                     if (tableRefs.length > 0) {
-                        // Load all sheets for this application
-                        const sheets = await mongoTestDataService.getSheetsByApplicationId(applicationId);
+                        // Load sheets for the current application. If project scope is known,
+                        // keep project-local and app-level sheets to avoid cross-project bleed.
+                        const allSheets = await mongoTestDataService.getSheetsByApplicationId(applicationId);
+                        const sheets = nestedProjectId
+                            ? allSheets.filter(s => !s.projectId || s.projectId === nestedProjectId)
+                            : allSheets;
+
+                        // If we cannot resolve sheet context, skip non-blocking table validation
+                        // rather than emitting false "unknown table" warnings.
+                        if (sheets.length === 0) {
+                            logger.warn('[Vero Validate] Skipping data reference validation due to unresolved test-data scope', {
+                                applicationId,
+                                nestedProjectId,
+                                effectiveVeroPath,
+                            });
+                        }
+
                         const sheetMap = new Map(sheets.map(s => [s.name.toLowerCase(), s]));
                         const unknownTableWarningKeys = new Set<string>();
                         const unknownColumnWarningKeys = new Set<string>();
 
-                        for (const ref of tableRefs) {
+                        for (const ref of (sheets.length === 0 ? [] : tableRefs)) {
                             // Cross-project refs (Project.Table) are not validated in local app scope.
                             if (ref.projectName) {
                                 continue;
@@ -402,79 +531,41 @@ validationRouter.post('/definition', authenticateToken, async (req: AuthRequest,
             try {
                 const content = await readFile(veroFile, 'utf-8');
                 const lines = content.split('\n');
-                const relativeFilePath = veroFile.startsWith(projectPath + '/') ? veroFile.slice(projectPath.length + 1) : veroFile;
 
-                // Look for page definition
+                // Look for PAGE or PAGEACTIONS definition
                 if (/^[A-Z][a-zA-Z0-9]*$/.test(word)) {
-                    const escaped = escapeRegex(word);
-                    for (let i = 0; i < lines.length; i++) {
-                        const ln = lines[i];
-                        const pageMatch = ln.match(new RegExp(`^\\s*page\\s+(${escaped})\\s*\\{`, 'i'));
-                        if (pageMatch) {
-                            const col = ln.indexOf(pageMatch[1]) + 1;
-                            return res.json({
-                                success: true,
-                                location: {
-                                    filePath: relativeFilePath,
-                                    line: i + 1,
-                                    column: col,
-                                    endLine: i + 1,
-                                    endColumn: col + word.length
-                                }
-                            });
-                        }
+                    const location = findPageOrPageActionsDefinition(lines, word);
+                    if (location) {
+                        return res.json({
+                            success: true,
+                            location: {
+                                filePath: veroFile,
+                                line: location.line,
+                                column: location.column,
+                                endLine: location.endLine,
+                                endColumn: location.endColumn,
+                            }
+                        });
                     }
                 }
 
                 // Look for field/action definition (word contains dot: Page.member)
                 if (word.includes('.')) {
-                    const [pageName, memberName] = word.split('.');
-                    const escapedPage = escapeRegex(pageName);
-                    const escapedMember = escapeRegex(memberName);
-                    let inPage = false;
-
-                    for (let i = 0; i < lines.length; i++) {
-                        const ln = lines[i];
-
-                        if (ln.match(new RegExp(`^\\s*page\\s+${escapedPage}\\s*\\{`, 'i'))) {
-                            inPage = true;
-                        }
-
-                        if (inPage) {
-                            // Field definition
-                            const fieldMatch = ln.match(new RegExp(`^\\s*field\\s+(${escapedMember})\\s*=`, 'i'));
-                            if (fieldMatch) {
-                                const col = ln.indexOf(fieldMatch[1]) + 1;
-                                return res.json({
-                                    success: true,
-                                    location: {
-                                        filePath: relativeFilePath,
-                                        line: i + 1,
-                                        column: col,
-                                        endLine: i + 1,
-                                        endColumn: col + memberName.length
-                                    }
-                                });
+                    const splitIndex = word.indexOf('.');
+                    const pageName = word.slice(0, splitIndex);
+                    const memberName = word.slice(splitIndex + 1);
+                    const location = findMemberDefinitionInPageOrPageActions(lines, pageName, memberName);
+                    if (location) {
+                        return res.json({
+                            success: true,
+                            location: {
+                                filePath: veroFile,
+                                line: location.line,
+                                column: location.column,
+                                endLine: location.endLine,
+                                endColumn: location.endColumn,
                             }
-
-                            // Action definition
-                            const actionMatch = ln.match(new RegExp(`^\\s*(${escapedMember})(?:\\s+with)?\\s*\\{`, 'i'));
-                            if (actionMatch && !['field', 'if', 'for'].includes(actionMatch[1].toLowerCase())) {
-                                const col = ln.indexOf(actionMatch[1]) + 1;
-                                return res.json({
-                                    success: true,
-                                    location: {
-                                        filePath: relativeFilePath,
-                                        line: i + 1,
-                                        column: col,
-                                        endLine: i + 1,
-                                        endColumn: col + memberName.length
-                                    }
-                                });
-                            }
-
-                            if (ln.trim() === '}') inPage = false;
-                        }
+                        });
                     }
                 }
             } catch (e) {

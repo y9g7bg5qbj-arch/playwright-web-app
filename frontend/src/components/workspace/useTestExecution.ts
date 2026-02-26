@@ -1,9 +1,8 @@
 import { useState, type MutableRefObject } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { OpenTab } from './useFileManagement.js';
+import type { OpenTab, SaveAllDirtyTabsResult } from './useFileManagement.js';
 import { useLocalExecutionStore } from '@/store/useLocalExecutionStore';
 import { useRunConfigStore, type RunConfiguration as ZustandRunConfig } from '@/store/runConfigStore';
-import { useEnvironmentStore } from '@/store/environmentStore';
 import { useRunParameterStore } from '@/store/runParameterStore';
 import { githubRunsApi } from '@/api/github';
 import { useGitHubExecutionStore } from '@/store/useGitHubExecutionStore';
@@ -37,11 +36,14 @@ export interface UseTestExecutionParams {
     code: string,
     executionId: string,
     projectId?: string,
-    socketOverride?: Socket | null
+    socketOverride?: Socket | null,
+    envVars?: Record<string, string>
   ) => void;
   stopDebug: () => void;
   getAuthHeaders: (extraHeaders?: Record<string, string>) => Record<string, string>;
   setDebugExecutionId: (id: string | null) => void;
+  saveAllDirtyTabsForExecution: () => Promise<SaveAllDirtyTabsResult>;
+  getSavedFileContent: (tab: OpenTab) => Promise<string>;
 }
 
 export interface FailureLine {
@@ -83,6 +85,8 @@ export function useTestExecution({
   stopDebug,
   getAuthHeaders,
   setDebugExecutionId,
+  saveAllDirtyTabsForExecution,
+  getSavedFileContent,
 }: UseTestExecutionParams): UseTestExecutionReturn {
   const [isRunning, setIsRunning] = useState(false);
   const [showDebugConsole, setShowDebugConsole] = useState(false);
@@ -136,11 +140,13 @@ export function useTestExecution({
   const getRunConfigBaseUrl = (config: ZustandRunConfig | null): string | null => {
     if (!config) return null;
 
-    // Check both casing variants (baseURL and baseUrl) since config shape varies
-    const configAny = config as unknown as Record<string, unknown>;
-    for (const key of ['baseURL', 'baseUrl'] as const) {
-      const value = configAny[key];
-      if (typeof value === 'string' && value.trim()) return value;
+    const resolvedEnvVars = getResolvedEnvironmentVariables(config);
+    for (const key of ['BASE_URL', 'baseUrl'] as const) {
+      const value = resolvedEnvVars[key];
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed) return trimmed;
+      }
     }
 
     return null;
@@ -148,27 +154,14 @@ export function useTestExecution({
 
   const getResolvedEnvironmentVariables = (config: ZustandRunConfig | null): Record<string, string> => {
     const parameterState = useRunParameterStore.getState();
-    const environmentState = useEnvironmentStore.getState();
 
     // Layer 1 (lowest): Parameter defaults
     const paramDefaults = parameterState.getDefaultsMap();
 
-    // Layer 2: Environment variables
-    let environmentVars: Record<string, string> = environmentState.getVariablesMap();
-    if (config?.environmentId) {
-      const selectedEnvironment = environmentState.environments.find(env => env.id === config.environmentId);
-      if (selectedEnvironment) {
-        environmentVars = selectedEnvironment.variables.reduce<Record<string, string>>((acc, variable) => {
-          acc[variable.key] = variable.value;
-          return acc;
-        }, {});
-      }
-    }
+    // Layer 2: Parameter set values (or app default set when none selected)
+    const setValues = parameterState.getSetValuesWithDefaultFallback(config?.parameterSetId);
 
-    // Layer 3: Parameter set values
-    const setValues = parameterState.getSetValuesMap(config?.parameterSetId);
-
-    // Layer 4 (highest): Per-run overrides
+    // Layer 3 (highest): Per-run parameter overrides
     const paramOverrides: Record<string, string> = {};
     if (config?.parameterOverrides) {
       for (const [key, value] of Object.entries(config.parameterOverrides)) {
@@ -178,11 +171,16 @@ export function useTestExecution({
 
     return {
       ...paramDefaults,
-      ...environmentVars,
       ...setValues,
       ...paramOverrides,
-      ...(config?.envVars || {}),
     };
+  };
+
+  const ensureRunParametersLoaded = async (): Promise<void> => {
+    if (!currentProjectId) return;
+    // Always refresh before execution so values edited in the Parameters tab
+    // are reflected immediately in run-time variable resolution.
+    await useRunParameterStore.getState().fetchAll(currentProjectId);
   };
 
   const parseGitHubRepository = (repository: string): { owner: string; repo: string } | null => {
@@ -192,6 +190,28 @@ export function useTestExecution({
       return null;
     }
     return { owner: segments[0], repo: segments[1] };
+  };
+
+  const ensureSavedBeforeExecution = async (): Promise<boolean> => {
+    const saveResult = await saveAllDirtyTabsForExecution();
+    addConsoleOutput(`[SAVE] Saved ${saveResult.savedCount} dirty file(s) before execution`);
+    if (saveResult.ok) {
+      return true;
+    }
+
+    const failed = saveResult.failedFiles.length > 0 ? saveResult.failedFiles.join(', ') : 'Unknown file(s)';
+    addConsoleOutput(`[SAVE-ERROR] Execution cancelled; failed to save: ${failed}`);
+    return false;
+  };
+
+  const readSavedFileContent = async (tab: OpenTab): Promise<string | null> => {
+    try {
+      return await getSavedFileContent(tab);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      addConsoleOutput(`[SAVE-ERROR] Execution cancelled; failed to read saved file: ${message}`);
+      return null;
+    }
   };
 
   type DebugPreparationResponse = {
@@ -235,16 +255,20 @@ export function useTestExecution({
   };
 
   const prepareDebugSession = async (
-    tab: OpenTab
+    tab: OpenTab,
+    savedContent: string,
+    scenarioName?: string
   ): Promise<{ executionId: string; testFlowId: string; generatedCode: string }> => {
     const scopeMetadata = resolveExecutionScopeMetadata();
+    const normalizedScenarioName = typeof scenarioName === 'string' ? scenarioName.trim() : '';
     const response = await fetch(`${API_BASE}/vero/debug`, {
       method: 'POST',
       headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       credentials: 'include',
       body: JSON.stringify({
-        content: tab.content,
-        filePath: toRelativeVeroPath(tab.path),
+        filePath: tab.path,
+        content: savedContent,
+        scenarioName: normalizedScenarioName || undefined,
         breakpoints: Array.from(debugState.breakpoints).sort((a, b) => a - b),
         applicationId: scopeMetadata.applicationId,
         projectId: scopeMetadata.projectId,
@@ -284,9 +308,11 @@ export function useTestExecution({
       return;
     }
 
-    const workflowPath = (config as ZustandRunConfig).github?.workflowFile || '.github/workflows/vero-tests.yml';
+    // Always use the managed workflow path — backend enforces this too
+    const workflowPath = '.github/workflows/vero-tests.yml';
     const branch = (config as ZustandRunConfig).github?.branch || 'main';
     const relativePath = toRelativeVeroPath(tab.path);
+    await ensureRunParametersLoaded();
     const resolvedEnvVars = getResolvedEnvironmentVariables(config);
     const githubRunConfig = scenarioName
       ? ({ ...config, selectionScope: 'active-file' } as ZustandRunConfig)
@@ -296,10 +322,20 @@ export function useTestExecution({
       .definitions
       .filter((definition) => definition.parameterize ?? (definition as any).parallel)
       .map((definition) => definition.name);
+
+    let savedContent: string;
+    try {
+      savedContent = await getSavedFileContent(tab);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      addConsoleOutput(`[SAVE-ERROR] Execution cancelled; failed to read saved file: ${message}`);
+      return;
+    }
+
     const githubInputs = buildGitHubInputs(
       githubRunConfig as unknown as Record<string, unknown>,
       tab.path,
-      tab.content,
+      savedContent,
       scenarioName,
       resolvedEnvVars,
       parameterizedNames
@@ -407,7 +443,17 @@ export function useTestExecution({
       skippedCount: 0,
     });
 
+    await ensureRunParametersLoaded();
     const resolvedEnvVars = getResolvedEnvironmentVariables(config);
+    const savedContent = await readSavedFileContent(tab);
+    if (!savedContent) {
+      updateLocalExecution(tempExecutionId, {
+        status: 'failed',
+        finishedAt: new Date().toISOString(),
+        error: 'Failed to read saved file content before execution',
+      });
+      return;
+    }
     try {
       const localRunConfig = buildLocalRunConfig(config as unknown as Record<string, unknown>);
       if (scenarioName) {
@@ -418,13 +464,14 @@ export function useTestExecution({
         headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         credentials: 'include',
         body: JSON.stringify({
-          content: tab.content,
           filePath: toRelativeVeroPath(tab.path),
+          content: savedContent,
           scenarioName,
           applicationId: scopeMetadata.applicationId,
           projectId: scopeMetadata.projectId,
           config: {
             ...localRunConfig,
+            // Compatibility transport: backend treats config.envVars as resolved parameter values.
             envVars: Object.keys(resolvedEnvVars).length > 0 ? resolvedEnvVars : undefined,
           },
         }),
@@ -607,9 +654,14 @@ export function useTestExecution({
 
     setIsRunning(true);
     setShowConsole(true);
-    addConsoleOutput(`Running ${activeTab.name} with ${config.name || 'Default'}...`);
 
     try {
+      const isSaved = await ensureSavedBeforeExecution();
+      if (!isSaved) {
+        return;
+      }
+
+      addConsoleOutput(`Running ${activeTab.name} with ${config.name || 'Default'}...`);
       const isGitHubTarget = normalizeRunTarget((config as { target?: unknown }).target) === 'github-actions';
       if (isGitHubTarget) {
         await triggerGitHubRun(config, activeTab);
@@ -635,20 +687,33 @@ export function useTestExecution({
       return;
     }
 
+    const isSaved = await ensureSavedBeforeExecution();
+    if (!isSaved) {
+      return;
+    }
+
+    await ensureRunParametersLoaded();
+    const resolvedEnvVars = getResolvedEnvironmentVariables(config);
+    const savedContent = await readSavedFileContent(activeTab);
+    if (!savedContent) {
+      return;
+    }
+
     setShowDebugConsole(true);
     const socket = ensureDebugSocket();
 
     addConsoleOutput(`Starting debug session for ${activeTab.name} with ${config.name || 'Default'}...`);
 
     try {
-      const prepared = await prepareDebugSession(activeTab);
+      const prepared = await prepareDebugSession(activeTab, savedContent);
       setDebugExecutionId(prepared.executionId);
       startDebug(
         prepared.testFlowId,
         prepared.generatedCode,
         prepared.executionId,
         currentRunConfigProjectId || currentProjectId,
-        socket
+        socket,
+        resolvedEnvVars
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -666,20 +731,38 @@ export function useTestExecution({
   // Restart debug session
   const handleRestartDebug = async () => {
     if (!activeTab) return;
+    const config = resolveRunConfig();
+    if (!config) {
+      addConsoleOutput('No run configuration found. Open Run Configuration to create one.');
+      return;
+    }
+
+    const isSaved = await ensureSavedBeforeExecution();
+    if (!isSaved) {
+      return;
+    }
+
+    await ensureRunParametersLoaded();
+    const resolvedEnvVars = getResolvedEnvironmentVariables(config);
+    const savedContent = await readSavedFileContent(activeTab);
+    if (!savedContent) {
+      return;
+    }
     stopDebug(); // Send stop to backend for current session
     setShowDebugConsole(true);
     const socket = ensureDebugSocket();
 
     addConsoleOutput(`Restarting debug session for ${activeTab.name}...`);
     try {
-      const prepared = await prepareDebugSession(activeTab);
+      const prepared = await prepareDebugSession(activeTab, savedContent);
       setDebugExecutionId(prepared.executionId);
       startDebug(
         prepared.testFlowId,
         prepared.generatedCode,
         prepared.executionId,
         currentRunConfigProjectId || currentProjectId,
-        socket
+        socket,
+        resolvedEnvVars
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -708,9 +791,14 @@ export function useTestExecution({
     }
 
     setIsRunning(true);
-    addConsoleOutput(`Running scenario "${normalizedScenarioName}" from ${activeTab.name}...`);
 
     try {
+      const isSaved = await ensureSavedBeforeExecution();
+      if (!isSaved) {
+        return;
+      }
+
+      addConsoleOutput(`Running scenario "${normalizedScenarioName}" from ${activeTab.name}...`);
       const isGitHubTarget = normalizeRunTarget((config as { target?: unknown }).target) === 'github-actions';
       if (isGitHubTarget) {
         await triggerGitHubRun(config, activeTab, normalizedScenarioName);
@@ -743,20 +831,38 @@ export function useTestExecution({
       addConsoleOutput('Only .vero scenario files can debug scenarios.');
       return;
     }
+    const config = resolveRunConfig();
+    if (!config) {
+      addConsoleOutput('No run configuration found. Open Run Configuration to create one.');
+      return;
+    }
+
+    const isSaved = await ensureSavedBeforeExecution();
+    if (!isSaved) {
+      return;
+    }
+
+    await ensureRunParametersLoaded();
+    const resolvedEnvVars = getResolvedEnvironmentVariables(config);
+    const savedContent = await readSavedFileContent(activeTab);
+    if (!savedContent) {
+      return;
+    }
 
     setShowDebugConsole(true);
     const socket = ensureDebugSocket();
 
     addConsoleOutput(`Starting debug for scenario "${scenarioName}" in ${activeTab.name}...`);
     try {
-      const prepared = await prepareDebugSession(activeTab);
+      const prepared = await prepareDebugSession(activeTab, savedContent, scenarioName);
       setDebugExecutionId(prepared.executionId);
       startDebug(
         prepared.testFlowId,
         prepared.generatedCode,
         prepared.executionId,
         currentRunConfigProjectId || currentProjectId,
-        socket
+        socket,
+        resolvedEnvVars
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

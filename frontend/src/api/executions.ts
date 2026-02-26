@@ -41,6 +41,8 @@ export interface ExecutionWithDetails {
   skippedCount: number;
   duration?: number;
   runNumber?: number;
+  startupFailure?: boolean;
+  startupErrorSummary?: string;
   scenarios?: ExecutionScenario[];
   isMatrixParent?: boolean;
   matrixLabel?: string;

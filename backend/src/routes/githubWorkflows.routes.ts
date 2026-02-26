@@ -11,6 +11,7 @@ import { asyncHandler } from '../middleware/asyncHandler';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { githubService } from '../services/github.service';
 import { workflowGeneratorService } from '../services/workflowGenerator.service';
+import { VERO_WORKFLOW_TEMPLATE } from '../templates/veroWorkflowTemplate';
 
 const router = Router();
 
@@ -97,6 +98,95 @@ router.post(
     res.json({
       success: true,
       data: estimate,
+    });
+  })
+);
+
+// ============================================
+// MANAGED WORKFLOW FILE
+// ============================================
+
+/**
+ * GET /api/github/workflows/check-workflow-file
+ * Check whether the managed workflow YAML exists in a repo.
+ */
+router.get(
+  '/workflows/check-workflow-file',
+  authenticateToken,
+  validate([
+    query('owner').isString().notEmpty().withMessage('Owner is required'),
+    query('repo').isString().notEmpty().withMessage('Repo is required'),
+    query('branch').isString().notEmpty().withMessage('Branch is required'),
+  ]),
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { owner, repo, branch } = req.query;
+
+    const result = await githubService.checkWorkflowFileExists(
+      req.userId!,
+      owner as string,
+      repo as string,
+      branch as string
+    );
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  })
+);
+
+/**
+ * POST /api/github/workflows/push-workflow-file
+ * Create the managed workflow YAML in a repo (create-only, no overwrite).
+ */
+router.post(
+  '/workflows/push-workflow-file',
+  authenticateToken,
+  validate([
+    body('owner').isString().notEmpty().withMessage('Owner is required'),
+    body('repo').isString().notEmpty().withMessage('Repo is required'),
+    body('branch').isString().notEmpty().withMessage('Branch is required'),
+  ]),
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { owner, repo, branch } = req.body;
+
+    // Check existing first — never overwrite
+    const existing = await githubService.checkWorkflowFileExists(
+      req.userId!,
+      owner,
+      repo,
+      branch
+    );
+
+    if (existing.exists) {
+      res.json({
+        success: true,
+        data: {
+          sha: existing.sha,
+          htmlUrl: existing.htmlUrl,
+          created: false,
+          updated: false,
+        },
+      });
+      return;
+    }
+
+    const result = await githubService.pushWorkflowFile(
+      req.userId!,
+      owner,
+      repo,
+      branch,
+      VERO_WORKFLOW_TEMPLATE
+    );
+
+    res.json({
+      success: true,
+      data: {
+        sha: result.sha,
+        htmlUrl: result.htmlUrl,
+        created: true,
+        updated: false,
+      },
     });
   })
 );

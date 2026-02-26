@@ -11,6 +11,7 @@ import {
 } from './services/queue/bootstrap';
 import { migrateSandboxLayoutOnStartup } from './services/sandboxLayoutMigration.service';
 import { migrateRunConfigurationsToProjectScope } from './services/runConfigurationProjectScopeMigration.service';
+import { migrateEnvVarsToParameters } from './services/envVarsToParametersMigration.service';
 
 type ProcessRole = 'api' | 'worker' | 'all';
 
@@ -57,6 +58,12 @@ async function start() {
       await migrateRunConfigurationsToProjectScope();
     } catch (error) {
       logger.error('Run configuration project-scope migration failed at startup; continuing without blocking server boot', error);
+    }
+
+    try {
+      await migrateEnvVarsToParameters();
+    } catch (error) {
+      logger.error('Env-vars to parameters migration failed at startup; continuing without blocking server boot', error);
     }
 
     // Queue infrastructure (Redis connection, queue producers) is needed by both

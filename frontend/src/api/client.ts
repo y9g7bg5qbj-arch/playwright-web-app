@@ -2,6 +2,18 @@ import type { ApiResponse } from '@playwright-web-app/shared';
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '/api';
 
+export class ApiError extends Error {
+  status?: number;
+  endpoint: string;
+
+  constructor(message: string, endpoint: string, status?: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.endpoint = endpoint;
+    this.status = status;
+  }
+}
+
 class ApiClient {
   private token: string | null = null;
 
@@ -40,16 +52,32 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        ...options,
+        headers,
+        credentials: options.credentials ?? 'include',
+      });
+    } catch {
+      throw new ApiError(
+        'Unable to reach the server. Please check your connection and try again.',
+        endpoint
+      );
+    }
 
     // Handle empty responses
     const text = await response.text();
     if (!text) {
       if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
+        if (response.status >= 500) {
+          throw new ApiError(
+            'Server is temporarily unavailable. Please try again in a moment.',
+            endpoint,
+            response.status
+          );
+        }
+        throw new ApiError(`Request failed with status ${response.status}`, endpoint, response.status);
       }
       return undefined as T;
     }
@@ -58,12 +86,25 @@ class ApiClient {
     let data: ApiResponse<T>;
     try {
       data = JSON.parse(text);
-    } catch (e) {
-      throw new Error(`Invalid JSON response: ${text.substring(0, 100)}`);
+    } catch {
+      if (!response.ok) {
+        throw new ApiError(
+          response.status >= 500
+            ? 'Server returned an invalid response. Please try again in a moment.'
+            : `Request failed with status ${response.status}`,
+          endpoint,
+          response.status
+        );
+      }
+      throw new ApiError(`Invalid JSON response: ${text.substring(0, 100)}`, endpoint, response.status);
     }
 
     if (!response.ok || !data.success) {
-      throw new Error(data.error || 'Request failed');
+      throw new ApiError(
+        data.error || `Request failed with status ${response.status}`,
+        endpoint,
+        response.status
+      );
     }
 
     return data.data as T;

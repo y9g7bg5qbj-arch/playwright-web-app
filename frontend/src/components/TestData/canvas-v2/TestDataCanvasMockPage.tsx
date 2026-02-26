@@ -228,7 +228,6 @@ export function TestDataCanvasMockPage() {
         onCreateTable={() => window.alert('Mock mode: create table dialog')}
         onRefreshTables={() => window.alert('Mock mode: refreshed')}
         onImportExcel={() => window.alert('Mock mode: import Excel')}
-        onOpenEnvironments={() => window.alert('Mock mode: environments')}
         onOpenDataStorage={() => window.alert('Mock mode: storage settings')}
         activeTableName={selectedTable?.name}
         commandStripNode={

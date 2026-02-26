@@ -8,6 +8,7 @@
 import { useState, useCallback, useRef } from 'react';
 import Papa from 'papaparse';
 import { apiUrl } from '@/config';
+import { apiClient } from '@/api/client';
 import type { DataColumn as AGDataColumn, AGGridDataTableHandle } from './AGGridDataTable';
 import type { BulkUpdate } from './BulkUpdateModal';
 import {
@@ -46,7 +47,6 @@ export function useSheetOperations({
     const [showColumnEditor, setShowColumnEditor] = useState(false);
     const [editingColumn, setEditingColumn] = useState<AGDataColumn | null>(null);
     const [showQualityReport, setShowQualityReport] = useState(false);
-    const [showEnvironments, setShowEnvironments] = useState(false);
     const [showDataStorageSettings, setShowDataStorageSettings] = useState(false);
 
     // Messages
@@ -63,36 +63,123 @@ export function useSheetOperations({
         setTimeout(() => setErrorMessage(null), 5000);
     };
 
+    const authedFetch = useCallback((path: string, options: RequestInit = {}) => {
+        const normalizedHeaders = new Headers(options.headers);
+        if (!normalizedHeaders.has('Content-Type')) {
+            normalizedHeaders.set('Content-Type', 'application/json');
+        }
+
+        const token = apiClient.getToken();
+        if (token && !normalizedHeaders.has('Authorization')) {
+            normalizedHeaders.set('Authorization', `Bearer ${token}`);
+        }
+
+        return fetch(apiUrl(path), {
+            ...options,
+            headers: normalizedHeaders,
+            credentials: options.credentials ?? 'include',
+        });
+    }, []);
+
+    const getColumnRules = useCallback((column: DataColumn) => ({
+        min: column.validation?.min ?? column.min,
+        max: column.validation?.max ?? column.max,
+        minLength: column.validation?.minLength ?? column.minLength,
+        maxLength: column.validation?.maxLength ?? column.maxLength,
+        pattern: column.validation?.pattern ?? column.pattern,
+        enumValues: column.validation?.enum ?? column.enum,
+    }), []);
+
+    const getRequiredTextDefault = useCallback((column: DataColumn) => {
+        const rules = getColumnRules(column);
+        if (rules.enumValues && rules.enumValues.length > 0) {
+            return rules.enumValues[0];
+        }
+
+        const minLength = rules.minLength ?? 1;
+        const maxLength = rules.maxLength;
+        const pattern = rules.pattern;
+        const baseCandidates = /environment/i.test(column.name)
+            ? ['dev', 'qa', 'prod', 'default']
+            : ['value', 'sample', 'test', '1', 'x'];
+
+        const normalize = (raw: string): string => {
+            let candidate = raw;
+            if (candidate.length < minLength) {
+                candidate = candidate.padEnd(minLength, 'x');
+            }
+            if (maxLength !== undefined && candidate.length > maxLength) {
+                candidate = candidate.slice(0, maxLength);
+            }
+            return candidate;
+        };
+
+        if (!pattern) {
+            return normalize(baseCandidates[0]);
+        }
+
+        try {
+            const regex = new RegExp(pattern);
+            for (const candidate of baseCandidates.map(normalize)) {
+                if (regex.test(candidate)) {
+                    return candidate;
+                }
+            }
+        } catch {
+            // Ignore invalid regex and use a basic fallback below.
+        }
+
+        return normalize(baseCandidates[0]);
+    }, [getColumnRules]);
+
+    const getDefaultCellValue = useCallback((column: DataColumn): unknown => {
+        if (!column.required) {
+            return column.type === 'boolean' ? false : '';
+        }
+
+        const rules = getColumnRules(column);
+
+        if (column.type === 'boolean') {
+            return false;
+        }
+
+        if (column.type === 'number') {
+            let numeric = typeof rules.min === 'number' ? rules.min : 0;
+            if (typeof rules.max === 'number' && numeric > rules.max) {
+                numeric = rules.max;
+            }
+            return Number.isFinite(numeric) ? numeric : 0;
+        }
+
+        if (column.type === 'date') {
+            return new Date().toISOString().slice(0, 10);
+        }
+
+        if (column.type === 'string') {
+            return getRequiredTextDefault(column);
+        }
+
+        return '';
+    }, [getColumnRules, getRequiredTextDefault]);
+
     // Fetch all sheets
     const fetchSheets = useCallback(async () => {
         setLoading(true);
         try {
-            const params = new URLSearchParams();
-            params.set('projectId', projectId);
-            if (nestedProjectId) {
-                params.set('nestedProjectId', nestedProjectId);
-            }
-
-            const res = await fetch(apiUrl(`/api/test-data/sheets?${params.toString()}`));
-            const data = await res.json();
-            if (data.success) {
-                let nextSheets = data.sheets as DataSheet[];
-
-                // If nested scope has no tables, fall back to app-level tables.
-                if (nestedProjectId && nextSheets.length === 0) {
-                    const fallbackRes = await fetch(apiUrl(`/api/test-data/sheets?projectId=${projectId}`));
-                    const fallbackData = await fallbackRes.json();
-                    if (fallbackData.success) {
-                        nextSheets = fallbackData.sheets as DataSheet[];
-                    }
+            const nextSheets = await testDataApi.listSheets(projectId, {
+                nestedProjectId: nestedProjectId || undefined,
+                fallbackToApplicationScope: true,
+            });
+            setSheets(nextSheets as DataSheet[]);
+            setSelectedSheetId((prev) => {
+                if (nextSheets.length === 0) {
+                    return null;
                 }
-
-                setSheets(nextSheets);
-                // Auto-select first sheet if none selected
-                if (nextSheets.length > 0) {
-                    setSelectedSheetId((prev) => prev ?? nextSheets[0].id);
+                if (!prev || !nextSheets.some((sheet) => sheet.id === prev)) {
+                    return nextSheets[0].id;
                 }
-            }
+                return prev;
+            });
         } catch (err) {
             console.error('Failed to fetch sheets:', err);
             showError('Failed to load test data sheets');
@@ -105,27 +192,16 @@ export function useSheetOperations({
     const fetchRows = useCallback(async (sheetId: string) => {
         setLoadingRows(true);
         try {
-            const params = new URLSearchParams();
-            params.set('projectId', projectId);
-            const table = sheetsRef.current.find((entry) => entry.id === sheetId);
-            const shouldUseNestedScope = Boolean(table?.projectId) && Boolean(nestedProjectId);
-            if (shouldUseNestedScope && nestedProjectId) {
-                params.set('nestedProjectId', nestedProjectId);
-            }
-
-            const res = await fetch(apiUrl(`/api/test-data/sheets/${sheetId}?${params.toString()}`));
-            const data = await res.json();
-            if (data.success) {
-                setSelectedSheet(data.sheet);
-                setRows(data.sheet.rows);
-            }
+            const sheet = await testDataApi.getSheet(sheetId);
+            setSelectedSheet(sheet as DataSheet);
+            setRows(sheet.rows as DataRow[]);
         } catch (err) {
             console.error('Failed to fetch rows:', err);
             showError('Failed to load sheet data');
         } finally {
             setLoadingRows(false);
         }
-    }, [nestedProjectId, projectId]);
+    }, []);
 
     // Sheet handlers
     const handleCreateSheet = async (name: string, pageObject: string, description: string, columns: DataColumn[]) => {
@@ -136,9 +212,8 @@ export function useSheetOperations({
         }
 
         try {
-            const res = await fetch(apiUrl('/api/test-data/sheets'), {
+            const res = await authedFetch('/api/test-data/sheets', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     projectId,
                     nestedProjectId: nestedProjectId || undefined,
@@ -167,9 +242,8 @@ export function useSheetOperations({
         const existingSheet = sheets.find((entry) => entry.id === id);
         const shouldUseNestedScope = Boolean(existingSheet?.projectId) && Boolean(nestedProjectId);
         try {
-            const res = await fetch(apiUrl(`/api/test-data/sheets/${id}`), {
+            const res = await authedFetch(`/api/test-data/sheets/${id}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     ...updates,
                     projectId,
@@ -207,7 +281,7 @@ export function useSheetOperations({
             if (shouldUseNestedScope && nestedProjectId) {
                 params.set('nestedProjectId', nestedProjectId);
             }
-            const res = await fetch(apiUrl(`/api/test-data/sheets/${id}?${params.toString()}`), {
+            const res = await authedFetch(`/api/test-data/sheets/${id}?${params.toString()}`, {
                 method: 'DELETE'
             });
             const data = await res.json();
@@ -233,7 +307,7 @@ export function useSheetOperations({
 
         const defaultData: Record<string, any> = {};
         selectedSheet.columns.forEach(col => {
-            defaultData[col.name] = col.type === 'boolean' ? false : '';
+            defaultData[col.name] = getDefaultCellValue(col);
         });
 
         // Find the maximum existing scenario ID number to avoid duplicates
@@ -251,9 +325,8 @@ export function useSheetOperations({
 
         try {
             console.log('[handleAddRow] Making API request to add row with scenarioId:', nextScenarioId);
-            const res = await fetch(apiUrl(`/api/test-data/sheets/${selectedSheet.id}/rows`), {
+            const res = await authedFetch(`/api/test-data/sheets/${selectedSheet.id}/rows`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     scenarioId: nextScenarioId,
                     data: defaultData,
@@ -280,9 +353,8 @@ export function useSheetOperations({
 
     const handleUpdateRow = async (rowId: string, updates: Partial<DataRow>) => {
         try {
-            const res = await fetch(apiUrl(`/api/test-data/rows/${rowId}`), {
+            const res = await authedFetch(`/api/test-data/rows/${rowId}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updates)
             });
             const data = await res.json();
@@ -299,7 +371,7 @@ export function useSheetOperations({
 
     const handleDeleteRow = async (rowId: string) => {
         try {
-            const res = await fetch(apiUrl(`/api/test-data/rows/${rowId}`), {
+            const res = await authedFetch(`/api/test-data/rows/${rowId}`, {
                 method: 'DELETE'
             });
             const data = await res.json();
@@ -361,9 +433,8 @@ export function useSheetOperations({
 
         // Bulk add rows
         try {
-            const res = await fetch(apiUrl(`/api/test-data/sheets/${selectedSheet.id}/rows/bulk`), {
+            const res = await authedFetch(`/api/test-data/sheets/${selectedSheet.id}/rows/bulk`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     rows: importedRows.map((rowData, idx) => ({
                         scenarioId: `TC${String(rows.length + idx + 1).padStart(3, '0')}`,
@@ -566,9 +637,8 @@ export function useSheetOperations({
         if (!selectedSheet) return;
 
         try {
-            const res = await fetch(apiUrl(`/api/test-data/sheets/${selectedSheet.id}/rows/bulk`), {
+            const res = await authedFetch(`/api/test-data/sheets/${selectedSheet.id}/rows/bulk`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     rows: pastedRows.map((data, idx) => ({
                         scenarioId: `TC${String(rows.length + idx + 1).padStart(3, '0')}`,
@@ -638,9 +708,8 @@ export function useSheetOperations({
                 }
             }
 
-            const res = await fetch(apiUrl(`/api/test-data/sheets/${selectedSheet.id}/rows/bulk-update`), {
+            const res = await authedFetch(`/api/test-data/sheets/${selectedSheet.id}/rows/bulk-update`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     updates: Array.from(rowUpdates.entries()).map(([rowId, data]) => ({
                         rowId,
@@ -725,8 +794,6 @@ export function useSheetOperations({
         setEditingColumn,
         showQualityReport,
         setShowQualityReport,
-        showEnvironments,
-        setShowEnvironments,
         showDataStorageSettings,
         setShowDataStorageSettings,
     };

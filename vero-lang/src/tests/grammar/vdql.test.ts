@@ -102,6 +102,19 @@ describe('VDQL - ROW Statements', () => {
             `);
             assert.ok(code.includes('sort'), `Expected sort in: ${code}`);
         });
+
+        it('loads __env__ when ROW WHERE uses environment variables', () => {
+            const code = transpileFirstTest(`
+                FEATURE RowTest {
+                    SCENARIO EnvRow {
+                        ROW user = FIRST Users WHERE environment = {{environment}} and state = {{state}}
+                    }
+                }
+            `);
+            assert.ok(code.includes("const __env__: Record<string, string> = JSON.parse(process.env.VERO_ENV_VARS || '{}');"), `Expected __env__ declaration in: ${code}`);
+            assert.ok(code.includes("__env__['environment']"), `Expected environment lookup in: ${code}`);
+            assert.ok(code.includes("__env__['state']"), `Expected state lookup in: ${code}`);
+        });
     });
 });
 

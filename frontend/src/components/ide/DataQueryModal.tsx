@@ -18,10 +18,11 @@ interface DataQueryModalProps {
   isOpen: boolean;
   onClose: () => void;
   projectId: string;
+  nestedProjectId?: string | null;
   onInsertSnippet: (snippet: string) => void;
 }
 
-export function DataQueryModal({ isOpen, onClose, projectId, onInsertSnippet }: DataQueryModalProps) {
+export function DataQueryModal({ isOpen, onClose, projectId, nestedProjectId, onInsertSnippet }: DataQueryModalProps) {
   const [sheets, setSheets] = useState<DataSheet[]>([]);
   const [rows, setRows] = useState<DataRow[]>([]);
   const [selectedSheetId, setSelectedSheetId] = useState<string | null>(null);
@@ -36,7 +37,10 @@ export function DataQueryModal({ isOpen, onClose, projectId, onInsertSnippet }: 
     let cancelled = false;
 
     setLoading(true);
-    testDataApi.listSheets(projectId).then((result) => {
+    testDataApi.listSheets(projectId, {
+      nestedProjectId,
+      fallbackToApplicationScope: true,
+    }).then((result) => {
       if (cancelled) return;
       // Map API TestDataSheet to the DataSheet shape expected by useQueryGenerator
       const mapped: DataSheet[] = result.map((s) => ({
@@ -44,6 +48,7 @@ export function DataQueryModal({ isOpen, onClose, projectId, onInsertSnippet }: 
         name: s.name,
         pageObject: s.pageObject,
         description: s.description,
+        projectId: s.projectId ?? null,
         columns: s.columns.map((c) => ({
           name: c.name,
           type: c.type as DataSheet['columns'][number]['type'],
@@ -55,9 +60,13 @@ export function DataQueryModal({ isOpen, onClose, projectId, onInsertSnippet }: 
         updatedAt: s.updatedAt,
       }));
       setSheets(mapped);
-      if (mapped.length > 0 && !selectedSheetId) {
-        setSelectedSheetId(mapped[0].id);
-      }
+      setSelectedSheetId((prev) => {
+        if (mapped.length === 0) return null;
+        if (!prev || !mapped.some((sheet) => sheet.id === prev)) {
+          return mapped[0].id;
+        }
+        return prev;
+      });
     }).catch(() => {
       if (!cancelled) setSheets([]);
     }).finally(() => {
@@ -65,7 +74,7 @@ export function DataQueryModal({ isOpen, onClose, projectId, onInsertSnippet }: 
     });
 
     return () => { cancelled = true; };
-  }, [isOpen, projectId]);
+  }, [isOpen, nestedProjectId, projectId]);
 
   // Load rows when selected sheet changes
   useEffect(() => {
@@ -113,6 +122,10 @@ export function DataQueryModal({ isOpen, onClose, projectId, onInsertSnippet }: 
     showError,
     showSuccess,
   });
+
+  useEffect(() => {
+    query.setShowQueryGeneratorModal(isOpen);
+  }, [isOpen, query.setShowQueryGeneratorModal]);
 
   // "Insert into Editor" action
   const handleInsert = useCallback(() => {
