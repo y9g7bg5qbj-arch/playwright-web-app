@@ -33,6 +33,28 @@ function countStepStatuses(steps: { status: string }[]): { passed: number; faile
   return { passed, failed, skipped };
 }
 
+function isDiagnosticsOnlyExecutionLog(message: string): boolean {
+  return message.trim().startsWith('Vero run diagnostics:');
+}
+
+function getStartupErrorSummary(logs: Array<{ level: string; message: string }>): string | undefined {
+  for (const log of logs) {
+    if (log.level !== 'error') continue;
+    const message = typeof log.message === 'string' ? log.message.trim() : '';
+    if (!message) continue;
+    if (isDiagnosticsOnlyExecutionLog(message)) continue;
+
+    const firstMeaningfulLine = message
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0);
+    if (firstMeaningfulLine) {
+      return firstMeaningfulLine;
+    }
+  }
+  return undefined;
+}
+
 interface RecentExecutionScenario {
   id: string;
   name: string;
@@ -62,6 +84,8 @@ interface RecentExecution {
   skippedCount: number;
   duration?: number;
   configSnapshot?: unknown;
+  startupFailure?: boolean;
+  startupErrorSummary?: string;
   scenarios: RecentExecutionScenario[];
   logs: { id: string; message: string; level: string; timestamp: string }[];
 }
@@ -272,6 +296,14 @@ export class ExecutionService {
       const projectName = resolvedProjectName || (scopedApplicationId ? 'Unassigned' : undefined);
       const steps = stepsByExecId.get(exec.id) || [];
       const logs = logsByExecId.get(exec.id) || [];
+      const startupErrorSummary = (
+        !exec.isMatrixParent
+        && exec.status === 'failed'
+        && steps.length === 0
+      )
+        ? getStartupErrorSummary(logs)
+        : undefined;
+      const startupFailure = typeof startupErrorSummary === 'string';
 
       // For matrix parents, aggregate metrics from children instead of (empty) parent steps
       let passedCount: number;
@@ -345,6 +377,8 @@ export class ExecutionService {
           ? new Date(exec.finishedAt).getTime() - new Date(exec.startedAt).getTime()
           : undefined,
         configSnapshot: safeJsonParse(exec.configSnapshot, undefined),
+        startupFailure,
+        startupErrorSummary,
         // Map steps to scenarios for frontend display
         scenarios: steps.map((step) => {
           const scenarioName = step.description || `Test ${step.stepNumber}`;

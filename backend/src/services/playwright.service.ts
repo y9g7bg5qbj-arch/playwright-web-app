@@ -588,7 +588,7 @@ export default defineConfig({
     onDebugEvent: (event: DebugEvent) => void,
     onLog: (message: string, level: 'info' | 'warn' | 'error') => void,
     onComplete: (exitCode: number, duration: number) => void,
-    options?: { projectId?: string; authToken?: string }
+    options?: { projectId?: string; authToken?: string; envVars?: Record<string, string> }
   ): Promise<void> {
     const startTime = Date.now();
 
@@ -627,10 +627,24 @@ export default defineConfig({
 `;
       await fs.writeFile(configFile, configContent);
 
+      const normalizedEnvVars: Record<string, string> = {};
+      if (options?.envVars && typeof options.envVars === 'object') {
+        for (const [key, value] of Object.entries(options.envVars)) {
+          const normalizedKey = key.trim();
+          if (!normalizedKey) continue;
+          normalizedEnvVars[normalizedKey] = String(value ?? '');
+        }
+      }
+      const serializedEnvVars = JSON.stringify(normalizedEnvVars);
+
       // Create a wrapper script that enables IPC
       const wrapperFile = path.join(storageDir, 'debug-runner.js');
       const wrapperContent = `
 const { spawn } = require('child_process');
+const fs = require('fs');
+const debugEventPrefix = '__VERO_DEBUG_EVENT__';
+	const signalPath = '${storageDir.replace(/\\/g, '/')}';
+	const signalFile = signalPath + '/debug-signal.json';
 
 // Run Playwright test
 const child = spawn('npx', ['playwright', 'test', 'test.spec.ts', '--headed'], {
@@ -640,14 +654,33 @@ const child = spawn('npx', ['playwright', 'test', 'test.spec.ts', '--headed'], {
     ...process.env,
     VERO_DEBUG: 'true',
     VERO_BREAKPOINTS: '${breakpoints.join(',')}',
+    VERO_DEBUG_EVENTS: 'stdout',
+    VERO_DEBUG_SIGNAL_PATH: signalPath + '/debug-signal.json',
+    VERO_ENV_VARS: ${JSON.stringify(serializedEnvVars)},
     ${options?.projectId ? `VERO_PROJECT_ID: '${options.projectId.replace(/'/g, "\\'")}',` : ''}
     ${options?.authToken ? `VERO_AUTH_TOKEN: '${options.authToken.replace(/'/g, "\\'")}',` : ''}
   }
 });
 
-// Forward stdout/stderr
+// Forward stdout/stderr and bridge debug events for environments where worker IPC is unavailable.
+let __stdoutBuffer = '';
 child.stdout.on('data', (data) => {
   process.stdout.write(data);
+
+  const chunk = data.toString();
+  const lines = (__stdoutBuffer + chunk).split('\\n');
+  __stdoutBuffer = lines.pop() || '';
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith(debugEventPrefix)) {
+      try {
+        const payload = trimmed.replace(debugEventPrefix, '');
+        process.send?.(JSON.parse(payload));
+      } catch {
+        // Ignore malformed debug event payloads.
+      }
+    }
+  }
 });
 
 child.stderr.on('data', (data) => {
@@ -659,7 +692,7 @@ process.on('message', (msg) => {
   // Forward control messages to test via environment signaling
   if (msg.type === 'resume' || msg.type === 'step' || msg.type === 'stop') {
     // For now, we'll use file-based signaling
-    require('fs').writeFileSync('${storageDir.replace(/\\/g, '/')}/debug-signal.json', JSON.stringify(msg));
+    fs.writeFileSync(signalFile, JSON.stringify(msg));
   }
 });
 

@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
-import { Filter, SearchCheck, CircleSlash, Compass } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Filter, SearchCheck, CircleSlash, Compass, FolderTree, GitBranch } from 'lucide-react';
 import type { RunConfiguration } from '@/store/runConfigStore';
 import { runConfigTheme, chipClass, cx } from './theme';
-import { useEnvironmentStore } from '@/store/environmentStore';
+import { useProjectStore } from '@/store/projectStore';
+import { useSandboxStore } from '@/store/sandboxStore';
+import { sandboxApi, type Sandbox } from '@/api/sandbox';
 import { veroApi } from '@/api/vero';
 
 interface FilteringTabProps {
@@ -69,7 +71,51 @@ function addOrRemovePattern(current: string | undefined, token: string): string 
 }
 
 export function FilteringTab({ config, onChange, hideScope }: FilteringTabProps) {
-  const applicationId = useEnvironmentStore((state) => state.applicationId);
+  const currentApplication = useProjectStore((state) => state.currentProject);
+  const applicationId = currentApplication?.id || null;
+  const currentNestedProject = useProjectStore((state) => state.currentNestedProject);
+  const activeSandboxes = useSandboxStore((state) => state.sandboxes);
+  const activeEnvironment = useSandboxStore((state) => state.activeEnvironment);
+
+  const nestedProjects = currentApplication?.projects || [];
+  const effectiveProjectId = config.targetProjectId || currentNestedProject?.id || nestedProjects[0]?.id || '';
+  // Determine environment type from config or current context
+  const envType: 'dev' | 'master' | 'sandbox' = useMemo(() => {
+    const env = config.targetEnvironment;
+    if (env === 'dev') return 'dev';
+    if (env === 'master') return 'master';
+    if (typeof env === 'object' && 'sandboxId' in env) return 'sandbox';
+    // Fallback to current active environment
+    if (activeEnvironment === 'dev') return 'dev';
+    if (activeEnvironment === 'master') return 'master';
+    return 'sandbox';
+  }, [config.targetEnvironment, activeEnvironment]);
+
+  // Effective sandbox ID (from config or from current context)
+  const effectiveSandboxId = useMemo(() => {
+    const env = config.targetEnvironment;
+    if (typeof env === 'object' && 'sandboxId' in env) return env.sandboxId;
+    if (typeof activeEnvironment === 'object' && 'sandboxId' in activeEnvironment) return activeEnvironment.sandboxId;
+    return '';
+  }, [config.targetEnvironment, activeEnvironment]);
+
+  // Always fetch sandboxes for the effective project via the API so the backend's
+  // filesystem auto-discovery picks up all sandbox folders on disk.
+  const [fetchedSandboxes, setFetchedSandboxes] = useState<Sandbox[]>([]);
+  useEffect(() => {
+    if (!effectiveProjectId) {
+      setFetchedSandboxes([]);
+      return;
+    }
+    let cancelled = false;
+    sandboxApi.listByProject(effectiveProjectId)
+      .then((result) => { if (!cancelled) setFetchedSandboxes(result); })
+      .catch(() => { if (!cancelled) setFetchedSandboxes([]); });
+    return () => { cancelled = true; };
+  }, [effectiveProjectId]);
+
+  const targetSandboxes = fetchedSandboxes.length > 0 ? fetchedSandboxes : activeSandboxes;
+
   const [estimatedScenarioCount, setEstimatedScenarioCount] = useState<number | null>(null);
   const [estimateNote, setEstimateNote] = useState<string | null>(null);
 
@@ -103,11 +149,7 @@ export function FilteringTab({ config, onChange, hideScope }: FilteringTabProps)
         });
         if (!cancelled) {
           setEstimatedScenarioCount(result.totalScenarios);
-          setEstimateNote(
-            config.selectionScope === 'current-sandbox'
-              ? 'Application-level estimate. Final run scope is current sandbox.'
-              : null
-          );
+          setEstimateNote('Application-level estimate. Final run scope is selected target.');
         }
       } catch {
         if (!cancelled) {
@@ -121,7 +163,7 @@ export function FilteringTab({ config, onChange, hideScope }: FilteringTabProps)
     return () => {
       cancelled = true;
     };
-  }, [applicationId, config.tagExpression, config.selectionScope]);
+  }, [applicationId, config.tagExpression]);
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -129,18 +171,79 @@ export function FilteringTab({ config, onChange, hideScope }: FilteringTabProps)
         <section className={runConfigTheme.section}>
           <div className="mb-2 flex items-center gap-2">
             <Compass className="h-4 w-4 text-brand-secondary" />
-            <label className={runConfigTheme.label}>Selection Scope</label>
+            <label className={runConfigTheme.label}>Target Scope</label>
           </div>
-          <select
-            className={runConfigTheme.select}
-            value={config.selectionScope || 'current-sandbox'}
-            onChange={(event) => onChange('selectionScope', (event.target.value as RunConfiguration['selectionScope']) || 'current-sandbox')}
-          >
-            <option value="current-sandbox">Current Sandbox</option>
-            <option value="active-file">Active File</option>
-          </select>
+
+          {/* Project picker */}
+          <div className="mb-3">
+            <label className="mb-1 flex items-center gap-1.5 text-xs text-text-secondary">
+              <FolderTree className="h-3 w-3" /> Project
+            </label>
+            <select
+              className={runConfigTheme.select}
+              value={effectiveProjectId}
+              onChange={(e) => {
+                const newProjectId = e.target.value || undefined;
+                onChange('targetProjectId', newProjectId);
+                // Reset environment to dev when switching projects
+                onChange('targetEnvironment', 'dev');
+              }}
+            >
+              {nestedProjects.map((project) => (
+                <option key={project.id} value={project.id}>{project.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Environment picker */}
+          <div className="mb-3">
+            <label className="mb-1 flex items-center gap-1.5 text-xs text-text-secondary">
+              <GitBranch className="h-3 w-3" /> Environment
+            </label>
+            <select
+              className={runConfigTheme.select}
+              value={envType}
+              onChange={(e) => {
+                const val = e.target.value as 'dev' | 'master' | 'sandbox';
+                if (val === 'dev') {
+                  onChange('targetEnvironment', 'dev');
+                } else if (val === 'master') {
+                  onChange('targetEnvironment', 'master');
+                } else {
+                  // Default to first available sandbox
+                  const first = targetSandboxes[0];
+                  if (first) {
+                    onChange('targetEnvironment', { sandboxId: first.id });
+                  }
+                }
+              }}
+            >
+              <option value="dev">Development (dev)</option>
+              <option value="master">Production (master)</option>
+              {targetSandboxes.length > 0 && (
+                <option value="sandbox">Sandbox</option>
+              )}
+            </select>
+          </div>
+
+          {/* Sandbox sub-picker */}
+          {envType === 'sandbox' && targetSandboxes.length > 0 && (
+            <div className="mb-3">
+              <label className="mb-1 block text-xs text-text-secondary">Sandbox</label>
+              <select
+                className={runConfigTheme.select}
+                value={effectiveSandboxId}
+                onChange={(e) => onChange('targetEnvironment', { sandboxId: e.target.value })}
+              >
+                {targetSandboxes.map((sandbox) => (
+                  <option key={sandbox.id} value={sandbox.id}>{sandbox.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <p className="mt-2 text-xs text-text-muted">
-            Current Sandbox cherry-picks matching scenarios across all `.vero` files in the active sandbox.
+            Runs all <code className="rounded bg-dark-canvas px-1">.vero</code> files in the selected project and environment.
           </p>
         </section>
       )}

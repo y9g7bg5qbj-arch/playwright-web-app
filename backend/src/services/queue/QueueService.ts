@@ -545,6 +545,9 @@ class QueueService extends EventEmitter {
       this.removeInMemoryScheduleTimer(scheduleId);
 
       const { CronExpressionParser } = await import('cron-parser');
+      // Node timers accept a max 32-bit signed int delay. Longer delays overflow to 1ms,
+      // which creates a tight loop and can starve the API process.
+      const MAX_TIMER_DELAY_MS = 2_147_000_000;
       const startNext = () => {
         try {
           const expr = CronExpressionParser.parse(cronExpression, {
@@ -552,24 +555,39 @@ class QueueService extends EventEmitter {
             currentDate: new Date(),
           });
           const nextDate = expr.next().toDate();
-          const delayMs = Math.max(0, nextDate.getTime() - Date.now());
+          const nextRunAtMs = nextDate.getTime();
 
-          const timer = setTimeout(async () => {
-            this.inMemoryScheduleTimers.delete(scheduleId);
-            try {
-              await this.addJob(
-                QUEUE_NAMES.SCHEDULE_RUN as QueueName,
-                `schedule-run-${scheduleId}`,
-                { ...jobData, scheduleId },
-                { priority: 1 }
-              );
-            } catch (err) {
-              logger.error(`Failed to enqueue in-memory repeatable job for schedule ${scheduleId}:`, err);
-            }
-            startNext();
-          }, delayMs);
-          timer.unref();
-          this.inMemoryScheduleTimers.set(scheduleId, timer);
+          const armTimer = (targetMs: number) => {
+            const remainingMs = Math.max(0, targetMs - Date.now());
+            const delayMs = Math.min(remainingMs, MAX_TIMER_DELAY_MS);
+
+            const timer = setTimeout(async () => {
+              this.inMemoryScheduleTimers.delete(scheduleId);
+
+              const stillRemainingMs = targetMs - Date.now();
+              if (stillRemainingMs > 0) {
+                armTimer(targetMs);
+                return;
+              }
+
+              try {
+                await this.addJob(
+                  QUEUE_NAMES.SCHEDULE_RUN as QueueName,
+                  `schedule-run-${scheduleId}`,
+                  { ...jobData, scheduleId },
+                  { priority: 1 }
+                );
+              } catch (err) {
+                logger.error(`Failed to enqueue in-memory repeatable job for schedule ${scheduleId}:`, err);
+              }
+              startNext();
+            }, delayMs);
+
+            timer.unref();
+            this.inMemoryScheduleTimers.set(scheduleId, timer);
+          };
+
+          armTimer(nextRunAtMs);
         } catch (err) {
           logger.error(`Failed to compute next run for in-memory schedule ${scheduleId}:`, err);
         }

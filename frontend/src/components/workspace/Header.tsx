@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-import { useEnvironmentStore } from '@/store/environmentStore';
+import { useState } from 'react';
 import { IntelliJRunToolbar } from '../ide/IntelliJRunToolbar';
 import { Plus, FolderX, ChevronRight, Search } from 'lucide-react';
 import { IconButton } from '@/components/ui';
@@ -73,12 +72,6 @@ export function Header({
   currentFileName,
 }: HeaderProps): JSX.Element {
   const [showAppLauncher, setShowAppLauncher] = useState(false);
-
-  useEffect(() => {
-    if (selectedApplicationId) {
-      useEnvironmentStore.getState().setApplicationId(selectedApplicationId);
-    }
-  }, [selectedApplicationId]);
 
   const selectedApplication = applications.find((app) => app.id === selectedApplicationId);
   return (

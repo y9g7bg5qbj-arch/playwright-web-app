@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { normalizeExecutionTarget } from '@playwright-web-app/shared';
+import { normalizeExecutionTarget } from '@/utils/normalizeExecutionTarget';
 import { runConfigurationApi } from '@/api/runConfiguration';
 import { toBackendCreate, fromBackendConfig, toBackendUpdate } from './runConfigMapper';
 
@@ -53,6 +53,8 @@ export interface RunConfiguration {
   grepInvert?: string;
   tagExpression?: string;
   selectionScope?: 'active-file' | 'current-sandbox';
+  targetProjectId?: string;
+  targetEnvironment?: 'dev' | 'master' | { sandboxId: string };
   namePatterns?: string[];
   lastFailed: boolean;
 
@@ -76,7 +78,6 @@ export interface RunConfiguration {
   outputDir?: string;
 
   // Context Options
-  baseURL?: string;
   viewport?: {
     width: number;
     height: number;
@@ -95,11 +96,7 @@ export interface RunConfiguration {
     workflowFile?: string;
   };
 
-  // Environment from Environment Manager (Postman-style)
-  // This selects a pre-defined environment, overriding the "active" one
-  environmentId?: string;
-
-  // Custom environment variables (can override environment variables)
+  // Deprecated compatibility field. Runtime is parameter-only.
   envVars?: Record<string, string>;
 
   // Run Parameters
@@ -133,7 +130,6 @@ export const DEFAULT_CONFIG: Omit<RunConfiguration, 'id' | 'createdAt' | 'update
   debug: false,
   ui: false,
   workers: 1,
-  selectionScope: 'current-sandbox',
   lastFailed: false,
   retries: 0,
   timeout: 30000,
@@ -145,7 +141,6 @@ export const DEFAULT_CONFIG: Omit<RunConfiguration, 'id' | 'createdAt' | 'update
   visualThreshold: 0.2,
   visualUpdateSnapshots: false,
   reporter: ['list'],
-  baseURL: 'http://localhost:3000',
 };
 
 // Preset configurations

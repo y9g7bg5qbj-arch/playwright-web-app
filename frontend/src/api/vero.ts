@@ -280,6 +280,31 @@ export interface VeroPageFieldData {
   actions: VeroPageActionInfo[];
 }
 
+// Page rename refactoring types
+export interface RenameLineChange {
+  line: number;
+  oldText: string;
+  newText: string;
+}
+
+export interface RenameAffectedFile {
+  relativePath: string;
+  occurrences: number;
+  preview: RenameLineChange[];
+}
+
+export interface RenamePreviewResult {
+  oldPageName: string;
+  newPageName: string;
+  pageFile: {
+    relativePath: string;
+    oldContent: string;
+    newContent: string;
+  };
+  affectedFiles: RenameAffectedFile[];
+  totalOccurrences: number;
+}
+
 export const veroApi = {
   // ============================================
   // PAGE FIELDS (Slash Builder)
@@ -360,6 +385,34 @@ export const veroApi = {
       body: JSON.stringify({ oldPath, newPath }),
     });
     return response.newPath;
+  },
+
+  /**
+   * Preview page rename refactoring — scans for all references to the old page name
+   */
+  async previewPageRename(filePath: string, newPageName: string, veroPath?: string): Promise<RenamePreviewResult> {
+    const response = await request<{ success: boolean; preview: RenamePreviewResult; applied: boolean }>(
+      '/vero/files/rename-page-references',
+      {
+        method: 'POST',
+        body: JSON.stringify({ filePath, newPageName, apply: false, veroPath }),
+      },
+    );
+    return response.preview;
+  },
+
+  /**
+   * Apply page rename refactoring — updates the page declaration and all references
+   */
+  async applyPageRename(filePath: string, newPageName: string, veroPath?: string): Promise<RenamePreviewResult> {
+    const response = await request<{ success: boolean; preview: RenamePreviewResult; applied: boolean }>(
+      '/vero/files/rename-page-references',
+      {
+        method: 'POST',
+        body: JSON.stringify({ filePath, newPageName, apply: true, veroPath }),
+      },
+    );
+    return response.preview;
   },
 
   // ============================================

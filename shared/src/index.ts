@@ -129,6 +129,7 @@ export { SCHEDULE_PRESETS } from './types';
 
 // Run Configuration types
 export * from './runConfiguration';
+export { normalizeExecutionTarget } from './runConfiguration';
 
 // Run Parameters types
 export * from './runParameters';

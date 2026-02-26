@@ -133,7 +133,7 @@ export function SlashPalette({ x, y, onSelect, onClose }: SlashPaletteProps) {
                 )}
                 {groups.map(group => (
                     <div key={group.category}>
-                        <div className="px-3 py-1 text-[10px] font-semibold text-text-muted uppercase tracking-wider">
+                        <div className="px-3 py-1 text-3xs font-semibold text-text-muted uppercase tracking-wider">
                             {group.label}
                         </div>
                         {group.actions.map(action => {
@@ -165,7 +165,7 @@ export function SlashPalette({ x, y, onSelect, onClose }: SlashPaletteProps) {
             </div>
 
             {/* Footer hint */}
-            <div className="px-3 py-1.5 border-t border-border-default text-[10px] text-text-muted">
+            <div className="px-3 py-1.5 border-t border-border-default text-3xs text-text-muted">
                 ↑↓ navigate · Enter select · Esc cancel
             </div>
         </div>

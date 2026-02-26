@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ExternalLink, Trash2, FileBarChart2, ChevronRight, ChevronDown, Loader2 } from 'lucide-react';
-import { EmptyState, Tabs, TabsList, TabsTrigger } from '@/components/ui';
+import { EmptyState, Tabs, TabsList, TabsTrigger, Toolbar } from '@/components/ui';
 import type { RunData, RunFilter } from './executionReportTypes';
 import { getRunStatusBadge } from './executionReportUtils';
 
@@ -66,27 +66,27 @@ export const RunsListFullWidth: React.FC<RunsListFullWidthProps> = ({
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className="shrink-0 px-3 py-2 flex items-center gap-3 border-b border-border-default">
+      <Toolbar size="md" position="bottom" className="h-auto py-1.5 gap-2">
         <input
           value={runSearch}
           onChange={(e) => onRunSearchChange(e.target.value)}
           placeholder="Search executions..."
-          className="w-64 h-7 px-2 rounded border border-border-default bg-dark-canvas text-xs text-text-primary placeholder-text-muted outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20"
+          className="w-36 shrink-0 px-2 py-1 rounded border border-border-default bg-dark-canvas text-3xs text-text-primary placeholder-text-muted outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20"
         />
-        <Tabs value={runFilter} onValueChange={(v) => onRunFilterChange(v as RunFilter)} variant="chip" size="sm">
-          <TabsList>
-            <TabsTrigger value="all">all</TabsTrigger>
-            <TabsTrigger value="active">active</TabsTrigger>
-            <TabsTrigger value="failed">failed</TabsTrigger>
-            <TabsTrigger value="unstable">unstable</TabsTrigger>
-            <TabsTrigger value="passed">passed</TabsTrigger>
-            <TabsTrigger value="no-tests">no tests</TabsTrigger>
+        <Tabs value={runFilter} onValueChange={(v) => onRunFilterChange(v as RunFilter)} variant="chip" size="sm" className="shrink-0">
+          <TabsList className="flex-nowrap">
+            <TabsTrigger value="all">All</TabsTrigger>
+            <TabsTrigger value="active">Active</TabsTrigger>
+            <TabsTrigger value="failed">Failed</TabsTrigger>
+            <TabsTrigger value="unstable">Unstable</TabsTrigger>
+            <TabsTrigger value="passed">Passed</TabsTrigger>
+            <TabsTrigger value="no-tests">{`No\u00a0Tests`}</TabsTrigger>
           </TabsList>
         </Tabs>
         <select
           value={projectFilter}
           onChange={(event) => onProjectFilterChange(event.target.value)}
-          className="h-7 min-w-[180px] rounded border border-border-default bg-dark-canvas px-2 text-xs text-text-primary outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20"
+          className="ml-auto shrink-0 rounded border border-border-emphasis bg-dark-elevated px-2 py-1 text-3xs font-medium text-text-primary outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20"
           aria-label="Filter by project"
         >
           {projectFilterOptions.map((option) => (
@@ -95,7 +95,7 @@ export const RunsListFullWidth: React.FC<RunsListFullWidthProps> = ({
             </option>
           ))}
         </select>
-      </div>
+      </Toolbar>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
         <table className="w-full text-xs">
@@ -124,6 +124,7 @@ export const RunsListFullWidth: React.FC<RunsListFullWidthProps> = ({
                 && (
                   run.source === 'github'
                   || run.metrics.total > 0
+                  || run.startupFailure === true
                   || (isMatrix && run.matrixChildren && run.matrixChildren.length > 0)
                 );
 

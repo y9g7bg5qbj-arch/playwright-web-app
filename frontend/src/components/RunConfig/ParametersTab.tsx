@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Copy, AlertTriangle, Zap } from 'lucide-react';
+import { Plus, Trash2, Copy, Zap } from 'lucide-react';
 import type { RunConfiguration } from '@/store/runConfigStore';
 import { useRunParameterStore } from '@/store/runParameterStore';
-import { useEnvironmentStore } from '@/store/environmentStore';
+import { useProjectStore } from '@/store/projectStore';
 import { Tooltip } from '@/components/ui';
 import { runConfigTheme, cx } from './theme';
 import type {
@@ -37,8 +37,7 @@ export function ParametersTab({ config, onChange }: ParametersTabProps) {
     cloneSet,
   } = useRunParameterStore();
 
-  const { environments } = useEnvironmentStore();
-  const applicationId = useEnvironmentStore((s) => s.applicationId);
+  const applicationId = useProjectStore((state) => state.currentProject?.id || null);
 
   // Inline editing for new definitions
   const [newParamName, setNewParamName] = useState('');
@@ -59,14 +58,6 @@ export function ParametersTab({ config, onChange }: ParametersTabProps) {
   const selectedSetId = config.parameterSetId;
   const selectedSet = sets.find((s) => s.id === selectedSetId);
   const overrides = config.parameterOverrides || {};
-
-  // Check for collisions with environment variables
-  const envVarKeys = new Set<string>();
-  for (const env of environments) {
-    for (const v of env.variables) {
-      envVarKeys.add(v.key);
-    }
-  }
 
   const handleAddDefinition = async () => {
     if (!newParamName.trim() || !newParamLabel.trim()) return;
@@ -300,7 +291,6 @@ export function ParametersTab({ config, onChange }: ParametersTabProps) {
               </thead>
               <tbody>
                 {definitions.map((def) => {
-                  const hasCollision = envVarKeys.has(def.name);
                   return (
                     <tr
                       key={def.id}
@@ -309,11 +299,6 @@ export function ParametersTab({ config, onChange }: ParametersTabProps) {
                       <td className="px-3 py-1.5">
                         <div className="flex items-center gap-1">
                           <span className="font-mono text-text-primary">{def.name}</span>
-                          {hasCollision && (
-                            <span title={`"${def.name}" also exists as an environment variable`}>
-                              <AlertTriangle className="h-3 w-3 text-status-warning" />
-                            </span>
-                          )}
                         </div>
                         {def.label !== def.name && (
                           <span className="text-3xs text-text-muted">{def.label}</span>

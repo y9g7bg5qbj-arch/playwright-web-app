@@ -202,7 +202,7 @@ function parseVeroFileForPages(code: string, filePath: string): PageFieldData[] 
 /**
  * Recursively find all .vero files in a directory.
  */
-async function findVeroFiles(dir: string): Promise<string[]> {
+export async function findVeroFiles(dir: string): Promise<string[]> {
     const results: string[] = [];
 
     try {

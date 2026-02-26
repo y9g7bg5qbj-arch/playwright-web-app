@@ -4,8 +4,6 @@ export interface Schedule {
   name: string;
   cron: string;
   cronDescription: string;
-  environment: string;
-  environmentId?: string;
   parameterSetId?: string;
   retryStrategy: string;
   enabled: boolean;

@@ -46,10 +46,7 @@ export interface ExecutionOptions {
     baseUrl?: string;
     extraHTTPHeaders?: Record<string, string>;
 
-    // Environment Variables (Postman-style)
-    // environmentId: Select a pre-defined environment from Environment Manager
-    // envVars: Resolved environment variables (passed as VERO_ENV_VARS to tests)
-    environmentId?: string;
+    // Runtime variable map (parameter-resolved values)
     envVars?: Record<string, string>;
 
     // Storage state

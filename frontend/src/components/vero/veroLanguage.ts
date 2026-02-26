@@ -140,7 +140,11 @@ export function registerVeroLanguage(monaco: Monaco): void {
                 [/\b(verify)(\s+)(title)\b/i,
                     ['keyword.assertion', '', 'keyword.assertion']],
 
-                [/\b(page|feature|scenario|field)\b/i, 'keyword.structure'],
+                // Declaration phrase rule so FOR is structure-colored only in PAGEACTIONS ... FOR ...
+                [/\b(pageactions)(\s+)([A-Z][a-zA-Z0-9]*)(\s+)(for)(\s+)([A-Z][a-zA-Z0-9]*)\b/i,
+                    ['keyword.structure', '', 'type.identifier', '', 'keyword.structure', '', 'type.identifier']],
+
+                [/\b(page|pageactions|feature|scenario|field)\b/i, 'keyword.structure'],
                 [/\b(before|after|all|each)\b/i, 'keyword.hook'],
                 [/\b(if|else|repeat|times)\b/i, 'keyword.control'],
                 [/\b(with|and|to|in|returns|return|then|as|into)\b/i, 'keyword.operator'],

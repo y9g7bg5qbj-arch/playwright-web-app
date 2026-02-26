@@ -41,15 +41,12 @@ function retryStrategyToCount(strategy: string): number {
 
 function backendToUI(b: BackendSchedule): UISchedule {
   const lastRun = b.runs?.length ? b.runs[b.runs.length - 1] : null;
-  const selectedEnvironmentId = b.defaultExecutionConfig?.environmentId;
 
   return {
     id: b.id,
     name: b.name,
     cron: b.cronExpression,
     cronDescription: b.description || b.cronExpression,
-    environment: selectedEnvironmentId ? 'Selected environment' : 'Use active environment',
-    environmentId: selectedEnvironmentId,
     parameterSetId: b.defaultExecutionConfig?.parameterSetId,
     retryStrategy: retryCountToStrategy(b.defaultExecutionConfig?.retries),
     enabled: b.isActive,
@@ -104,7 +101,6 @@ function uiToCreatePayload(ui: UISchedule): any {
       retries: retryStrategyToCount(ui.retryStrategy),
       tracing: ui.reporting.traceOnFailure ? 'on-failure' : 'never',
       video: ui.reporting.recordVideo ? 'on-failure' : 'never',
-      environmentId: ui.environmentId,
       parameterSetId: ui.parameterSetId,
     },
   };

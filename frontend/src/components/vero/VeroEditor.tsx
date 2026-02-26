@@ -93,6 +93,315 @@ function formatDebugValue(value: unknown): string {
     return String(value);
 }
 
+type SlashHookType = 'BEFORE_ALL' | 'BEFORE_EACH' | 'AFTER_EACH' | 'AFTER_ALL';
+
+const SLASH_HOOK_ACTION_TO_TYPE: Record<string, SlashHookType> = {
+    'hook-before-all': 'BEFORE_ALL',
+    'hook-before-each': 'BEFORE_EACH',
+    'hook-after-each': 'AFTER_EACH',
+    'hook-after-all': 'AFTER_ALL',
+};
+
+const SLASH_HOOK_TEXT: Record<SlashHookType, string> = {
+    BEFORE_ALL: 'BEFORE ALL',
+    BEFORE_EACH: 'BEFORE EACH',
+    AFTER_EACH: 'AFTER EACH',
+    AFTER_ALL: 'AFTER ALL',
+};
+
+interface FeatureBounds {
+    declarationLine: number;
+    openBraceLine: number;
+    openBraceColumn: number;
+    closeBraceLine: number;
+    featureIndent: string;
+}
+
+interface HookBlock {
+    type: SlashHookType;
+    startLine: number;
+    openBraceLine: number;
+    openBraceColumn: number;
+    closeLine: number;
+    bodyLine: number;
+}
+
+interface FeatureHookAnalysis {
+    bounds: FeatureBounds;
+    memberIndent: string;
+    hooks: Partial<Record<SlashHookType, HookBlock>>;
+    firstScenarioLine: number | null;
+}
+
+function findFirstBraceFromLine(
+    model: monacoEditor.editor.ITextModel,
+    startLine: number,
+): { line: number; column: number } | null {
+    for (let line = startLine; line <= model.getLineCount(); line++) {
+        const content = model.getLineContent(line);
+        const braceIndex = content.indexOf('{');
+        if (braceIndex >= 0) {
+            return { line, column: braceIndex + 1 };
+        }
+    }
+    return null;
+}
+
+function findMatchingBrace(
+    model: monacoEditor.editor.ITextModel,
+    openBraceLine: number,
+    openBraceColumn: number,
+): { line: number; column: number } | null {
+    let depth = 0;
+    for (let line = openBraceLine; line <= model.getLineCount(); line++) {
+        const content = model.getLineContent(line);
+        const startIdx = line === openBraceLine ? openBraceColumn - 1 : 0;
+
+        for (let i = startIdx; i < content.length; i++) {
+            const ch = content[i];
+            if (ch === '{') {
+                depth += 1;
+            } else if (ch === '}') {
+                depth -= 1;
+                if (depth === 0) {
+                    return { line, column: i + 1 };
+                }
+            }
+        }
+    }
+    return null;
+}
+
+function findFeatureBoundsAtOrFirst(
+    model: monacoEditor.editor.ITextModel,
+    cursorLine: number,
+): FeatureBounds | null {
+    let firstFeature: FeatureBounds | null = null;
+    const lineCount = model.getLineCount();
+
+    for (let line = 1; line <= lineCount; line++) {
+        const content = model.getLineContent(line);
+        if (!/^\s*(?:FEATURE|feature)\b/.test(content)) continue;
+
+        const inlineBrace = content.indexOf('{');
+        const opening = inlineBrace >= 0
+            ? { line, column: inlineBrace + 1 }
+            : findFirstBraceFromLine(model, line + 1);
+        if (!opening) continue;
+
+        const closing = findMatchingBrace(model, opening.line, opening.column);
+        if (!closing) continue;
+
+        const featureIndentMatch = content.match(/^(\s*)/);
+        const feature: FeatureBounds = {
+            declarationLine: line,
+            openBraceLine: opening.line,
+            openBraceColumn: opening.column,
+            closeBraceLine: closing.line,
+            featureIndent: featureIndentMatch ? featureIndentMatch[1] : '',
+        };
+
+        if (!firstFeature) {
+            firstFeature = feature;
+        }
+
+        if (cursorLine >= feature.declarationLine && cursorLine <= feature.closeBraceLine) {
+            return feature;
+        }
+    }
+
+    return firstFeature;
+}
+
+function resolveHookType(kind: string, scope: string | undefined): SlashHookType {
+    const upperKind = kind.toUpperCase();
+    const upperScope = scope?.toUpperCase();
+    if (upperKind === 'BEFORE') {
+        return upperScope === 'ALL' ? 'BEFORE_ALL' : 'BEFORE_EACH';
+    }
+    return upperScope === 'ALL' ? 'AFTER_ALL' : 'AFTER_EACH';
+}
+
+function analyzeFeatureHooks(
+    model: monacoEditor.editor.ITextModel,
+    bounds: FeatureBounds,
+): FeatureHookAnalysis {
+    const hooks: Partial<Record<SlashHookType, HookBlock>> = {};
+    let firstScenarioLine: number | null = null;
+    let memberIndent: string | null = null;
+    let depth = 1;
+
+    for (let line = bounds.openBraceLine; line <= bounds.closeBraceLine; line++) {
+        const content = model.getLineContent(line);
+
+        if (line > bounds.openBraceLine && line < bounds.closeBraceLine && depth === 1) {
+            if (!memberIndent && content.trim() !== '') {
+                const indentMatch = content.match(/^(\s*)/);
+                memberIndent = indentMatch ? indentMatch[1] : '';
+            }
+
+            if (firstScenarioLine === null && /^\s*(?:SCENARIO|scenario)\b/.test(content)) {
+                firstScenarioLine = line;
+            }
+
+            const hookMatch = content.match(/^\s*(BEFORE|AFTER)\s*(?:\s+(ALL|EACH))?\s*\{/i);
+            if (hookMatch) {
+                const hookType = resolveHookType(hookMatch[1], hookMatch[2]);
+                if (!hooks[hookType]) {
+                    const openBraceColumn = content.indexOf('{') + 1;
+                    const close = findMatchingBrace(model, line, openBraceColumn);
+                    const closeLine = close?.line ?? line;
+                    hooks[hookType] = {
+                        type: hookType,
+                        startLine: line,
+                        openBraceLine: line,
+                        openBraceColumn,
+                        closeLine,
+                        bodyLine: closeLine > line ? line + 1 : line,
+                    };
+                }
+            }
+        }
+
+        const charStart = line === bounds.openBraceLine ? bounds.openBraceColumn - 1 : 0;
+        for (let i = charStart; i < content.length; i++) {
+            const ch = content[i];
+            if (ch === '{') {
+                depth += 1;
+            } else if (ch === '}') {
+                depth -= 1;
+            }
+        }
+    }
+
+    return {
+        bounds,
+        hooks,
+        firstScenarioLine,
+        memberIndent: memberIndent ?? `${bounds.featureIndent}  `,
+    };
+}
+
+function minLine(lines: number[]): number {
+    let min = Number.POSITIVE_INFINITY;
+    for (const line of lines) {
+        if (line < min) min = line;
+    }
+    return min;
+}
+
+function computeHookInsertLine(
+    analysis: FeatureHookAnalysis,
+    target: SlashHookType,
+): number {
+    const hooks = analysis.hooks;
+    const featureEndLine = analysis.bounds.closeBraceLine;
+    const firstScenarioLine = analysis.firstScenarioLine ?? featureEndLine;
+
+    const hookStart = (type: SlashHookType): number =>
+        hooks[type]?.startLine ?? Number.POSITIVE_INFINITY;
+    const hookClose = (type: SlashHookType): number =>
+        hooks[type]?.closeLine ?? 0;
+
+    if (target === 'BEFORE_ALL') {
+        return minLine([
+            hookStart('BEFORE_EACH'),
+            hookStart('AFTER_EACH'),
+            hookStart('AFTER_ALL'),
+            firstScenarioLine,
+            featureEndLine,
+        ]);
+    }
+
+    if (target === 'BEFORE_EACH') {
+        const candidate = minLine([
+            hookStart('AFTER_EACH'),
+            hookStart('AFTER_ALL'),
+            firstScenarioLine,
+            featureEndLine,
+        ]);
+        const earliest = hooks.BEFORE_ALL ? hookClose('BEFORE_ALL') + 1 : analysis.bounds.openBraceLine + 1;
+        return Math.max(candidate, earliest);
+    }
+
+    if (target === 'AFTER_EACH') {
+        const candidate = minLine([
+            hookStart('AFTER_ALL'),
+            firstScenarioLine,
+            featureEndLine,
+        ]);
+        const earliest = Math.max(hookClose('BEFORE_ALL'), hookClose('BEFORE_EACH')) + 1;
+        return Math.max(candidate, earliest);
+    }
+
+    const candidate = minLine([firstScenarioLine, featureEndLine]);
+    const earliest = Math.max(
+        hookClose('BEFORE_ALL'),
+        hookClose('BEFORE_EACH'),
+        hookClose('AFTER_EACH'),
+    ) + 1;
+    return Math.max(candidate, earliest);
+}
+
+function placeCursorInHook(
+    editor: monacoEditor.editor.IStandaloneCodeEditor,
+    model: monacoEditor.editor.ITextModel,
+    hook: HookBlock,
+    memberIndent: string,
+): void {
+    const bodyIndentColumn = `${memberIndent}    `.length + 1;
+    const line = hook.bodyLine;
+    const maxColumn = model.getLineMaxColumn(line);
+    const column = hook.bodyLine === hook.openBraceLine
+        ? Math.min(maxColumn, hook.openBraceColumn + 1)
+        : Math.min(maxColumn, bodyIndentColumn);
+    editor.revealLineInCenter(line);
+    editor.setPosition({ lineNumber: line, column });
+    editor.focus();
+}
+
+function applyFeatureHookSlashAction(
+    editor: monacoEditor.editor.IStandaloneCodeEditor,
+    model: monacoEditor.editor.ITextModel,
+    cursorLine: number,
+    targetHookType: SlashHookType,
+): void {
+    const bounds = findFeatureBoundsAtOrFirst(model, cursorLine);
+    if (!bounds) return;
+
+    const analysis = analyzeFeatureHooks(model, bounds);
+    const existing = analysis.hooks[targetHookType];
+    if (existing) {
+        placeCursorInHook(editor, model, existing, analysis.memberIndent);
+        return;
+    }
+
+    const insertLine = computeHookInsertLine(analysis, targetHookType);
+    const hookText = SLASH_HOOK_TEXT[targetHookType];
+    const trailingGap = insertLine === analysis.bounds.closeBraceLine ? '\n' : '\n\n';
+    const block = `${analysis.memberIndent}${hookText} {\n${analysis.memberIndent}    \n${analysis.memberIndent}}${trailingGap}`;
+
+    editor.executeEdits('vero.slashBuilder.hook', [{
+        range: {
+            startLineNumber: insertLine,
+            startColumn: 1,
+            endLineNumber: insertLine,
+            endColumn: 1,
+        },
+        text: block,
+        forceMoveMarkers: true,
+    }]);
+
+    const bodyLine = insertLine + 1;
+    const column = `${analysis.memberIndent}    `.length + 1;
+    editor.revealLineInCenter(bodyLine);
+    editor.setPosition({
+        lineNumber: bodyLine,
+        column: Math.min(model.getLineMaxColumn(bodyLine), column),
+    });
+    editor.focus();
+}
+
 export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function VeroEditor({
     initialValue = '',
     onChange,
@@ -180,6 +489,8 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         token,
         veroPath,
         filePath,
+        applicationId,
+        projectId,
     });
 
     // Error/warning line decorations (IntelliJ-style red/yellow background + gutter icon)
@@ -521,6 +832,15 @@ export const VeroEditor = forwardRef<VeroEditorHandle, VeroEditorProps>(function
         const lineNumber = slashBuilder.state.phase === 'palette'
             ? slashBuilder.state.lineNumber
             : editor.getPosition()?.lineNumber ?? 1;
+
+        const hookType = SLASH_HOOK_ACTION_TO_TYPE[action.id];
+        if (hookType) {
+            const model = editor.getModel();
+            if (!model) return;
+            applyFeatureHookSlashAction(editor, model, lineNumber, hookType);
+            slashBuilder.close();
+            return;
+        }
 
         slashBuilder.selectAction(action, lineNumber);
 

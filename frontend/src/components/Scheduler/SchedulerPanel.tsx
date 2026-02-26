@@ -87,11 +87,6 @@ export const SchedulerPanel: React.FC<SchedulerPanelProps> = ({
   const fetchSchedules = useCallback(async () => {
     try {
       setIsLoading(true);
-      if (!workflowId) {
-        setSchedules([]);
-        setError(null);
-        return;
-      }
       const data = await schedulesApi.list(workflowId);
       setSchedules(data);
       setError(null);

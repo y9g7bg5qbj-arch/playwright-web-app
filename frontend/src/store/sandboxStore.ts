@@ -94,6 +94,7 @@ interface SandboxState {
   updatePullRequest: (prId: string, input: UpdatePullRequestInput) => Promise<void>;
   openPullRequestForReview: (prId: string) => Promise<void>;
   closePullRequest: (prId: string) => Promise<void>;
+  deleteClosedPullRequest: (prId: string) => Promise<void>;
   mergePullRequest: (prId: string) => Promise<void>;
   setCurrentPullRequest: (pr: PullRequest | null) => void;
 
@@ -452,6 +453,7 @@ export const useSandboxStore = create<SandboxState>((set, get) => ({
       set(state => ({
         pullRequests: [...state.pullRequests, pullRequest],
         currentPullRequest: pullRequest,
+        selectedPullRequestId: pullRequest.id,
         isLoading: false,
       }));
       return pullRequest;
@@ -504,14 +506,48 @@ export const useSandboxStore = create<SandboxState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       await pullRequestApi.close(prId);
-      set(state => ({
-        pullRequests: state.pullRequests.filter(pr => pr.id !== prId),
-        currentPullRequest: state.currentPullRequest?.id === prId ? null : state.currentPullRequest,
-        isLoading: false,
-      }));
+      set(state => {
+        const isCurrentPullRequest = state.currentPullRequest?.id === prId;
+        const isSelectedPullRequest = state.selectedPullRequestId === prId;
+        return {
+          pullRequests: state.pullRequests.filter(pr => pr.id !== prId),
+          currentPullRequest: isCurrentPullRequest ? null : state.currentPullRequest,
+          selectedPullRequestId: isSelectedPullRequest ? null : state.selectedPullRequestId,
+          isLoading: false,
+        };
+      });
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : 'Failed to close pull request',
+        isLoading: false,
+      });
+      throw error;
+    }
+  },
+
+  deleteClosedPullRequest: async (prId) => {
+    set({ isLoading: true, error: null });
+    try {
+      await pullRequestApi.deleteClosed(prId);
+      set(state => {
+        const isCurrentPullRequest = state.currentPullRequest?.id === prId;
+        const isSelectedPullRequest = state.selectedPullRequestId === prId;
+        return {
+          pullRequests: state.pullRequests.filter(pr => pr.id !== prId),
+          currentPullRequest: isCurrentPullRequest ? null : state.currentPullRequest,
+          currentPRReviews: isCurrentPullRequest ? [] : state.currentPRReviews,
+          currentPRComments: isCurrentPullRequest ? [] : state.currentPRComments,
+          currentPRFiles: isCurrentPullRequest ? [] : state.currentPRFiles,
+          currentPRDiff: isCurrentPullRequest ? null : state.currentPRDiff,
+          currentFileDiff: isCurrentPullRequest ? null : state.currentFileDiff,
+          canMergeResult: isCurrentPullRequest ? null : state.canMergeResult,
+          selectedPullRequestId: isSelectedPullRequest ? null : state.selectedPullRequestId,
+          isLoading: false,
+        };
+      });
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Failed to permanently delete pull request',
         isLoading: false,
       });
       throw error;

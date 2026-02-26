@@ -138,8 +138,8 @@ export const ShardingConfig: React.FC<ShardingConfigProps> = ({
         >
           <span
             className={`
-              absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform
-              ${value.enabled ? 'translate-x-7' : 'translate-x-1'}
+              absolute left-0 top-1 w-4 h-4 bg-white rounded-full shadow transition-transform
+              ${value.enabled ? 'translate-x-6' : 'translate-x-1'}
             `}
           />
         </button>

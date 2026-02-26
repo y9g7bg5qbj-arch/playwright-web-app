@@ -151,7 +151,7 @@ export function TargetPopup({ x, y, onApply, onClose }: TargetPopupProps) {
                 {tab === 'page' ? (
                     <>
                         <label className="block">
-                            <span className="text-[10px] text-text-muted uppercase tracking-wider">Page</span>
+                            <span className="text-3xs text-text-muted uppercase tracking-wider">Page</span>
                             <select
                                 value={selectedPage}
                                 onChange={e => setSelectedPage(e.target.value)}
@@ -163,7 +163,7 @@ export function TargetPopup({ x, y, onApply, onClose }: TargetPopupProps) {
                             </select>
                         </label>
                         <label className="block">
-                            <span className="text-[10px] text-text-muted uppercase tracking-wider">Field</span>
+                            <span className="text-3xs text-text-muted uppercase tracking-wider">Field</span>
                             <select
                                 value={selectedField}
                                 onChange={e => setSelectedField(e.target.value)}
@@ -180,7 +180,7 @@ export function TargetPopup({ x, y, onApply, onClose }: TargetPopupProps) {
                 ) : (
                     <>
                         <label className="block">
-                            <span className="text-[10px] text-text-muted uppercase tracking-wider">Selector Type</span>
+                            <span className="text-3xs text-text-muted uppercase tracking-wider">Selector Type</span>
                             <select
                                 value={selectorType}
                                 onChange={e => setSelectorType(e.target.value)}
@@ -192,7 +192,7 @@ export function TargetPopup({ x, y, onApply, onClose }: TargetPopupProps) {
                             </select>
                         </label>
                         <label className="block">
-                            <span className="text-[10px] text-text-muted uppercase tracking-wider">Value</span>
+                            <span className="text-3xs text-text-muted uppercase tracking-wider">Value</span>
                             <input
                                 type="text"
                                 value={selectorValue}
@@ -217,7 +217,7 @@ export function TargetPopup({ x, y, onApply, onClose }: TargetPopupProps) {
 
             {/* Footer */}
             <div className="flex items-center justify-between px-3 py-2 border-t border-border-default">
-                <span className="text-[10px] text-text-muted">Enter to apply</span>
+                <span className="text-3xs text-text-muted">Enter to apply</span>
                 <button
                     onClick={handleApply}
                     disabled={!canApply}

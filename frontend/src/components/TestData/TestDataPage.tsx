@@ -17,7 +17,6 @@ import { SheetForm } from './SheetForm';
 import { ImportExcelModal } from './ImportExcelModal';
 import { ImportCSVModal } from './ImportCSVModal';
 import { ColumnEditorModal } from './ColumnEditorModal';
-import { EnvironmentManager } from './EnvironmentManager';
 import { QuoteGenerationModal } from './QuoteGenerationModal';
 import { QueryGeneratorModal } from './QueryGeneratorModal';
 import { VDQLQueryBuilder } from './VDQLQueryBuilder';
@@ -164,7 +163,6 @@ export function TestDataPage({ projectId, nestedProjectId, onInsertQuery }: Test
                 onCreateTable={() => ops.setShowSheetForm(true)}
                 onRefreshTables={handleRefreshCanvas}
                 onImportExcel={() => ops.setShowImportModal(true)}
-                onOpenEnvironments={() => ops.setShowEnvironments(true)}
                 onOpenDataStorage={() => ops.setShowDataStorageSettings(true)}
                 onEditTable={(sheetId) => {
                     const sheet = ops.sheets.find((entry) => entry.id === sheetId);
@@ -181,7 +179,6 @@ export function TestDataPage({ projectId, nestedProjectId, onInsertQuery }: Test
                         onCreateTable={() => ops.setShowSheetForm(true)}
                         onImportExcel={() => ops.setShowImportModal(true)}
                         onRefresh={handleRefreshCanvas}
-                        onOpenEnvironments={() => ops.setShowEnvironments(true)}
                         onOpenDataStorage={() => ops.setShowDataStorageSettings(true)}
                         loading={ops.loading || ops.loadingRows}
                     />
@@ -424,13 +421,6 @@ export function TestDataPage({ projectId, nestedProjectId, onInsertQuery }: Test
                     projectId={projectId}
                     onImport={ops.handleImportComplete}
                     onClose={() => ops.setShowImportModal(false)}
-                />
-            )}
-
-            {ops.showEnvironments && (
-                <EnvironmentManager
-                    userId={projectId}
-                    onClose={() => ops.setShowEnvironments(false)}
                 />
             )}
 

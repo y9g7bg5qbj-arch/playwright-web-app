@@ -494,6 +494,8 @@ export interface MongoRunConfiguration {
   tagExpression?: string;
   namePatterns?: string;          // JSON array
   selectionScope?: string;
+  targetProjectId?: string;
+  targetEnvironment?: string;     // JSON — TargetEnvironment
   envVars?: string;               // JSON object
   parameterSetId?: string;
   parameterOverrides?: string;    // JSON object

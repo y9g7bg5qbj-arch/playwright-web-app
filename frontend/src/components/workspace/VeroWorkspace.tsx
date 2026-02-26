@@ -4,7 +4,6 @@ import { type Socket } from 'socket.io-client';
 import { ActivityBar, type ActivityView } from './ActivityBar.js';
 import { CompareWithModal } from './CompareWithModal.js';
 import { ConsolePanel } from './ConsolePanel.js';
-import { EnvironmentManager } from './EnvironmentManager.js';
 import { ExecutionReportView } from '../ExecutionDashboard/ExecutionReportView';
 import { ExplorerPanel, type NestedProject } from './ExplorerPanel.js';
 import { FileContextMenu } from './FileContextMenu.js';
@@ -38,6 +37,7 @@ import { AIAgentPanel } from '../ide/AIAgentPanel';
 import { useTestDataRegistry } from '@/hooks/useTestDataRegistry';
 import { usePageFieldRegistry } from '@/hooks/usePageFieldRegistry';
 import { CommandPalette, type PaletteCommand } from './CommandPalette';
+import { RenamePreviewModal } from './RenamePreviewModal';
 import { QuickOpenDialog } from './QuickOpenDialog';
 import { ProblemsPanel, type Problem } from './ProblemsPanel';
 import { RightToolRail } from './RightToolRail';
@@ -243,6 +243,8 @@ export function VeroWorkspace() {
     stopDebug,
     getAuthHeaders,
     setDebugExecutionId,
+    saveAllDirtyTabsForExecution: fileManagement.saveAllDirtyTabsForExecution,
+    getSavedFileContent: fileManagement.getSavedFileContent,
   });
 
   // ─── Recording hook ───────────────────────────────────────────
@@ -554,7 +556,6 @@ export function VeroWorkspace() {
   // ─── Sync Monaco diagnostics to Problems panel ────────────────
   useEffect(() => {
     const interval = setInterval(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const monaco = (window as any).monaco as
         | { editor?: { getModelMarkers?: (filter: Record<string, unknown>) => Array<{ severity: number; message: string; startLineNumber: number; startColumn: number; resource?: { path?: string } }> } }
         | undefined;
@@ -643,7 +644,7 @@ export function VeroWorkspace() {
             {activeView === 'testdata' && currentProject?.id && (
               <TestDataPage
                 projectId={currentProject.id}
-                nestedProjectId={selectedProjectId}
+                nestedProjectId={activeNestedProjectId}
                 onInsertQuery={(snippet) => {
                   handleInsertSnippet(snippet);
                   handleViewChange('explorer');
@@ -858,7 +859,10 @@ export function VeroWorkspace() {
                 <>
                   <RightToolRail
                     isOpen={isRightToolPanelOpen}
-                    onToggle={() => setIsRightToolPanelOpen((prev) => !prev)}
+                    onToggle={() => {
+                      setIsRightToolPanelOpen(false);
+                      handleInsertDataQuery();
+                    }}
                   />
 
                   {isRightToolPanelOpen && (
@@ -886,6 +890,7 @@ export function VeroWorkspace() {
                       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
                         <DataPanel
                           projectId={currentProject?.id}
+                          nestedProjectId={currentRunConfigProjectId || null}
                           onBuildQuery={() => {
                             setShowDataQueryModal(true);
                           }}
@@ -968,6 +973,7 @@ export function VeroWorkspace() {
           isOpen={showDataQueryModal}
           onClose={() => setShowDataQueryModal(false)}
           projectId={currentProject.id}
+          nestedProjectId={currentRunConfigProjectId || null}
           onInsertSnippet={handleInsertSnippet}
         />
       )}
@@ -998,8 +1004,6 @@ export function VeroWorkspace() {
           projectId={projectNavigation.sandboxTargetProjectId}
         />
       )}
-
-      <EnvironmentManager />
 
       <ScenarioBrowser
         isOpen={scenarioBrowser.showScenarioBrowser}
@@ -1105,6 +1109,15 @@ export function VeroWorkspace() {
             addToast({ message: `Failed to resolve conflicts: ${error instanceof Error ? error.message : 'Unknown error'}`, variant: 'error' });
           }
         }}
+      />
+
+      {/* Page rename refactoring preview */}
+      <RenamePreviewModal
+        isOpen={!!fileManagement.renamePreview}
+        onClose={fileManagement.handleCancelRename}
+        onConfirm={fileManagement.handleConfirmRename}
+        isApplying={fileManagement.isApplyingRename}
+        preview={fileManagement.renamePreview}
       />
     </div>
   );

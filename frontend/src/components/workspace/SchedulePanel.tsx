@@ -14,7 +14,6 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useEnvironmentStore } from '@/store/environmentStore';
 import { useScheduleStore } from '@/store/scheduleStore';
 import { IconButton, PanelHeader, EmptyState } from '@/components/ui';
 import type { Schedule } from '@/store/schedule.types';
@@ -37,7 +36,6 @@ const defaultSchedule: Schedule = {
   name: 'Nightly Regression',
   cron: '0 0 * * *',
   cronDescription: 'Runs every day at 12:00 AM',
-  environment: 'Staging - Chrome',
   retryStrategy: 'Retry failed tests (2x)',
   enabled: true,
   nextRun: 'Tomorrow 12:00 AM',
@@ -95,7 +93,6 @@ function Toggle({
 
 export function SchedulePanel(props: SchedulePanelProps) {
   const store = useScheduleStore();
-  const { environments } = useEnvironmentStore();
 
   // Use store by default, fall back to props for backward compatibility
   const schedules = props.schedules ?? store.schedules;
@@ -302,30 +299,6 @@ export function SchedulePanel(props: SchedulePanelProps) {
               <div className={sectionClass}>
                 <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Run Configuration</p>
                 <div className="mt-3 space-y-3">
-                  <div>
-                    <label className="text-xs font-medium text-text-secondary">Environment</label>
-                    <select
-                      value={editedSchedule.environmentId || ''}
-                      onChange={(event) => {
-                        const environmentId = event.target.value || undefined;
-                        const environment = environments.find((item) => item.id === environmentId);
-                        setEditedSchedule((previous) => ({
-                          ...previous,
-                          environmentId,
-                          environment: environment?.name || 'Use active environment',
-                        }));
-                      }}
-                      className={cx(inputClass, 'mt-2')}
-                    >
-                      <option value="">Use active environment</option>
-                      {environments.map((environment) => (
-                        <option key={environment.id} value={environment.id}>
-                          {environment.name} {environment.isActive && '(Active)'}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
                   <div>
                     <label className="text-xs font-medium text-text-secondary">Retry Strategy</label>
                     <select

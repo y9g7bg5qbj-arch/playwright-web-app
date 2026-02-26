@@ -138,4 +138,62 @@ describe('ExecutionService.findRecent application scoping', () => {
     expect(legacyRow?.projectId).toBeUndefined();
     expect(legacyRow?.projectName).toBe('Unassigned');
   });
+
+  it('marks startup failures when failed execution has no steps and contains non-diagnostics error logs', async () => {
+    mocks.executionLogRepositoryMock.findByExecutionIds.mockResolvedValue([
+      {
+        id: 'log-startup-1',
+        executionId: 'exec-app-a-legacy',
+        level: 'error',
+        message: 'SyntaxError: Identifier "__env__" has already been declared.\n    at generated.spec.mts:193:6',
+        timestamp: new Date('2026-02-01T11:00:30.000Z'),
+      },
+      {
+        id: 'log-startup-2',
+        executionId: 'exec-app-a-legacy',
+        level: 'error',
+        message: 'Vero run diagnostics: {"phase":"startup","stderrSnippet":"stack"}',
+        timestamp: new Date('2026-02-01T11:00:40.000Z'),
+      },
+    ]);
+
+    const result = await service.findRecent('user-1', 50, 'app-a');
+    const legacyRow = result.find((row) => row.id === 'exec-app-a-legacy');
+
+    expect(legacyRow).toBeDefined();
+    expect(legacyRow?.startupFailure).toBe(true);
+    expect(legacyRow?.startupErrorSummary).toBe('SyntaxError: Identifier "__env__" has already been declared.');
+  });
+
+  it('does not mark startup failure when failed execution has steps', async () => {
+    mocks.executionStepRepositoryMock.findByExecutionIds.mockResolvedValue([
+      {
+        id: 'step-1',
+        executionId: 'exec-app-a-legacy',
+        stepNumber: 1,
+        action: 'scenario',
+        description: 'Scenario 1',
+        status: 'failed',
+        duration: 1200,
+        error: 'Assertion failed',
+        stepsJson: '[]',
+      },
+    ]);
+    mocks.executionLogRepositoryMock.findByExecutionIds.mockResolvedValue([
+      {
+        id: 'log-failed-1',
+        executionId: 'exec-app-a-legacy',
+        level: 'error',
+        message: 'Error: test assertion failure',
+        timestamp: new Date('2026-02-01T11:00:35.000Z'),
+      },
+    ]);
+
+    const result = await service.findRecent('user-1', 50, 'app-a');
+    const legacyRow = result.find((row) => row.id === 'exec-app-a-legacy');
+
+    expect(legacyRow).toBeDefined();
+    expect(legacyRow?.startupFailure).toBe(false);
+    expect(legacyRow?.startupErrorSummary).toBeUndefined();
+  });
 });

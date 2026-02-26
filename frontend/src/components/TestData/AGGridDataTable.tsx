@@ -39,6 +39,7 @@ import { darkTheme, filterModelToVDQL } from './agGridFilterUtils';
 import { validateValueAgainstColumn, type CellValidationResult } from './agGridValidation';
 import { BooleanCellRenderer } from './BooleanCellRenderer';
 import { DateCellEditor } from './DateCellEditor';
+import { EditableHeaderComponent } from './EditableHeaderComponent';
 import { useCellSelection } from './useCellSelection';
 import { useCellFormatting } from './useCellFormatting';
 
@@ -178,9 +179,8 @@ export const AGGridDataTable = forwardRef<AGGridDataTableHandle, AGGridDataTable
     onRowsDelete,
     onColumnAdd,
     onColumnEdit,
-    // These props are available for future column management features
-    onColumnRemove: _onColumnRemove,
-    onColumnRename: _onColumnRename,
+    onColumnRemove,
+    onColumnRename,
     onColumnTypeChange: _onColumnTypeChange,
     onBulkPaste,
     onExportCSV,
@@ -201,9 +201,7 @@ export const AGGridDataTable = forwardRef<AGGridDataTableHandle, AGGridDataTable
     onSelectionCountChange,
     onCellQueryGenerated,
 }: AGGridDataTableProps, ref) {
-    // Suppress unused variable warnings - these will be used in column context menus
-    void _onColumnRemove;
-    void _onColumnRename;
+    // Suppress unused variable warnings
     void _onColumnTypeChange;
     const isEmbedded = chromeMode === 'embedded';
     const gridRef = useRef<AgGridReact>(null);
@@ -437,6 +435,13 @@ export const AGGridDataTable = forwardRef<AGGridDataTableHandle, AGGridDataTable
                 const isFrozen = frozenColumns.includes(col.name);
                 const colDef: ColDef = {
                     headerName: col.name,
+                    headerComponent: EditableHeaderComponent,
+                    headerComponentParams: {
+                        onRename: onColumnRename,
+                        onEdit: onColumnEdit,
+                        onRemove: onColumnRemove,
+                        existingColumnNames: columns.map(c => c.name),
+                    },
                     field: col.name,
                     editable: col.type !== 'boolean', // Boolean uses custom renderer with checkbox
                     resizable: true,
@@ -446,22 +451,8 @@ export const AGGridDataTable = forwardRef<AGGridDataTableHandle, AGGridDataTable
                     flex: isFrozen ? undefined : 1, // Don't use flex for pinned columns
                     width: isFrozen ? 150 : undefined,
                     pinned: isFrozen ? 'left' : undefined,
-                    // Add column header context menu with Edit option
-                    mainMenuItems: onColumnEdit ? [
-                        {
-                            name: 'Edit Column',
-                            action: () => onColumnEdit(col.name),
-                            icon: '<span class="ag-icon ag-icon-edit"></span>',
-                        },
-                        'separator',
-                        'sortAscending',
-                        'sortDescending',
-                        'separator',
-                        'autoSizeThis',
-                        'autoSizeAll',
-                        'separator',
-                        'resetColumns',
-                    ] : undefined,
+                    // Note: mainMenuItems removed — requires AG Grid Enterprise ColumnMenuModule
+                    // Edit/Delete actions are provided via the custom header component menu instead
                     // Apply cell formatting (direct formats take priority over conditional)
                     cellStyle: (params) => {
                         const rowId = params.data?._id;
@@ -635,7 +626,7 @@ export const AGGridDataTable = forwardRef<AGGridDataTableHandle, AGGridDataTable
         });
 
         return defs;
-    }, [columns, onRowDelete, frozenColumns, hiddenColumns, cellFormats, conditionalRules, legacyInvalidCellMap]);
+    }, [columns, onRowDelete, onColumnRename, onColumnRemove, onColumnEdit, frozenColumns, hiddenColumns, cellFormats, conditionalRules, legacyInvalidCellMap]);
 
     // Default column settings
     const defaultColDef = useMemo((): ColDef => ({
@@ -2077,6 +2068,20 @@ export const AGGridDataTable = forwardRef<AGGridDataTableHandle, AGGridDataTable
                                                     tooltip="Edit column"
                                                     onClick={() => {
                                                         onColumnEdit(col.name);
+                                                        setShowColumnDropdown(false);
+                                                    }}
+                                                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                                />
+                                            )}
+                                            {onColumnRemove && (
+                                                <IconButton
+                                                    icon={<Trash2 className="w-3 h-3" />}
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    tone="danger"
+                                                    tooltip="Delete column"
+                                                    onClick={() => {
+                                                        onColumnRemove(col.name);
                                                         setShowColumnDropdown(false);
                                                     }}
                                                     className="opacity-0 group-hover:opacity-100 transition-opacity"

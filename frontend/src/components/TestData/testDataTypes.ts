@@ -179,8 +179,6 @@ export interface SheetOperations {
     setEditingColumn: (column: AGDataColumn | null) => void;
     showQualityReport: boolean;
     setShowQualityReport: (show: boolean) => void;
-    showEnvironments: boolean;
-    setShowEnvironments: (show: boolean) => void;
     showDataStorageSettings: boolean;
     setShowDataStorageSettings: (show: boolean) => void;
 }

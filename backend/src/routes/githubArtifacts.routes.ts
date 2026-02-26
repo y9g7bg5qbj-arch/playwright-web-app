@@ -243,16 +243,27 @@ router.get(
         parseInt(runId, 10)
       );
 
-      // Find the JSON results artifact first, then fall back to HTML report
-      // Prioritize test-results (contains JSON) over playwright-report (HTML only)
-      const reportArtifact = artifacts.find((a) => a.name.includes('test-results-shard'))
-        || artifacts.find((a) => a.name.includes('test-results'))
-        || artifacts.find((a) => a.name.includes('playwright-report'));
+      // Prefer shard JSON results to support unified multi-shard reports.
+      // Fall back to generic test-results artifacts, then playwright-report artifacts.
+      const reportArtifacts = (
+        artifacts.filter((a) => a.name.includes('test-results-shard')).sort((a, b) => a.name.localeCompare(b.name))
+        || []
+      );
+      const fallbackTestResults = artifacts
+        .filter((a) => a.name.includes('test-results'))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const fallbackPlaywrightReports = artifacts
+        .filter((a) => a.name.includes('playwright-report'))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      const selectedArtifacts = reportArtifacts.length > 0
+        ? reportArtifacts
+        : (fallbackTestResults.length > 0 ? fallbackTestResults : fallbackPlaywrightReports);
 
       logger.info(`[GitHub Report] Found artifacts: ${artifacts.map((a: any) => a.name).join(', ')}`);
-      logger.info(`[GitHub Report] Selected artifact: ${reportArtifact?.name || 'none'}`);
+      logger.info(`[GitHub Report] Selected artifacts: ${selectedArtifacts.map((a: any) => a.name).join(', ') || 'none'}`);
 
-      if (!reportArtifact) {
+      if (selectedArtifacts.length === 0) {
         res.json({
           success: true,
           data: null,
@@ -261,51 +272,72 @@ router.get(
         return;
       }
 
-      // Download the artifact
-      logger.info(`[GitHub Report] Downloading artifact ${reportArtifact.id}: ${reportArtifact.name}`);
-      const buffer = await githubService.downloadArtifact(
-        req.userId!,
-        owner as string,
-        repo as string,
-        reportArtifact.id
-      );
-      logger.info(`[GitHub Report] Downloaded ${buffer.length} bytes`);
+      // Download each selected artifact and merge all parsed scenarios into one unified report.
+      const parsedReports: Array<{ artifact: string; report: any }> = [];
+      const scenarios: any[] = [];
 
-      // Extract and parse the report
-      const zip = new AdmZip(buffer);
-      const entries = zip.getEntries();
-      logger.info(`[GitHub Report] ZIP has ${entries.length} entries: ${entries.map((e: any) => e.entryName).join(', ')}`);
+      for (const reportArtifact of selectedArtifacts) {
+        logger.info(`[GitHub Report] Downloading artifact ${reportArtifact.id}: ${reportArtifact.name}`);
+        const buffer = await githubService.downloadArtifact(
+          req.userId!,
+          owner as string,
+          repo as string,
+          reportArtifact.id
+        );
+        logger.info(`[GitHub Report] Downloaded ${buffer.length} bytes`);
 
-      // Look for JSON report files
-      let reportData: any = null;
-      let scenarios: any[] = [];
+        const zip = new AdmZip(buffer);
+        const entries = zip.getEntries();
+        logger.info(`[GitHub Report] Artifact ${reportArtifact.name} ZIP has ${entries.length} entries`);
 
-      for (const entry of entries) {
-        const entryName = entry.entryName.toLowerCase();
+        let reportData: any = null;
+        let artifactScenarios: any[] = [];
 
-        // Playwright JSON report
-        if (entryName.endsWith('.json') && !entry.isDirectory) {
+        for (const entry of entries) {
+          const entryName = entry.entryName.toLowerCase();
+          if (!entryName.endsWith('.json') || entry.isDirectory) continue;
+
           try {
-            logger.info(`[GitHub Report] Parsing JSON file: ${entry.entryName}`);
+            logger.info(`[GitHub Report] Parsing JSON file: ${entry.entryName} from ${reportArtifact.name}`);
             const content = entry.getData().toString('utf8');
             const jsonData = JSON.parse(content);
 
-            // Check if this is a Playwright report
             if (jsonData.suites || jsonData.stats) {
               reportData = jsonData;
-              logger.info(`[GitHub Report] Found Playwright report with ${jsonData.suites?.length || 0} suites`);
-
-              // Parse Playwright report format
               if (jsonData.suites) {
-                scenarios = parsePlaywrightSuites(jsonData.suites);
+                artifactScenarios = parsePlaywrightSuites(jsonData.suites);
               }
               break;
             }
           } catch (parseError) {
-            logger.warn(`[GitHub Report] Failed to parse ${entry.entryName}: ${parseError}`);
+            logger.warn(`[GitHub Report] Failed to parse ${entry.entryName} from ${reportArtifact.name}: ${parseError}`);
           }
         }
+
+        if (reportData) {
+          parsedReports.push({ artifact: reportArtifact.name, report: reportData });
+          scenarios.push(...artifactScenarios);
+        }
       }
+
+      if (parsedReports.length === 0) {
+        res.json({
+          success: true,
+          data: null,
+          message: 'No parsable JSON report found in artifacts',
+        });
+        return;
+      }
+
+      const raw =
+        parsedReports.length === 1
+          ? parsedReports[0].report
+          : {
+              artifacts: parsedReports.map((parsed) => ({
+                artifact: parsed.artifact,
+                report: parsed.report,
+              })),
+            };
 
       // Calculate summary stats
       const summary = {
@@ -316,14 +348,14 @@ router.get(
         duration: scenarios.reduce((sum, s) => sum + (s.duration || 0), 0),
       };
 
-      logger.info(`[GitHub Report] Parsed ${scenarios.length} scenarios: ${summary.passed} passed, ${summary.failed} failed`);
+      logger.info(`[GitHub Report] Parsed ${scenarios.length} scenarios from ${parsedReports.length} artifacts: ${summary.passed} passed, ${summary.failed} failed`);
 
       res.json({
         success: true,
         data: {
           summary,
           scenarios,
-          raw: reportData,
+          raw,
         },
       });
     } catch (error) {

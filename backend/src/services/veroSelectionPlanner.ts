@@ -2,7 +2,7 @@ import { join, relative } from 'path';
 import { scanForScenarios } from '../routes/veroScenarioIndex.utils';
 import { VERO_PROJECT_PATH, confineToBase } from '../routes/veroProjectPath.utils';
 
-export type VeroSelectionScope = 'active-file' | 'current-sandbox';
+export type VeroSelectionScope = 'active-file' | 'current-sandbox' | 'target-scope';
 
 export interface PlannedVeroFile {
   filePath: string;
@@ -15,6 +15,8 @@ export interface PlanVeroSelectionInput {
   filePath?: string;
   content?: string;
   selectionScope?: VeroSelectionScope;
+  /** Explicit target directory root (for cross-project targeting). Takes precedence over filePath-based resolution. */
+  targetRoot?: string;
 }
 
 function resolveAbsolutePath(filePath: string): string {
@@ -53,6 +55,21 @@ function resolveSandboxRoot(absoluteFilePath: string): string | undefined {
 }
 
 export async function planVeroFilesForRun(input: PlanVeroSelectionInput): Promise<PlannedVeroFile[]> {
+  // Explicit target root takes precedence — scan all .vero files in that directory
+  if (input.targetRoot) {
+    const features = await scanForScenarios(input.targetRoot);
+    return features
+      .map((feature) => {
+        const absolutePath = join(input.targetRoot!, feature.filePath);
+        return {
+          filePath: toRunFilePath(absolutePath),
+          absolutePath,
+          source: 'disk' as const,
+        };
+      })
+      .sort((a, b) => a.filePath.localeCompare(b.filePath));
+  }
+
   const requestedScope: VeroSelectionScope = input.selectionScope === 'current-sandbox'
     ? 'current-sandbox'
     : 'active-file';

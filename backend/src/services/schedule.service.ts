@@ -141,7 +141,6 @@ export class ScheduleService {
             tracing: this.mapRunArtifactToSchedule(config.tracing),
             screenshot: this.mapRunArtifactToSchedule(config.screenshot),
             video: this.mapRunArtifactToSchedule(config.video),
-            environmentId: config.environmentId || undefined,
             parameterSetId: config.parameterSetId || undefined,
         };
     }
@@ -216,7 +215,6 @@ export class ScheduleService {
             grep: configPayload.grep,
             tagExpression: configPayload.tagExpression,
             namePatterns: configPayload.namePatterns ? JSON.stringify(configPayload.namePatterns) : undefined,
-            environmentId: configPayload.environmentId,
             target: configPayload.target ?? 'local',
             localConfig: configPayload.localConfig ? JSON.stringify(configPayload.localConfig) : undefined,
             dockerConfig: configPayload.dockerConfig ? JSON.stringify(configPayload.dockerConfig) : undefined,
@@ -268,7 +266,6 @@ export class ScheduleService {
         if (configPayload.grep !== undefined) updateData.grep = configPayload.grep;
         if (configPayload.tagExpression !== undefined) updateData.tagExpression = configPayload.tagExpression;
         if (configPayload.namePatterns !== undefined) updateData.namePatterns = configPayload.namePatterns ? JSON.stringify(configPayload.namePatterns) : null;
-        if (configPayload.environmentId !== undefined) updateData.environmentId = configPayload.environmentId;
         if (configPayload.target !== undefined) updateData.target = configPayload.target;
         if (configPayload.localConfig !== undefined) updateData.localConfig = configPayload.localConfig ? JSON.stringify(configPayload.localConfig) : null;
         if (configPayload.dockerConfig !== undefined) updateData.dockerConfig = configPayload.dockerConfig ? JSON.stringify(configPayload.dockerConfig) : null;
@@ -522,7 +519,6 @@ export class ScheduleService {
                         namePatterns: (legacyConfig as any).namePatterns
                             ? JSON.stringify((legacyConfig as any).namePatterns)
                             : undefined,
-                        environmentId: legacyConfig.environmentId,
                         target,
                         localConfig: target === 'local'
                             ? JSON.stringify({ workers: legacyConfig.workers || 1 })
@@ -660,7 +656,6 @@ export class ScheduleService {
                     grep: sharedConfig.grep,
                     tagExpression: sharedConfig.tagExpression,
                     namePatterns: sharedConfig.namePatterns,
-                    environmentId: sharedConfig.environmentId,
                     target: sharedConfig.target,
                     localConfig: sharedConfig.localConfig,
                     dockerConfig: sharedConfig.dockerConfig,

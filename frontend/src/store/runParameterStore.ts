@@ -46,6 +46,7 @@ interface RunParameterState {
   // Helpers
   getDefaultsMap: () => Record<string, string>;
   getSetValuesMap: (setId: string | undefined) => Record<string, string>;
+  getSetValuesWithDefaultFallback: (setId: string | undefined) => Record<string, string>;
 }
 
 export const useRunParameterStore = create<RunParameterState>((set, get) => ({
@@ -187,6 +188,19 @@ export const useRunParameterStore = create<RunParameterState>((set, get) => ({
 
     const map: Record<string, string> = {};
     for (const [key, value] of Object.entries(paramSet.values)) {
+      map[key] = String(value);
+    }
+    return map;
+  },
+
+  getSetValuesWithDefaultFallback: (setId: string | undefined) => {
+    const { sets } = get();
+    const selectedSet = setId ? sets.find((s) => s.id === setId) : undefined;
+    const resolvedSet = selectedSet || sets.find((s) => s.isDefault);
+    if (!resolvedSet) return {};
+
+    const map: Record<string, string> = {};
+    for (const [key, value] of Object.entries(resolvedSet.values)) {
       map[key] = String(value);
     }
     return map;

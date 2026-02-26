@@ -39,23 +39,23 @@ export function collectFeatureReferences(feature: FeatureNode): string[] {
     const refs = new Set<string>();
 
     for (const hook of feature.hooks) {
-        collectFromStatements(hook.statements, refs);
+        collectFromStatements(hook.statements, refs, new Set<string>());
     }
 
     for (const scenario of feature.scenarios) {
-        collectFromStatements(scenario.statements, refs);
+        collectFromStatements(scenario.statements, refs, new Set<string>());
     }
 
     return [...refs];
 }
 
-function collectFromStatements(stmts: StatementNode[], refs: Set<string>): void {
+function collectFromStatements(stmts: StatementNode[], refs: Set<string>, localVars: Set<string>): void {
     for (const stmt of stmts) {
-        collectFromStatement(stmt, refs);
+        collectFromStatement(stmt, refs, localVars);
     }
 }
 
-function collectFromStatement(stmt: StatementNode, refs: Set<string>): void {
+function collectFromStatement(stmt: StatementNode, refs: Set<string>, localVars: Set<string>): void {
     // Statements with a single target
     switch (stmt.type) {
         case 'Click':
@@ -78,7 +78,7 @@ function collectFromStatement(stmt: StatementNode, refs: Set<string>): void {
         case 'Fill': {
             const fill = stmt as FillStatement;
             collectFromTarget(fill.target, refs);
-            collectFromExpression(fill.value, refs);
+            collectFromExpression(fill.value, refs, localVars);
             break;
         }
 
@@ -95,7 +95,7 @@ function collectFromStatement(stmt: StatementNode, refs: Set<string>): void {
             const upload = stmt as UploadStatement;
             collectFromTarget(upload.target, refs);
             for (const file of upload.files) {
-                collectFromExpression(file, refs);
+                collectFromExpression(file, refs, localVars);
             }
             break;
         }
@@ -113,18 +113,19 @@ function collectFromStatement(stmt: StatementNode, refs: Set<string>): void {
                 refs.add(perform.action.page);
             }
             for (const arg of perform.action.arguments) {
-                collectFromExpression(arg, refs);
+                collectFromExpression(arg, refs, localVars);
             }
             break;
         }
 
         case 'PerformAssignment': {
             const pa = stmt as PerformAssignmentStatement;
+            localVars.add(pa.variableName);
             if (pa.action.page) {
                 refs.add(pa.action.page);
             }
             for (const arg of pa.action.arguments) {
-                collectFromExpression(arg, refs);
+                collectFromExpression(arg, refs, localVars);
             }
             break;
         }
@@ -135,7 +136,7 @@ function collectFromStatement(stmt: StatementNode, refs: Set<string>): void {
                 collectFromTarget(verify.target as TargetNode, refs);
             }
             if (verify.condition?.value && typeof verify.condition.value === 'object' && 'type' in verify.condition.value) {
-                collectFromExpression(verify.condition.value as ExpressionNode, refs);
+                collectFromExpression(verify.condition.value as ExpressionNode, refs, localVars);
             }
             break;
         }
@@ -148,7 +149,7 @@ function collectFromStatement(stmt: StatementNode, refs: Set<string>): void {
 
         case 'VerifyVariable': {
             const vv = stmt as VerifyVariableStatement;
-            if (vv.variable?.page) {
+            if (vv.variable?.page && !localVars.has(vv.variable.page)) {
                 refs.add(vv.variable.page);
             }
             break;
@@ -160,28 +161,30 @@ function collectFromStatement(stmt: StatementNode, refs: Set<string>): void {
                 const cond = ifElse.condition as ElementStateCondition;
                 collectFromTarget(cond.target, refs);
             }
-            collectFromStatements(ifElse.ifStatements, refs);
-            collectFromStatements(ifElse.elseStatements, refs);
+            collectFromStatements(ifElse.ifStatements, refs, new Set(localVars));
+            collectFromStatements(ifElse.elseStatements, refs, new Set(localVars));
             break;
         }
 
         case 'Repeat': {
             const repeat = stmt as RepeatStatement;
-            collectFromExpression(repeat.count, refs);
-            collectFromStatements(repeat.statements, refs);
+            collectFromExpression(repeat.count, refs, localVars);
+            collectFromStatements(repeat.statements, refs, new Set(localVars));
             break;
         }
 
         case 'ForEach': {
             const forEach = stmt as ForEachStatement;
-            collectFromStatements(forEach.statements, refs);
+            const loopScope = new Set(localVars);
+            loopScope.add(forEach.itemVariable);
+            collectFromStatements(forEach.statements, refs, loopScope);
             break;
         }
 
         case 'TryCatch': {
             const tryCatch = stmt as TryCatchStatement;
-            collectFromStatements(tryCatch.tryStatements, refs);
-            collectFromStatements(tryCatch.catchStatements, refs);
+            collectFromStatements(tryCatch.tryStatements, refs, new Set(localVars));
+            collectFromStatements(tryCatch.catchStatements, refs, new Set(localVars));
             break;
         }
 
@@ -189,13 +192,13 @@ function collectFromStatement(stmt: StatementNode, refs: Set<string>): void {
         case 'SwitchToNewTab':
         case 'OpenInNewTab':
             if ('url' in stmt && stmt.url) {
-                collectFromExpression(stmt.url as ExpressionNode, refs);
+                collectFromExpression(stmt.url as ExpressionNode, refs, localVars);
             }
             break;
 
         case 'Log':
             if ('message' in stmt && stmt.message) {
-                collectFromExpression(stmt.message as ExpressionNode, refs);
+                collectFromExpression(stmt.message as ExpressionNode, refs, localVars);
             }
             break;
 
@@ -206,6 +209,12 @@ function collectFromStatement(stmt: StatementNode, refs: Set<string>): void {
         // Row, Rows, ColumnAccess, Count, UtilityAssignment, Return,
         // ApiRequest, VerifyResponse, MockApi
         default:
+            if ('variable' in stmt && typeof stmt.variable === 'string') {
+                localVars.add(stmt.variable);
+            }
+            if ('variableName' in stmt && typeof stmt.variableName === 'string') {
+                localVars.add(stmt.variableName);
+            }
             break;
     }
 }
@@ -216,8 +225,8 @@ function collectFromTarget(target: TargetNode, refs: Set<string>): void {
     }
 }
 
-function collectFromExpression(expr: ExpressionNode, refs: Set<string>): void {
-    if (expr.type === 'VariableReference' && expr.page) {
+function collectFromExpression(expr: ExpressionNode, refs: Set<string>, localVars: Set<string>): void {
+    if (expr.type === 'VariableReference' && expr.page && !localVars.has(expr.page)) {
         refs.add(expr.page);
     }
 }

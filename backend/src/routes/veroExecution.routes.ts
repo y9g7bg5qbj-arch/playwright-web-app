@@ -105,8 +105,14 @@ executionRouter.post('/run', authenticateToken, async (req: AuthRequest, res: Re
         const authHeader = req.headers.authorization;
         const authToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
 
-        // Build service input — the frontend sends envVars inside config,
-        // which maps to customEnvVars in the merged env var model
+        const resolvedParameterValues = config?.envVars && typeof config.envVars === 'object'
+            ? Object.fromEntries(
+                Object.entries(config.envVars as Record<string, unknown>).map(([key, value]) => [key, String(value ?? '')])
+            )
+            : undefined;
+
+        // Build service input — keep request shape compatibility (`config.envVars`)
+        // but treat it as already-resolved parameter values.
         const runInput: VeroRunInput = {
             filePath,
             content,
@@ -118,7 +124,7 @@ executionRouter.post('/run', authenticateToken, async (req: AuthRequest, res: Re
             config,
             scenarioName,
             selection: config,
-            customEnvVars: config?.envVars,
+            parameterValues: resolvedParameterValues,
             authToken,
         };
 
@@ -170,9 +176,10 @@ executionRouter.post('/run', authenticateToken, async (req: AuthRequest, res: Re
 executionRouter.post('/debug', authenticateToken, async (req: AuthRequest, res: Response) => {
     let executionId: string | undefined;
     try {
-        const { filePath, content, breakpoints = [], projectId, applicationId } = req.body;
+        const { filePath, content, breakpoints = [], projectId, applicationId, scenarioName } = req.body;
         const userId = (req as AuthRequest).userId!;
         const executionScope = await resolveExecutionScope(applicationId, projectId);
+        const normalizedScenarioName = typeof scenarioName === 'string' ? scenarioName.trim() : '';
 
         // Resolve project-aware base path early — needed for both file reads
         // and USE-statement resolution. Falls back to VERO_PROJECT_PATH when
@@ -235,11 +242,21 @@ executionRouter.post('/debug', authenticateToken, async (req: AuthRequest, res: 
             : veroContent;
 
         const normalizedBreakpoints = Array.isArray(breakpoints) ? breakpoints : [];
-        logger.info('[debug:prepare]', { filePath, breakpointCount: normalizedBreakpoints.length, hasRefs: referencedContent.length > 0 });
+        logger.info('[debug:prepare]', {
+            filePath,
+            scenarioName: normalizedScenarioName || undefined,
+            breakpointCount: normalizedBreakpoints.length,
+            hasRefs: referencedContent.length > 0,
+        });
 
         // Transpile Vero to Playwright with debug mode
         const { transpileVero } = await import('../services/veroTranspiler');
-        const playwrightCode = transpileVero(combinedContent, { debugMode: true });
+        const playwrightCode = transpileVero(combinedContent, {
+            debugMode: true,
+            selection: normalizedScenarioName
+                ? { scenarioNames: [normalizedScenarioName] }
+                : undefined,
+        });
 
         // Return executionId and generated code - frontend will connect via WebSocket
         res.json({
@@ -248,6 +265,7 @@ executionRouter.post('/debug', authenticateToken, async (req: AuthRequest, res: 
             testFlowId: testFlow.id,
             generatedCode: playwrightCode,
             breakpoints,
+            scenarioName: normalizedScenarioName || undefined,
             message: 'Debug session prepared. Connect via WebSocket to start execution.',
         });
     } catch (error) {

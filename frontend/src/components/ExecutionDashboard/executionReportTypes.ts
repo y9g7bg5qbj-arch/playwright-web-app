@@ -59,6 +59,8 @@ export interface RunData {
   runId?: number;
   owner?: string;
   repo?: string;
+  startupFailure?: boolean;
+  startupErrorSummary?: string;
   isMatrixParent?: boolean;
   matrixChildren?: MatrixChildData[];
   metrics: {

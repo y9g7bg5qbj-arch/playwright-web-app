@@ -72,7 +72,7 @@ export function useEnvironmentSwitching({
       .catch(err => {
         console.error('[useEnvironmentSwitching] env-switch reload failed:', err);
       });
-  }, [activeEnvironment]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeEnvironment]);
 
   // ─── Utilities ─────────────────────────────────────────────
 

@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useGitHubExecutionStore, GitHubExecution } from '@/store/useGitHubExecutionStore';
+import {
+  useGitHubExecutionStore,
+  GitHubExecution,
+  type GitHubReportFetchMeta,
+} from '@/store/useGitHubExecutionStore';
 import { useLocalExecutionStore } from '@/store/useLocalExecutionStore';
 import { useAuthStore } from '@/store/authStore';
 import { executionsApi } from '@/api/executions';
@@ -45,6 +49,22 @@ const VALID_RUN_FILTERS: ReadonlySet<RunFilter> = new Set([
   'no-tests',
 ]);
 
+const REPORT_FETCH_BASE_BACKOFF_MS = 30_000;
+const REPORT_FETCH_MAX_BACKOFF_MS = 15 * 60 * 1000;
+
+interface ReportFetchState {
+  attempts: number;
+  nextRetryAt: number;
+  inFlight: boolean;
+  lastHttpStatus?: number;
+  lastError?: string;
+}
+
+function computeReportRetryDelayMs(attempts: number): number {
+  const exponent = Math.max(0, attempts - 1);
+  return Math.min(REPORT_FETCH_BASE_BACKOFF_MS * (2 ** exponent), REPORT_FETCH_MAX_BACKOFF_MS);
+}
+
 function parseRunFilter(value: unknown): RunFilter {
   return typeof value === 'string' && VALID_RUN_FILTERS.has(value as RunFilter)
     ? (value as RunFilter)
@@ -86,6 +106,7 @@ export function useExecutionReportData({ initialSelectedRunId, applicationId }: 
   const [preparingAllureRunId, setPreparingAllureRunId] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'info' | 'error'; text: string } | null>(null);
   const didLoadPersistedFilters = useRef(false);
+  const reportFetchStateRef = useRef<Map<string, ReportFetchState>>(new Map());
 
   const authUserId = useAuthStore((state) => state.user?.id || null);
   const filterUserId = useMemo(() => resolveFilterUserId(authUserId), [authUserId]);
@@ -103,41 +124,86 @@ export function useExecutionReportData({ initialSelectedRunId, applicationId }: 
   const updateExecution = useGitHubExecutionStore((state) => state.updateExecution);
   const removeGitHubExecution = useGitHubExecutionStore((state) => state.removeExecution);
 
-  const fetchGitHubRuns = useCallback(async () => {
+  const fetchGitHubRuns = useCallback(async (options?: { forceReportRetry?: boolean }) => {
     try {
+      const trackedExecutions = useGitHubExecutionStore.getState().executions;
+      const repoCandidates = new Map<string, { owner: string; repo: string }>();
+      const addRepoCandidate = (owner?: string, repo?: string) => {
+        const normalizedOwner = owner?.trim();
+        const normalizedRepo = repo?.trim();
+        if (!normalizedOwner || !normalizedRepo) return;
+        repoCandidates.set(`${normalizedOwner}/${normalizedRepo}`, {
+          owner: normalizedOwner,
+          repo: normalizedRepo,
+        });
+      };
+      const addRepoFromFullName = (fullName?: string | null) => {
+        if (!fullName) return;
+        const parts = fullName.split('/').map((part) => part.trim()).filter(Boolean);
+        if (parts.length !== 2) return;
+        addRepoCandidate(parts[0], parts[1]);
+      };
+
       const { useRunConfigStore } = await import('@/store/runConfigStore');
       const config = useRunConfigStore.getState().getActiveConfig();
-      const repoStr = config?.github?.repository;
-      if (!repoStr) return;
-      const parts = repoStr.split('/').filter(Boolean);
-      if (parts.length !== 2) return;
-      const [owner, repo] = parts;
+      addRepoFromFullName(config?.github?.repository);
 
-      const response = await fetch(`/api/github/runs?owner=${owner}&repo=${repo}&limit=20`, {
-        headers: getAuthHeaders(),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch GitHub runs (HTTP ${response.status})`);
+      for (const execution of trackedExecutions) {
+        if (execution.status === 'queued' || execution.status === 'in_progress') {
+          addRepoCandidate(execution.owner, execution.repo);
+        }
       }
 
-      const data = await response.json();
-      if (!data.success || !Array.isArray(data.data)) return;
+      if (repoCandidates.size === 0) return;
 
-      for (const run of data.data) {
+      const repoRuns = await Promise.all(
+        Array.from(repoCandidates.values()).map(async ({ owner, repo }) => {
+          const response = await fetch(`/api/github/runs?owner=${owner}&repo=${repo}&limit=20`, {
+            headers: getAuthHeaders(),
+          });
+
+          if (!response.ok) {
+            const body = await response.json().catch(() => null);
+            if (body?.retryable) {
+              return [] as Array<{ owner: string; repo: string; run: any }>;
+            }
+            throw new Error(`Failed to fetch GitHub runs for ${owner}/${repo} (HTTP ${response.status})`);
+          }
+
+          const data = await response.json();
+          if (!data.success || !Array.isArray(data.data)) {
+            return [] as Array<{ owner: string; repo: string; run: any }>;
+          }
+
+          return data.data.map((run: any) => ({ owner, repo, run }));
+        })
+      );
+
+      for (const { owner, repo, run } of repoRuns.flat()) {
         const executionId = `github-${run.id}`;
+        const runCreatedAtMs = new Date(run.createdAt).getTime();
 
         // Match by real id/runId first, then fall back to placeholder dispatch entries
         // (dispatch placeholders have id 'dispatch-...' and runId 0)
-        const existing = githubExecutions.find((item) => item.id === executionId || item.runId === run.id)
-          || githubExecutions.find(
-            (item) =>
-              item.id.startsWith('dispatch-') &&
-              item.runId === 0 &&
-              item.owner === owner &&
-              item.repo === repo &&
-              (item.status === 'queued' || item.status === 'in_progress')
-          );
+        const existingByRunId = trackedExecutions.find((item) => item.id === executionId || item.runId === run.id);
+        const existingPlaceholder = existingByRunId
+          ? undefined
+          : trackedExecutions
+              .filter(
+                (item) =>
+                  item.id.startsWith('dispatch-') &&
+                  item.runId === 0 &&
+                  item.owner === owner &&
+                  item.repo === repo &&
+                  (item.status === 'queued' || item.status === 'in_progress')
+              )
+              .map((item) => ({
+                item,
+                deltaMs: Math.abs(new Date(item.triggeredAt).getTime() - runCreatedAtMs),
+              }))
+              .filter(({ deltaMs }) => Number.isFinite(deltaMs) && deltaMs <= 30 * 60 * 1000)
+              .sort((left, right) => left.deltaMs - right.deltaMs)[0]?.item;
+        const existing = existingByRunId || existingPlaceholder;
 
         const mapStatus = (status: string, conclusion: string | null): GitHubExecution['status'] => {
           if (status === 'in_progress') return 'in_progress';
@@ -193,46 +259,143 @@ export function useExecutionReportData({ initialSelectedRunId, applicationId }: 
           addExecution(mapped as GitHubExecution);
         }
 
-        const completed = run.status === 'completed' || run.conclusion;
+        const completed = run.status === 'completed' || Boolean(run.conclusion);
         const missingDetails = !existing?.scenarios || existing.scenarios.length === 0;
-
-        if (completed && missingDetails) {
-          fetch(`/api/github/runs/${run.id}/report?owner=${owner}&repo=${repo}`, {
-            headers: getAuthHeaders(),
-          })
-            .then((res) => res.json())
-            .then((report) => {
-              if (!report.success || !report.data) return;
-              const summary = report.data.summary || {};
-              const scenarios = Array.isArray(report.data.scenarios) ? report.data.scenarios : [];
-
-              updateExecution(executionId, {
-                totalTests: summary.total || 0,
-                passedTests: summary.passed || 0,
-                failedTests: summary.failed || 0,
-                skippedTests: summary.skipped || 0,
-                scenarios: scenarios.map((scenario: any) => ({
-                  id: scenario.id,
-                  name: scenario.name,
-                  status: scenario.status,
-                  duration: scenario.duration,
-                  error: scenario.error,
-                  traceUrl: scenario.traceUrl,
-                  screenshot: scenario.screenshot,
-                  retries: scenario.retries,
-                  steps: Array.isArray(scenario.steps)
-                    ? scenario.steps.map((step: any) => ({
-                        ...step,
-                        screenshot: step.screenshot,
-                      }))
-                    : [],
-                })),
-              });
-            })
-            .catch(() => {
-              // Ignore background report fetch errors
-            });
+        if (!missingDetails) {
+          reportFetchStateRef.current.delete(executionId);
+          continue;
         }
+        if (!completed) {
+          continue;
+        }
+
+        const shouldForceReportRetry = options?.forceReportRetry === true;
+        let reportState = reportFetchStateRef.current.get(executionId);
+        if (!reportState && existing?.reportFetch?.status === 'failed') {
+          const hydratedRetryAtMs =
+            typeof existing.reportFetch.nextRetryAt === 'string'
+              ? Date.parse(existing.reportFetch.nextRetryAt)
+              : NaN;
+          reportState = {
+            attempts: existing.reportFetch.attempts || 0,
+            nextRetryAt: Number.isFinite(hydratedRetryAtMs) ? hydratedRetryAtMs : 0,
+            inFlight: false,
+            lastHttpStatus: existing.reportFetch.lastHttpStatus,
+            lastError: existing.reportFetch.lastError,
+          };
+          reportFetchStateRef.current.set(executionId, reportState);
+        }
+
+        if (reportState?.inFlight) {
+          continue;
+        }
+        if (!shouldForceReportRetry && reportState && Date.now() < reportState.nextRetryAt) {
+          continue;
+        }
+
+        const nextAttempt = (reportState?.attempts || 0) + 1;
+        const pendingMeta: GitHubReportFetchMeta = {
+          status: 'pending',
+          attempts: nextAttempt,
+          lastAttemptAt: new Date().toISOString(),
+          lastHttpStatus: reportState?.lastHttpStatus,
+          lastError: reportState?.lastError,
+        };
+
+        reportFetchStateRef.current.set(executionId, {
+          attempts: nextAttempt,
+          nextRetryAt: reportState?.nextRetryAt || 0,
+          inFlight: true,
+          lastHttpStatus: reportState?.lastHttpStatus,
+          lastError: reportState?.lastError,
+        });
+        updateExecution(executionId, { reportFetch: pendingMeta });
+
+        void (async () => {
+          let lastHttpStatus: number | undefined;
+          let lastError: string | undefined;
+          try {
+            const response = await fetch(
+              `/api/github/runs/${run.id}/report?owner=${owner}&repo=${repo}`,
+              {
+                headers: getAuthHeaders(),
+              }
+            );
+            lastHttpStatus = response.status;
+            const report = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+              const upstreamError =
+                typeof report.error === 'string' && report.error.trim().length > 0
+                  ? report.error
+                  : `HTTP ${response.status}`;
+              throw new Error(upstreamError);
+            }
+            if (!report.success || !report.data) {
+              const messageFromApi =
+                typeof report.message === 'string' && report.message.trim().length > 0
+                  ? report.message
+                  : (typeof report.error === 'string' && report.error.trim().length > 0
+                      ? report.error
+                      : 'Report artifact not available yet');
+              throw new Error(messageFromApi);
+            }
+
+            const summary = report.data.summary || {};
+            const scenarios = Array.isArray(report.data.scenarios) ? report.data.scenarios : [];
+
+            reportFetchStateRef.current.delete(executionId);
+            updateExecution(executionId, {
+              totalTests: summary.total || 0,
+              passedTests: summary.passed || 0,
+              failedTests: summary.failed || 0,
+              skippedTests: summary.skipped || 0,
+              scenarios: scenarios.map((scenario: any) => ({
+                id: scenario.id,
+                name: scenario.name,
+                status: scenario.status,
+                duration: scenario.duration,
+                error: scenario.error,
+                traceUrl: scenario.traceUrl,
+                screenshot: scenario.screenshot,
+                retries: scenario.retries,
+                steps: Array.isArray(scenario.steps)
+                  ? scenario.steps.map((step: any) => ({
+                      ...step,
+                      screenshot: step.screenshot,
+                    }))
+                  : [],
+              })),
+              reportFetch: {
+                status: 'succeeded',
+                attempts: nextAttempt,
+                lastAttemptAt: new Date().toISOString(),
+                lastHttpStatus,
+              },
+            });
+          } catch (error) {
+            lastError = error instanceof Error ? error.message : 'Failed to fetch execution report';
+            const backoffMs = computeReportRetryDelayMs(nextAttempt);
+            const nextRetryAt = Date.now() + backoffMs;
+            reportFetchStateRef.current.set(executionId, {
+              attempts: nextAttempt,
+              nextRetryAt,
+              inFlight: false,
+              lastHttpStatus,
+              lastError,
+            });
+            updateExecution(executionId, {
+              reportFetch: {
+                status: 'failed',
+                attempts: nextAttempt,
+                lastAttemptAt: new Date().toISOString(),
+                nextRetryAt: new Date(nextRetryAt).toISOString(),
+                lastHttpStatus,
+                lastError,
+              },
+            });
+          }
+        })();
       }
     } catch (error) {
       setMessage({
@@ -240,20 +403,20 @@ export function useExecutionReportData({ initialSelectedRunId, applicationId }: 
         text: error instanceof Error ? error.message : 'Failed to refresh GitHub executions',
       });
     }
-  }, [addExecution, applicationId, githubExecutions, removeGitHubExecution, updateExecution]);
+  }, [addExecution, applicationId, removeGitHubExecution, updateExecution]);
 
-  const refreshActiveSource = useCallback(async () => {
+  const refreshActiveSource = useCallback(async (options?: { forceReportRetry?: boolean }) => {
     if (activeSource === 'local') {
       await fetchLocalExecutions(applicationId);
     } else {
-      await fetchGitHubRuns();
+      await fetchGitHubRuns(options);
     }
   }, [activeSource, applicationId, fetchGitHubRuns, fetchLocalExecutions]);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      await refreshActiveSource();
+      await refreshActiveSource({ forceReportRetry: true });
     } finally {
       setIsRefreshing(false);
     }
@@ -271,8 +434,11 @@ export function useExecutionReportData({ initialSelectedRunId, applicationId }: 
   }, [removeExecution]);
 
   useEffect(() => {
-    handleRefresh();
-  }, [activeSource, handleRefresh]);
+    setIsRefreshing(true);
+    refreshActiveSource()
+      .catch(() => {})
+      .finally(() => setIsRefreshing(false));
+  }, [activeSource, refreshActiveSource]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -448,6 +614,8 @@ export function useExecutionReportData({ initialSelectedRunId, applicationId }: 
       triggeredBy: exec.triggeredBy.name || 'System',
       triggerType,
       environment: 'Local',
+      startupFailure: exec.startupFailure,
+      startupErrorSummary: exec.startupErrorSummary,
       isMatrixParent: exec.isMatrixParent,
       matrixChildren,
       metrics,
@@ -727,6 +895,13 @@ export function useExecutionReportData({ initialSelectedRunId, applicationId }: 
         }
 
         if (run.source === 'local') {
+          if (run.startupFailure) {
+            const summary = run.startupErrorSummary?.trim() || 'Unknown startup error';
+            throw new Error(
+              `Execution failed before tests started: ${summary}. Open execution logs for full details.`
+            );
+          }
+
           const candidateExecutionIds = Array.from(
             new Set(
               run.isMatrixParent && run.matrixChildren && run.matrixChildren.length > 0

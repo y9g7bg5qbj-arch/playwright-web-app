@@ -11,12 +11,14 @@ import { toCanonicalJson, fromCanonicalJson } from './canonicalJson';
 const SERIALIZED_FIELDS = [
   'name', 'description', 'isDefault', 'tags', 'tagMode', 'excludeTags',
   'grep', 'tagExpression', 'namePatterns', 'selectionScope',
+  'targetProjectId', 'targetEnvironment',
   'target', 'browser', 'browserChannel', 'headless',
   'viewport', 'workers', 'shardCount', 'retries', 'timeout',
   'tracing', 'screenshot', 'video',
   'visualPreset', 'visualThreshold', 'visualMaxDiffPixels',
   'visualMaxDiffPixelRatio', 'visualUpdateSnapshots',
   'envVars', 'parameterSetId', 'authProfileId',
+  'githubRepository', 'githubWorkflowPath', 'runtimeConfig',
 ] as const;
 
 export function serializeRunConfig(config: MongoRunConfiguration): string {
@@ -25,7 +27,14 @@ export function serializeRunConfig(config: MongoRunConfiguration): string {
     const value = (config as any)[key];
     if (value !== undefined && value !== null) {
       // Parse JSON string fields back to objects for the file
-      if (typeof value === 'string' && (key === 'viewport' || key === 'envVars' || key === 'namePatterns')) {
+      if (
+        typeof value === 'string'
+        && (key === 'viewport'
+          || key === 'envVars'
+          || key === 'namePatterns'
+          || key === 'targetEnvironment'
+          || key === 'runtimeConfig')
+      ) {
         try { obj[key] = JSON.parse(value); } catch { obj[key] = value; }
       } else {
         obj[key] = value;
@@ -51,7 +60,15 @@ export function deserializeRunConfig(
     if (key in parsed) {
       const value = (parsed as any)[key];
       // Stringify object fields that MongoDB stores as JSON strings
-      if (typeof value === 'object' && value !== null && (key === 'viewport' || key === 'envVars' || key === 'namePatterns')) {
+      if (
+        typeof value === 'object'
+        && value !== null
+        && (key === 'viewport'
+          || key === 'envVars'
+          || key === 'namePatterns'
+          || key === 'targetEnvironment'
+          || key === 'runtimeConfig')
+      ) {
         (result as any)[key] = JSON.stringify(value);
       } else {
         (result as any)[key] = value;

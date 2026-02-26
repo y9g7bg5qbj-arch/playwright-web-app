@@ -185,6 +185,19 @@ export const githubWorkflowApi = {
       config,
     }),
 
+  // Check if managed workflow file exists in a repo
+  checkWorkflowFile: (owner: string, repo: string, branch: string) =>
+    apiClient.get<{ exists: boolean; sha?: string; htmlUrl?: string }>(
+      `/github/workflows/check-workflow-file?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}`
+    ),
+
+  // Push the managed workflow file to a repo
+  pushWorkflowFile: (owner: string, repo: string, branch: string) =>
+    apiClient.post<{ sha: string; htmlUrl: string; created: boolean; updated: boolean }>(
+      '/github/workflows/push-workflow-file',
+      { owner, repo, branch }
+    ),
+
   // Save repository config for a workflow
   saveRepoConfig: (
     workflowId: string,

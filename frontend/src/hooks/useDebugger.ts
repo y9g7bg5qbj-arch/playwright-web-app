@@ -306,7 +306,8 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
     code: string,
     newExecutionId: string,
     projectId?: string,
-    socketOverride?: Socket | null
+    socketOverride?: Socket | null,
+    envVars?: Record<string, string>
   ) => {
     const activeSocket = socketOverride ?? socket;
     if (!activeSocket) return;
@@ -340,6 +341,7 @@ export function useDebugger(socket: Socket | null, executionId: string | null) {
       code,
       breakpoints: breakpointsMuted ? [] : serializeBreakpointLines(breakpoints),
       projectId,
+      envVars: envVars && Object.keys(envVars).length > 0 ? envVars : undefined,
     });
   }, [socket, breakpoints, breakpointsMuted, addConsoleEntry]);
 

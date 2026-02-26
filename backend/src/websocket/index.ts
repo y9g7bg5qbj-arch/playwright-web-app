@@ -7,6 +7,7 @@ import { executionStepRepository } from '../db/repositories/mongo';
 import { ExecutionService } from '../services/execution.service';
 import { PlaywrightService, DebugEvent } from '../services/playwright.service';
 import { recordingSessionStore } from '../services/recordingSessionStore';
+import { DEV_BYPASS_USER_ID, isDevBypassEnabled } from '../utils/devBypassAuth';
 import type { ClientToServerEvents, ServerToClientEvents } from '@playwright-web-app/shared';
 
 interface AuthSocket extends Socket {
@@ -38,19 +39,14 @@ export class WebSocketServer {
   private setupMiddleware() {
     this.io.use((socket: AuthSocket, next) => {
       try {
-        const token = socket.handshake.auth.token;
-
-        // Development mode: allow unauthenticated connections
-        // Use the same userId as the HTTP BYPASS_AUTH middleware so that
-        // session ownership checks (e.g. codegen:subscribe) pass correctly.
-        if (!token && config.nodeEnv === 'development') {
-          socket.userId = process.env.BYPASS_AUTH === 'true'
-            ? '4a6ceb7d-9883-44e9-bfd3-6a1cd2557ffc'
-            : 'dev-user';
-          logger.info('WebSocket: Dev mode - allowing unauthenticated connection');
+        // Ensure WebSocket identity matches HTTP identity in development bypass mode.
+        if (isDevBypassEnabled()) {
+          socket.userId = DEV_BYPASS_USER_ID;
+          logger.info('WebSocket: Dev bypass auth enabled - using bypass user identity');
           return next();
         }
 
+        const token = socket.handshake.auth.token;
         if (!token) {
           return next(new Error('Authentication error'));
         }
@@ -66,13 +62,6 @@ export class WebSocketServer {
           return next(new Error('Invalid token'));
         }
       } catch (error) {
-        // In dev mode with BYPASS_AUTH, fall back to the bypass userId
-        // even when the token is invalid (e.g. expired or wrong secret)
-        if (config.nodeEnv === 'development' && process.env.BYPASS_AUTH === 'true') {
-          socket.userId = '4a6ceb7d-9883-44e9-bfd3-6a1cd2557ffc';
-          logger.info('WebSocket: Dev mode - allowing connection despite auth error (BYPASS_AUTH)');
-          return next();
-        }
         logger.error('WebSocket auth error:', error);
         next(new Error('Authentication error'));
       }
@@ -143,12 +132,25 @@ export class WebSocketServer {
 
     // Subscribe to a codegen recording session (join room for updates)
     socket.on('codegen:subscribe', (data: { sessionId: string }) => {
-      // Verify session ownership before allowing subscription
-      if (!recordingSessionStore.isOwner(data.sessionId, socket.userId || '')) {
-        logger.warn(`[WebSocket] Client ${socket.id} denied subscription to session ${data.sessionId} (not owner)`);
+      const session = recordingSessionStore.get(data.sessionId);
+      const socketUserId = socket.userId || '';
+      if (!session) {
+        logger.warn(`[WebSocket] Client ${socket.id} denied subscription to missing session ${data.sessionId}`);
+        socket.emit('codegen:error', { sessionId: data.sessionId, error: 'Recording session not found. Start recording again.' });
+        return;
+      }
+
+      const isOwner = session.userId === socketUserId;
+      const isLegacyAnonymousOwner = session.userId === 'anonymous' && socketUserId.length > 0;
+      if (!isOwner && !isLegacyAnonymousOwner) {
+        logger.warn(
+          `[WebSocket] Client ${socket.id} denied subscription to session ${data.sessionId} ` +
+          `(owner=${session.userId}, requester=${socketUserId || 'none'})`
+        );
         socket.emit('codegen:error', { sessionId: data.sessionId, error: 'Not authorized for this session' });
         return;
       }
+
       const roomName = `codegen:${data.sessionId}`;
       socket.join(roomName);
       logger.info(`[WebSocket] Client ${socket.id} subscribed to codegen session ${data.sessionId}`);
@@ -642,6 +644,7 @@ export class WebSocketServer {
       code: string;
       breakpoints: number[];
       projectId?: string;
+      envVars?: Record<string, string>;
     }) => {
       logger.info('Debug execution start requested:', { executionId: data.executionId, breakpoints: data.breakpoints });
 
@@ -726,7 +729,7 @@ export class WebSocketServer {
             duration,
           });
         },
-        { projectId: data.projectId, authToken }
+        { projectId: data.projectId, authToken, envVars: data.envVars }
       );
     });
 

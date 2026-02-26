@@ -12,6 +12,20 @@ export function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const successMessage = (location.state as any)?.message;
 
+  const formatLoginError = (err: unknown): string => {
+    const message = err instanceof Error ? err.message : 'Login failed';
+    const isServerUnavailable =
+      message.includes('Server is temporarily unavailable')
+      || message.includes('Unable to reach the server')
+      || message.includes('Server returned an invalid response');
+
+    if (isServerUnavailable) {
+      return `${message} In local dev, start backend with: cd backend && npm run dev`;
+    }
+
+    return message;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -20,8 +34,8 @@ export function LoginPage() {
     try {
       await login(email, password);
       navigate('/');
-    } catch (err: any) {
-      setError(err.message || 'Login failed');
+    } catch (err: unknown) {
+      setError(formatLoginError(err));
     } finally {
       setIsLoading(false);
     }

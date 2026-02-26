@@ -5,11 +5,12 @@ import { Tooltip } from '@/components/ui';
 
 interface DataPanelProps {
     projectId?: string;
+    nestedProjectId?: string | null;
     onBuildQuery?: (tableName: string) => void;
     onInsertColumnRef?: (ref: string) => void;
 }
 
-export function DataPanel({ projectId, onBuildQuery, onInsertColumnRef }: DataPanelProps) {
+export function DataPanel({ projectId, nestedProjectId, onBuildQuery, onInsertColumnRef }: DataPanelProps) {
     const [sheets, setSheets] = useState<TestDataSheet[]>([]);
     const [loading, setLoading] = useState(false);
     const [expanded, setExpanded] = useState(true);
@@ -19,14 +20,17 @@ export function DataPanel({ projectId, onBuildQuery, onInsertColumnRef }: DataPa
         if (!projectId) return;
         setLoading(true);
         try {
-            const result = await testDataApi.listSheets(projectId);
+            const result = await testDataApi.listSheets(projectId, {
+                nestedProjectId,
+                fallbackToApplicationScope: true,
+            });
             setSheets(result);
         } catch {
             setSheets([]);
         } finally {
             setLoading(false);
         }
-    }, [projectId]);
+    }, [nestedProjectId, projectId]);
 
     useEffect(() => {
         fetchSheets();

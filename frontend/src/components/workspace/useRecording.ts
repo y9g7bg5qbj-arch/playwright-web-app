@@ -4,6 +4,7 @@ import type { NestedProject } from './ExplorerPanel.js';
 import type { OpenTab } from './workspace.types.js';
 
 const API_BASE = '/api';
+const SESSION_POLL_INTERVAL_MS = 1500;
 
 /** Convert a string to a PascalCase identifier (no spaces, no quotes). */
 function toPascalCase(str: string): string {
@@ -13,6 +14,14 @@ function toPascalCase(str: string): string {
     .filter(Boolean)
     .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join('');
+}
+
+function toSocketToken(headers: Record<string, string>): string | null {
+  const rawAuth = headers.Authorization || headers.authorization;
+  if (typeof rawAuth !== 'string') return null;
+  const trimmed = rawAuth.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/^Bearer\s+/i, '').trim() || null;
 }
 
 /** Extract unique page names referenced as PageName.fieldName in Vero lines. */
@@ -57,6 +66,8 @@ interface CodegenStopResponse {
   success: boolean;
   scenarioName?: string;
   veroLines?: string[];
+  error?: string;
+  message?: string;
 }
 
 interface CodegenActionEvent {
@@ -83,6 +94,16 @@ interface CodegenStoppedEvent {
   scenarioName: string;
 }
 
+interface CodegenSessionResponse {
+  success: boolean;
+  sessionId?: string;
+  isActive?: boolean;
+  scenarioName?: string;
+  veroLines?: string[];
+  error?: string;
+  message?: string;
+}
+
 export function useRecording({
   socketRef,
   activeTab,
@@ -105,6 +126,12 @@ export function useRecording({
 
   const explicitStopRef = useRef(false);
   const recordingTargetTabIdRef = useRef<string | null>(null);
+  const recordingAuthHeadersRef = useRef<Record<string, string> | null>(null);
+  const recordingTokenRef = useRef<string | null>(null);
+  const recordingFinalizedRef = useRef(false);
+  const sessionPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fileRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fallbackNoticeShownRef = useRef(false);
 
   // Insert recorded scenario into the active editor
   function insertRecordedScenario(scenarioName: string, veroLines: string[]): void {
@@ -144,11 +171,62 @@ export function useRecording({
     }
   }
 
+  function clearSessionPolling(): void {
+    if (!sessionPollIntervalRef.current) return;
+    clearInterval(sessionPollIntervalRef.current);
+    sessionPollIntervalRef.current = null;
+  }
+
+  function getPinnedAuthHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
+    const baseHeaders = recordingAuthHeadersRef.current || getAuthHeaders();
+    return {
+      ...baseHeaders,
+      ...extraHeaders,
+    };
+  }
+
+  function isRealtimeSubscriptionFailure(errorMessage: string): boolean {
+    const normalized = errorMessage.toLowerCase();
+    return normalized.includes('not authorized')
+      || normalized.includes('session not found')
+      || normalized.includes('authentication error');
+  }
+
+  function finalizeRecording(
+    scenarioName: string,
+    veroLines: string[],
+    completionMessage: string,
+  ): void {
+    if (recordingFinalizedRef.current) return;
+    recordingFinalizedRef.current = true;
+    clearSessionPolling();
+
+    addConsoleOutput(completionMessage);
+
+    if (veroLines.length > 0) {
+      insertRecordedScenario(scenarioName, veroLines);
+    } else {
+      addConsoleOutput('No actions were recorded');
+    }
+
+    cleanupRecordingState();
+  }
+
   function cleanupRecordingState(): void {
+    clearSessionPolling();
+    if (fileRefreshTimerRef.current) {
+      clearTimeout(fileRefreshTimerRef.current);
+      fileRefreshTimerRef.current = null;
+    }
+
     setIsRecording(false);
     setRecordingSessionId(null);
     explicitStopRef.current = false;
     recordingTargetTabIdRef.current = null;
+    recordingAuthHeadersRef.current = null;
+    recordingTokenRef.current = null;
+    fallbackNoticeShownRef.current = false;
+
     if (socketRef.current) {
       socketRef.current.disconnect();
       socketRef.current = null;
@@ -173,6 +251,8 @@ export function useRecording({
     setIsRecording(true);
     setShowConsole(true);
     explicitStopRef.current = false;
+    recordingFinalizedRef.current = false;
+    fallbackNoticeShownRef.current = false;
 
     // Capture the active tab at recording start for deterministic insertion
     recordingTargetTabIdRef.current = getActiveTabId();
@@ -181,10 +261,15 @@ export function useRecording({
     addConsoleOutput(`URL: ${url}`);
 
     try {
+      const startHeaders = getAuthHeaders({ 'Content-Type': 'application/json' });
+      recordingAuthHeadersRef.current = { ...startHeaders };
+      recordingTokenRef.current = toSocketToken(startHeaders) || localStorage.getItem('auth_token');
+
       // Canonical recording path is /api/codegen/* (legacy /api/vero/recording/* is deprecated).
       const response = await fetch(`${API_BASE}/codegen/start`, {
         method: 'POST',
-        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+        headers: startHeaders,
+        credentials: 'include',
         body: JSON.stringify({
           url,
           scenarioName,
@@ -206,67 +291,116 @@ export function useRecording({
       setRecordingSessionId(sessionId);
 
       // Connect to WebSocket for real-time updates (after we have the session ID)
-      const token = localStorage.getItem('auth_token');
-      const socket = io(window.location.origin, {
-        path: '/socket.io',
-        transports: ['websocket', 'polling'],
-        auth: { token },
-      });
-      socketRef.current = socket;
-
-      // Subscribe to recording session once connected
-      socket.on('connect', () => {
-        socket.emit('codegen:subscribe', { sessionId });
-      });
-
       // Real-time Vero code updates
       // Capture project info at recording start for reliable refresh in callbacks
       const recProjId = activeTab?.projectId || selectedProjectId;
       const recProject = nestedProjects.find(p => p.id === recProjId);
-      let fileRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-      socket.on('codegen:action', (data: CodegenActionEvent) => {
-        addConsoleOutput(`  Recording: ${data.veroCode}`);
 
-        // Surface duplicate selector warnings from backend
-        if (data.duplicateWarning) {
-          addConsoleOutput(
-            `  Warning: Possible duplicate selector - ${data.duplicateWarning.reason} ` +
-            `(existing: ${data.duplicateWarning.existingField}, ` +
-            `recommendation: ${data.duplicateWarning.recommendation})`
-          );
-        }
+      const connectRecordingSocket = (socketToken: string | null) => {
+        const nextSocket = io(window.location.origin, {
+          path: '/socket.io',
+          transports: ['websocket', 'polling'],
+          auth: socketToken ? { token: socketToken } : {},
+          withCredentials: true,
+        });
+        socketRef.current = nextSocket;
 
-        // Debounced file tree refresh during recording to pick up new page files
-        if (fileRefreshTimer) clearTimeout(fileRefreshTimer);
-        fileRefreshTimer = setTimeout(() => {
-          if (recProjId && recProject?.veroPath) {
-            loadProjectFiles(recProjId, recProject.veroPath);
+        // Subscribe to recording session once connected
+        nextSocket.on('connect', () => {
+          nextSocket.emit('codegen:subscribe', { sessionId });
+        });
+
+        nextSocket.on('codegen:action', (data: CodegenActionEvent) => {
+          addConsoleOutput(`  Recording: ${data.veroCode}`);
+
+          // Surface duplicate selector warnings from backend
+          if (data.duplicateWarning) {
+            addConsoleOutput(
+              `  Warning: Possible duplicate selector - ${data.duplicateWarning.reason} ` +
+              `(existing: ${data.duplicateWarning.existingField}, ` +
+              `recommendation: ${data.duplicateWarning.recommendation})`
+            );
           }
-        }, 1000);
-      });
 
-      socket.on('codegen:error', (data: CodegenErrorEvent) => {
-        console.error('[Recording] Error:', data.error);
-        addConsoleOutput(`Recording error: ${data.error}`);
-      });
+          // Debounced file tree refresh during recording to pick up new page files
+          if (fileRefreshTimerRef.current) clearTimeout(fileRefreshTimerRef.current);
+          fileRefreshTimerRef.current = setTimeout(() => {
+            if (recProjId && recProject?.veroPath) {
+              loadProjectFiles(recProjId, recProject.veroPath);
+            }
+          }, 1000);
+        });
 
-      // Handle browser-close completion (only if stop was not explicitly called)
-      socket.on('codegen:stopped', (data: CodegenStoppedEvent) => {
-        if (explicitStopRef.current) {
-          // Already handled by stopRecording() via HTTP response
-          return;
+        nextSocket.on('codegen:error', (data: CodegenErrorEvent) => {
+          console.error('[Recording] Error:', data.error);
+          addConsoleOutput(`Recording error: ${data.error}`);
+          if (isRealtimeSubscriptionFailure(data.error) && !fallbackNoticeShownRef.current) {
+            fallbackNoticeShownRef.current = true;
+            addConsoleOutput('Realtime recording channel is unavailable; waiting for backend completion via session polling.');
+          }
+        });
+
+        nextSocket.on('connect_error', (error: Error) => {
+          addConsoleOutput(`Recording socket connection failed: ${error.message}`);
+          if (isRealtimeSubscriptionFailure(error.message) && !fallbackNoticeShownRef.current) {
+            fallbackNoticeShownRef.current = true;
+            addConsoleOutput('Realtime recording channel is unavailable; waiting for backend completion via session polling.');
+          }
+        });
+
+        // Handle browser-close completion (only if stop was not explicitly called)
+        nextSocket.on('codegen:stopped', (data: CodegenStoppedEvent) => {
+          if (explicitStopRef.current) {
+            // Already handled by stopRecording() via HTTP response
+            return;
+          }
+
+          finalizeRecording(
+            data.scenarioName || scenarioName,
+            data.veroLines || [],
+            'Recording completed',
+          );
+        });
+      };
+
+      const pollSessionStatus = async () => {
+        if (recordingFinalizedRef.current) return;
+
+        try {
+          const sessionResponse = await fetch(`${API_BASE}/codegen/session/${sessionId}`, {
+            method: 'GET',
+            headers: getPinnedAuthHeaders(),
+            credentials: 'include',
+          });
+
+          if (!sessionResponse.ok) {
+            return;
+          }
+
+          const sessionData = await sessionResponse.json() as CodegenSessionResponse;
+          if (!sessionData.success) {
+            return;
+          }
+
+          if (sessionData.isActive === false) {
+            finalizeRecording(
+              sessionData.scenarioName || scenarioName,
+              sessionData.veroLines || [],
+              'Recording completed',
+            );
+          }
+        } catch (pollError) {
+          console.error('[Recording] Session polling error:', pollError);
         }
+      };
 
-        addConsoleOutput('Recording completed');
+      clearSessionPolling();
+      sessionPollIntervalRef.current = setInterval(() => {
+        void pollSessionStatus();
+      }, SESSION_POLL_INTERVAL_MS);
+      void pollSessionStatus();
 
-        if (data.veroLines && data.veroLines.length > 0) {
-          insertRecordedScenario(data.scenarioName || scenarioName, data.veroLines);
-        } else {
-          addConsoleOutput('No actions were recorded');
-        }
-
-        cleanupRecordingState();
-      });
+      connectRecordingSocket(recordingTokenRef.current);
 
       addConsoleOutput('Playwright Codegen browser launched');
       addConsoleOutput('Record your actions, then close the browser when done');
@@ -290,22 +424,23 @@ export function useRecording({
       // Canonical recording path is /api/codegen/* (legacy /api/vero/recording/* is deprecated).
       const response = await fetch(`${API_BASE}/codegen/stop/${recordingSessionId}`, {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: getPinnedAuthHeaders(),
+        credentials: 'include',
       });
       const data = await response.json() as CodegenStopResponse;
-      if (data.success) {
-        addConsoleOutput('Recording stopped');
-        // Insert using HTTP response data (avoids race with socket disconnect)
-        if (data.veroLines && data.veroLines.length > 0) {
-          insertRecordedScenario(data.scenarioName || 'Recorded Scenario', data.veroLines);
-        } else {
-          addConsoleOutput('No actions were recorded');
-        }
+      if (response.ok && data.success) {
+        finalizeRecording(
+          data.scenarioName || 'Recorded Scenario',
+          data.veroLines || [],
+          'Recording stopped',
+        );
+      } else {
+        addConsoleOutput(`Error stopping recording: ${data.error || data.message || `HTTP ${response.status}`}`);
+        cleanupRecordingState();
       }
     } catch (error) {
       console.error('Failed to stop recording:', error);
       addConsoleOutput(`Error stopping recording: ${error}`);
-    } finally {
       cleanupRecordingState();
     }
   }

@@ -468,7 +468,6 @@ export interface ScheduleExecutionConfig {
   tracing?: 'always' | 'on-failure' | 'never';
   screenshot?: 'always' | 'on-failure' | 'never';
   video?: 'always' | 'on-failure' | 'never';
-  environmentId?: string;
   parameterSetId?: string;
 }
 

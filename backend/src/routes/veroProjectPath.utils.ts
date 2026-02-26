@@ -2,7 +2,7 @@ import { existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { projectRepository } from '../db/repositories/mongo';
 
-const VERO_PROJECTS_BASE = process.env.VERO_PROJECTS_PATH
+export const VERO_PROJECTS_BASE = process.env.VERO_PROJECTS_PATH
     || (existsSync(join(process.cwd(), 'vero-projects'))
         ? join(process.cwd(), 'vero-projects')
         : join(process.cwd(), '..', 'vero-projects'));
