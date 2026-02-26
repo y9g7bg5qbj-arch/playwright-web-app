@@ -556,7 +556,6 @@ export function VeroWorkspace() {
   // ─── Sync Monaco diagnostics to Problems panel ────────────────
   useEffect(() => {
     const interval = setInterval(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const monaco = (window as any).monaco as
         | { editor?: { getModelMarkers?: (filter: Record<string, unknown>) => Array<{ severity: number; message: string; startLineNumber: number; startColumn: number; resource?: { path?: string } }> } }
         | undefined;
