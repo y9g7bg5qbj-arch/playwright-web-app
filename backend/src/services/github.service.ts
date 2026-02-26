@@ -288,35 +288,6 @@ class GitHubService {
     return { exists: true, sha: data.sha, htmlUrl: data.html_url, content };
   }
 
-  private async createGitHubApiError(operation: string, response: Response): Promise<Error> {
-    let detail = '';
-    try {
-      const contentType = response.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        const payload = await response.json() as { message?: unknown };
-        if (typeof payload.message === 'string' && payload.message.trim()) {
-          detail = payload.message.trim();
-        }
-      } else {
-        const text = await response.text();
-        if (text.trim()) {
-          detail = text.replace(/\s+/g, ' ').trim().slice(0, 320);
-        }
-      }
-    } catch {
-      // Best-effort error detail extraction only.
-    }
-
-    const statusSegment = `${operation} (HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''})`;
-    const message = detail ? `${statusSegment}: upstream=${detail}` : statusSegment;
-
-    if (response.status >= 500) {
-      return new GitHubUpstreamError(response.status, message);
-    }
-
-    return new Error(message);
-  }
-
   /**
    * Validate a Personal Access Token
    */
