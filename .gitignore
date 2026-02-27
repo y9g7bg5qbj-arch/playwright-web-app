@@ -69,7 +69,9 @@ ecosystem.config.cjs
 
 # Claude / AI context files (developer-local)
 **/*CLAUDE.md
-.claude/skills/
+# Allow shared skills but ignore local skill drafts
+.claude/skills/**/*.draft.md
+.claude/skills/**/*.local.md
 
 # Deep audit & design docs (non-product)
 docs/VERO_IDE_*
